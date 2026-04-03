@@ -1,0 +1,13 @@
+# Build outputs
+**/bin/
+**/obj/
+**/node_modules/
+src/ABook.Api/wwwroot/
+
+# .NET artifacts
+.vs/
+*.user
+*.suo
+
+# Logs
+*.log

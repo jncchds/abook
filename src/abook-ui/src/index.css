@@ -1,0 +1,112 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --border: #334155;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --danger: #ef4444;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+body { background: var(--bg); color: var(--text); min-height: 100vh; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-hover); }
+
+button {
+  background: var(--accent); color: #fff; border: none;
+  padding: 0.4rem 0.9rem; border-radius: 6px; cursor: pointer; font-size: 0.875rem;
+  transition: background 0.15s;
+}
+button:hover { background: var(--accent-hover); }
+button.delete-btn { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+button.delete-btn:hover { background: var(--danger); color: #fff; }
+
+input, textarea, select {
+  width: 100%; background: var(--bg); border: 1px solid var(--border);
+  color: var(--text); padding: 0.4rem 0.6rem; border-radius: 6px;
+  font-family: inherit; font-size: 0.9rem; margin-top: 0.25rem;
+}
+label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem; }
+
+/* ── Dashboard ── */
+.container { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+.header h1 { font-size: 2rem; font-weight: 700; }
+
+.book-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.25rem; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; }
+.book-card h3 { font-size: 1.1rem; margin-bottom: 0.25rem; }
+.book-card .genre { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.5rem; text-transform: uppercase; }
+.book-card .premise { font-size: 0.875rem; color: var(--text-muted); margin-bottom: 1rem; }
+.book-card .meta { display: flex; justify-content: space-between; align-items: center; }
+.status { font-size: 0.75rem; padding: 0.2rem 0.55rem; border-radius: 999px; font-weight: 600; }
+.status-draft { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
+.status-inprogress { background: #451a03; color: #fbbf24; }
+.status-complete { background: #052e16; color: #4ade80; }
+.empty { color: var(--text-muted); padding: 1rem 0; }
+.loading { text-align: center; padding: 3rem; color: var(--text-muted); }
+
+/* ── New book form ── */
+.card h2 { margin-bottom: 1rem; }
+.card .actions { display: flex; gap: 0.75rem; margin-top: 0.5rem; }
+
+/* ── Book detail layout ── */
+.book-detail { display: grid; grid-template-columns: 240px 1fr 300px; height: 100vh; overflow: hidden; }
+
+.sidebar { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 1rem; overflow-y: auto; gap: 0.75rem; }
+.sidebar h2 { font-size: 1rem; font-weight: 700; }
+.sidebar .genre { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; }
+.back-link { font-size: 0.85rem; }
+.settings-link { margin-top: auto; font-size: 0.85rem; color: var(--text-muted); }
+
+.agent-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.agent-actions button { font-size: 0.78rem; padding: 0.3rem 0.65rem; }
+
+.chapter-list { list-style: none; flex: 1; overflow-y: auto; }
+.chapter-list li { display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.5rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+.chapter-list li:hover, .chapter-list li.active { background: rgba(99,102,241,0.15); }
+.ch-num { color: var(--text-muted); min-width: 1.5rem; }
+.ch-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.empty-chapters { color: var(--text-muted); font-size: 0.82rem; }
+
+/* ── Chapter content ── */
+.content { overflow-y: auto; padding: 1.5rem 2rem; }
+.chapter-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; }
+.chapter-header h2 { font-size: 1.4rem; }
+.chapter-actions { display: flex; gap: 0.5rem; }
+.outline { background: var(--surface); border-left: 3px solid var(--accent); padding: 0.6rem 1rem; border-radius: 0 6px 6px 0; font-size: 0.875rem; margin-bottom: 1.25rem; }
+.chapter-content { line-height: 1.8; font-size: 0.95rem; }
+.chapter-content p { margin-bottom: 0.85rem; }
+.chapter-content h1, .chapter-content h2, .chapter-content h3 { margin: 1.25rem 0 0.5rem; }
+.stream-preview { background: rgba(99,102,241,0.08); border: 1px dashed var(--accent); border-radius: 8px; padding: 1rem; margin-top: 1rem; }
+.book-overview { max-width: 720px; }
+.book-overview h2 { font-size: 1.6rem; margin-bottom: 1rem; }
+.book-overview p { margin-bottom: 0.5rem; line-height: 1.7; }
+
+/* ── Chat panel ── */
+.chat-panel { background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+.chat-panel h3 { padding: 1rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; font-weight: 700; }
+.chat-messages { flex: 1; overflow-y: auto; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.65rem; }
+.chat-msg { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; font-size: 0.82rem; }
+.msg-question { border-color: var(--warning); }
+.msg-answer { border-color: var(--success); }
+.msg-feedback { border-color: var(--accent); }
+.msg-role { font-weight: 700; margin-right: 0.3rem; }
+.msg-type { color: var(--text-muted); font-size: 0.75rem; margin-right: 0.4rem; }
+.msg-content { margin-top: 0.3rem; color: var(--text-muted); white-space: pre-wrap; word-break: break-word; }
+.answer-form { border-top: 1px solid var(--border); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.question-label { font-size: 0.78rem; font-weight: 600; color: var(--warning); }
+.question-text { font-size: 0.85rem; color: var(--text); }
+
+/* ── Settings ── */
+.settings-page { max-width: 560px; }
+.settings-page h1 { margin-bottom: 1.5rem; }
+.settings-form { display: flex; flex-direction: column; gap: 0; }
+.saved-msg { color: var(--success); font-size: 0.85rem; margin-top: 0.5rem; }

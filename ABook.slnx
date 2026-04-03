@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ABook.Agents/ABook.Agents.csproj" />
+    <Project Path="src/ABook.Api/ABook.Api.csproj" />
+    <Project Path="src/ABook.Core/ABook.Core.csproj" />
+    <Project Path="src/ABook.Infrastructure/ABook.Infrastructure.csproj" />
+  </Folder>
+</Solution>
