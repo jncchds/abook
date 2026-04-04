@@ -67,6 +67,18 @@ label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bot
 
 .agent-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .agent-actions button { font-size: 0.78rem; padding: 0.3rem 0.65rem; }
+.btn-primary { background: var(--accent) !important; color: #fff !important; font-weight: 600 !important; padding: 0.45rem 0.9rem !important; border-radius: 6px !important; border: none !important; cursor: pointer !important; flex: 1; }
+.btn-primary:hover { opacity: 0.88; }
+.btn-stop { background: #ef4444 !important; color: #fff !important; font-weight: 600 !important; padding: 0.45rem 0.9rem !important; border-radius: 6px !important; border: none !important; cursor: pointer !important; flex: 1; }
+.btn-stop:hover { opacity: 0.88; }
+.btn-continue { background: #0ea5e9 !important; color: #fff !important; font-weight: 600 !important; padding: 0.45rem 0.9rem !important; border-radius: 6px !important; border: none !important; cursor: pointer !important; flex: 1; }
+.btn-continue:hover { opacity: 0.88; }
+
+.workflow-log { margin-top: 0.5rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.65rem; font-size: 0.75rem; max-height: 180px; overflow-y: auto; }
+.workflow-log strong { display: block; color: var(--text-muted); margin-bottom: 0.3rem; text-transform: uppercase; font-size: 0.68rem; letter-spacing: 0.05em; }
+.workflow-log ul { list-style: none; display: flex; flex-direction: column; gap: 0.2rem; }
+.workflow-log-step { color: var(--text); padding-left: 0.75rem; position: relative; line-height: 1.4; }
+.workflow-log-step::before { content: '›'; position: absolute; left: 0; color: var(--accent); }
 
 .chapter-list { list-style: none; flex: 1; overflow-y: auto; }
 .chapter-list li { display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.5rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }

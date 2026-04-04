@@ -15,6 +15,7 @@ public class AgentOrchestrator : IAgentOrchestrator
     private readonly EditorAgent _editor;
     private readonly ContinuityCheckerAgent _continuity;
     private readonly AgentRunStateService _state;
+    private readonly IBookNotifier _notifier;
 
     public AgentOrchestrator(
         IBookRepository repo,
@@ -22,7 +23,8 @@ public class AgentOrchestrator : IAgentOrchestrator
         WriterAgent writer,
         EditorAgent editor,
         ContinuityCheckerAgent continuity,
-        AgentRunStateService state)
+        AgentRunStateService state,
+        IBookNotifier notifier)
     {
         _repo = repo;
         _planner = planner;
@@ -30,6 +32,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         _editor = editor;
         _continuity = continuity;
         _state = state;
+        _notifier = notifier;
     }
 
     public async Task StartPlanningAsync(int bookId, CancellationToken ct = default)
@@ -92,6 +95,169 @@ public class AgentOrchestrator : IAgentOrchestrator
         catch
         {
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.ContinuityChecker, "Failed", null));
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Full autonomous workflow: Plan → Write+Edit each chapter → Continuity check.
+    /// Agents may pause to ask the user questions; resume via ResumeWithAnswerAsync.
+    /// </summary>
+    public async Task StartWorkflowAsync(int bookId, CancellationToken ct = default)
+    {
+        if (!_state.TryStartRun(bookId, AgentRole.Planner, null))
+            throw new InvalidOperationException("An agent is already running for this book.");
+        try
+        {
+            // 1. Plan
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Starting planning…", false, ct);
+            var chapters = await _planner.PlanAsync(bookId, ct);
+            await _notifier.NotifyWorkflowProgressAsync(bookId,
+                $"Planning complete — {chapters.Count} chapter{(chapters.Count == 1 ? "" : "s")} outlined.", false, ct);
+
+            // 2. Write + Edit each chapter in order
+            foreach (var chapter in chapters.OrderBy(c => c.Number))
+            {
+                ct.ThrowIfCancellationRequested();
+
+                _state.UpdateRunRole(bookId, AgentRole.Writer, chapter.Id);
+                await _notifier.NotifyWorkflowProgressAsync(bookId,
+                    $"Writing Chapter {chapter.Number}: {chapter.Title}…", false, ct);
+                await _writer.WriteAsync(bookId, chapter.Id, ct);
+
+                ct.ThrowIfCancellationRequested();
+
+                _state.UpdateRunRole(bookId, AgentRole.Editor, chapter.Id);
+                await _notifier.NotifyWorkflowProgressAsync(bookId,
+                    $"Editing Chapter {chapter.Number}…", false, ct);
+                await _editor.EditAsync(bookId, chapter.Id, ct);
+
+                await _notifier.NotifyWorkflowProgressAsync(bookId,
+                    $"Chapter {chapter.Number} complete.", false, ct);
+            }
+
+            // 3. Continuity check
+            ct.ThrowIfCancellationRequested();
+            _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, null);
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Running continuity check…", false, ct);
+            await _continuity.CheckAsync(bookId, ct);
+
+            _state.SetStatus(bookId, new AgentRunStatus(AgentRole.ContinuityChecker, "Done", null));
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow complete!", true, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            var cur = _state.GetStatus(bookId);
+            var cancelledRole = cur?.Role ?? AgentRole.Planner;
+            _state.SetStatus(bookId, new AgentRunStatus(cancelledRole, "Cancelled", cur?.ChapterId));
+            await _notifier.NotifyStatusChangedAsync(bookId, cancelledRole, "Cancelled", CancellationToken.None);
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow stopped.", true, CancellationToken.None);
+            throw;
+        }
+        catch (Exception)
+        {
+            var cur = _state.GetStatus(bookId);
+            var failedRole = cur?.Role ?? AgentRole.Planner;
+            _state.SetStatus(bookId, new AgentRunStatus(failedRole, "Failed", cur?.ChapterId));
+            await _notifier.NotifyStatusChangedAsync(bookId, failedRole, "Failed", CancellationToken.None);
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow failed.", true, CancellationToken.None);
+            throw;
+        }
+    }
+
+    public Task StopWorkflowAsync(int bookId)
+    {
+        _state.CancelRun(bookId);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Continue an interrupted workflow: skips Done chapters, resumes writing/editing
+    /// from where it left off, then runs the continuity check.
+    /// </summary>
+    public async Task ContinueWorkflowAsync(int bookId, CancellationToken ct = default)
+    {
+        if (!_state.TryStartRun(bookId, AgentRole.Writer, null))
+            throw new InvalidOperationException("An agent is already running for this book.");
+        try
+        {
+            var book = await _repo.GetByIdWithDetailsAsync(bookId)
+                ?? throw new InvalidOperationException($"Book {bookId} not found.");
+
+            var allChapters = book.Chapters.OrderBy(c => c.Number).ToList();
+            if (allChapters.Count == 0)
+                throw new InvalidOperationException("No chapters to continue. Run the planner first.");
+
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Continuing workflow…", false, ct);
+
+            foreach (var chapterRef in allChapters)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                // Re-fetch from DB so we see the real current status, not the stale snapshot
+                var chapter = await _repo.GetChapterAsync(bookId, chapterRef.Id)
+                    ?? throw new InvalidOperationException($"Chapter {chapterRef.Id} not found.");
+
+                if (chapter.Status == ChapterStatus.Done)
+                {
+                    await _notifier.NotifyWorkflowProgressAsync(bookId,
+                        $"Chapter {chapter.Number} already done — skipping.", false, ct);
+                    continue;
+                }
+
+                // Write if not yet written, or if a previous run was interrupted during writing
+                bool needsWrite = chapter.Status == ChapterStatus.Outlined
+                    || chapter.Status == ChapterStatus.Writing
+                    || string.IsNullOrEmpty(chapter.Content);
+
+                if (needsWrite)
+                {
+                    _state.UpdateRunRole(bookId, AgentRole.Writer, chapter.Id);
+                    await _notifier.NotifyWorkflowProgressAsync(bookId,
+                        $"Writing Chapter {chapter.Number}: {chapter.Title}…", false, ct);
+                    await _writer.WriteAsync(bookId, chapter.Id, ct);
+                    ct.ThrowIfCancellationRequested();
+                }
+
+                // Edit if not yet edited; re-read status since WriteAsync may have changed it
+                var latestStatus = (await _repo.GetChapterAsync(bookId, chapter.Id))?.Status
+                    ?? ChapterStatus.Outlined;
+                if (latestStatus != ChapterStatus.Done)
+                {
+                    _state.UpdateRunRole(bookId, AgentRole.Editor, chapter.Id);
+                    await _notifier.NotifyWorkflowProgressAsync(bookId,
+                        $"Editing Chapter {chapter.Number}…", false, ct);
+                    await _editor.EditAsync(bookId, chapter.Id, ct);
+                }
+
+                await _notifier.NotifyWorkflowProgressAsync(bookId,
+                    $"Chapter {chapter.Number} complete.", false, ct);
+            }
+
+            ct.ThrowIfCancellationRequested();
+            _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, null);
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Running continuity check…", false, ct);
+            await _continuity.CheckAsync(bookId, ct);
+
+            _state.SetStatus(bookId, new AgentRunStatus(AgentRole.ContinuityChecker, "Done", null));
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow complete!", true, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            var cur = _state.GetStatus(bookId);
+            var cancelledRole = cur?.Role ?? AgentRole.Writer;
+            _state.SetStatus(bookId, new AgentRunStatus(cancelledRole, "Cancelled", cur?.ChapterId));
+            await _notifier.NotifyStatusChangedAsync(bookId, cancelledRole, "Cancelled", CancellationToken.None);
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow stopped.", true, CancellationToken.None);
+            throw;
+        }
+        catch (Exception)
+        {
+            var cur = _state.GetStatus(bookId);
+            var failedRole = cur?.Role ?? AgentRole.Writer;
+            _state.SetStatus(bookId, new AgentRunStatus(failedRole, "Failed", cur?.ChapterId));
+            await _notifier.NotifyStatusChangedAsync(bookId, failedRole, "Failed", CancellationToken.None);
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow failed.", true, CancellationToken.None);
             throw;
         }
     }

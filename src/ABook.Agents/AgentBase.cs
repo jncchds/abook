@@ -15,22 +15,26 @@ public abstract class AgentBase
     protected readonly ILlmProviderFactory LlmFactory;
     protected readonly IVectorStoreService VectorStore;
     protected readonly IBookNotifier Notifier;
+    protected readonly AgentRunStateService StateService;
 
     protected AgentBase(
         IBookRepository repo,
         ILlmProviderFactory llmFactory,
         IVectorStoreService vectorStore,
-        IBookNotifier notifier)
+        IBookNotifier notifier,
+        AgentRunStateService stateService)
     {
         Repo = repo;
         LlmFactory = llmFactory;
         VectorStore = vectorStore;
         Notifier = notifier;
+        StateService = stateService;
     }
 
     protected async Task<Kernel> GetKernelAsync(int bookId)
     {
-        var config = await Repo.GetLlmConfigAsync(bookId)
+        var book = await Repo.GetByIdAsync(bookId);
+        var config = await Repo.GetLlmConfigAsync(bookId, book?.UserId)
             ?? throw new InvalidOperationException("No LLM configuration found.");
         return LlmFactory.CreateKernel(config);
     }
@@ -74,14 +78,43 @@ public abstract class AgentBase
         return msg;
     }
 
-    /// <summary>Retrieve relevant context chunks from Qdrant for RAG.</summary>
+    /// <summary>
+    /// Ask the user a question, pause execution, and return their answer.
+    /// Sets run state to WaitingForInput until the answer is submitted via the API.
+    /// </summary>
+    protected async Task<string> AskUserAndWaitAsync(
+        int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct)
+    {
+        var msg = await AskUserAsync(bookId, chapterId, role, question, ct);
+
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ct.Register(() => tcs.TrySetCanceled());
+
+        StateService.SetPending(bookId, msg.Id, tcs);
+        StateService.SetStatus(bookId, new AgentRunStatus(role, "WaitingForInput", chapterId));
+        await Notifier.NotifyStatusChangedAsync(bookId, role, "WaitingForInput", ct);
+
+        var answer = await tcs.Task; // throws OperationCanceledException if stopped
+
+        StateService.SetStatus(bookId, new AgentRunStatus(role, "Running", chapterId));
+        await Notifier.NotifyStatusChangedAsync(bookId, role, "Running", ct);
+
+        return answer;
+    }
+
+    /// <summary>Retrieve relevant context chunks from Qdrant for RAG. Returns empty on failure.</summary>
     protected async Task<string> GetRagContextAsync(
         int bookId, string query, int topK, ILlmProviderFactory factory, LlmConfiguration config)
     {
-        var embedder = factory.CreateEmbeddingGeneration(config);
-        var embeddings = await embedder.GenerateEmbeddingsAsync([query]);
-        var embedding = embeddings[0];
-        var chunks = await VectorStore.SearchAsync(bookId, embedding, topK);
-        return string.Join("\n\n---\n\n", chunks.Select(c => $"[Chapter {c.ChapterNumber}]\n{c.Text}"));
+        try
+        {
+            var embedder = factory.CreateEmbeddingGeneration(config);
+            var embeddings = await embedder.GenerateEmbeddingsAsync([query]);
+            var embedding = embeddings[0];
+            var chunks = await VectorStore.SearchAsync(bookId, embedding, topK);
+            return string.Join("\n\n---\n\n", chunks.Select(c => $"[Chapter {c.ChapterNumber}]\n{c.Text}"));
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { return string.Empty; }
     }
 }

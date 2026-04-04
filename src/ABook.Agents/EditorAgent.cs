@@ -13,8 +13,9 @@ public class EditorAgent : AgentBase
         IBookRepository repo,
         ILlmProviderFactory llmFactory,
         IVectorStoreService vectorStore,
-        IBookNotifier notifier)
-        : base(repo, llmFactory, vectorStore, notifier) { }
+        IBookNotifier notifier,
+        AgentRunStateService stateService)
+        : base(repo, llmFactory, vectorStore, notifier, stateService) { }
 
     public async Task EditAsync(int bookId, int chapterId, CancellationToken ct = default)
     {

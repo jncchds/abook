@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import type { LlmConfig, OllamaModel, Book } from '../api'
-import { getLlmConfig, updateLlmConfig, updateBook, getBook, getOllamaModels } from '../api'
+import type { LlmConfig, OllamaModel, Book, DefaultPrompts } from '../api'
+import { getLlmConfig, updateLlmConfig, updateBook, getBook, getOllamaModels, getDefaultPrompts } from '../api'
 
 const PROVIDERS = ['Ollama', 'OpenAI', 'AzureOpenAI', 'Anthropic'] as const
 const COMMON_MODELS = [
@@ -31,6 +31,7 @@ export default function Settings() {
   const [pullStatus, setPullStatus] = useState('')
   const [saved, setSaved] = useState(false)
   const [bookSaved, setBookSaved] = useState(false)
+  const [defaultPrompts, setDefaultPrompts] = useState<DefaultPrompts | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
@@ -46,6 +47,7 @@ export default function Settings() {
           continuityCheckerSystemPrompt: r.data.continuityCheckerSystemPrompt ?? '',
         })
       })
+      getDefaultPrompts(bookId).then(r => setDefaultPrompts(r.data)).catch(() => {})
     }
     // Load available Ollama models
     getOllamaModels()
@@ -211,18 +213,37 @@ export default function Settings() {
             </label>
             <details>
               <summary>Custom Agent System Prompts (optional)</summary>
-              <p className="hint">Leave blank to use the default system prompt. Language is always appended to defaults.</p>
-              {(['planner', 'writer', 'editor', 'continuityChecker'] as const).map(role => (
-                <label key={role}>
-                  {role.charAt(0).toUpperCase() + role.slice(1)} prompt
-                  <textarea
-                    rows={4}
-                    value={bookForm[`${role}SystemPrompt` as keyof typeof bookForm]}
-                    onChange={e => setBookForm(f => ({ ...f, [`${role}SystemPrompt`]: e.target.value }))}
-                    placeholder={`Custom system prompt for ${role} agent…`}
-                  />
-                </label>
-              ))}
+              <p className="hint">Leave blank to use agent defaults, or click "Load Defaults" to start editing from the defaults.</p>
+              {defaultPrompts && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setBookForm(f => ({
+                    ...f,
+                    plannerSystemPrompt: f.plannerSystemPrompt || defaultPrompts.plannerSystemPrompt,
+                    writerSystemPrompt: f.writerSystemPrompt || defaultPrompts.writerSystemPrompt,
+                    editorSystemPrompt: f.editorSystemPrompt || defaultPrompts.editorSystemPrompt,
+                    continuityCheckerSystemPrompt: f.continuityCheckerSystemPrompt || defaultPrompts.continuityCheckerSystemPrompt,
+                  }))}
+                >
+                  Load Defaults
+                </button>
+              )}
+              {(['planner', 'writer', 'editor', 'continuityChecker'] as const).map(role => {
+                const key = `${role}SystemPrompt` as keyof typeof bookForm
+                const defaultText = defaultPrompts?.[key as keyof DefaultPrompts]
+                return (
+                  <label key={role}>
+                    {role.charAt(0).toUpperCase() + role.slice(1)} prompt
+                    <textarea
+                      rows={6}
+                      value={bookForm[key]}
+                      onChange={e => setBookForm(f => ({ ...f, [key]: e.target.value }))}
+                      placeholder={defaultText ?? `Custom system prompt for ${role} agent…`}
+                    />
+                  </label>
+                )
+              })}
             </details>
             <button type="submit">Save Book Settings</button>
             {bookSaved && <span className="saved-msg">✓ Saved</span>}

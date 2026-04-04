@@ -13,8 +13,9 @@ public class PlannerAgent : AgentBase
         IBookRepository repo,
         ILlmProviderFactory llmFactory,
         IVectorStoreService vectorStore,
-        IBookNotifier notifier)
-        : base(repo, llmFactory, vectorStore, notifier) { }
+        IBookNotifier notifier,
+        AgentRunStateService stateService)
+        : base(repo, llmFactory, vectorStore, notifier, stateService) { }
 
     /// <summary>
     /// Generates chapter outlines for the book.
@@ -26,6 +27,17 @@ public class PlannerAgent : AgentBase
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
 
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, "Running", ct);
+
+        // Clear existing chapters before re-planning so there are no duplicates
+        await Repo.DeleteChaptersAsync(bookId);
+
+        // Ask for any user guidance before generating the outline
+        var guidance = await AskUserAndWaitAsync(
+            bookId, null, AgentRole.Planner,
+            $"I'm about to outline \"{book.Title}\" ({book.Genre}, {book.TargetChapterCount} chapters). " +
+            "Do you have any specific guidance about characters, themes, or plot direction? " +
+            "(Send an empty reply to proceed with automatic planning based on the premise.)",
+            ct);
 
         var kernel = await GetKernelAsync(bookId);
 
@@ -46,6 +58,7 @@ public class PlannerAgent : AgentBase
             Genre: {book.Genre}
             Premise: {book.Premise}
             Target chapter count: {book.TargetChapterCount}
+            {(string.IsNullOrWhiteSpace(guidance) ? "" : $"\nUser guidance: {guidance}")}
 
             Create {book.TargetChapterCount} chapter outlines for this book.
             """);

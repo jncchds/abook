@@ -15,13 +15,14 @@ public interface IBookRepository
     Task<Chapter?> GetChapterAsync(int bookId, int chapterId);
     Task<Chapter> AddChapterAsync(Chapter chapter);
     Task UpdateChapterAsync(Chapter chapter);
+    Task DeleteChaptersAsync(int bookId);
 
     Task<IEnumerable<AgentMessage>> GetMessagesAsync(int bookId, int? chapterId = null);
     Task<AgentMessage?> FindMessageByIdAsync(int messageId);
     Task<AgentMessage> AddMessageAsync(AgentMessage message);
     Task UpdateMessageAsync(AgentMessage message);
 
-    Task<LlmConfiguration?> GetLlmConfigAsync(int? bookId);
+    Task<LlmConfiguration?> GetLlmConfigAsync(int? bookId, int? userId = null);
     Task<LlmConfiguration> UpsertLlmConfigAsync(LlmConfiguration config);
 }
 

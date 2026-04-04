@@ -13,8 +13,9 @@ public class ContinuityCheckerAgent : AgentBase
         IBookRepository repo,
         ILlmProviderFactory llmFactory,
         IVectorStoreService vectorStore,
-        IBookNotifier notifier)
-        : base(repo, llmFactory, vectorStore, notifier) { }
+        IBookNotifier notifier,
+        AgentRunStateService stateService)
+        : base(repo, llmFactory, vectorStore, notifier, stateService) { }
 
     public async Task CheckAsync(int bookId, CancellationToken ct = default)
     {
@@ -26,15 +27,15 @@ public class ContinuityCheckerAgent : AgentBase
         var kernel = await GetKernelAsync(bookId);
         var doneChapters = book.Chapters.Where(c => c.Status == ChapterStatus.Done || c.Status == ChapterStatus.Review).ToList();
 
-        if (doneChapters.Count < 2)
+        if (doneChapters.Count == 0)
         {
             await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", ct);
             return;
         }
 
-        // Build a compact synopsis from chapter outlines + first 500 chars of each chapter
+        // Build a compact synopsis from chapter outlines + first 800 chars of each chapter
         var synopsis = string.Join("\n\n", doneChapters.Select(c =>
-            $"Chapter {c.Number}: {c.Title}\nOutline: {c.Outline}\nContent excerpt: {c.Content[..Math.Min(500, c.Content.Length)]}..."));
+            $"Chapter {c.Number}: {c.Title}\nOutline: {c.Outline}\nContent excerpt: {c.Content[..Math.Min(800, c.Content?.Length ?? 0)]}..."));
 
         var history = new ChatHistory();
         var systemPrompt = !string.IsNullOrWhiteSpace(book.ContinuityCheckerSystemPrompt)
@@ -42,9 +43,10 @@ public class ContinuityCheckerAgent : AgentBase
             : $"""
             You are a Continuity Checker for fiction manuscripts. Your job is to identify plot holes,
             character inconsistencies, timeline errors, and factual contradictions across chapters.
-            Output a JSON array of issues, each with:
-              "description" (string), "chapterNumbers" (int[]), "suggestion" (string).
-            If no issues found, output an empty array [].
+            Write a concise report in plain prose. For each issue found, state the problem, which
+            chapters are affected, and a suggested fix. Group related issues together.
+            If no issues are found, write a brief summary of what was checked and confirm the
+            manuscript is consistent so far.
             Book: {book.Title} | Genre: {book.Genre} | Language: {book.Language}
             """;
         history.AddSystemMessage(systemPrompt);

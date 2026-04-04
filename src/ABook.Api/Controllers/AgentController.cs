@@ -62,6 +62,37 @@ public class AgentController : ControllerBase
         return Accepted();
     }
 
+    [HttpPost("workflow/start")]
+    public IActionResult StartWorkflow(int bookId)
+    {
+        var current = _runState.GetStatus(bookId);
+        if (current is { State: "Running" or "WaitingForInput" })
+            return Conflict(new { message = "An agent run is already in progress for this book." });
+
+        var ct = _runState.CreateRunCts(bookId);
+        _ = RunInBackground(bookId, (o, c) => o.StartWorkflowAsync(bookId, c), ct);
+        return Accepted();
+    }
+
+    [HttpPost("workflow/continue")]
+    public IActionResult ContinueWorkflow(int bookId)
+    {
+        var current = _runState.GetStatus(bookId);
+        if (current is { State: "Running" or "WaitingForInput" })
+            return Conflict(new { message = "An agent run is already in progress for this book." });
+
+        var ct = _runState.CreateRunCts(bookId);
+        _ = RunInBackground(bookId, (o, c) => o.ContinueWorkflowAsync(bookId, c), ct);
+        return Accepted();
+    }
+
+    [HttpPost("workflow/stop")]
+    public IActionResult StopWorkflow(int bookId)
+    {
+        _runState.CancelRun(bookId);
+        return Ok();
+    }
+
     [HttpGet("status")]
     public IActionResult Status(int bookId)
     {
@@ -69,21 +100,25 @@ public class AgentController : ControllerBase
         return status is null ? NoContent() : Ok(status);
     }
 
-    private async Task RunInBackground(int bookId, Func<IAgentOrchestrator, CancellationToken, Task> action)
+    private async Task RunInBackground(int bookId, Func<IAgentOrchestrator, CancellationToken, Task> action, CancellationToken ct = default)
     {
         using var scope = _scopeFactory.CreateScope();
         var orchestrator = scope.ServiceProvider.GetRequiredService<IAgentOrchestrator>();
         try
         {
-            await action(orchestrator, CancellationToken.None);
+            await action(orchestrator, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when stopped by the user — state already set by orchestrator
         }
         catch (Exception ex)
         {
-            // Logged by the orchestrator; ensure state isn't stuck on Running
+            // Ensure state isn't stuck on Running
             var current = _runState.GetStatus(bookId);
-            if (current is { State: "Running" })
+            if (current is { State: "Running" or "WaitingForInput" })
                 _runState.SetStatus(bookId, new AgentRunStatus(current.Role, "Failed", current.ChapterId));
-            _ = ex; // suppress unobserved task warning
+            _ = ex;
         }
     }
 }

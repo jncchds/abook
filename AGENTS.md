@@ -26,7 +26,8 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **Book**: Id, Title, Premise, Genre, TargetChapterCount, Status (Draft/InProgress/Complete), Language, PlannerSystemPrompt, WriterSystemPrompt, EditorSystemPrompt, ContinuityCheckerSystemPrompt, UserId (FK → AppUser), CreatedAt, UpdatedAt
 - **Chapter**: Id, BookId, Number, Title, Outline, Content (markdown), Status (Outlined/Writing/Review/Editing/Done), CreatedAt, UpdatedAt
 - **AgentMessage**: Id, BookId, ChapterId (nullable), AgentRole, MessageType (Content/Question/Answer/SystemNote/Feedback), Content, IsResolved, CreatedAt
-- **LlmConfiguration**: Id, BookId (nullable, null = global default), Provider (Ollama/OpenAI/Azure/Anthropic), ModelName, Endpoint, ApiKey (nullable)
+- **LlmConfiguration**: Id, BookId (nullable, FK → Book), **UserId (nullable, FK → AppUser)**, Provider (Ollama/OpenAI/Azure/Anthropic), ModelName, Endpoint, ApiKey (nullable), EmbeddingModelName (nullable)
+  - Lookup chain: book-specific (BookId) → user-default (UserId, no BookId) → global (neither)
 - **AppUser**: Id, Username, PasswordHash, IsAdmin
 
 ### Vector Store (Qdrant)
@@ -61,11 +62,14 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - Can ask: "Character's eye color is brown in Ch1 but blue in Ch5. Which is correct?"
 
 ### Human-in-the-Loop Flow
-1. Agent encounters ambiguity → creates AgentMessage with type=Question
-2. SignalR pushes notification to React UI
-3. Agent run pauses (status=WaitingForInput)
-4. User sees question in chat panel, types answer → creates AgentMessage with type=Answer
-5. Backend resumes the agent run with the user's answer injected into context
+1. Agent encounters ambiguity → calls `AskUserAndWaitAsync` in `AgentBase`
+2. Persists `AgentMessage` (type=Question) + notifies UI via SignalR
+3. Registers a `TaskCompletionSource<string>` in `AgentRunStateService.SetPending`
+4. Sets run state to `WaitingForInput`; `await tcs.Task` blocks the agent coroutine
+5. SignalR pushes `AgentQuestion` event to React UI; answer form appears in chat panel
+6. User types answer → `POST /api/books/{id}/messages/answer` → `AgentOrchestrator.ResumeWithAnswerAsync`
+7. `TryResolvePending` calls `tcs.SetResult(answer)` → agent resumes with answer injected into context
+8. Cancellation (Stop button) calls `CancelRun` which cancels the CTS and calls `tcs.TrySetCanceled()`
 
 ---
 
@@ -227,6 +231,9 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **React UI is static files** — built in Dockerfile, served from `wwwroot/` by ASP.NET Core, NOT a separate Docker service
 - **Qdrant for vector storage** — separate Docker service, used for RAG-based context retrieval so agents can handle large books without exceeding context windows
 - **`IBookNotifier` interface** (`SignalRBookNotifier` implementation) decouples agent/orchestrator code from direct SignalR hub dependency
+- **Per-user LLM settings**: `LlmConfiguration` has nullable `UserId`; lookup chain is book-specific → user-default → global. `ConfigurationController` automatically sets `UserId` from cookie claims when saving a global (non-book) config. Agents resolve config via `GetKernelAsync` which passes `book.UserId`.
+- **Default system prompts API**: `GET /api/books/{id}/default-prompts` returns pre-interpolated default prompts (using book's title/genre/language). Settings page fetches these and shows a "Load Defaults" button that pre-fills empty textarea fields. Placeholders also show the default text.
+- **Migration**: `AddUserLlmConfig` adds nullable `UserId` FK to `LlmConfigurations` table.
 
 ---
 
@@ -247,3 +254,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **`Microsoft.AspNetCore.SignalR 1.*`** NuGet package removed — SignalR is built into the framework in .NET 3+
 - **Enum JSON serialization**: Register `JsonStringEnumConverter` in `AddJsonOptions` so enum values serialize as strings for the React client
 - **`parsePlanningStream`**: React helper that progressively parses the Planner agent's streaming JSON into chapter cards as tokens arrive
+- **`AskUserAndWaitAsync` in `AgentBase`**: creates a `TaskCompletionSource<string>`, registers it via `AgentRunStateService.SetPending`, sets status to `WaitingForInput`, then `await tcs.Task`. Unblocked by `ResumeWithAnswerAsync` (answer) or `CancelRun` (cancellation). `AgentBase` now takes `AgentRunStateService` as a constructor param.
+- **Full autonomous workflow**: `POST /api/books/{id}/agent/workflow/start` runs Plan → Write+Edit each chapter → Continuity check in sequence. Uses a `CancellationTokenSource` from `AgentRunStateService.CreateRunCts`. Stop via `POST .../workflow/stop`.
+- **`PlannerAgent` asks initial question** before generating outline; user guidance is injected into the LLM prompt. Answer is awaited via `AskUserAndWaitAsync`.
+- **`WorkflowProgress` SignalR event**: emitted by `AgentOrchestrator.StartWorkflowAsync` at each step with `(bookId, step, isComplete)`. UI accumulates steps in `workflowLog` state array shown in sidebar.

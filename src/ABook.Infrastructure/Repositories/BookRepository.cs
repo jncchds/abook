@@ -74,6 +74,13 @@ public class BookRepository : IBookRepository
         await _db.SaveChangesAsync();
     }
 
+    public async Task DeleteChaptersAsync(int bookId)
+    {
+        var chapters = await _db.Chapters.Where(c => c.BookId == bookId).ToListAsync();
+        _db.Chapters.RemoveRange(chapters);
+        await _db.SaveChangesAsync();
+    }
+
     public async Task<IEnumerable<AgentMessage>> GetMessagesAsync(int bookId, int? chapterId = null)
     {
         var query = _db.AgentMessages.Where(m => m.BookId == bookId);
@@ -99,20 +106,26 @@ public class BookRepository : IBookRepository
         await _db.SaveChangesAsync();
     }
 
-    public async Task<LlmConfiguration?> GetLlmConfigAsync(int? bookId)
+    public async Task<LlmConfiguration?> GetLlmConfigAsync(int? bookId, int? userId = null)
     {
         if (bookId.HasValue)
         {
             var bookConfig = await _db.LlmConfigurations.FirstOrDefaultAsync(l => l.BookId == bookId);
             if (bookConfig is not null) return bookConfig;
         }
-        return await _db.LlmConfigurations.FirstOrDefaultAsync(l => l.BookId == null);
+        if (userId.HasValue)
+        {
+            var userConfig = await _db.LlmConfigurations
+                .FirstOrDefaultAsync(l => l.BookId == null && l.UserId == userId);
+            if (userConfig is not null) return userConfig;
+        }
+        return await _db.LlmConfigurations.FirstOrDefaultAsync(l => l.BookId == null && l.UserId == null);
     }
 
     public async Task<LlmConfiguration> UpsertLlmConfigAsync(LlmConfiguration config)
     {
         var existing = await _db.LlmConfigurations
-            .FirstOrDefaultAsync(l => l.BookId == config.BookId);
+            .FirstOrDefaultAsync(l => l.BookId == config.BookId && l.UserId == config.UserId);
 
         if (existing is null)
         {

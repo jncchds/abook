@@ -14,6 +14,9 @@ public class AgentRunStateService
     // bookId -> (messageId, TaskCompletionSource for answer)
     private readonly ConcurrentDictionary<int, (int MessageId, TaskCompletionSource<string> Tcs)> _pending = new();
 
+    // Per-book cancellation tokens (for workflow stop)
+    private readonly ConcurrentDictionary<int, CancellationTokenSource> _cts = new();
+
     public AgentRunStatus? GetStatus(int bookId) =>
         _status.TryGetValue(bookId, out var s) ? s : null;
 
@@ -44,4 +47,30 @@ public class AgentRunStateService
     }
 
     public bool HasPending(int bookId) => _pending.ContainsKey(bookId);
+
+    /// <summary>Creates a new CancellationToken for a book's run. Disposes any previous CTS.</summary>
+    public CancellationToken CreateRunCts(int bookId)
+    {
+        if (_cts.TryRemove(bookId, out var old)) old.Dispose();
+        var cts = new CancellationTokenSource();
+        _cts[bookId] = cts;
+        return cts.Token;
+    }
+
+    /// <summary>Cancels the running workflow/agent for a book and unblocks any pending question.</summary>
+    public void CancelRun(int bookId)
+    {
+        if (_cts.TryRemove(bookId, out var cts))
+        {
+            cts.Cancel();
+            cts.Dispose();
+        }
+        // Unblock any agent waiting for a user answer
+        if (_pending.TryRemove(bookId, out var pending))
+            pending.Tcs.TrySetCanceled();
+    }
+
+    /// <summary>Updates the active role/chapter while keeping state = Running (used mid-workflow).</summary>
+    public void UpdateRunRole(int bookId, AgentRole role, int? chapterId) =>
+        _status[bookId] = new AgentRunStatus(role, "Running", chapterId);
 }

@@ -77,6 +77,11 @@ public class AppDbContext : DbContext
              .HasForeignKey(x => x.BookId)
              .OnDelete(DeleteBehavior.Cascade)
              .IsRequired(false);
+            l.HasOne(x => x.User)
+             .WithMany()
+             .HasForeignKey(x => x.UserId)
+             .OnDelete(DeleteBehavior.SetNull)
+             .IsRequired(false);
 
             l.HasData(new LlmConfiguration
             {

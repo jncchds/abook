@@ -4,7 +4,8 @@ import ReactMarkdown from 'react-markdown'
 import type { Book, Chapter, AgentMessage, AgentRunStatus } from '../api'
 import {
   getBook, getMessages, postAnswer, getAgentStatus,
-  startPlanning, startWriting, startEditing, startContinuityCheck
+  startPlanning, startWriting, startEditing, startContinuityCheck,
+  startWorkflow, continueWorkflow, stopWorkflow
 } from '../api'
 import { useBookHub } from '../hooks/useBookHub'
 
@@ -27,14 +28,17 @@ export default function BookDetail() {
   const [book, setBook] = useState<Book | null>(null)
   const [messages, setMessages] = useState<AgentMessage[]>([])
   const [activeChapter, setActiveChapter] = useState<Chapter | null>(null)
+  const [plannerBuffer, setPlannerBuffer] = useState('')
   const [streamBuffer, setStreamBuffer] = useState('')
   const [streamingChapterId, setStreamingChapterId] = useState<number | null>(null)
   const [answerText, setAnswerText] = useState('')
   const [pendingQuestion, setPendingQuestion] = useState<AgentMessage | null>(null)
   const [runStatus, setRunStatus] = useState<AgentRunStatus | null>(null)
+  const [workflowLog, setWorkflowLog] = useState<string[]>([])
   const chatBottomRef = useRef<HTMLDivElement>(null)
+  const workflowLogEndRef = useRef<HTMLDivElement>(null)
 
-  const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated } = useBookHub(bookId)
+  const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress } = useBookHub(bookId)
 
   const refreshBook = useCallback(() =>
     getBook(bookId).then(r => setBook(r.data)), [bookId])
@@ -56,8 +60,14 @@ export default function BookDetail() {
 
   useEffect(() => {
     setOnStream((_bId, cId, token) => {
-      setStreamingChapterId(cId ?? null)
-      setStreamBuffer(prev => prev + token)
+      if (cId === null) {
+        // Planner stream — buffer for planning preview
+        setPlannerBuffer(prev => prev + token)
+      } else {
+        // Chapter stream — accumulate in streamBuffer (replaces chapter content view while streaming)
+        setStreamingChapterId(cId)
+        setStreamBuffer(prev => prev + token)
+      }
     })
     setOnQuestion((_bId, msg) => {
       const m = msg as AgentMessage
@@ -65,20 +75,46 @@ export default function BookDetail() {
       setMessages(prev => [...prev, m])
     })
     setOnStatus((_bId, role, state) => {
-      setRunStatus(state === 'Done' || state === 'Failed' ? null : { role, state, chapterId: undefined })
-      if (state === 'Done' || state === 'Failed') {
+      setRunStatus(state === 'Done' || state === 'Failed' || state === 'Cancelled' ? null : { role, state, chapterId: undefined })
+      if (state === 'Done' || state === 'Failed' || state === 'Cancelled') {
+        setPlannerBuffer('')
         setStreamBuffer('')
         setStreamingChapterId(null)
         refreshBook()
         refreshMessages()
       }
     })
-    setOnChapterUpdated(() => refreshBook())
-  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, refreshBook, refreshMessages])
+    setOnChapterUpdated((_bId, cId) => {
+      setStreamBuffer('')
+      setStreamingChapterId(null)
+      getBook(bookId).then(r => {
+        setBook(r.data)
+        setActiveChapter(prev => {
+          if (!prev || prev.id !== cId) return prev
+          return r.data.chapters?.find(c => c.id === cId) ?? prev
+        })
+      })
+    })
+    setOnWorkflowProgress((_bId, step, isComplete) => {
+      setWorkflowLog(prev => [...prev, step])
+      if (isComplete) {
+        setRunStatus(null)
+        setPlannerBuffer('')
+        setStreamBuffer('')
+        setStreamingChapterId(null)
+        refreshBook()
+        refreshMessages()
+      }
+    })
+  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, refreshBook, refreshMessages])
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, streamBuffer])
+  }, [messages])
+
+  useEffect(() => {
+    workflowLogEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [workflowLog])
 
   const isRunning = runStatus?.state === 'Running' || runStatus?.state === 'WaitingForInput'
 
@@ -87,6 +123,42 @@ export default function BookDetail() {
     try {
       await action()
       setRunStatus({ role: 'Unknown', state: 'Running' })
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string }; status?: number } })
+      if (msg?.response?.status === 409) {
+        alert('An agent is already running for this book.')
+      }
+    }
+  }
+
+  const handleWriteBook = async () => {
+    if (isRunning) return
+    setWorkflowLog([])
+    try {
+      await startWorkflow(bookId)
+      setRunStatus({ role: 'Planner', state: 'Running' })
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string }; status?: number } })
+      if (msg?.response?.status === 409) {
+        alert('An agent is already running for this book.')
+      }
+    }
+  }
+
+  const handleStop = async () => {
+    try {
+      await stopWorkflow(bookId)
+    } catch {
+      // ignore
+    }
+  }
+
+  const handleContinue = async () => {
+    if (isRunning) return
+    setWorkflowLog([])
+    try {
+      await continueWorkflow(bookId)
+      setRunStatus({ role: 'Writer', state: 'Running' })
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string }; status?: number } })
       if (msg?.response?.status === 409) {
@@ -109,7 +181,7 @@ export default function BookDetail() {
   })[s] ?? '#94a3b8'
 
   // Beautified planning preview
-  const planningChapters = parsePlanningStream(streamBuffer)
+  const planningChapters = parsePlanningStream(plannerBuffer)
 
   if (!book) return <div className="loading">Loading…</div>
 
@@ -128,13 +200,31 @@ export default function BookDetail() {
         )}
 
         <div className="agent-actions">
-          <button disabled={isRunning} onClick={() => handleAgentAction(() => startPlanning(bookId))}>
-            ▶ Plan
-          </button>
-          <button disabled={isRunning} onClick={() => handleAgentAction(() => startContinuityCheck(bookId))}>
-            ⚖ Continuity
-          </button>
+          {isRunning ? (
+            <button className="btn-stop" onClick={handleStop}>⊙ Stop</button>
+          ) : (
+            <>
+              <button className="btn-primary" onClick={handleWriteBook}>▶ Write Book</button>
+              {(book.chapters ?? []).length > 0 && (
+                <button className="btn-continue" onClick={handleContinue}>↻ Continue</button>
+              )}
+            </>
+          )}
+          <button disabled={isRunning} onClick={() => handleAgentAction(() => startPlanning(bookId))}>Plan only</button>
+          <button disabled={isRunning} onClick={() => handleAgentAction(() => startContinuityCheck(bookId))}>Continuity</button>
         </div>
+
+        {workflowLog.length > 0 && (
+          <div className="workflow-log">
+            <strong>Workflow</strong>
+            <ul>
+              {workflowLog.map((step, i) => (
+                <li key={i} className="workflow-log-step">{step}</li>
+              ))}
+            </ul>
+            <div ref={workflowLogEndRef} />
+          </div>
+        )}
         <ul className="chapter-list">
           {(book.chapters ?? []).map(c => (
             <li
@@ -171,15 +261,12 @@ export default function BookDetail() {
               </div>
             )}
             <div className="chapter-content">
-              {activeChapter.content ? (
+              {streamBuffer && streamingChapterId === activeChapter.id ? (
+                <ReactMarkdown>{streamBuffer}</ReactMarkdown>
+              ) : activeChapter.content ? (
                 <ReactMarkdown>{activeChapter.content}</ReactMarkdown>
               ) : (
                 <p className="empty">No content yet. Click Write to generate.</p>
-              )}
-              {streamBuffer && streamingChapterId === activeChapter.id && (
-                <div className="stream-preview">
-                  <ReactMarkdown>{streamBuffer}</ReactMarkdown>
-                </div>
               )}
             </div>
           </div>
@@ -189,7 +276,7 @@ export default function BookDetail() {
             <p><strong>Premise:</strong> {book.premise}</p>
             <p><strong>Genre:</strong> {book.genre} · <strong>Language:</strong> {book.language} · <strong>Target chapters:</strong> {book.targetChapterCount}</p>
 
-            {isRunning && runStatus?.role === 'Planner' && streamBuffer && (
+            {isRunning && runStatus?.role === 'Planner' && plannerBuffer && (
               <div className="planning-preview">
                 <h3>Planning in progress…</h3>
                 {planningChapters.length > 0 ? (
@@ -222,7 +309,11 @@ export default function BookDetail() {
             <div key={m.id} className={`chat-msg msg-${m.messageType.toLowerCase()}`}>
               <span className="msg-role">{m.agentRole}</span>
               <span className="msg-type">[{m.messageType}]</span>
-              <div className="msg-content">{m.content}</div>
+              <div className="msg-content">
+                {m.messageType === 'SystemNote' || m.messageType === 'Feedback'
+                  ? <ReactMarkdown>{m.content}</ReactMarkdown>
+                  : m.content}
+              </div>
             </div>
           ))}
           <div ref={chatBottomRef} />

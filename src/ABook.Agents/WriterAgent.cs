@@ -14,8 +14,9 @@ public class WriterAgent : AgentBase
         IBookRepository repo,
         ILlmProviderFactory llmFactory,
         IVectorStoreService vectorStore,
-        IBookNotifier notifier)
-        : base(repo, llmFactory, vectorStore, notifier) { }
+        IBookNotifier notifier,
+        AgentRunStateService stateService)
+        : base(repo, llmFactory, vectorStore, notifier, stateService) { }
 
     public async Task WriteAsync(int bookId, int chapterId, CancellationToken ct = default)
     {
@@ -29,7 +30,7 @@ public class WriterAgent : AgentBase
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Writer, "Running", ct);
 
         var kernel = await GetKernelAsync(bookId);
-        var config = await Repo.GetLlmConfigAsync(bookId)!;
+        var config = await Repo.GetLlmConfigAsync(bookId, book.UserId)!;
 
         // Retrieve RAG context: prior chapter summaries
         var ragContext = chapter.Number > 1
@@ -45,6 +46,7 @@ public class WriterAgent : AgentBase
             Genre: {book.Genre}
             Premise: {book.Premise}
             Write all content in {book.Language}.
+            Do NOT include a chapter heading or title — start directly with the prose.
             {(ragContext.Length > 0 ? $"\nRelevant context from previous chapters:\n{ragContext}" : "")}
             """;
         history.AddSystemMessage(systemPrompt);
@@ -59,15 +61,42 @@ public class WriterAgent : AgentBase
 
         var content = await StreamResponseAsync(kernel, history, bookId, chapterId, ct);
 
+        // Strip any leading chapter heading the LLM may have added (e.g. "# Chapter 1: Title")
+        // since the UI displays title separately
+        content = StripLeadingChapterHeading(content, chapter.Number, chapter.Title);
+
         chapter.Content = content;
         chapter.Status = ChapterStatus.Review;
         await Repo.UpdateChapterAsync(chapter);
 
-        // Index chapter in Qdrant for future RAG
-        await IndexChapterAsync(bookId, chapter, kernel, config!, ct);
-
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Writer, "Done", ct);
+
+        // Index chapter in Qdrant for RAG (non-fatal — chapter is already saved)
+        try { await IndexChapterAsync(bookId, chapter, kernel, config!, ct); }
+        catch (OperationCanceledException) { throw; }
+        catch { /* Qdrant unavailable — RAG context will be skipped for future chapters */ }
+    }
+
+    /// <summary>Remove any leading markdown heading the LLM added for the chapter title.</summary>
+    private static string StripLeadingChapterHeading(string content, int number, string title)
+    {
+        var lines = content.TrimStart().Split('\n');
+        if (lines.Length == 0) return content;
+
+        var first = lines[0].TrimStart('#', ' ').Trim();
+        // Match patterns like "Chapter 1", "Chapter 1: Title", or just the title
+        var chapterPrefix = $"chapter {number}";
+        if (first.StartsWith(chapterPrefix, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(first, title, StringComparison.OrdinalIgnoreCase))
+        {
+            // Drop the heading line and any immediately following blank line
+            int skip = 1;
+            if (lines.Length > 1 && string.IsNullOrWhiteSpace(lines[1])) skip = 2;
+            return string.Join('\n', lines.Skip(skip)).TrimStart();
+        }
+
+        return content;
     }
 
     private async Task IndexChapterAsync(int bookId, Chapter chapter, Kernel kernel, LlmConfiguration config, CancellationToken ct)

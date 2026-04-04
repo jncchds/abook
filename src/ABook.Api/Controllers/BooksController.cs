@@ -76,6 +76,26 @@ public class BooksController : ControllerBase
         await _repo.DeleteAsync(id);
         return NoContent();
     }
+
+    [HttpGet("{id:int}/default-prompts")]
+    public async Task<IActionResult> GetDefaultPrompts(int id)
+    {
+        var book = await _repo.GetByIdAsync(id);
+        if (book is null) return NotFound();
+
+        var lang = string.IsNullOrWhiteSpace(book.Language) ? "English" : book.Language;
+
+        return Ok(new
+        {
+            plannerSystemPrompt = $"You are a creative writing Planner. Your task is to outline a book in detail.\nFor each chapter, output a JSON array of objects with fields:\n  \"number\" (int), \"title\" (string), \"outline\" (string, 2-4 sentences synopsis).\nOutput ONLY the JSON array, no additional text.\nWrite all content in {lang}.",
+
+            writerSystemPrompt = $"You are a creative fiction Writer. Write compelling, immersive prose in markdown.\nBook title: {book.Title}\nGenre: {book.Genre}\nPremise: {book.Premise}\nWrite all content in {lang}.",
+
+            editorSystemPrompt = $"You are a professional fiction Editor. Your job is to improve prose quality, fix grammar,\nenhance pacing, and strengthen character voice. Preserve the author's style.\nOutput the complete improved chapter in markdown, followed by a brief\n\"## Editorial Notes\" section listing key changes made.\nBook: {book.Title} | Genre: {book.Genre} | Language: {lang}",
+
+            continuityCheckerSystemPrompt = $"You are a Continuity Checker for fiction manuscripts. Your job is to identify plot holes,\ncharacter inconsistencies, timeline errors, and factual contradictions across chapters.\nOutput a JSON array of issues, each with:\n  \"description\" (string), \"chapterNumbers\" (int[]), \"suggestion\" (string).\nIf no issues found, output an empty array [].\nBook: {book.Title} | Genre: {book.Genre} | Language: {lang}"
+        });
+    }
 }
 
 public record CreateBookRequest(

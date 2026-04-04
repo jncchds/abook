@@ -8,6 +8,9 @@ public interface IAgentOrchestrator
     Task StartWritingAsync(int bookId, int chapterId, CancellationToken ct = default);
     Task StartEditingAsync(int bookId, int chapterId, CancellationToken ct = default);
     Task StartContinuityCheckAsync(int bookId, CancellationToken ct = default);
+    Task StartWorkflowAsync(int bookId, CancellationToken ct = default);
+    Task ContinueWorkflowAsync(int bookId, CancellationToken ct = default);
+    Task StopWorkflowAsync(int bookId);
     Task ResumeWithAnswerAsync(int messageId, string answer, CancellationToken ct = default);
     Task<AgentRunStatus?> GetRunStatusAsync(int bookId);
 }

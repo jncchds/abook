@@ -1,6 +1,7 @@
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace ABook.Api.Controllers;
 
@@ -12,9 +13,14 @@ public class ConfigurationController : ControllerBase
 
     public ConfigurationController(IBookRepository repo) => _repo = repo;
 
+    private int? CurrentUserId =>
+        User.Identity?.IsAuthenticated == true
+            ? int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!)
+            : (int?)null;
+
     [HttpGet]
     public async Task<IActionResult> Get([FromQuery] int? bookId) =>
-        Ok(await _repo.GetLlmConfigAsync(bookId));
+        Ok(await _repo.GetLlmConfigAsync(bookId, CurrentUserId));
 
     [HttpPut]
     public async Task<IActionResult> Upsert([FromBody] LlmConfigRequest req)
@@ -22,6 +28,7 @@ public class ConfigurationController : ControllerBase
         var config = new LlmConfiguration
         {
             BookId = req.BookId,
+            UserId = req.BookId.HasValue ? null : CurrentUserId,
             Provider = req.Provider,
             ModelName = req.ModelName,
             Endpoint = req.Endpoint,
