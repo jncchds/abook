@@ -115,7 +115,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             await _notifier.NotifyWorkflowProgressAsync(bookId,
                 $"Planning complete — {chapters.Count} chapter{(chapters.Count == 1 ? "" : "s")} outlined.", false, ct);
 
-            // 2. Write + Edit each chapter in order
+            // 2. Write → Continuity check → Edit each chapter in order
             foreach (var chapter in chapters.OrderBy(c => c.Number))
             {
                 ct.ThrowIfCancellationRequested();
@@ -127,19 +127,26 @@ public class AgentOrchestrator : IAgentOrchestrator
 
                 ct.ThrowIfCancellationRequested();
 
+                _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapter.Id);
+                await _notifier.NotifyWorkflowProgressAsync(bookId,
+                    $"Checking continuity for Chapter {chapter.Number}…", false, ct);
+                var continuityReport = await _continuity.CheckAsync(bookId, ct);
+
+                ct.ThrowIfCancellationRequested();
+
                 _state.UpdateRunRole(bookId, AgentRole.Editor, chapter.Id);
                 await _notifier.NotifyWorkflowProgressAsync(bookId,
                     $"Editing Chapter {chapter.Number}…", false, ct);
-                await _editor.EditAsync(bookId, chapter.Id, ct);
+                await _editor.EditAsync(bookId, chapter.Id, ct, continuityReport);
 
                 await _notifier.NotifyWorkflowProgressAsync(bookId,
                     $"Chapter {chapter.Number} complete.", false, ct);
             }
 
-            // 3. Continuity check
+            // 3. Final full-manuscript continuity check
             ct.ThrowIfCancellationRequested();
             _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, null);
-            await _notifier.NotifyWorkflowProgressAsync(bookId, "Running continuity check…", false, ct);
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Running final continuity check…", false, ct);
             await _continuity.CheckAsync(bookId, ct);
 
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.ContinuityChecker, "Done", null));
@@ -219,15 +226,31 @@ public class AgentOrchestrator : IAgentOrchestrator
                     ct.ThrowIfCancellationRequested();
                 }
 
-                // Edit if not yet edited; re-read status since WriteAsync may have changed it
+                // Re-read status; after write chapter is Review — needs continuity + edit
+                // After an interrupted edit chapter is Editing — only needs edit
                 var latestStatus = (await _repo.GetChapterAsync(bookId, chapter.Id))?.Status
                     ?? ChapterStatus.Outlined;
+
+                // Continuity check if chapter was just written (Review) or continuity was interrupted
+                bool needsContinuity = latestStatus == ChapterStatus.Review;
+                string? continuityReport = null;
+                if (needsContinuity)
+                {
+                    _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapter.Id);
+                    await _notifier.NotifyWorkflowProgressAsync(bookId,
+                        $"Checking continuity for Chapter {chapter.Number}…", false, ct);
+                    continuityReport = await _continuity.CheckAsync(bookId, ct);
+                    ct.ThrowIfCancellationRequested();
+                    latestStatus = (await _repo.GetChapterAsync(bookId, chapter.Id))?.Status
+                        ?? latestStatus;
+                }
+
                 if (latestStatus != ChapterStatus.Done)
                 {
                     _state.UpdateRunRole(bookId, AgentRole.Editor, chapter.Id);
                     await _notifier.NotifyWorkflowProgressAsync(bookId,
                         $"Editing Chapter {chapter.Number}…", false, ct);
-                    await _editor.EditAsync(bookId, chapter.Id, ct);
+                    await _editor.EditAsync(bookId, chapter.Id, ct, continuityReport);
                 }
 
                 await _notifier.NotifyWorkflowProgressAsync(bookId,

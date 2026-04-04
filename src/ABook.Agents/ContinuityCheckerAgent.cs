@@ -17,7 +17,7 @@ public class ContinuityCheckerAgent : AgentBase
         AgentRunStateService stateService)
         : base(repo, llmFactory, vectorStore, notifier, stateService) { }
 
-    public async Task CheckAsync(int bookId, CancellationToken ct = default)
+    public async Task<string> CheckAsync(int bookId, CancellationToken ct = default)
     {
         var book = await Repo.GetByIdWithDetailsAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
@@ -30,7 +30,7 @@ public class ContinuityCheckerAgent : AgentBase
         if (doneChapters.Count == 0)
         {
             await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", ct);
-            return;
+            return string.Empty;
         }
 
         // Build a compact synopsis from chapter outlines + first 800 chars of each chapter
@@ -66,5 +66,6 @@ public class ContinuityCheckerAgent : AgentBase
         });
 
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", ct);
+        return response;
     }
 }

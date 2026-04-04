@@ -17,7 +17,7 @@ public class EditorAgent : AgentBase
         AgentRunStateService stateService)
         : base(repo, llmFactory, vectorStore, notifier, stateService) { }
 
-    public async Task EditAsync(int bookId, int chapterId, CancellationToken ct = default)
+    public async Task EditAsync(int bookId, int chapterId, CancellationToken ct = default, string? continuityNotes = null)
     {
         var book = await Repo.GetByIdAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
@@ -42,12 +42,23 @@ public class EditorAgent : AgentBase
             """;
         history.AddSystemMessage(systemPrompt);
 
-        history.AddUserMessage($"""
+        var editRequest = string.IsNullOrWhiteSpace(continuityNotes)
+            ? $"""
             Please edit Chapter {chapter.Number}: {chapter.Title}
 
             Original content:
             {chapter.Content}
-            """);
+            """
+            : $"""
+            Please edit Chapter {chapter.Number}: {chapter.Title}
+
+            The continuity checker identified the following issues to fix in this chapter:
+            {continuityNotes}
+
+            Original content:
+            {chapter.Content}
+            """;
+        history.AddUserMessage(editRequest);
 
         var edited = await StreamResponseAsync(kernel, history, bookId, chapterId, ct);
 
