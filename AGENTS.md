@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Build a Docker-packaged ASP.NET Core 8 web app with a React (TypeScript/Vite) UI **served as static files from wwwroot** (NOT a separate Docker service) that uses Semantic Kernel to orchestrate four AI agents (Planner, Writer, Editor, Continuity Checker) for collaborative book writing. Agents stream progress via SignalR and can pause to ask the user plot-clarifying questions. PostgreSQL stores relational data; **Qdrant vector database** (separate Docker service) stores chapter embeddings for RAG-based context retrieval. LLM provider is pluggable (Ollama by default, swappable to OpenAI/Azure/Anthropic via configuration).
+Build a Docker-packaged ASP.NET Core 10 web app with a React (TypeScript/Vite) UI **served as static files from wwwroot** (NOT a separate Docker service) that uses Semantic Kernel to orchestrate four AI agents (Planner, Writer, Editor, Continuity Checker) for collaborative book writing. Agents stream progress via SignalR and can pause to ask the user plot-clarifying questions. PostgreSQL stores relational data; **Qdrant vector database** (separate Docker service) stores chapter embeddings for RAG-based context retrieval. LLM provider is pluggable (Ollama by default, swappable to OpenAI/Azure/Anthropic via configuration). Multi-user with cookie-based authentication.
 
 ---
 
@@ -11,7 +11,7 @@ Build a Docker-packaged ASP.NET Core 8 web app with a React (TypeScript/Vite) UI
 ```
 [React SPA (static files in ASP.NET wwwroot — single container)] 
     ↕ REST API + SignalR
-[ASP.NET Core 8 API]
+[ASP.NET Core 10 API]
     ↕ Semantic Kernel (pluggable LLM connector)
     ↕ EF Core                    ↕ Qdrant .NET client
 [PostgreSQL (Docker)]    [Qdrant (Docker)]    [Ollama (host machine)]
@@ -23,10 +23,11 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 
 ## Data Model
 
-- **Book**: Id, Title, Premise, Genre, TargetChapterCount, Status (Draft/InProgress/Complete), CreatedAt, UpdatedAt
+- **Book**: Id, Title, Premise, Genre, TargetChapterCount, Status (Draft/InProgress/Complete), Language, PlannerSystemPrompt, WriterSystemPrompt, EditorSystemPrompt, ContinuityCheckerSystemPrompt, UserId (FK → AppUser), CreatedAt, UpdatedAt
 - **Chapter**: Id, BookId, Number, Title, Outline, Content (markdown), Status (Outlined/Writing/Review/Editing/Done), CreatedAt, UpdatedAt
 - **AgentMessage**: Id, BookId, ChapterId (nullable), AgentRole, MessageType (Content/Question/Answer/SystemNote/Feedback), Content, IsResolved, CreatedAt
 - **LlmConfiguration**: Id, BookId (nullable, null = global default), Provider (Ollama/OpenAI/Azure/Anthropic), ModelName, Endpoint, ApiKey (nullable)
+- **AppUser**: Id, Username, PasswordHash, IsAdmin
 
 ### Vector Store (Qdrant)
 - **ChapterEmbedding** — collection per book, stores chunked chapter text with embeddings
@@ -72,8 +73,8 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 
 ### Phase 1: Project Scaffolding & Infrastructure
 1. Create solution structure:
-   - `ABook.sln`
-   - `src/ABook.Api/` — ASP.NET Core Web API project (.NET 8)
+   - `ABook.slnx` (VS Solution XML format, requires .NET 9+ SDK)
+   - `src/ABook.Api/` — ASP.NET Core Web API project (.NET 10)
    - `src/ABook.Core/` — Class library (domain models, interfaces)
    - `src/ABook.Infrastructure/` — Class library (EF Core, LLM connectors)
    - `src/ABook.Agents/` — Class library (Semantic Kernel agent definitions)
@@ -102,6 +103,10 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
    - `ChaptersController` — CRUD for chapters within a book
    - `MessagesController` — post answers, get conversation history
    - `ConfigurationController` — manage LLM provider settings
+   - `AgentController` — start/stop agent runs; returns 202 immediately (fire-and-forget)
+   - `AuthController` — login, register, logout, current user (`/api/auth/me`)
+   - `UsersController` — admin-only user CRUD (create, change password, toggle role)
+   - `OllamaController` — `GET /api/ollama/models` (proxy to Ollama `/api/tags`), `POST /api/ollama/pull` (SSE stream)
 8. Set up SignalR hub (`BookHub`):
    - Methods: `JoinBook(bookId)`, `LeaveBook(bookId)`
    - Events: `AgentStreaming(bookId, chapterId, token)`, `AgentQuestion(bookId, message)`, `AgentStatusChanged(bookId, agentRole, status)`, `ChapterUpdated(bookId, chapterId)`
@@ -117,8 +122,9 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
     - Agents use retrieved context instead of full chapter text to stay within context window
 11. Implement agent orchestrator (`AgentOrchestrator`):
     - Manages agent run lifecycle (start, pause, resume, complete)
-    - Stores state in DB so runs survive app restarts
-    - Background service (`IHostedService`) processes queued agent tasks
+    - Fire-and-forget execution via `RunInBackground` helper using `IServiceScopeFactory`
+    - `AgentRunStateService` singleton tracks active runs cross-request; duplicate run returns 409
+    - Returns HTTP 202 immediately; progress streamed via SignalR
 12. Implement each agent as a Semantic Kernel function/plugin:
     - `PlannerAgent` — system prompt for outlining, outputs structured chapter list
     - `WriterAgent` — system prompt for creative writing, streams tokens via SignalR, uses RAG for prior chapter context
@@ -135,13 +141,17 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
     - Install: `react-router`, `@microsoft/signalr`, `zustand` (state), `react-markdown`
 15. Build pages/components:
     - **Dashboard**: List of book projects, create new book
-    - **Book Detail**: Overview, chapter list with statuses, settings
+    - **Book Detail**: Overview, chapter list with statuses, agent run buttons (disabled while running), spinner banner
     - **Chapter View**: Rendered markdown content, edit capability
     - **Agent Chat Panel**: Sidebar/panel showing agent messages, questions, answer input
-    - **Settings**: LLM provider configuration (provider, model, endpoint, API key)
-    - **Real-time indicators**: Streaming text as agents write, status badges per agent
+    - **Settings**: LLM provider + Ollama model management (dropdown of installed/common models, pull with SSE progress), per-book language, per-agent system prompt overrides (collapsible)
+    - **Login**: Cookie-based auth login form
+    - **Admin → Users**: Admin-only page for user CRUD
+    - **Real-time indicators**: Streaming text as agents write, status badges per agent, planning output progressively parsed into chapter cards (`parsePlanningStream`)
 16. SignalR integration:
-    - `useSignalR` hook connecting to `BookHub`
+    - `useBookHub` hook connecting to `BookHub`
+    - `useAuth` hook / `AuthProvider` context for current user state
+    - Auth guard in `App.tsx` redirects unauthenticated users to `/login`
     - Live token streaming rendered in chapter view
     - Toast/notification when agent asks a question
 17. Build React for production → output to `src/ABook.Api/wwwroot/`
@@ -149,8 +159,8 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 ### Phase 5: Docker & Integration — *depends on Phases 3 & 4*
 18. Finalize multi-stage Dockerfile:
     - Stage 1: Build React (`node:20-alpine`, `npm run build`)
-    - Stage 2: Build .NET (`mcr.microsoft.com/dotnet/sdk:8.0`, `dotnet publish`)
-    - Stage 3: Runtime (`mcr.microsoft.com/dotnet/aspnet:8.0`, copy published + wwwroot)
+    - Stage 2: Build .NET (`mcr.microsoft.com/dotnet/sdk:10.0`, `dotnet publish`)
+    - Stage 3: Runtime (`mcr.microsoft.com/dotnet/aspnet:10.0`, copy published + wwwroot)
 19. Finalize `docker-compose.yml`:
     - `abook-api` service with environment variables (DB connection, Ollama URL, Qdrant URL)
     - `postgres` service with volume for data persistence
@@ -160,22 +170,29 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 
 ---
 
-## Relevant Files (to be created)
+## Relevant Files
 
-- `ABook.sln` — Solution root
-- `src/ABook.Core/Models/` — `Book.cs`, `Chapter.cs`, `AgentMessage.cs`, `LlmConfiguration.cs`, enums
-- `src/ABook.Core/Interfaces/` — `IBookRepository.cs`, `IAgentOrchestrator.cs`, `ILlmProviderFactory.cs`, `IVectorStoreService.cs`
+- `ABook.slnx` — Solution root (XML format)
+- `src/ABook.Core/Models/` — `Book.cs`, `Chapter.cs`, `AgentMessage.cs`, `LlmConfiguration.cs`, `AppUser.cs`, `Enums.cs`
+- `src/ABook.Core/Interfaces/` — `IBookRepository.cs`, `IAgentOrchestrator.cs`, `ILlmProviderFactory.cs`, `IVectorStoreService.cs`, `IBookNotifier.cs`, `IUserRepository.cs`
 - `src/ABook.Infrastructure/Data/AppDbContext.cs` — EF Core context
-- `src/ABook.Infrastructure/Repositories/BookRepository.cs` — Data access
+- `src/ABook.Infrastructure/Repositories/` — Data access repositories
 - `src/ABook.Infrastructure/Llm/LlmProviderFactory.cs` — Pluggable LLM factory
 - `src/ABook.Infrastructure/VectorStore/QdrantVectorStoreService.cs` — Qdrant integration, chunking, embedding
+- `src/ABook.Infrastructure/Migrations/` — EF Core migrations (`InitialCreate`, `AddLanguageAndUsers`)
+- `src/ABook.Agents/AgentBase.cs` — Base class for all agents
 - `src/ABook.Agents/PlannerAgent.cs`, `WriterAgent.cs`, `EditorAgent.cs`, `ContinuityCheckerAgent.cs`
 - `src/ABook.Agents/AgentOrchestrator.cs` — Run lifecycle management
-- `src/ABook.Api/Controllers/` — REST endpoints
+- `src/ABook.Agents/AgentRunStateService.cs` — Singleton run state tracker
+- `src/ABook.Api/Controllers/` — `BooksController`, `ChaptersController`, `MessagesController`, `ConfigurationController`, `AgentController`, `AuthController`, `UsersController`, `OllamaController`
 - `src/ABook.Api/Hubs/BookHub.cs` — SignalR hub
-- `src/ABook.Api/Program.cs` — App configuration
-- `src/abook-ui/src/` — React app source
-- `Dockerfile` — Multi-stage build
+- `src/ABook.Api/Services/SignalRBookNotifier.cs` — `IBookNotifier` implementation (decouples agents from SignalR)
+- `src/ABook.Api/Program.cs` — App configuration (cookie auth, EF Core, SignalR, Qdrant, SK)
+- `src/abook-ui/src/pages/` — `Dashboard.tsx`, `BookDetail.tsx`, `Settings.tsx`, `Login.tsx`, `AdminUsers.tsx`
+- `src/abook-ui/src/hooks/` — `useBookHub.ts`, `useAuth.tsx`
+- `src/abook-ui/src/api.ts` — Typed API client
+- `src/abook-ui/src/App.tsx` — Router + auth guard
+- `Dockerfile` — Multi-stage build (Node 20 + .NET 10 SDK + .NET 10 runtime)
 - `docker-compose.yml` — App + PostgreSQL + Qdrant
 - `.dockerignore`
 
@@ -195,15 +212,21 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 
 ## Decisions
 
-- **.NET 8** (LTS, broad Semantic Kernel support)
+- **.NET 10** (latest; Docker images `mcr.microsoft.com/dotnet/sdk:10.0` + `aspnet:10.0`)
+- **`.slnx` solution format** — requires .NET 9+ SDK (XML-based, lighter than classic `.sln`)
 - **Ollama accessed via host.docker.internal** — not containerized, user manages it externally
 - **LLM provider is pluggable** — abstracted behind `ILlmProviderFactory`, configured per-book or globally
+- **SK Ollama connector** is alpha (`Microsoft.SemanticKernel.Connectors.Ollama` 1.x-alpha); suppress `SKEXP0070` pragma
 - **Agents use Semantic Kernel function calling** for the "ask question" tool — agent invokes a `AskUser` function which triggers the pause mechanism
-- **No authentication** — single-user local app
+- **Agent runs are fire-and-forget** — `AgentController` returns 202 immediately; `AgentRunStateService` singleton tracks state; duplicate run returns 409
+- **Cookie authentication** — multi-user support with `IPasswordHasher<AppUser>`; admin role for user management
+- **Per-book customization** — `Language` field and per-agent system prompt overrides stored on `Book` entity
+- **Ollama model management** — `OllamaController` proxies Ollama's `/api/tags` and streams pull progress via SSE
 - **Markdown only** for book output — no DOCX/PDF export (can be added later)
 - **PostgreSQL + Qdrant in compose** with persistent volumes
 - **React UI is static files** — built in Dockerfile, served from `wwwroot/` by ASP.NET Core, NOT a separate Docker service
 - **Qdrant for vector storage** — separate Docker service, used for RAG-based context retrieval so agents can handle large books without exceeding context windows
+- **`IBookNotifier` interface** (`SignalRBookNotifier` implementation) decouples agent/orchestrator code from direct SignalR hub dependency
 
 ---
 
@@ -211,3 +234,16 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 
 1. **Concurrent agent runs** — Should multiple agents run in parallel on different chapters (e.g., Writer on Ch3 while Editor reviews Ch2)? Recommend yes, with a configurable concurrency limit.
 2. **Chapter editing** — Should users be able to manually edit chapter content in the UI (rich markdown editor), or only through agents? Recommend allowing manual edits alongside agent work.
+
+---
+
+## Implementation Notes (Technical Gotchas)
+
+- **EF Core / Npgsql**: Use `10.0.*` versions; both stable as of April 2026
+- **`ABook.Agents` pins `Microsoft.EntityFrameworkCore.Relational 10.0.*`** to avoid version conflict with Semantic Kernel
+- **Qdrant.Client 1.x API**: `CreateCollectionAsync(name, VectorParams, ...)` — not `VectorsConfig`
+- **SK embedding API**: `ITextEmbeddingGenerationService.GenerateEmbeddingsAsync(list)` — not `GenerateEmbeddingAsync`
+- **`OllamaPromptExecutionSettings.Temperature`** is `float?` not `double`
+- **`Microsoft.AspNetCore.SignalR 1.*`** NuGet package removed — SignalR is built into the framework in .NET 3+
+- **Enum JSON serialization**: Register `JsonStringEnumConverter` in `AddJsonOptions` so enum values serialize as strings for the React client
+- **`parsePlanningStream`**: React helper that progressively parses the Planner agent's streaming JSON into chapter cards as tokens arrive
