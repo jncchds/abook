@@ -64,10 +64,11 @@ public class EditorAgent : AgentBase
 
         // Split off the editorial notes (everything after "## Editorial Notes")
         int notesIdx = edited.IndexOf("## Editorial Notes", StringComparison.OrdinalIgnoreCase);
+        string prose;
         if (notesIdx > 0)
         {
             var notes = edited[notesIdx..];
-            chapter.Content = edited[..notesIdx].Trim();
+            prose = edited[..notesIdx].Trim();
             await Repo.AddMessageAsync(new AgentMessage
             {
                 BookId = bookId,
@@ -80,8 +81,11 @@ public class EditorAgent : AgentBase
         }
         else
         {
-            chapter.Content = edited;
+            prose = edited;
         }
+
+        // Strip any leading chapter heading the LLM may have added (e.g. "# Chapter 1: Title")
+        chapter.Content = StripLeadingChapterHeading(prose, chapter.Number, chapter.Title);
 
         chapter.Status = ChapterStatus.Done;
         await Repo.UpdateChapterAsync(chapter);

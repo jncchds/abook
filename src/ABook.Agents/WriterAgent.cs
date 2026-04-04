@@ -78,27 +78,6 @@ public class WriterAgent : AgentBase
         catch { /* Qdrant unavailable — RAG context will be skipped for future chapters */ }
     }
 
-    /// <summary>Remove any leading markdown heading the LLM added for the chapter title.</summary>
-    private static string StripLeadingChapterHeading(string content, int number, string title)
-    {
-        var lines = content.TrimStart().Split('\n');
-        if (lines.Length == 0) return content;
-
-        var first = lines[0].TrimStart('#', ' ').Trim();
-        // Match patterns like "Chapter 1", "Chapter 1: Title", or just the title
-        var chapterPrefix = $"chapter {number}";
-        if (first.StartsWith(chapterPrefix, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(first, title, StringComparison.OrdinalIgnoreCase))
-        {
-            // Drop the heading line and any immediately following blank line
-            int skip = 1;
-            if (lines.Length > 1 && string.IsNullOrWhiteSpace(lines[1])) skip = 2;
-            return string.Join('\n', lines.Skip(skip)).TrimStart();
-        }
-
-        return content;
-    }
-
     private async Task IndexChapterAsync(int bookId, Chapter chapter, Kernel kernel, LlmConfiguration config, CancellationToken ct)
     {
         await VectorStore.EnsureCollectionAsync(bookId, ct);

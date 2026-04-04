@@ -86,6 +86,14 @@ public class QdrantVectorStoreService : IVectorStoreService
         }, cancellationToken: ct);
     }
 
+    public async Task DeleteCollectionAsync(int bookId, CancellationToken ct = default)
+    {
+        var name = CollectionName(bookId);
+        var collections = await _client.ListCollectionsAsync(ct);
+        if (collections.Any(c => c == name))
+            await _client.DeleteCollectionAsync(name, cancellationToken: ct);
+    }
+
     // Produce a stable ulong point ID from chapterId + chunkIndex
     private static ulong BuildId(int chapterId, int chunkIndex) =>
         ((ulong)(uint)chapterId << 20) | (ulong)(uint)(chunkIndex & 0xFFFFF);

@@ -5,9 +5,10 @@ import type { Book, Chapter, AgentMessage, AgentRunStatus } from '../api'
 import {
   getBook, getMessages, postAnswer, getAgentStatus,
   startPlanning, startWriting, startEditing, startContinuityCheck,
-  startWorkflow, continueWorkflow, stopWorkflow
+  startWorkflow, continueWorkflow, stopWorkflow, updateChapter
 } from '../api'
 import { useBookHub } from '../hooks/useBookHub'
+import { downloadBookAsHtml } from '../utils/bookHtmlExport'
 
 // Attempt to extract chapter plan entries from partial JSON
 function parsePlanningStream(raw: string): { number: number; title: string; outline: string }[] {
@@ -241,6 +242,15 @@ export default function BookDetail() {
             <li className="empty-chapters">Run Planner to generate chapters</li>
           )}
         </ul>
+        {(book.chapters ?? []).some(c => c.content?.trim()) && (
+          <button
+            className="download-html-btn"
+            onClick={() => downloadBookAsHtml(book)}
+            title="Download full book as a self-contained HTML file"
+          >
+            ⬇ Download HTML
+          </button>
+        )}
         <Link to={`/books/${bookId}/settings`} className="settings-link">⚙ Settings</Link>
       </aside>
 
@@ -253,6 +263,20 @@ export default function BookDetail() {
               <div className="chapter-actions">
                 <button disabled={isRunning} onClick={() => handleAgentAction(() => startWriting(bookId, activeChapter.id))}>✍ Write</button>
                 <button disabled={isRunning} onClick={() => handleAgentAction(() => startEditing(bookId, activeChapter.id))}>✏ Edit</button>
+                {activeChapter.content?.trim() && (
+                  <button
+                    disabled={isRunning}
+                    className="btn-clear-chapter"
+                    onClick={async () => {
+                      await updateChapter(bookId, activeChapter.id, { content: '', status: 'Outlined' })
+                      await refreshBook()
+                      setActiveChapter(prev => prev ? { ...prev, content: '', status: 'Outlined' } : prev)
+                    }}
+                    title="Clear chapter content and reset to Outlined"
+                  >
+                    ✕ Clear
+                  </button>
+                )}
               </div>
             </div>
             {activeChapter.outline && (

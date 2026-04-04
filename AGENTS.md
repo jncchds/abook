@@ -194,6 +194,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - `src/ABook.Api/Program.cs` — App configuration (cookie auth, EF Core, SignalR, Qdrant, SK)
 - `src/abook-ui/src/pages/` — `Dashboard.tsx`, `BookDetail.tsx`, `Settings.tsx`, `Login.tsx`, `AdminUsers.tsx`
 - `src/abook-ui/src/hooks/` — `useBookHub.ts`, `useAuth.tsx`
+- `src/abook-ui/src/utils/bookHtmlExport.ts` — Client-side HTML export: markdown→HTML converter, 6 color presets, font-size controls; `downloadBookAsHtml(book)` triggers browser download
 - `src/abook-ui/src/api.ts` — Typed API client
 - `src/abook-ui/src/App.tsx` — Router + auth guard
 - `Dockerfile` — Multi-stage build (Node 20 + .NET 10 SDK + .NET 10 runtime)
@@ -234,6 +235,9 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **Per-user LLM settings**: `LlmConfiguration` has nullable `UserId`; lookup chain is book-specific → user-default → global. `ConfigurationController` automatically sets `UserId` from cookie claims when saving a global (non-book) config. Agents resolve config via `GetKernelAsync` which passes `book.UserId`.
 - **Default system prompts API**: `GET /api/books/{id}/default-prompts` returns pre-interpolated default prompts (using book's title/genre/language). Settings page fetches these and shows a "Load Defaults" button that pre-fills empty textarea fields. Placeholders also show the default text.
 - **Migration**: `AddUserLlmConfig` adds nullable `UserId` FK to `LlmConfigurations` table.
+- **Qdrant cleanup**: `IVectorStoreService.DeleteCollectionAsync` drops the whole book collection; called by `BooksController.Delete` (non-fatal). `ChaptersController.Update` calls `DeleteChapterChunksAsync` when content is cleared to empty (e.g. the "Clear" button in the UI).
+- **ContinuityCheckerAgent uses RAG**: runs three targeted queries (character descriptions, timeline, locations) against Qdrant before checking continuity; appends retrieved passages to the LLM prompt alongside the chapter synopsis.
+- **`StripLeadingChapterHeading` moved to `AgentBase`** (protected): both `WriterAgent` and `EditorAgent` strip LLM-added chapter headings from prose before saving.
 
 ---
 

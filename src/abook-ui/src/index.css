@@ -63,7 +63,9 @@ label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bot
 .sidebar h2 { font-size: 1rem; font-weight: 700; }
 .sidebar .genre { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; }
 .back-link { font-size: 0.85rem; }
-.settings-link { margin-top: auto; font-size: 0.85rem; color: var(--text-muted); }
+.settings-link { font-size: 0.85rem; color: var(--text-muted); }
+.download-html-btn { margin-top: auto; font-size: 0.82rem; color: var(--text-muted); background: transparent; border: 1px solid var(--border); border-radius: 5px; padding: 0.3rem 0.6rem; cursor: pointer; text-align: left; }
+.download-html-btn:hover { color: var(--text); border-color: var(--text-muted); }
 
 .agent-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .agent-actions button { font-size: 0.78rem; padding: 0.3rem 0.65rem; }
@@ -93,6 +95,9 @@ label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bot
 .chapter-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; }
 .chapter-header h2 { font-size: 1.4rem; }
 .chapter-actions { display: flex; gap: 0.5rem; }
+.btn-clear-chapter { color: #ef4444 !important; background: transparent !important; border: 1px solid #ef4444 !important; border-radius: 4px !important; padding: 0.28rem 0.6rem !important; font-size: 0.8rem !important; cursor: pointer !important; }
+.btn-clear-chapter:hover { background: #ef4444 !important; color: #fff !important; }
+.btn-clear-chapter:disabled { opacity: 0.35 !important; cursor: not-allowed !important; }
 .outline { background: var(--surface); border-left: 3px solid var(--accent); padding: 0.6rem 1rem; border-radius: 0 6px 6px 0; font-size: 0.875rem; margin-bottom: 1.25rem; }
 .chapter-content { line-height: 1.8; font-size: 0.95rem; }
 .chapter-content p { margin-bottom: 0.85rem; }

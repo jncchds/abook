@@ -9,8 +9,13 @@ namespace ABook.Api.Controllers;
 public class BooksController : ControllerBase
 {
     private readonly IBookRepository _repo;
+    private readonly IVectorStoreService _vectorStore;
 
-    public BooksController(IBookRepository repo) => _repo = repo;
+    public BooksController(IBookRepository repo, IVectorStoreService vectorStore)
+    {
+        _repo = repo;
+        _vectorStore = vectorStore;
+    }
 
     private int? CurrentUserId =>
         User.Identity?.IsAuthenticated == true
@@ -74,6 +79,7 @@ public class BooksController : ControllerBase
         if (book is null) return NotFound();
         if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
         await _repo.DeleteAsync(id);
+        try { await _vectorStore.DeleteCollectionAsync(id); } catch { /* non-fatal */ }
         return NoContent();
     }
 

@@ -37,6 +37,27 @@ public class ContinuityCheckerAgent : AgentBase
         var synopsis = string.Join("\n\n", doneChapters.Select(c =>
             $"Chapter {c.Number}: {c.Title}\nOutline: {c.Outline}\nContent excerpt: {c.Content[..Math.Min(800, c.Content?.Length ?? 0)]}..."));
 
+        // Retrieve detailed passages via RAG for continuity-sensitive topics
+        var config = await Repo.GetLlmConfigAsync(bookId, book.UserId);
+        var ragContext = string.Empty;
+        if (config != null)
+        {
+            var ragQueries = new[]
+            {
+                "character physical description appearance age name backstory",
+                "timeline dates past future sequence of events",
+                "location place setting description",
+            };
+            var ragParts = new List<string>();
+            foreach (var q in ragQueries)
+            {
+                var part = await GetRagContextAsync(bookId, q, 4, LlmFactory, config);
+                if (!string.IsNullOrWhiteSpace(part)) ragParts.Add(part);
+            }
+            if (ragParts.Count > 0)
+                ragContext = string.Join("\n\n===\n\n", ragParts);
+        }
+
         var history = new ChatHistory();
         var systemPrompt = !string.IsNullOrWhiteSpace(book.ContinuityCheckerSystemPrompt)
             ? book.ContinuityCheckerSystemPrompt
@@ -51,7 +72,18 @@ public class ContinuityCheckerAgent : AgentBase
             """;
         history.AddSystemMessage(systemPrompt);
 
-        history.AddUserMessage($"Review these chapters for continuity issues:\n\n{synopsis}");
+        var userMessage = string.IsNullOrWhiteSpace(ragContext)
+            ? $"Review these chapters for continuity issues:\n\n{synopsis}"
+            : $"""
+            Review these chapters for continuity issues.
+
+            ## Chapter Summaries
+            {synopsis}
+
+            ## Detailed Passages (retrieved for continuity review)
+            {ragContext}
+            """;
+        history.AddUserMessage(userMessage);
 
         var response = await StreamResponseAsync(kernel, history, bookId, null, ct);
 

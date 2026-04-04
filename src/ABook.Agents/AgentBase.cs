@@ -117,4 +117,23 @@ public abstract class AgentBase
         catch (OperationCanceledException) { throw; }
         catch { return string.Empty; }
     }
+
+    /// <summary>Remove any leading markdown heading the LLM added for the chapter title.</summary>
+    protected static string StripLeadingChapterHeading(string content, int number, string title)
+    {
+        var lines = content.TrimStart().Split('\n');
+        if (lines.Length == 0) return content;
+
+        var first = lines[0].TrimStart('#', ' ').Trim();
+        var chapterPrefix = $"chapter {number}";
+        if (first.StartsWith(chapterPrefix, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(first, title, StringComparison.OrdinalIgnoreCase))
+        {
+            int skip = 1;
+            if (lines.Length > 1 && string.IsNullOrWhiteSpace(lines[1])) skip = 2;
+            return string.Join('\n', lines.Skip(skip)).TrimStart();
+        }
+
+        return content;
+    }
 }
