@@ -30,12 +30,16 @@ public class PlannerAgent : AgentBase
         var kernel = await GetKernelAsync(bookId);
 
         var history = new ChatHistory();
-        history.AddSystemMessage("""
+        var systemPrompt = !string.IsNullOrWhiteSpace(book.PlannerSystemPrompt)
+            ? book.PlannerSystemPrompt
+            : $"""
             You are a creative writing Planner. Your task is to outline a book in detail.
             For each chapter, output a JSON array of objects with fields:
               "number" (int), "title" (string), "outline" (string, 2-4 sentences synopsis).
             Output ONLY the JSON array, no additional text.
-            """);
+            Write all content in {book.Language}.
+            """;
+        history.AddSystemMessage(systemPrompt);
 
         history.AddUserMessage($"""
             Book title: {book.Title}

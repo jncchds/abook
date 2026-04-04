@@ -1,12 +1,24 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
-import type { Book, Chapter, AgentMessage } from '../api'
+import type { Book, Chapter, AgentMessage, AgentRunStatus } from '../api'
 import {
-  getBook, getMessages, postAnswer,
+  getBook, getMessages, postAnswer, getAgentStatus,
   startPlanning, startWriting, startEditing, startContinuityCheck
 } from '../api'
 import { useBookHub } from '../hooks/useBookHub'
+
+// Attempt to extract chapter plan entries from partial JSON
+function parsePlanningStream(raw: string): { number: number; title: string; outline: string }[] {
+  const results: { number: number; title: string; outline: string }[] = []
+  // Match complete objects: { "number": N, "title": "...", "outline": "..." }
+  const re = /\{\s*"number"\s*:\s*(\d+)\s*,\s*"title"\s*:\s*"([^"\\]*)"\s*,\s*"outline"\s*:\s*"([^"\\]*)"\s*\}/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(raw)) !== null) {
+    results.push({ number: +m[1], title: m[2], outline: m[3] })
+  }
+  return results
+}
 
 export default function BookDetail() {
   const { id } = useParams<{ id: string }>()
@@ -16,8 +28,10 @@ export default function BookDetail() {
   const [messages, setMessages] = useState<AgentMessage[]>([])
   const [activeChapter, setActiveChapter] = useState<Chapter | null>(null)
   const [streamBuffer, setStreamBuffer] = useState('')
+  const [streamingChapterId, setStreamingChapterId] = useState<number | null>(null)
   const [answerText, setAnswerText] = useState('')
   const [pendingQuestion, setPendingQuestion] = useState<AgentMessage | null>(null)
+  const [runStatus, setRunStatus] = useState<AgentRunStatus | null>(null)
   const chatBottomRef = useRef<HTMLDivElement>(null)
 
   const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated } = useBookHub(bookId)
@@ -28,21 +42,33 @@ export default function BookDetail() {
   const refreshMessages = useCallback(() =>
     getMessages(bookId).then(r => setMessages(r.data)), [bookId])
 
+  // Poll agent status on mount to restore indicator if agent was running
+  useEffect(() => {
+    getAgentStatus(bookId)
+      .then(r => setRunStatus(r.data))
+      .catch(() => {})
+  }, [bookId])
+
   useEffect(() => {
     refreshBook()
     refreshMessages()
   }, [refreshBook, refreshMessages])
 
   useEffect(() => {
-    setOnStream((_bId, _cId, token) => setStreamBuffer(prev => prev + token))
+    setOnStream((_bId, cId, token) => {
+      setStreamingChapterId(cId ?? null)
+      setStreamBuffer(prev => prev + token)
+    })
     setOnQuestion((_bId, msg) => {
       const m = msg as AgentMessage
       setPendingQuestion(m)
       setMessages(prev => [...prev, m])
     })
-    setOnStatus((_bId, _role, state) => {
-      if (state === 'Done') {
+    setOnStatus((_bId, role, state) => {
+      setRunStatus(state === 'Done' || state === 'Failed' ? null : { role, state, chapterId: undefined })
+      if (state === 'Done' || state === 'Failed') {
         setStreamBuffer('')
+        setStreamingChapterId(null)
         refreshBook()
         refreshMessages()
       }
@@ -53,6 +79,21 @@ export default function BookDetail() {
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamBuffer])
+
+  const isRunning = runStatus?.state === 'Running' || runStatus?.state === 'WaitingForInput'
+
+  const handleAgentAction = async (action: () => Promise<unknown>) => {
+    if (isRunning) return
+    try {
+      await action()
+      setRunStatus({ role: 'Unknown', state: 'Running' })
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string }; status?: number } })
+      if (msg?.response?.status === 409) {
+        alert('An agent is already running for this book.')
+      }
+    }
+  }
 
   const handleAnswer = async () => {
     if (!pendingQuestion || !answerText.trim()) return
@@ -67,6 +108,9 @@ export default function BookDetail() {
     Editing: '#a855f7', Done: '#22c55e'
   })[s] ?? '#94a3b8'
 
+  // Beautified planning preview
+  const planningChapters = parsePlanningStream(streamBuffer)
+
   if (!book) return <div className="loading">Loading…</div>
 
   return (
@@ -75,10 +119,21 @@ export default function BookDetail() {
       <aside className="sidebar">
         <Link to="/" className="back-link">← Books</Link>
         <h2>{book.title}</h2>
-        <p className="genre">{book.genre}</p>
+        <p className="genre">{book.genre} · {book.language}</p>
+
+        {isRunning && (
+          <div className="agent-running-banner">
+            <span className="spinner" /> {runStatus?.role} is {runStatus?.state === 'WaitingForInput' ? 'waiting for input…' : 'running…'}
+          </div>
+        )}
+
         <div className="agent-actions">
-          <button onClick={() => startPlanning(bookId)}>▶ Plan</button>
-          <button onClick={() => startContinuityCheck(bookId)}>⚖ Continuity</button>
+          <button disabled={isRunning} onClick={() => handleAgentAction(() => startPlanning(bookId))}>
+            ▶ Plan
+          </button>
+          <button disabled={isRunning} onClick={() => handleAgentAction(() => startContinuityCheck(bookId))}>
+            ⚖ Continuity
+          </button>
         </div>
         <ul className="chapter-list">
           {(book.chapters ?? []).map(c => (
@@ -106,8 +161,8 @@ export default function BookDetail() {
             <div className="chapter-header">
               <h2>Chapter {activeChapter.number}: {activeChapter.title}</h2>
               <div className="chapter-actions">
-                <button onClick={() => startWriting(bookId, activeChapter.id)}>✍ Write</button>
-                <button onClick={() => startEditing(bookId, activeChapter.id)}>✏ Edit</button>
+                <button disabled={isRunning} onClick={() => handleAgentAction(() => startWriting(bookId, activeChapter.id))}>✍ Write</button>
+                <button disabled={isRunning} onClick={() => handleAgentAction(() => startEditing(bookId, activeChapter.id))}>✏ Edit</button>
               </div>
             </div>
             {activeChapter.outline && (
@@ -121,7 +176,7 @@ export default function BookDetail() {
               ) : (
                 <p className="empty">No content yet. Click Write to generate.</p>
               )}
-              {streamBuffer && (
+              {streamBuffer && streamingChapterId === activeChapter.id && (
                 <div className="stream-preview">
                   <ReactMarkdown>{streamBuffer}</ReactMarkdown>
                 </div>
@@ -132,10 +187,27 @@ export default function BookDetail() {
           <div className="book-overview">
             <h2>{book.title}</h2>
             <p><strong>Premise:</strong> {book.premise}</p>
-            <p><strong>Genre:</strong> {book.genre} · <strong>Target chapters:</strong> {book.targetChapterCount}</p>
-            {streamBuffer && (
-              <div className="stream-preview">
-                <pre>{streamBuffer}</pre>
+            <p><strong>Genre:</strong> {book.genre} · <strong>Language:</strong> {book.language} · <strong>Target chapters:</strong> {book.targetChapterCount}</p>
+
+            {isRunning && runStatus?.role === 'Planner' && streamBuffer && (
+              <div className="planning-preview">
+                <h3>Planning in progress…</h3>
+                {planningChapters.length > 0 ? (
+                  <div className="plan-chapters">
+                    {planningChapters.map(c => (
+                      <div key={c.number} className="plan-chapter-card">
+                        <span className="plan-ch-num">Ch. {c.number}</span>
+                        <div>
+                          <strong>{c.title}</strong>
+                          <p>{c.outline}</p>
+                        </div>
+                      </div>
+                    ))}
+                    <p className="plan-partial-hint">Building chapter plan…</p>
+                  </div>
+                ) : (
+                  <div className="stream-raw"><span className="spinner" /> Generating outlines…</div>
+                )}
               </div>
             )}
           </div>

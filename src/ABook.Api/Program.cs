@@ -2,10 +2,13 @@ using ABook.Agents;
 using ABook.Api.Hubs;
 using ABook.Api.Services;
 using ABook.Core.Interfaces;
+using ABook.Core.Models;
 using ABook.Infrastructure.Data;
 using ABook.Infrastructure.Llm;
 using ABook.Infrastructure.Repositories;
 using ABook.Infrastructure.VectorStore;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Qdrant.Client;
 
@@ -26,21 +29,52 @@ builder.Services.AddSingleton<IVectorStoreService, QdrantVectorStoreService>();
 
 // ── Core services ─────────────────────────────────────────────────────────────
 builder.Services.AddScoped<IBookRepository, BookRepository>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddSingleton<ILlmProviderFactory, LlmProviderFactory>();
+builder.Services.AddScoped<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>();
+builder.Services.AddHttpClient("ollama");
+
+// ── Auth (cookie-based, SPA-friendly) ─────────────────────────────────────────
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(o =>
+    {
+        o.Cookie.SameSite = SameSiteMode.Strict;
+        o.Cookie.HttpOnly = true;
+        o.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+        o.Events.OnRedirectToLogin = ctx =>
+        {
+            ctx.Response.StatusCode = 401;
+            return Task.CompletedTask;
+        };
+        o.Events.OnRedirectToAccessDenied = ctx =>
+        {
+            ctx.Response.StatusCode = 403;
+            return Task.CompletedTask;
+        };
+    });
+builder.Services.AddAuthorization();
 
 // ── SignalR ───────────────────────────────────────────────────────────────────
 builder.Services.AddSignalR();
 builder.Services.AddScoped<IBookNotifier, SignalRBookNotifier>();
 
 // ── Agents ────────────────────────────────────────────────────────────────────
-builder.Services.AddScoped<PlannerAgent>();
-builder.Services.AddScoped<WriterAgent>();
-builder.Services.AddScoped<EditorAgent>();
-builder.Services.AddScoped<ContinuityCheckerAgent>();
-builder.Services.AddScoped<IAgentOrchestrator, AgentOrchestrator>();
+builder.Services.AddSingleton<ABook.Agents.AgentRunStateService>();
+builder.Services.AddScoped<ABook.Agents.PlannerAgent>();
+builder.Services.AddScoped<ABook.Agents.WriterAgent>();
+builder.Services.AddScoped<ABook.Agents.EditorAgent>();
+builder.Services.AddScoped<ABook.Agents.ContinuityCheckerAgent>();
+builder.Services.AddScoped<IAgentOrchestrator, ABook.Agents.AgentOrchestrator>();
 
 // ── API ───────────────────────────────────────────────────────────────────────
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(o =>
+    {
+        o.JsonSerializerOptions.ReferenceHandler =
+            System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+        o.JsonSerializerOptions.Converters.Add(
+            new System.Text.Json.Serialization.JsonStringEnumConverter());
+    });
 
 // ── CORS (dev: allow Vite dev server) ─────────────────────────────────────────
 builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
@@ -59,6 +93,8 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseCors();
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapControllers();
@@ -68,8 +104,3 @@ app.MapHub<BookHub>("/hubs/book");
 app.MapFallbackToFile("index.html");
 
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}

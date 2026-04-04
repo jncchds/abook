@@ -5,7 +5,7 @@ namespace ABook.Agents;
 
 /// <summary>
 /// Manages agent run lifecycle. Delegates to individual agents and
-/// tracks per-book run state in memory (survives within the app session).
+/// tracks per-book run state via the singleton AgentRunStateService.
 /// </summary>
 public class AgentOrchestrator : IAgentOrchestrator
 {
@@ -14,125 +14,113 @@ public class AgentOrchestrator : IAgentOrchestrator
     private readonly WriterAgent _writer;
     private readonly EditorAgent _editor;
     private readonly ContinuityCheckerAgent _continuity;
-
-    // bookId -> current run state, for status queries
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, AgentRunStatus> _status = new();
-
-    // bookId -> pending question answer (TaskCompletionSource keyed by messageId)
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, (int MessageId, TaskCompletionSource<string> Tcs)> _pending = new();
+    private readonly AgentRunStateService _state;
 
     public AgentOrchestrator(
         IBookRepository repo,
         PlannerAgent planner,
         WriterAgent writer,
         EditorAgent editor,
-        ContinuityCheckerAgent continuity)
+        ContinuityCheckerAgent continuity,
+        AgentRunStateService state)
     {
         _repo = repo;
         _planner = planner;
         _writer = writer;
         _editor = editor;
         _continuity = continuity;
+        _state = state;
     }
 
     public async Task StartPlanningAsync(int bookId, CancellationToken ct = default)
     {
-        _status[bookId] = new AgentRunStatus(AgentRole.Planner, "Running", null);
+        if (!_state.TryStartRun(bookId, AgentRole.Planner, null))
+            throw new InvalidOperationException("An agent is already running for this book.");
         try
         {
             await _planner.PlanAsync(bookId, ct);
-            _status[bookId] = new AgentRunStatus(AgentRole.Planner, "Done", null);
+            _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, "Done", null));
         }
         catch
         {
-            _status[bookId] = new AgentRunStatus(AgentRole.Planner, "Failed", null);
+            _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, "Failed", null));
             throw;
         }
     }
 
     public async Task StartWritingAsync(int bookId, int chapterId, CancellationToken ct = default)
     {
-        _status[bookId] = new AgentRunStatus(AgentRole.Writer, "Running", chapterId);
+        if (!_state.TryStartRun(bookId, AgentRole.Writer, chapterId))
+            throw new InvalidOperationException("An agent is already running for this book.");
         try
         {
             await _writer.WriteAsync(bookId, chapterId, ct);
-            _status[bookId] = new AgentRunStatus(AgentRole.Writer, "Done", chapterId);
+            _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Writer, "Done", chapterId));
         }
         catch
         {
-            _status[bookId] = new AgentRunStatus(AgentRole.Writer, "Failed", chapterId);
+            _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Writer, "Failed", chapterId));
             throw;
         }
     }
 
     public async Task StartEditingAsync(int bookId, int chapterId, CancellationToken ct = default)
     {
-        _status[bookId] = new AgentRunStatus(AgentRole.Editor, "Running", chapterId);
+        if (!_state.TryStartRun(bookId, AgentRole.Editor, chapterId))
+            throw new InvalidOperationException("An agent is already running for this book.");
         try
         {
             await _editor.EditAsync(bookId, chapterId, ct);
-            _status[bookId] = new AgentRunStatus(AgentRole.Editor, "Done", chapterId);
+            _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Editor, "Done", chapterId));
         }
         catch
         {
-            _status[bookId] = new AgentRunStatus(AgentRole.Editor, "Failed", chapterId);
+            _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Editor, "Failed", chapterId));
             throw;
         }
     }
 
     public async Task StartContinuityCheckAsync(int bookId, CancellationToken ct = default)
     {
-        _status[bookId] = new AgentRunStatus(AgentRole.ContinuityChecker, "Running", null);
+        if (!_state.TryStartRun(bookId, AgentRole.ContinuityChecker, null))
+            throw new InvalidOperationException("An agent is already running for this book.");
         try
         {
             await _continuity.CheckAsync(bookId, ct);
-            _status[bookId] = new AgentRunStatus(AgentRole.ContinuityChecker, "Done", null);
+            _state.SetStatus(bookId, new AgentRunStatus(AgentRole.ContinuityChecker, "Done", null));
         }
         catch
         {
-            _status[bookId] = new AgentRunStatus(AgentRole.ContinuityChecker, "Failed", null);
+            _state.SetStatus(bookId, new AgentRunStatus(AgentRole.ContinuityChecker, "Failed", null));
             throw;
         }
     }
 
     public async Task ResumeWithAnswerAsync(int messageId, string answer, CancellationToken ct = default)
     {
-        var message = (await _repo.GetMessagesAsync(0))  // Loaded below per-message
-            .FirstOrDefault();
+        // Find the message to get bookId
+        var messages = await _repo.FindMessageByIdAsync(messageId);
+        if (messages is null) return;
 
-        // Find the message directly by ID via a helper query ─ we look through all pending
-        foreach (var kv in _pending)
+        // Mark message resolved in DB
+        messages.IsResolved = true;
+        await _repo.UpdateMessageAsync(messages);
+
+        // Persist answer
+        await _repo.AddMessageAsync(new AgentMessage
         {
-            if (kv.Value.MessageId == messageId)
-            {
-                var msg = new AgentMessage { Id = messageId };
-                msg.Content = answer;
-                msg.IsResolved = true;
-                // Resolve the pending TCS
-                kv.Value.Tcs.TrySetResult(answer);
+            BookId = messages.BookId,
+            ChapterId = messages.ChapterId,
+            AgentRole = messages.AgentRole,
+            MessageType = MessageType.Answer,
+            Content = answer,
+            IsResolved = true
+        });
 
-                // Persist the answer message
-                // (bookId retrieved from _status)
-                if (_status.TryGetValue(kv.Key, out var run))
-                {
-                    await _repo.AddMessageAsync(new AgentMessage
-                    {
-                        BookId = kv.Key,
-                        ChapterId = run.ChapterId,
-                        AgentRole = run.Role,
-                        MessageType = MessageType.Answer,
-                        Content = answer,
-                        IsResolved = true
-                    });
-                }
-                return;
-            }
-        }
+        // Unblock the waiting agent
+        _state.TryResolvePending(messages.BookId, messageId, answer);
     }
 
-    public Task<AgentRunStatus?> GetRunStatusAsync(int bookId)
-    {
-        _status.TryGetValue(bookId, out var status);
-        return Task.FromResult(status);
-    }
+    public Task<AgentRunStatus?> GetRunStatusAsync(int bookId) =>
+        Task.FromResult(_state.GetStatus(bookId));
 }

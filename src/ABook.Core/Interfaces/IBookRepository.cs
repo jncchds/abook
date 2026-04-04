@@ -4,7 +4,7 @@ namespace ABook.Core.Interfaces;
 
 public interface IBookRepository
 {
-    Task<IEnumerable<Book>> GetAllAsync();
+    Task<IEnumerable<Book>> GetAllAsync(int? userId = null);
     Task<Book?> GetByIdAsync(int id);
     Task<Book?> GetByIdWithDetailsAsync(int id);
     Task<Book> AddAsync(Book book);
@@ -17,9 +17,11 @@ public interface IBookRepository
     Task UpdateChapterAsync(Chapter chapter);
 
     Task<IEnumerable<AgentMessage>> GetMessagesAsync(int bookId, int? chapterId = null);
+    Task<AgentMessage?> FindMessageByIdAsync(int messageId);
     Task<AgentMessage> AddMessageAsync(AgentMessage message);
     Task UpdateMessageAsync(AgentMessage message);
 
     Task<LlmConfiguration?> GetLlmConfigAsync(int? bookId);
     Task<LlmConfiguration> UpsertLlmConfigAsync(LlmConfiguration config);
 }
+

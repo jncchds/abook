@@ -37,14 +37,17 @@ public class ContinuityCheckerAgent : AgentBase
             $"Chapter {c.Number}: {c.Title}\nOutline: {c.Outline}\nContent excerpt: {c.Content[..Math.Min(500, c.Content.Length)]}..."));
 
         var history = new ChatHistory();
-        history.AddSystemMessage($"""
+        var systemPrompt = !string.IsNullOrWhiteSpace(book.ContinuityCheckerSystemPrompt)
+            ? book.ContinuityCheckerSystemPrompt
+            : $"""
             You are a Continuity Checker for fiction manuscripts. Your job is to identify plot holes,
             character inconsistencies, timeline errors, and factual contradictions across chapters.
             Output a JSON array of issues, each with:
               "description" (string), "chapterNumbers" (int[]), "suggestion" (string).
             If no issues found, output an empty array [].
-            Book: {book.Title} | Genre: {book.Genre}
-            """);
+            Book: {book.Title} | Genre: {book.Genre} | Language: {book.Language}
+            """;
+        history.AddSystemMessage(systemPrompt);
 
         history.AddUserMessage($"Review these chapters for continuity issues:\n\n{synopsis}");
 

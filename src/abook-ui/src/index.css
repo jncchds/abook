@@ -106,7 +106,71 @@ label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bot
 .question-text { font-size: 0.85rem; color: var(--text); }
 
 /* ── Settings ── */
-.settings-page { max-width: 560px; }
+.settings-page { max-width: 680px; }
 .settings-page h1 { margin-bottom: 1.5rem; }
+.settings-section { margin-bottom: 2rem; }
+.settings-section h2 { margin-bottom: 0.75rem; font-size: 1.1rem; }
 .settings-form { display: flex; flex-direction: column; gap: 0; }
 .saved-msg { color: var(--success); font-size: 0.85rem; margin-top: 0.5rem; }
+.hint { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.75rem; }
+details summary { cursor: pointer; color: var(--accent); font-size: 0.875rem; margin-bottom: 0.75rem; }
+details[open] summary { margin-bottom: 1rem; }
+
+/* Model selector */
+.model-selector { display: flex; flex-direction: column; gap: 0.4rem; }
+
+/* Ollama pull */
+.pull-section { }
+.pull-row { display: flex; gap: 0.5rem; align-items: center; }
+.pull-row input { flex: 1; }
+.pull-row button { flex-shrink: 0; }
+.pull-status { font-size: 0.82rem; color: var(--text-muted); margin-top: 0.5rem; }
+
+/* ── Login page ── */
+.login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.login-card { width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 1rem; }
+.login-card h1 { font-size: 2rem; font-weight: 700; text-align: center; }
+.login-card h2 { font-size: 1.25rem; text-align: center; color: var(--text-muted); }
+.login-card form { display: flex; flex-direction: column; gap: 0.75rem; }
+.login-card button[type=submit] { width: 100%; padding: 0.6rem; font-size: 1rem; margin-top: 0.25rem; }
+.setup-hint { font-size: 0.82rem; color: var(--text-muted); text-align: center; }
+.error-msg { color: var(--danger); font-size: 0.85rem; }
+
+/* ── Dashboard header actions ── */
+.header-actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.btn { display: inline-block; background: var(--accent); color: #fff; border-radius: 6px; padding: 0.4rem 0.9rem; font-size: 0.875rem; }
+.btn:hover { background: var(--accent-hover); color: #fff; }
+.btn-secondary { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+.btn-secondary:hover { background: var(--surface); color: var(--text); }
+
+/* ── Agent running indicator ── */
+.agent-running-banner { background: rgba(245,158,11,0.12); border: 1px solid var(--warning); border-radius: 6px; padding: 0.4rem 0.7rem; font-size: 0.8rem; color: var(--warning); display: flex; align-items: center; gap: 0.5rem; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.2); border-top-color: currentColor; border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button:disabled:hover { background: var(--accent); }
+
+/* ── Planning preview ── */
+.planning-preview { margin-top: 1.5rem; }
+.planning-preview h3 { font-size: 1rem; color: var(--text-muted); margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+.plan-chapters { display: flex; flex-direction: column; gap: 0.65rem; }
+.plan-chapter-card { display: flex; gap: 0.75rem; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; }
+.plan-ch-num { font-weight: 700; color: var(--accent); min-width: 3rem; font-size: 0.85rem; padding-top: 0.1rem; }
+.plan-chapter-card strong { display: block; font-size: 0.95rem; margin-bottom: 0.25rem; }
+.plan-chapter-card p { font-size: 0.82rem; color: var(--text-muted); line-height: 1.5; }
+.plan-partial-hint { font-size: 0.78rem; color: var(--text-muted); text-align: center; padding: 0.5rem; }
+.stream-raw { color: var(--text-muted); font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; padding: 1rem; }
+
+/* ── Admin Users table ── */
+.users-table { overflow-x: auto; }
+.users-table table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.users-table th, .users-table td { padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); text-align: left; }
+.users-table th { color: var(--text-muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; }
+.badge { font-size: 0.7rem; background: var(--accent); color: #fff; border-radius: 4px; padding: 0.1rem 0.35rem; margin-left: 0.3rem; }
+.role-badge { font-size: 0.75rem; padding: 0.2rem 0.5rem; border-radius: 4px; cursor: pointer; }
+.role-badge.admin { background: rgba(99,102,241,0.2); color: #818cf8; border: 1px solid #4f46e5; }
+.role-badge.user { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+.pwd-edit { display: flex; gap: 0.4rem; align-items: center; }
+.pwd-edit input { width: 140px; }
+.checkbox-label { display: flex; align-items: center; gap: 0.5rem; }
+.checkbox-label input[type=checkbox] { width: auto; margin-top: 0; }

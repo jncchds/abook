@@ -37,13 +37,17 @@ public class WriterAgent : AgentBase
             : string.Empty;
 
         var history = new ChatHistory();
-        history.AddSystemMessage($"""
+        var systemPrompt = !string.IsNullOrWhiteSpace(book.WriterSystemPrompt)
+            ? book.WriterSystemPrompt
+            : $"""
             You are a creative fiction Writer. Write compelling, immersive prose in markdown.
             Book title: {book.Title}
             Genre: {book.Genre}
             Premise: {book.Premise}
+            Write all content in {book.Language}.
             {(ragContext.Length > 0 ? $"\nRelevant context from previous chapters:\n{ragContext}" : "")}
-            """);
+            """;
+        history.AddSystemMessage(systemPrompt);
 
         history.AddUserMessage($"""
             Write the full content for:

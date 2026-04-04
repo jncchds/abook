@@ -1,3 +1,4 @@
+using ABook.Agents;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.AspNetCore.Mvc;
@@ -8,42 +9,82 @@ namespace ABook.Api.Controllers;
 [Route("api/books/{bookId:int}/agent")]
 public class AgentController : ControllerBase
 {
-    private readonly IAgentOrchestrator _orchestrator;
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly AgentRunStateService _runState;
 
-    public AgentController(IAgentOrchestrator orchestrator) => _orchestrator = orchestrator;
+    public AgentController(IServiceScopeFactory scopeFactory, AgentRunStateService runState)
+    {
+        _scopeFactory = scopeFactory;
+        _runState = runState;
+    }
 
     [HttpPost("plan")]
-    public async Task<IActionResult> Plan(int bookId)
+    public IActionResult Plan(int bookId)
     {
-        await _orchestrator.StartPlanningAsync(bookId);
+        var current = _runState.GetStatus(bookId);
+        if (current is { State: "Running" or "WaitingForInput" })
+            return Conflict(new { message = "An agent run is already in progress for this book." });
+
+        _ = RunInBackground(bookId, (o, ct) => o.StartPlanningAsync(bookId, ct));
         return Accepted();
     }
 
     [HttpPost("write/{chapterId:int}")]
-    public async Task<IActionResult> Write(int bookId, int chapterId)
+    public IActionResult Write(int bookId, int chapterId)
     {
-        await _orchestrator.StartWritingAsync(bookId, chapterId);
+        var current = _runState.GetStatus(bookId);
+        if (current is { State: "Running" or "WaitingForInput" })
+            return Conflict(new { message = "An agent run is already in progress for this book." });
+
+        _ = RunInBackground(bookId, (o, ct) => o.StartWritingAsync(bookId, chapterId, ct));
         return Accepted();
     }
 
     [HttpPost("edit/{chapterId:int}")]
-    public async Task<IActionResult> Edit(int bookId, int chapterId)
+    public IActionResult Edit(int bookId, int chapterId)
     {
-        await _orchestrator.StartEditingAsync(bookId, chapterId);
+        var current = _runState.GetStatus(bookId);
+        if (current is { State: "Running" or "WaitingForInput" })
+            return Conflict(new { message = "An agent run is already in progress for this book." });
+
+        _ = RunInBackground(bookId, (o, ct) => o.StartEditingAsync(bookId, chapterId, ct));
         return Accepted();
     }
 
     [HttpPost("continuity")]
-    public async Task<IActionResult> Continuity(int bookId)
+    public IActionResult Continuity(int bookId)
     {
-        await _orchestrator.StartContinuityCheckAsync(bookId);
+        var current = _runState.GetStatus(bookId);
+        if (current is { State: "Running" or "WaitingForInput" })
+            return Conflict(new { message = "An agent run is already in progress for this book." });
+
+        _ = RunInBackground(bookId, (o, ct) => o.StartContinuityCheckAsync(bookId, ct));
         return Accepted();
     }
 
     [HttpGet("status")]
-    public async Task<IActionResult> Status(int bookId)
+    public IActionResult Status(int bookId)
     {
-        var status = await _orchestrator.GetRunStatusAsync(bookId);
+        var status = _runState.GetStatus(bookId);
         return status is null ? NoContent() : Ok(status);
     }
+
+    private async Task RunInBackground(int bookId, Func<IAgentOrchestrator, CancellationToken, Task> action)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var orchestrator = scope.ServiceProvider.GetRequiredService<IAgentOrchestrator>();
+        try
+        {
+            await action(orchestrator, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            // Logged by the orchestrator; ensure state isn't stuck on Running
+            var current = _runState.GetStatus(bookId);
+            if (current is { State: "Running" })
+                _runState.SetStatus(bookId, new AgentRunStatus(current.Role, "Failed", current.ChapterId));
+            _ = ex; // suppress unobserved task warning
+        }
+    }
 }
+

@@ -11,8 +11,13 @@ public class BookRepository : IBookRepository
 
     public BookRepository(AppDbContext db) => _db = db;
 
-    public async Task<IEnumerable<Book>> GetAllAsync() =>
-        await _db.Books.OrderByDescending(b => b.UpdatedAt).ToListAsync();
+    public async Task<IEnumerable<Book>> GetAllAsync(int? userId = null)
+    {
+        var query = _db.Books.AsQueryable();
+        if (userId.HasValue)
+            query = query.Where(b => b.UserId == userId || b.UserId == null);
+        return await query.OrderByDescending(b => b.UpdatedAt).ToListAsync();
+    }
 
     public async Task<Book?> GetByIdAsync(int id) =>
         await _db.Books.FindAsync(id);
@@ -84,6 +89,9 @@ public class BookRepository : IBookRepository
         await _db.SaveChangesAsync();
         return message;
     }
+
+    public async Task<AgentMessage?> FindMessageByIdAsync(int messageId) =>
+        await _db.AgentMessages.FindAsync(messageId);
 
     public async Task UpdateMessageAsync(AgentMessage message)
     {

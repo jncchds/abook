@@ -11,10 +11,19 @@ public class AppDbContext : DbContext
     public DbSet<Chapter> Chapters => Set<Chapter>();
     public DbSet<AgentMessage> AgentMessages => Set<AgentMessage>();
     public DbSet<LlmConfiguration> LlmConfigurations => Set<LlmConfiguration>();
+    public DbSet<AppUser> Users => Set<AppUser>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<AppUser>(u =>
+        {
+            u.HasKey(x => x.Id);
+            u.HasIndex(x => x.Username).IsUnique();
+            u.Property(x => x.Username).IsRequired().HasMaxLength(100);
+            u.Property(x => x.PasswordHash).IsRequired();
+        });
 
         modelBuilder.Entity<Book>(b =>
         {
@@ -23,6 +32,12 @@ public class AppDbContext : DbContext
             b.Property(x => x.Premise).IsRequired();
             b.Property(x => x.Genre).HasMaxLength(100);
             b.Property(x => x.Status).HasConversion<string>();
+            b.Property(x => x.Language).HasMaxLength(100).HasDefaultValue("English");
+            b.HasOne(x => x.User)
+             .WithMany(x => x.Books)
+             .HasForeignKey(x => x.UserId)
+             .OnDelete(DeleteBehavior.SetNull)
+             .IsRequired(false);
         });
 
         modelBuilder.Entity<Chapter>(c =>
