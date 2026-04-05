@@ -5,13 +5,14 @@ ABook is a self-hosted web application that uses AI agents to collaboratively wr
 ## Features
 
 - **Four collaborative agents** working through the book pipeline (Plan → Write → Edit → Continuity Check)
-- **Human-in-the-loop** — agents pause and ask you plot/character questions before proceeding
-- **Real-time streaming** — watch chapters being written token by token via SignalR
+- **Human-in-the-loop** — agents pause and ask you plot/character questions before proceeding; Writer can emit `[ASK: question]` mid-generation to request input on pivotal decisions
+- **Real-time streaming** — watch chapters being written token by token via SignalR, with live token statistics
 - **RAG context retrieval** — agents query relevant prior chapters via Qdrant vector embeddings to stay consistent across long books
-- **Pluggable LLM backend** — Ollama (default, local), LM Studio, OpenAI, Azure OpenAI, or Anthropic; configurable per-book
-- **Per-book customization** — language, genre, and per-agent system prompt overrides
+- **Pluggable LLM backend** — Ollama (default, local), LM Studio, OpenAI, Azure OpenAI, or Anthropic; configurable globally, per-user, or per-book
+- **Per-book customization** — language, genre, and per-agent system prompt overrides with supported template tokens
+- **Inline editing** — edit book metadata, chapter titles/outlines, and add chapters manually without leaving the detail page
 - **Multi-user** — cookie-based authentication with admin role for user management
-- **Ollama model management** — browse installed models, pull new ones with live progress
+- **Ollama/LM Studio model management** — browse installed models, pull new ones with live progress
 - **HTML export** — download finished books with 6 colour themes and adjustable font size
 - **Fully containerized** — single `docker-compose up` starts everything
 
@@ -146,23 +147,23 @@ Configurations can be set globally, per-user, or per-book. The lookup order is: 
 User creates book (title, premise, genre)
          │
          ▼
-  [Planner Agent] ──asks─→ "Any specific plot directions?"
+  [Planner Agent] — generates chapter outlines from book metadata
          │ chapter outlines
          ▼
   For each chapter:
-  [Writer Agent]  ──asks─→ "How should X react to Y?"
+  [Writer Agent]  ──asks─→ "How should X react to Y?"  (mid-generation [ASK:])
          │ draft prose
          ▼
   [Editor Agent]  ──asks─→ "This contradicts Ch2 — which version?"
-         │ polished chapter
+         │ polished chapter + editorial notes
          ▼
-  [Continuity Checker] — cross-chapter analysis with RAG
+  [Continuity Checker] — cross-chapter RAG analysis (per-chapter & full-book)
          │ inconsistency report
          ▼
       Done ✓
 ```
 
-Agents stream tokens via SignalR as they write. The "Write Book" button runs the full pipeline; individual stage buttons are also available.
+Agents stream tokens via SignalR as they write. **Write Book** runs the full pipeline automatically; individual stage buttons are also available on each chapter.
 
 ## Development
 
