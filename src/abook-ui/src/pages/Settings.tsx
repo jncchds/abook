@@ -3,12 +3,15 @@ import { useParams, Link } from 'react-router-dom'
 import type { LlmConfig, OllamaModel, Book, DefaultPrompts } from '../api'
 import { getLlmConfig, updateLlmConfig, updateBook, getBook, getOllamaModels, getDefaultPrompts } from '../api'
 
-const PROVIDERS = ['Ollama', 'OpenAI', 'AzureOpenAI', 'Anthropic'] as const
-const COMMON_MODELS = [
-  'llama3', 'llama3:70b', 'llama3.1', 'llama3.2', 'llama3.2:3b',
-  'mistral', 'mixtral', 'gemma2', 'gemma2:27b', 'phi3', 'phi4',
-  'qwen2.5', 'qwen2.5:14b', 'codellama', 'deepseek-r1',
-]
+const PROVIDERS = ['Ollama', 'LMStudio', 'OpenAI', 'AzureOpenAI', 'Anthropic'] as const
+
+const DEFAULT_ENDPOINTS: Record<string, string> = {
+  Ollama: 'http://host.docker.internal:11434',
+  LMStudio: 'http://host.docker.internal:1234',
+}
+
+// Providers that expose a model list endpoint
+const MODEL_LIST_PROVIDERS = new Set(['Ollama', 'LMStudio'])
 
 export default function Settings() {
   const { id } = useParams<{ id: string }>()
@@ -25,6 +28,7 @@ export default function Settings() {
     editorSystemPrompt: '', continuityCheckerSystemPrompt: ''
   })
   const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([])
+  const [modelsLoading, setModelsLoading] = useState(false)
   const [customModel, setCustomModel] = useState('')
   const [useCustomModel, setUseCustomModel] = useState(false)
   const [pullModel, setPullModel] = useState('')
@@ -34,8 +38,36 @@ export default function Settings() {
   const [defaultPrompts, setDefaultPrompts] = useState<DefaultPrompts | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
+  const fetchModels = (endpoint: string, provider?: string, currentModel?: string) => {
+    const prov = provider ?? config.provider
+    if (!MODEL_LIST_PROVIDERS.has(prov)) {
+      setOllamaModels([])
+      return
+    }
+    setModelsLoading(true)
+    getOllamaModels(endpoint, prov)
+      .then(r => {
+        setOllamaModels(r.data)
+        // If saved model isn't in the list, switch to custom mode
+        const model = currentModel ?? config.modelName
+        if (model && !r.data.some(m => m.name === model)) {
+          setUseCustomModel(true)
+          setCustomModel(model)
+        }
+      })
+      .catch(() => {
+        setOllamaModels([])
+      })
+      .finally(() => setModelsLoading(false))
+  }
+
   useEffect(() => {
-    getLlmConfig(bookId).then(r => { if (r.data) setConfig(r.data) })
+    getLlmConfig(bookId).then(r => {
+      if (r.data) {
+        setConfig(r.data)
+        fetchModels(r.data.endpoint ?? '', r.data.provider, r.data.modelName)
+      }
+    })
     if (bookId) {
       getBook(bookId).then(r => {
         setBook(r.data)
@@ -49,10 +81,7 @@ export default function Settings() {
       })
       getDefaultPrompts(bookId).then(r => setDefaultPrompts(r.data)).catch(() => {})
     }
-    // Load available Ollama models
-    getOllamaModels()
-      .then(r => setOllamaModels(r.data))
-      .catch(() => {}) // Ollama may not be running
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId])
 
   const handleSave = async (e: React.FormEvent) => {
@@ -108,7 +137,7 @@ export default function Settings() {
             const total = obj.total ? ` (${Math.round(obj.completed / obj.total * 100)}%)` : ''
             setPullStatus(status + total)
             if (status === 'success') {
-              getOllamaModels().then(r => setOllamaModels(r.data)).catch(() => {})
+              fetchModels(config.endpoint, config.provider)
             }
           } catch { /* skip malformed */ }
         }
@@ -119,10 +148,7 @@ export default function Settings() {
     }
   }
 
-  const allModelOptions = [
-    ...ollamaModels.map(m => m.name),
-    ...COMMON_MODELS.filter(m => !ollamaModels.some(om => om.name === m)),
-  ]
+  const fetchedModelNames = ollamaModels.map(m => m.name)
 
   return (
     <div className="container settings-page">
@@ -135,7 +161,17 @@ export default function Settings() {
         <form className="card settings-form" onSubmit={handleSave}>
           <label>
             Provider
-            <select value={config.provider} onChange={e => setConfig(c => ({ ...c, provider: e.target.value }))}>
+            <select value={config.provider} onChange={e => {
+              const prov = e.target.value
+              const defaultEndpoint = DEFAULT_ENDPOINTS[prov] ?? ''
+              const newEndpoint = DEFAULT_ENDPOINTS[config.provider] === config.endpoint
+                ? defaultEndpoint
+                : config.endpoint
+              setConfig(c => ({ ...c, provider: prov, endpoint: newEndpoint }))
+              setOllamaModels([])
+              setUseCustomModel(false)
+              fetchModels(newEndpoint, prov)
+            }}>
               {PROVIDERS.map(p => <option key={p}>{p}</option>)}
             </select>
           </label>
@@ -149,9 +185,10 @@ export default function Settings() {
                   else { setUseCustomModel(false); setConfig(c => ({ ...c, modelName: e.target.value })) }
                 }}
               >
-                {allModelOptions.map(m => (
-                  <option key={m} value={m}>{m}{ollamaModels.some(om => om.name === m) ? ' ✓' : ''}</option>
-                ))}
+                {fetchedModelNames.length === 0 && !useCustomModel && (
+                  <option value={config.modelName}>{config.modelName || '— no models fetched —'}</option>
+                )}
+                {fetchedModelNames.map(m => <option key={m} value={m}>{m}</option>)}
                 <option value="__custom__">— Custom model name —</option>
               </select>
               {useCustomModel && (
@@ -161,11 +198,21 @@ export default function Settings() {
                   onChange={e => setCustomModel(e.target.value)}
                 />
               )}
+              {modelsLoading && <span className="hint">Loading…</span>}
             </div>
           </label>
           <label>
             Endpoint
-            <input value={config.endpoint} onChange={e => setConfig(c => ({ ...c, endpoint: e.target.value }))} required />
+            <div className="endpoint-row">
+              <input value={config.endpoint} onChange={e => setConfig(c => ({ ...c, endpoint: e.target.value }))} required />
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                title="Refresh model list from this endpoint"
+              onClick={() => fetchModels(config.endpoint, config.provider)}
+                disabled={modelsLoading}
+              >{modelsLoading ? '…' : '↺ Refresh'}</button>
+            </div>
           </label>
           <label>
             Embedding Model
@@ -180,7 +227,7 @@ export default function Settings() {
         </form>
       </section>
 
-      {/* Ollama model pull */}
+      {/* Ollama model pull — only relevant for Ollama */}
       {config.provider === 'Ollama' && (
         <section className="settings-section">
           <h2>Pull Ollama Model</h2>

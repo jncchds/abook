@@ -8,7 +8,7 @@ ABook is a self-hosted web application that uses AI agents to collaboratively wr
 - **Human-in-the-loop** — agents pause and ask you plot/character questions before proceeding
 - **Real-time streaming** — watch chapters being written token by token via SignalR
 - **RAG context retrieval** — agents query relevant prior chapters via Qdrant vector embeddings to stay consistent across long books
-- **Pluggable LLM backend** — Ollama (default, local), OpenAI, Azure OpenAI, or Anthropic; configurable per-book
+- **Pluggable LLM backend** — Ollama (default, local), LM Studio, OpenAI, Azure OpenAI, or Anthropic; configurable per-book
 - **Per-book customization** — language, genre, and per-agent system prompt overrides
 - **Multi-user** — cookie-based authentication with admin role for user management
 - **Ollama model management** — browse installed models, pull new ones with live progress
@@ -133,6 +133,7 @@ Configure the LLM backend in the app's **Settings** page or via the API:
 | Provider | Notes |
 |---|---|
 | **Ollama** | Default. Runs locally; `host.docker.internal` resolves to the host from inside Docker. |
+| **LM Studio** | OpenAI-compatible local server. Default endpoint `http://host.docker.internal:1234`. API key defaults to `lm-studio`. |
 | **OpenAI** | Provide API key and model name (e.g. `gpt-4o`). |
 | **Azure OpenAI** | Provide endpoint, deployment name, and API key. |
 | **Anthropic** | Provide API key and model name (e.g. `claude-3-5-sonnet`). |

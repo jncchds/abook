@@ -221,7 +221,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **.NET 10** (latest; Docker images `mcr.microsoft.com/dotnet/sdk:10.0` + `aspnet:10.0`)
 - **`.slnx` solution format** — requires .NET 9+ SDK (XML-based, lighter than classic `.sln`)
 - **Ollama accessed via host.docker.internal** — not containerized, user manages it externally
-- **LLM provider is pluggable** — abstracted behind `ILlmProviderFactory`, configured per-book or globally
+- **LLM provider is pluggable** — abstracted behind `ILlmProviderFactory`, configured per-book or globally; supported: Ollama, LMStudio, OpenAI, AzureOpenAI, Anthropic
 - **SK Ollama connector** is alpha (`Microsoft.SemanticKernel.Connectors.Ollama` 1.x-alpha); suppress `SKEXP0070` pragma
 - **Agents use Semantic Kernel function calling** for the "ask question" tool — agent invokes a `AskUser` function which triggers the pause mechanism
 - **Agent runs are fire-and-forget** — `AgentController` returns 202 immediately; `AgentRunStateService` singleton tracks state; duplicate run returns 409
@@ -237,7 +237,9 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **Default system prompts API**: `GET /api/books/{id}/default-prompts` returns pre-interpolated default prompts (using book's title/genre/language). Settings page fetches these and shows a "Load Defaults" button that pre-fills empty textarea fields. Placeholders also show the default text.
 - **Migration**: `AddUserLlmConfig` adds nullable `UserId` FK to `LlmConfigurations` table.
 - **Qdrant cleanup**: `IVectorStoreService.DeleteCollectionAsync` drops the whole book collection; called by `BooksController.Delete` (non-fatal). `ChaptersController.Update` calls `DeleteChapterChunksAsync` when content is cleared to empty (e.g. the "Clear" button in the UI).
-- **"Clear" chapter button**: shown in the chapter header whenever content exists (hidden while an agent is running). Calls `PUT /chapters/{id}` with empty `content` and `status: Outlined`, which triggers Qdrant chunk cleanup. `clearChapterContent` helper in `api.ts`.
+- **LlmProvider.LMStudio**: uses SK's OpenAI connector with a custom endpoint (`/v1`). API key defaults to `"lm-studio"` if omitted. Embedding support requires `EmbeddingModelName` to be set. Default endpoint: `http://host.docker.internal:1234`.
+- **`GET /api/ollama/models`** now accepts `?provider=` query param; when `provider=LMStudio` it queries `{endpoint}/v1/models` (OpenAI-compatible format: `{"data":[{"id":"..."}]}`). For Ollama it still queries `/api/tags`.
+- **Model list in Settings**: fetched dynamically from the configured endpoint; only Ollama and LMStudio fetch model lists. Switching provider resets endpoint to the provider's default (only if the current endpoint matches the previous provider's default).
 - **ContinuityCheckerAgent uses RAG**: runs three targeted queries (character descriptions, timeline, locations) against Qdrant before checking continuity; appends retrieved passages to the LLM prompt alongside the chapter synopsis.
 - **`StripLeadingChapterHeading` moved to `AgentBase`** (protected): both `WriterAgent` and `EditorAgent` strip LLM-added chapter headings from prose before saving. Now handles consecutive heading lines, bold-formatted headings, and ordinal word variants ("Chapter One", "Chapter Two" etc.).
 - **`InterpolateSystemPrompt` in `AgentBase`** (protected static): replaces `{TITLE}`, `{GENRE}`, `{PREMISE}`, `{LANGUAGE}`, `{CHAPTER_COUNT}` tokens in user-supplied system prompts with book data. All four agents call this when using a custom prompt.

@@ -144,4 +144,10 @@ export const getLlmConfig = (bookId?: number) =>
 export const updateLlmConfig = (data: LlmConfig) => api.put<LlmConfig>('/configuration', data)
 
 // Ollama
-export const getOllamaModels = () => api.get<OllamaModel[]>('/ollama/models')
+export const getOllamaModels = (endpoint?: string, provider?: string) => {
+  const params = new URLSearchParams()
+  if (endpoint) params.set('endpoint', endpoint)
+  if (provider) params.set('provider', provider)
+  const qs = params.toString()
+  return api.get<OllamaModel[]>('/ollama/models' + (qs ? `?${qs}` : ''))
+}

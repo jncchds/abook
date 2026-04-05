@@ -21,12 +21,33 @@ public class OllamaController : ControllerBase
         _config["Ollama:Endpoint"] ?? "http://host.docker.internal:11434";
 
     [HttpGet("models")]
-    public async Task<IActionResult> GetModels()
+    public async Task<IActionResult> GetModels([FromQuery] string? endpoint, [FromQuery] string? provider)
     {
+        var baseUrl = (endpoint ?? OllamaEndpoint).TrimEnd('/');
         try
         {
             var client = _httpClientFactory.CreateClient("ollama");
-            var resp = await client.GetAsync($"{OllamaEndpoint}/api/tags");
+
+            // LMStudio (and other OpenAI-compatible servers) expose GET /v1/models
+            if (string.Equals(provider, "LMStudio", StringComparison.OrdinalIgnoreCase))
+            {
+                var v1Url = baseUrl.TrimEnd('/');
+                if (!v1Url.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
+                    v1Url += "/v1";
+                var resp2 = await client.GetAsync($"{v1Url}/models");
+                if (!resp2.IsSuccessStatusCode)
+                    return StatusCode((int)resp2.StatusCode, new { message = "Failed to reach LM Studio." });
+                var json2 = await resp2.Content.ReadAsStringAsync();
+                using var doc2 = JsonDocument.Parse(json2);
+                var models2 = doc2.RootElement.GetProperty("data")
+                    .EnumerateArray()
+                    .Select(m => new { name = m.GetProperty("id").GetString(), size = 0L })
+                    .OrderBy(m => m.name)
+                    .ToList();
+                return Ok(models2);
+            }
+
+            var resp = await client.GetAsync($"{baseUrl}/api/tags");
             if (!resp.IsSuccessStatusCode)
                 return StatusCode((int)resp.StatusCode, new { message = "Failed to reach Ollama." });
 
@@ -45,7 +66,7 @@ public class OllamaController : ControllerBase
         }
         catch (HttpRequestException)
         {
-            return StatusCode(503, new { message = "Ollama is not reachable." });
+            return StatusCode(503, new { message = "LLM provider is not reachable." });
         }
     }
 

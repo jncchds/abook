@@ -138,6 +138,11 @@ details[open] summary { margin-bottom: 1rem; }
 /* Model selector */
 .model-selector { display: flex; flex-direction: column; gap: 0.4rem; }
 
+/* Endpoint row with refresh button */
+.endpoint-row { display: flex; gap: 0.5rem; align-items: center; }
+.endpoint-row input { flex: 1; }
+.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.8rem; flex-shrink: 0; }
+
 /* Ollama pull */
 .pull-section { }
 .pull-row { display: flex; gap: 0.5rem; align-items: center; }

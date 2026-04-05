@@ -8,4 +8,4 @@ public enum AgentRole { Planner, Writer, Editor, ContinuityChecker }
 
 public enum MessageType { Content, Question, Answer, SystemNote, Feedback }
 
-public enum LlmProvider { Ollama, OpenAI, AzureOpenAI, Anthropic }
+public enum LlmProvider { Ollama, OpenAI, AzureOpenAI, Anthropic, LMStudio }

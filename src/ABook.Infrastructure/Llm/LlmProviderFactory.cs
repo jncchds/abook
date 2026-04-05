@@ -17,6 +17,9 @@ public class LlmProviderFactory : ILlmProviderFactory
             LlmProvider.Ollama => new OllamaChatCompletionService(config.ModelName, new Uri(config.Endpoint)),
             LlmProvider.OpenAI => new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIChatCompletionService(
                 config.ModelName, config.ApiKey ?? throw new InvalidOperationException("OpenAI requires an API key.")),
+            LlmProvider.LMStudio => new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIChatCompletionService(
+                config.ModelName, config.ApiKey ?? "lm-studio",
+                endpoint: new Uri(config.Endpoint.TrimEnd('/') + "/v1")),
             _ => throw new NotSupportedException($"Provider {config.Provider} is not yet supported.")
         };
 
@@ -28,6 +31,9 @@ public class LlmProviderFactory : ILlmProviderFactory
             LlmProvider.Ollama => new OllamaTextEmbeddingGenerationService(embeddingModel, new Uri(config.Endpoint)),
             LlmProvider.OpenAI => new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAITextEmbeddingGenerationService(
                 embeddingModel, config.ApiKey ?? throw new InvalidOperationException("OpenAI requires an API key.")),
+            LlmProvider.LMStudio => new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAITextEmbeddingGenerationService(
+                embeddingModel, config.ApiKey ?? "lm-studio",
+                endpoint: new Uri(config.Endpoint.TrimEnd('/') + "/v1")),
             _ => throw new NotSupportedException($"Provider {config.Provider} is not yet supported for embeddings.")
         };
     }
@@ -47,6 +53,13 @@ public class LlmProviderFactory : ILlmProviderFactory
                 var apiKey = config.ApiKey ?? throw new InvalidOperationException("OpenAI requires an API key.");
                 builder.AddOpenAIChatCompletion(config.ModelName, apiKey);
                 builder.AddOpenAITextEmbeddingGeneration(config.EmbeddingModelName ?? "text-embedding-3-small", apiKey);
+                break;
+            case LlmProvider.LMStudio:
+                var lmKey = config.ApiKey ?? "lm-studio";
+                var lmEndpoint = new Uri(config.Endpoint.TrimEnd('/') + "/v1");
+                builder.AddOpenAIChatCompletion(config.ModelName, lmKey, endpoint: lmEndpoint);
+                if (!string.IsNullOrWhiteSpace(config.EmbeddingModelName))
+                    builder.AddOpenAITextEmbeddingGeneration(config.EmbeddingModelName, lmKey, endpoint: lmEndpoint);
                 break;
             default:
                 throw new NotSupportedException($"Provider {config.Provider} is not yet supported.");
