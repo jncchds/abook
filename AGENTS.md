@@ -236,8 +236,13 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **Default system prompts API**: `GET /api/books/{id}/default-prompts` returns pre-interpolated default prompts (using book's title/genre/language). Settings page fetches these and shows a "Load Defaults" button that pre-fills empty textarea fields. Placeholders also show the default text.
 - **Migration**: `AddUserLlmConfig` adds nullable `UserId` FK to `LlmConfigurations` table.
 - **Qdrant cleanup**: `IVectorStoreService.DeleteCollectionAsync` drops the whole book collection; called by `BooksController.Delete` (non-fatal). `ChaptersController.Update` calls `DeleteChapterChunksAsync` when content is cleared to empty (e.g. the "Clear" button in the UI).
+- **"Clear" chapter button**: shown in the chapter header whenever content exists (hidden while an agent is running). Calls `PUT /chapters/{id}` with empty `content` and `status: Outlined`, which triggers Qdrant chunk cleanup. `clearChapterContent` helper in `api.ts`.
 - **ContinuityCheckerAgent uses RAG**: runs three targeted queries (character descriptions, timeline, locations) against Qdrant before checking continuity; appends retrieved passages to the LLM prompt alongside the chapter synopsis.
-- **`StripLeadingChapterHeading` moved to `AgentBase`** (protected): both `WriterAgent` and `EditorAgent` strip LLM-added chapter headings from prose before saving.
+- **`StripLeadingChapterHeading` moved to `AgentBase`** (protected): both `WriterAgent` and `EditorAgent` strip LLM-added chapter headings from prose before saving. Now handles consecutive heading lines, bold-formatted headings, and ordinal word variants ("Chapter One", "Chapter Two" etc.).
+- **`InterpolateSystemPrompt` in `AgentBase`** (protected static): replaces `{TITLE}`, `{GENRE}`, `{PREMISE}`, `{LANGUAGE}`, `{CHAPTER_COUNT}` tokens in user-supplied system prompts with book data. All four agents call this when using a custom prompt.
+- **`GetPreviousChapterEndingAsync` in `AgentBase`** (protected): returns the last 3 paragraphs of the immediately preceding chapter. `WriterAgent` includes this in the system prompt so prose is narratively continuous even without RAG context.
+- **`EditorAgent` notes split**: uses a regex to find any `## Editorial Notes` / `## Editor's Notes` / `## Feedback` etc. heading (case-insensitive) instead of a hard string compare; more resilient to LLM phrasing variation.
+- **Settings UI placeholder hint**: the "Custom Agent System Prompts" section now shows a reference block listing all supported template tokens and reminds users that the Editor prompt must end with `## Editorial Notes`.
 
 ---
 

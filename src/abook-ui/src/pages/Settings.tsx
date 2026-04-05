@@ -214,6 +214,14 @@ export default function Settings() {
             <details>
               <summary>Custom Agent System Prompts (optional)</summary>
               <p className="hint">Leave blank to use agent defaults, or click "Load Defaults" to start editing from the defaults.</p>
+              <div className="prompt-placeholders hint">
+                <strong>Available placeholders</strong> (substituted at runtime):{' '}
+                <code>{'{TITLE}'}</code> <code>{'{GENRE}'}</code> <code>{'{PREMISE}'}</code>{' '}
+                <code>{'{LANGUAGE}'}</code> <code>{'{CHAPTER_COUNT}'}</code>
+                <br />
+                <strong>Editor prompt note:</strong> end your prompt with a section headed{' '}
+                <code>## Editorial Notes</code> — the agent will split this off and store it as feedback.
+              </div>
               {defaultPrompts && (
                 <button
                   type="button"

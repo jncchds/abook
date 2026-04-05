@@ -32,22 +32,27 @@ public class WriterAgent : AgentBase
         var kernel = await GetKernelAsync(bookId);
         var config = await Repo.GetLlmConfigAsync(bookId, book.UserId)!;
 
-        // Retrieve RAG context: prior chapter summaries
+        // Retrieve RAG context: semantically relevant passages from prior chapters
         var ragContext = chapter.Number > 1
             ? await GetRagContextAsync(bookId, chapter.Outline, 5, LlmFactory, config!)
             : string.Empty;
 
+        // Retrieve the direct ending of the previous chapter for narrative continuity
+        var prevEnding = await GetPreviousChapterEndingAsync(bookId, chapter.Number, paragraphCount: 3);
+
         var history = new ChatHistory();
         var systemPrompt = !string.IsNullOrWhiteSpace(book.WriterSystemPrompt)
-            ? book.WriterSystemPrompt
+            ? InterpolateSystemPrompt(book.WriterSystemPrompt, book)
             : $"""
             You are a creative fiction Writer. Write compelling, immersive prose in markdown.
             Book title: {book.Title}
             Genre: {book.Genre}
             Premise: {book.Premise}
             Write all content in {book.Language}.
-            Do NOT include a chapter heading or title — start directly with the prose.
-            {(ragContext.Length > 0 ? $"\nRelevant context from previous chapters:\n{ragContext}" : "")}
+            IMPORTANT: Do NOT begin your response with any chapter heading, title, or label.
+            Start immediately with the narrative prose (a scene, action, dialogue, or description).
+            {(ragContext.Length > 0 ? $"\nRelevant context from previous chapters (for consistency):\n{ragContext}" : "")}
+            {(prevEnding.Length > 0 ? $"\nThe previous chapter ended with:\n{prevEnding}\nContinue the story naturally from this point." : "")}
             """;
         history.AddSystemMessage(systemPrompt);
 
@@ -56,7 +61,7 @@ public class WriterAgent : AgentBase
             Chapter {chapter.Number}: {chapter.Title}
             Outline: {chapter.Outline}
 
-            Write at least 1000 words of narrative prose. Output markdown only.
+            Write at least 1000 words of narrative prose. Output markdown only. Do NOT include a chapter heading.
             """);
 
         var content = await StreamResponseAsync(kernel, history, bookId, chapterId, ct);

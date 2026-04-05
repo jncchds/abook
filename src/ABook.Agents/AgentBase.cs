@@ -118,22 +118,71 @@ public abstract class AgentBase
         catch { return string.Empty; }
     }
 
-    /// <summary>Remove any leading markdown heading the LLM added for the chapter title.</summary>
+    /// <summary>Remove any leading markdown heading(s) the LLM added for the chapter title.</summary>
     protected static string StripLeadingChapterHeading(string content, int number, string title)
     {
-        var lines = content.TrimStart().Split('\n');
-        if (lines.Length == 0) return content;
-
-        var first = lines[0].TrimStart('#', ' ').Trim();
-        var chapterPrefix = $"chapter {number}";
-        if (first.StartsWith(chapterPrefix, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(first, title, StringComparison.OrdinalIgnoreCase))
+        var lines = content.TrimStart().Split('\n').ToList();
+        // Strip consecutive heading lines that look like a chapter title (# / ## / bold / plain)
+        while (lines.Count > 0)
         {
-            int skip = 1;
-            if (lines.Length > 1 && string.IsNullOrWhiteSpace(lines[1])) skip = 2;
-            return string.Join('\n', lines.Skip(skip)).TrimStart();
+            var raw = lines[0];
+            // Normalise: remove markdown heading markers, asterisks (bold), whitespace
+            var stripped = raw.TrimStart('#', '*', ' ').TrimEnd('#', '*', ' ').Trim();
+            if (string.IsNullOrWhiteSpace(stripped)) { lines.RemoveAt(0); continue; }
+
+            var chapterPrefix = $"chapter {number}";
+            bool looksLikeHeading =
+                stripped.StartsWith(chapterPrefix, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(stripped, title, StringComparison.OrdinalIgnoreCase) ||
+                // "Chapter One", "Chapter Two" etc.
+                System.Text.RegularExpressions.Regex.IsMatch(stripped,
+                    @"^chapter\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            if (looksLikeHeading) { lines.RemoveAt(0); }
+            else break;
         }
 
-        return content;
+        return string.Join('\n', lines).TrimStart();
+    }
+
+    /// <summary>
+    /// Interpolate well-known placeholders in a user-supplied system prompt with book metadata.
+    /// Supported tokens: {TITLE}, {GENRE}, {PREMISE}, {LANGUAGE}, {CHAPTER_COUNT}, {AUTHOR_NOTES}.
+    /// </summary>
+    protected static string InterpolateSystemPrompt(string prompt, Book book) =>
+        prompt
+            .Replace("{TITLE}", book.Title ?? "")
+            .Replace("{GENRE}", book.Genre ?? "")
+            .Replace("{PREMISE}", book.Premise ?? "")
+            .Replace("{LANGUAGE}", book.Language ?? "English")
+            .Replace("{CHAPTER_COUNT}", book.TargetChapterCount.ToString());
+
+    /// <summary>
+    /// Returns the last few paragraphs of the previous chapter to give the Writer
+    /// continuity context without relying solely on RAG.
+    /// Returns empty string for chapter 1 or when no content is available.
+    /// </summary>
+    protected async Task<string> GetPreviousChapterEndingAsync(int bookId, int currentChapterNumber, int paragraphCount = 3)
+    {
+        if (currentChapterNumber <= 1) return string.Empty;
+        try
+        {
+            var chapters = await Repo.GetChaptersAsync(bookId);
+            var prev = chapters
+                .Where(c => c.Number == currentChapterNumber - 1 && !string.IsNullOrWhiteSpace(c.Content))
+                .FirstOrDefault();
+            if (prev is null) return string.Empty;
+
+            // Split into paragraphs (blank-line-separated) and take the last N
+            var paras = prev.Content!
+                .Split(["\n\n", "\r\n\r\n"], StringSplitOptions.RemoveEmptyEntries)
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .ToArray();
+
+            var tail = paras.TakeLast(paragraphCount);
+            return $"[End of Chapter {prev.Number}: {prev.Title}]\n\n" + string.Join("\n\n", tail);
+        }
+        catch { return string.Empty; }
     }
 }

@@ -43,7 +43,7 @@ public class PlannerAgent : AgentBase
 
         var history = new ChatHistory();
         var systemPrompt = !string.IsNullOrWhiteSpace(book.PlannerSystemPrompt)
-            ? book.PlannerSystemPrompt
+            ? InterpolateSystemPrompt(book.PlannerSystemPrompt, book)
             : $"""
             You are a creative writing Planner. Your task is to outline a book in detail.
             For each chapter, output a JSON array of objects with fields:

@@ -60,7 +60,7 @@ public class ContinuityCheckerAgent : AgentBase
 
         var history = new ChatHistory();
         var systemPrompt = !string.IsNullOrWhiteSpace(book.ContinuityCheckerSystemPrompt)
-            ? book.ContinuityCheckerSystemPrompt
+            ? InterpolateSystemPrompt(book.ContinuityCheckerSystemPrompt, book)
             : $"""
             You are a Continuity Checker for fiction manuscripts. Your job is to identify plot holes,
             character inconsistencies, timeline errors, and factual contradictions across chapters.

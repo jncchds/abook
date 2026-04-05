@@ -4,8 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import type { Book, Chapter, AgentMessage, AgentRunStatus } from '../api'
 import {
   getBook, getMessages, postAnswer, getAgentStatus,
-  startPlanning, startWriting, startEditing, startContinuityCheck,
-  startWorkflow, continueWorkflow, stopWorkflow, updateChapter
+  startWorkflow, continueWorkflow, stopWorkflow, clearChapterContent
 } from '../api'
 import { useBookHub } from '../hooks/useBookHub'
 import { downloadBookAsHtml } from '../utils/bookHtmlExport'
@@ -119,19 +118,6 @@ export default function BookDetail() {
 
   const isRunning = runStatus?.state === 'Running' || runStatus?.state === 'WaitingForInput'
 
-  const handleAgentAction = async (action: () => Promise<unknown>) => {
-    if (isRunning) return
-    try {
-      await action()
-      setRunStatus({ role: 'Unknown', state: 'Running' })
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string }; status?: number } })
-      if (msg?.response?.status === 409) {
-        alert('An agent is already running for this book.')
-      }
-    }
-  }
-
   const handleWriteBook = async () => {
     if (isRunning) return
     setWorkflowLog([])
@@ -166,6 +152,16 @@ export default function BookDetail() {
         alert('An agent is already running for this book.')
       }
     }
+  }
+
+  const handleClearChapter = async (chapter: Chapter) => {
+    if (!confirm(`Clear all content for Chapter ${chapter.number}: "${chapter.title}"? This cannot be undone.`)) return
+    const r = await clearChapterContent(bookId, chapter)
+    setActiveChapter(r.data)
+    setBook(prev => prev ? {
+      ...prev,
+      chapters: (prev.chapters ?? []).map(c => c.id === r.data.id ? r.data : c)
+    } : prev)
   }
 
   const handleAnswer = async () => {
@@ -211,8 +207,7 @@ export default function BookDetail() {
               )}
             </>
           )}
-          <button disabled={isRunning} onClick={() => handleAgentAction(() => startPlanning(bookId))}>Plan only</button>
-          <button disabled={isRunning} onClick={() => handleAgentAction(() => startContinuityCheck(bookId))}>Continuity</button>
+
         </div>
 
         {workflowLog.length > 0 && (
@@ -260,24 +255,15 @@ export default function BookDetail() {
           <div className="chapter-view">
             <div className="chapter-header">
               <h2>Chapter {activeChapter.number}: {activeChapter.title}</h2>
-              <div className="chapter-actions">
-                <button disabled={isRunning} onClick={() => handleAgentAction(() => startWriting(bookId, activeChapter.id))}>✍ Write</button>
-                <button disabled={isRunning} onClick={() => handleAgentAction(() => startEditing(bookId, activeChapter.id))}>✏ Edit</button>
-                {activeChapter.content?.trim() && (
-                  <button
-                    disabled={isRunning}
-                    className="btn-clear-chapter"
-                    onClick={async () => {
-                      await updateChapter(bookId, activeChapter.id, { content: '', status: 'Outlined' })
-                      await refreshBook()
-                      setActiveChapter(prev => prev ? { ...prev, content: '', status: 'Outlined' } : prev)
-                    }}
-                    title="Clear chapter content and reset to Outlined"
-                  >
-                    ✕ Clear
-                  </button>
-                )}
-              </div>
+              <span className="ch-status-badge" style={{ background: statusColor(activeChapter.status) }}>{activeChapter.status}</span>
+              {activeChapter.content?.trim() && (
+                <button
+                  className="btn-clear-chapter"
+                  disabled={isRunning}
+                  onClick={() => handleClearChapter(activeChapter)}
+                  title="Clear chapter content and reset status to Outlined"
+                >↺ Clear</button>
+              )}
             </div>
             {activeChapter.outline && (
               <div className="outline">
@@ -290,7 +276,7 @@ export default function BookDetail() {
               ) : activeChapter.content ? (
                 <ReactMarkdown>{activeChapter.content}</ReactMarkdown>
               ) : (
-                <p className="empty">No content yet. Click Write to generate.</p>
+                <p className="empty">Waiting to be written by the agents…</p>
               )}
             </div>
           </div>

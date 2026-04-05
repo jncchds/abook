@@ -32,12 +32,12 @@ public class EditorAgent : AgentBase
 
         var history = new ChatHistory();
         var systemPrompt = !string.IsNullOrWhiteSpace(book.EditorSystemPrompt)
-            ? book.EditorSystemPrompt
+            ? InterpolateSystemPrompt(book.EditorSystemPrompt, book)
             : $"""
             You are a professional fiction Editor. Your job is to improve prose quality, fix grammar,
             enhance pacing, and strengthen character voice. Preserve the author's style.
-            Output the complete improved chapter in markdown, followed by a brief
-            "## Editorial Notes" section listing key changes made.
+            Output the complete improved chapter in markdown — do NOT include a chapter heading.
+            After the prose, add a section headed exactly "## Editorial Notes" that lists key changes made.
             Book: {book.Title} | Genre: {book.Genre} | Language: {book.Language}
             """;
         history.AddSystemMessage(systemPrompt);
@@ -62,13 +62,21 @@ public class EditorAgent : AgentBase
 
         var edited = await StreamResponseAsync(kernel, history, bookId, chapterId, ct);
 
-        // Split off the editorial notes (everything after "## Editorial Notes")
-        int notesIdx = edited.IndexOf("## Editorial Notes", StringComparison.OrdinalIgnoreCase);
+        // Split off the editorial notes section.
+        // We search for the LAST occurrence of any level-2 heading that looks like notes/feedback
+        // (e.g. "## Editorial Notes", "## Editor's Notes", "## Feedback", "## Changes Made").
+        // If not found, the whole response is saved as prose.
+        var notesMatch = System.Text.RegularExpressions.Regex.Match(
+            edited,
+            @"^##\s+(editorial notes?|editor'?s? notes?|feedback|changes made|notes?|revisions?)\s*$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.Multiline);
+
         string prose;
-        if (notesIdx > 0)
+        if (notesMatch.Success)
         {
-            var notes = edited[notesIdx..];
-            prose = edited[..notesIdx].Trim();
+            var notes = edited[notesMatch.Index..];
+            prose = edited[..notesMatch.Index].Trim();
             await Repo.AddMessageAsync(new AgentMessage
             {
                 BookId = bookId,
