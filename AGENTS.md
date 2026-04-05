@@ -244,6 +244,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **`GetPreviousChapterEndingAsync` in `AgentBase`** (protected): returns the last 3 paragraphs of the immediately preceding chapter. `WriterAgent` includes this in the system prompt so prose is narratively continuous even without RAG context.
 - **`EditorAgent` notes split**: uses a regex to find any `## Editorial Notes` / `## Editor's Notes` / `## Feedback` etc. heading (case-insensitive) instead of a hard string compare; more resilient to LLM phrasing variation.
 - **Settings UI placeholder hint**: the "Custom Agent System Prompts" section now shows a reference block listing all supported template tokens and reminds users that the Editor prompt must end with `## Editorial Notes`.
+- **`ContinuityCheckerAgent.CheckAsync` focused mode**: accepts optional `int? chapterId`. When provided (per-chapter workflow), separates chapters into "preceding facts" vs "chapter under review" and instructs the LLM to report only issues *introduced by* that chapter, ignoring pre-existing issues between earlier chapters. No-id calls (final check, standalone button) retain full cross-manuscript review behaviour. `AgentOrchestrator` per-chapter call sites now pass `chapter.Id`; final checks pass null.
 
 ---
 

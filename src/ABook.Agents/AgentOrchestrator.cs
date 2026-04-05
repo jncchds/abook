@@ -130,7 +130,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                 _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapter.Id);
                 await _notifier.NotifyWorkflowProgressAsync(bookId,
                     $"Checking continuity for Chapter {chapter.Number}…", false, ct);
-                var continuityReport = await _continuity.CheckAsync(bookId, ct);
+                var continuityReport = await _continuity.CheckAsync(bookId, chapter.Id, ct);
 
                 ct.ThrowIfCancellationRequested();
 
@@ -239,7 +239,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                     _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapter.Id);
                     await _notifier.NotifyWorkflowProgressAsync(bookId,
                         $"Checking continuity for Chapter {chapter.Number}…", false, ct);
-                    continuityReport = await _continuity.CheckAsync(bookId, ct);
+                    continuityReport = await _continuity.CheckAsync(bookId, chapter.Id, ct);
                     ct.ThrowIfCancellationRequested();
                     latestStatus = (await _repo.GetChapterAsync(bookId, chapter.Id))?.Status
                         ?? latestStatus;

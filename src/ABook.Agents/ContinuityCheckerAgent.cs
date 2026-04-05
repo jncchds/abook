@@ -17,7 +17,12 @@ public class ContinuityCheckerAgent : AgentBase
         AgentRunStateService stateService)
         : base(repo, llmFactory, vectorStore, notifier, stateService) { }
 
-    public async Task<string> CheckAsync(int bookId, CancellationToken ct = default)
+    /// <summary>
+    /// Checks continuity. When <paramref name="chapterId"/> is provided, only reports issues
+    /// introduced by that chapter against the preceding ones (ignoring pre-existing issues
+    /// between earlier chapters). When null, performs a full manuscript review.
+    /// </summary>
+    public async Task<string> CheckAsync(int bookId, int? chapterId = null, CancellationToken ct = default)
     {
         var book = await Repo.GetByIdWithDetailsAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
@@ -33,9 +38,20 @@ public class ContinuityCheckerAgent : AgentBase
             return string.Empty;
         }
 
+        // Determine whether we're doing a focused check or a full review
+        var currentChapter = chapterId.HasValue
+            ? doneChapters.FirstOrDefault(c => c.Id == chapterId.Value)
+            : null;
+        var previousChapters = currentChapter != null
+            ? doneChapters.Where(c => c.Number < currentChapter.Number).ToList()
+            : doneChapters;
+        var chaptersToSummarise = currentChapter != null
+            ? doneChapters.Where(c => c.Number <= currentChapter.Number).ToList()
+            : doneChapters;
+
         // Build a compact synopsis from chapter outlines + first 800 chars of each chapter
-        var synopsis = string.Join("\n\n", doneChapters.Select(c =>
-            $"Chapter {c.Number}: {c.Title}\nOutline: {c.Outline}\nContent excerpt: {c.Content[..Math.Min(800, c.Content?.Length ?? 0)]}..."));
+        var synopsis = string.Join("\n\n", chaptersToSummarise.Select(c =>
+            $"Chapter {c.Number}: {c.Title}\nOutline: {c.Outline}\nContent excerpt: {c.Content?[..Math.Min(800, c.Content?.Length ?? 0)]}..."));
 
         // Retrieve detailed passages via RAG for continuity-sensitive topics
         var config = await Repo.GetLlmConfigAsync(bookId, book.UserId);
@@ -59,30 +75,98 @@ public class ContinuityCheckerAgent : AgentBase
         }
 
         var history = new ChatHistory();
-        var systemPrompt = !string.IsNullOrWhiteSpace(book.ContinuityCheckerSystemPrompt)
-            ? InterpolateSystemPrompt(book.ContinuityCheckerSystemPrompt, book)
-            : $"""
-            You are a Continuity Checker for fiction manuscripts. Your job is to identify plot holes,
-            character inconsistencies, timeline errors, and factual contradictions across chapters.
-            Write a concise report in plain prose. For each issue found, state the problem, which
-            chapters are affected, and a suggested fix. Group related issues together.
-            If no issues are found, write a brief summary of what was checked and confirm the
-            manuscript is consistent so far.
-            Book: {book.Title} | Genre: {book.Genre} | Language: {book.Language}
-            """;
+
+        string systemPrompt;
+        if (!string.IsNullOrWhiteSpace(book.ContinuityCheckerSystemPrompt))
+        {
+            systemPrompt = InterpolateSystemPrompt(book.ContinuityCheckerSystemPrompt, book);
+        }
+        else if (currentChapter != null)
+        {
+            // Focused mode: only flag issues introduced by the current chapter
+            systemPrompt = $"""
+                You are a Continuity Checker for fiction manuscripts. Your job is to verify that
+                the chapter under review does not contradict or conflict with what was established
+                in the preceding chapters.
+                IMPORTANT: Do NOT report issues that exist solely between the previous chapters.
+                Focus only on contradictions, inconsistencies, or continuity breaks that are
+                introduced by Chapter {currentChapter.Number} ("{currentChapter.Title}").
+                Examine character details (names, appearance, backstory), timeline and sequence
+                of events, and locations/settings.
+                Write a concise report in plain prose. For each issue found, state clearly which
+                detail in Chapter {currentChapter.Number} conflicts with what was established earlier
+                and suggest a fix. If no new issues are found, confirm that Chapter
+                {currentChapter.Number} is consistent with the material that precedes it.
+                Book: {book.Title} | Genre: {book.Genre} | Language: {book.Language}
+                """;
+        }
+        else
+        {
+            // Full review mode
+            systemPrompt = $"""
+                You are a Continuity Checker for fiction manuscripts. Your job is to identify plot holes,
+                character inconsistencies, timeline errors, and factual contradictions across chapters.
+                Write a concise report in plain prose. For each issue found, state the problem, which
+                chapters are affected, and a suggested fix. Group related issues together.
+                If no issues are found, write a brief summary of what was checked and confirm the
+                manuscript is consistent so far.
+                Book: {book.Title} | Genre: {book.Genre} | Language: {book.Language}
+                """;
+        }
         history.AddSystemMessage(systemPrompt);
 
-        var userMessage = string.IsNullOrWhiteSpace(ragContext)
-            ? $"Review these chapters for continuity issues:\n\n{synopsis}"
-            : $"""
-            Review these chapters for continuity issues.
+        string userMessage;
+        if (currentChapter != null)
+        {
+            var prevSynopsis = previousChapters.Count > 0
+                ? string.Join("\n\n", previousChapters.Select(c =>
+                    $"Chapter {c.Number}: {c.Title}\nOutline: {c.Outline}\nContent excerpt: {c.Content?[..Math.Min(600, c.Content?.Length ?? 0)]}..."))
+                : "(No preceding chapters yet.)";
 
-            ## Chapter Summaries
-            {synopsis}
+            var currentExcerpt = c =>
+                $"Chapter {currentChapter.Number}: {currentChapter.Title}\n" +
+                $"Outline: {currentChapter.Outline}\n" +
+                $"Content: {currentChapter.Content}";
 
-            ## Detailed Passages (retrieved for continuity review)
-            {ragContext}
-            """;
+            userMessage = string.IsNullOrWhiteSpace(ragContext)
+                ? $"""
+                    Check Chapter {currentChapter.Number} ("{currentChapter.Title}") for continuity issues
+                    against the preceding chapters. Do NOT report problems between the preceding chapters.
+
+                    ## Preceding Chapters (established facts)
+                    {prevSynopsis}
+
+                    ## Chapter Under Review
+                    {currentExcerpt(currentChapter)}
+                    """
+                : $"""
+                    Check Chapter {currentChapter.Number} ("{currentChapter.Title}") for continuity issues
+                    against the preceding chapters. Do NOT report problems between the preceding chapters.
+
+                    ## Preceding Chapters (established facts)
+                    {prevSynopsis}
+
+                    ## Chapter Under Review
+                    {currentExcerpt(currentChapter)}
+
+                    ## Detailed Passages (retrieved for continuity review)
+                    {ragContext}
+                    """;
+        }
+        else
+        {
+            userMessage = string.IsNullOrWhiteSpace(ragContext)
+                ? $"Review these chapters for continuity issues:\n\n{synopsis}"
+                : $"""
+                    Review these chapters for continuity issues.
+
+                    ## Chapter Summaries
+                    {synopsis}
+
+                    ## Detailed Passages (retrieved for continuity review)
+                    {ragContext}
+                    """;
+        }
         history.AddUserMessage(userMessage);
 
         var response = await StreamResponseAsync(kernel, history, bookId, null, ct);
