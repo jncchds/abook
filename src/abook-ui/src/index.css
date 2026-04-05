@@ -234,3 +234,84 @@ button:disabled:hover { background: var(--accent); }
 .pwd-edit input { width: 140px; }
 .checkbox-label { display: flex; align-items: center; gap: 0.5rem; }
 .checkbox-label input[type=checkbox] { width: auto; margin-top: 0; }
+
+/* ── Mobile navigation tabs (hidden on desktop) ── */
+.mobile-nav-tabs { display: none; }
+
+/* ── Mobile responsive ── */
+@media (max-width: 767px) {
+  .container { padding: 1rem; }
+  .header { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+  .header h1 { font-size: 1.5rem; }
+  .book-grid { grid-template-columns: 1fr; }
+
+  /* Book detail: switch from 3-column grid to full-height flex */
+  .book-detail {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .mobile-nav-tabs {
+    display: flex;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .mobile-nav-tab {
+    flex: 1;
+    padding: 0.65rem 0.4rem;
+    background: transparent !important;
+    color: var(--text-muted) !important;
+    border: none !important;
+    border-bottom: 2px solid transparent !important;
+    border-radius: 0 !important;
+    font-size: 0.78rem;
+    text-align: center;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+
+  .mobile-nav-tab.active {
+    color: var(--accent) !important;
+    border-bottom-color: var(--accent) !important;
+  }
+
+  /* Hide all three panels; only the active one is shown */
+  .book-detail > .sidebar,
+  .book-detail > .content,
+  .book-detail > .chat-panel {
+    display: none;
+    flex: 1;
+    min-height: 0;
+    border-right: none !important;
+    border-left: none !important;
+  }
+
+  .book-detail > .mobile-panel-active {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Panels that are flex containers need overflow on their scroll child */
+  .book-detail > .content.mobile-panel-active {
+    display: block;
+    overflow-y: auto;
+  }
+
+  /* Make forms and overview full-width on mobile */
+  .settings-page { max-width: 100%; }
+  .content { padding: 1rem; }
+  .book-overview { max-width: 100%; }
+  .chapter-edit-form { max-width: 100%; }
+  .book-edit-form { max-width: 100%; }
+
+  /* Login card padding */
+  .login-card { padding: 0 1rem; }
+  
+  /* Agent actions wrap better on small screens */
+  .agent-actions { flex-direction: column; }
+  .btn-primary, .btn-stop, .btn-continue { flex: none; width: 100%; }
+}

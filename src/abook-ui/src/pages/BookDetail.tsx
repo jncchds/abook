@@ -53,6 +53,9 @@ export default function BookDetail() {
   const [bookEditGenre, setBookEditGenre] = useState('')
   const [bookEditTargetChapters, setBookEditTargetChapters] = useState(0)
 
+  // Mobile panel navigation
+  const [mobilePanel, setMobilePanel] = useState<'sidebar' | 'content' | 'chat'>('content')
+
   // Add chapter manually
   const [addingChapter, setAddingChapter] = useState(false)
   const [newChapterTitle, setNewChapterTitle] = useState('')
@@ -96,6 +99,7 @@ export default function BookDetail() {
       const m = msg as AgentMessage
       setPendingQuestion(m)
       setMessages(prev => [...prev, m])
+      setMobilePanel('chat')
     })
     setOnStatus((_bId, role, state) => {
       setRunStatus(state === 'Done' || state === 'Failed' || state === 'Cancelled' ? null : { role, state, chapterId: undefined })
@@ -259,8 +263,24 @@ export default function BookDetail() {
 
   return (
     <div className="book-detail">
+      {/* Mobile tab bar (hidden on desktop via CSS) */}
+      <nav className="mobile-nav-tabs">
+        <button
+          className={`mobile-nav-tab${mobilePanel === 'sidebar' ? ' active' : ''}`}
+          onClick={() => setMobilePanel('sidebar')}
+        >≡ Nav</button>
+        <button
+          className={`mobile-nav-tab${mobilePanel === 'content' ? ' active' : ''}`}
+          onClick={() => setMobilePanel('content')}
+        >📖 Book</button>
+        <button
+          className={`mobile-nav-tab${mobilePanel === 'chat' ? ' active' : ''}`}
+          onClick={() => setMobilePanel('chat')}
+        >{pendingQuestion ? '💬 Chat ●' : '💬 Chat'}</button>
+      </nav>
+
       {/* Sidebar */}
-      <aside className="sidebar">
+      <aside className={`sidebar${mobilePanel === 'sidebar' ? ' mobile-panel-active' : ''}`}>
         <Link to="/" className="back-link">← Books</Link>
         <h2>{book.title}</h2>
         <p className="genre">{book.genre} · {book.language}</p>
@@ -349,7 +369,7 @@ export default function BookDetail() {
       </aside>
 
       {/* Main content */}
-      <main className="content">
+      <main className={`content${mobilePanel === 'content' ? ' mobile-panel-active' : ''}`}>
         {activeChapter ? (
           <div className="chapter-view">
             {editingChapter ? (
@@ -483,7 +503,7 @@ export default function BookDetail() {
       </main>
 
       {/* Chat panel */}
-      <aside className="chat-panel">
+      <aside className={`chat-panel${mobilePanel === 'chat' ? ' mobile-panel-active' : ''}`}>
         <h3>Agent Messages</h3>
         <div className="chat-messages">
           {messages.map(m => (

@@ -100,7 +100,6 @@ export function generateBookHtml(book: Book): string {
       --fg: #1a1a1a;
       --fs: 18px;
       --lh: 1.75;
-      --max-w: 740px;
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -170,8 +169,6 @@ export function generateBookHtml(book: Book): string {
       opacity: 0.6;
     }
     main {
-      max-width: var(--max-w);
-      margin: 0 auto;
       padding: 48px 24px 96px;
     }
     header.book-header {
