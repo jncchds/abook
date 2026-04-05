@@ -31,14 +31,6 @@ public class PlannerAgent : AgentBase
         // Clear existing chapters before re-planning so there are no duplicates
         await Repo.DeleteChaptersAsync(bookId);
 
-        // Ask for any user guidance before generating the outline
-        var guidance = await AskUserAndWaitAsync(
-            bookId, null, AgentRole.Planner,
-            $"I'm about to outline \"{book.Title}\" ({book.Genre}, {book.TargetChapterCount} chapters). " +
-            "Do you have any specific guidance about characters, themes, or plot direction? " +
-            "(Send an empty reply to proceed with automatic planning based on the premise.)",
-            ct);
-
         var kernel = await GetKernelAsync(bookId);
 
         var history = new ChatHistory();
@@ -58,7 +50,6 @@ public class PlannerAgent : AgentBase
             Genre: {book.Genre}
             Premise: {book.Premise}
             Target chapter count: {book.TargetChapterCount}
-            {(string.IsNullOrWhiteSpace(guidance) ? "" : $"\nUser guidance: {guidance}")}
 
             Create {book.TargetChapterCount} chapter outlines for this book.
             """);

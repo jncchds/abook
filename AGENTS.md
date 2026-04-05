@@ -49,6 +49,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 ### Writer Agent
 - Input: Chapter outline + previous chapters' summaries (for context)
 - Output: Full chapter content in markdown
+- Can pause mid-generation via `[ASK: question]` marker to ask the user about pivotal plot/character decisions; answer is fed back and generation continues
 - Can ask: "How should character Y react to event Z?"
 
 ### Editor Agent
@@ -265,5 +266,6 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **`parsePlanningStream`**: React helper that progressively parses the Planner agent's streaming JSON into chapter cards as tokens arrive
 - **`AskUserAndWaitAsync` in `AgentBase`**: creates a `TaskCompletionSource<string>`, registers it via `AgentRunStateService.SetPending`, sets status to `WaitingForInput`, then `await tcs.Task`. Unblocked by `ResumeWithAnswerAsync` (answer) or `CancelRun` (cancellation). `AgentBase` now takes `AgentRunStateService` as a constructor param.
 - **Full autonomous workflow**: `POST /api/books/{id}/agent/workflow/start` runs Plan → Write+Edit each chapter → Continuity check in sequence. Uses a `CancellationTokenSource` from `AgentRunStateService.CreateRunCts`. Stop via `POST .../workflow/stop`.
-- **`PlannerAgent` asks initial question** before generating outline; user guidance is injected into the LLM prompt. Answer is awaited via `AskUserAndWaitAsync`.
+- **`PlannerAgent`** generates outline directly from book metadata with no up-front question.
+- **`WriterAgent` mid-generation questions**: the LLM can emit `[ASK: question]` at any point while writing to pause and request the author's input on a pivotal plot/character decision. `WriteWithQuestionsAsync` loops up to 6 rounds: it streams until the marker is detected, extracts the partial prose (before the marker), calls `AskUserAndWaitAsync`, then feeds the partial prose + answer back as a new turn and resumes streaming. Works with any model — no function-calling required.
 - **`WorkflowProgress` SignalR event**: emitted by `AgentOrchestrator.StartWorkflowAsync` at each step with `(bookId, step, isComplete)`. UI accumulates steps in `workflowLog` state array shown in sidebar.

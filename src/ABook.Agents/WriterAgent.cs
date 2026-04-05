@@ -1,5 +1,7 @@
 #pragma warning disable SKEXP0001, SKEXP0010, SKEXP0070
 
+using System.Text;
+using System.Text.RegularExpressions;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using ABook.Infrastructure.VectorStore;
@@ -48,9 +50,17 @@ public class WriterAgent : AgentBase
             Book title: {book.Title}
             Genre: {book.Genre}
             Premise: {book.Premise}
+            Total chapters: {book.TargetChapterCount}
+            Current chapter: {chapter.Number} of {book.TargetChapterCount} — "{chapter.Title}"
+            Chapter outline: {chapter.Outline}
             Write all content in {book.Language}.
             IMPORTANT: Do NOT begin your response with any chapter heading, title, or label.
             Start immediately with the narrative prose (a scene, action, dialogue, or description).
+            If you reach a point where a significant plot decision, character choice, or narrative
+            direction is unclear and the author's input would meaningfully change the outcome,
+            output EXACTLY: [ASK: your question here]
+            Then stop writing. The author will answer and you will continue from that exact point.
+            Use this sparingly — only for genuinely pivotal decisions, not minor details.
             {(ragContext.Length > 0 ? $"\nRelevant context from previous chapters (for consistency):\n{ragContext}" : "")}
             {(prevEnding.Length > 0 ? $"\nThe previous chapter ended with:\n{prevEnding}\nContinue the story naturally from this point." : "")}
             """;
@@ -64,7 +74,7 @@ public class WriterAgent : AgentBase
             Write at least 1000 words of narrative prose. Output markdown only. Do NOT include a chapter heading.
             """);
 
-        var content = await StreamResponseAsync(kernel, history, bookId, chapterId, ct);
+        var content = await WriteWithQuestionsAsync(kernel, history, bookId, chapterId, chapter, ct);
 
         // Strip any leading chapter heading the LLM may have added (e.g. "# Chapter 1: Title")
         // since the UI displays title separately
@@ -81,6 +91,53 @@ public class WriterAgent : AgentBase
         try { await IndexChapterAsync(bookId, chapter, kernel, config!, ct); }
         catch (OperationCanceledException) { throw; }
         catch { /* Qdrant unavailable — RAG context will be skipped for future chapters */ }
+    }
+
+    // Detects [ASK: ...] markers the LLM emits mid-generation to request author input.
+    private static readonly Regex AskMarkerRegex = new(
+        @"\[ASK:\s*(.*?)\]",
+        RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Streams the chapter in a loop, pausing whenever the LLM emits [ASK: question].
+    /// The user's answer is fed back as a new turn and generation continues.
+    /// </summary>
+    private async Task<string> WriteWithQuestionsAsync(
+        Kernel kernel, ChatHistory history, int bookId, int chapterId, Chapter chapter, CancellationToken ct)
+    {
+        var accumulated = new StringBuilder();
+        const int maxRounds = 6; // guard against runaway loops
+
+        for (int round = 0; round < maxRounds; round++)
+        {
+            var raw = await StreamResponseAsync(kernel, history, bookId, chapterId, ct);
+
+            var match = AskMarkerRegex.Match(raw);
+            if (!match.Success)
+            {
+                accumulated.Append(raw);
+                break;
+            }
+
+            // Content written before the [ASK: ...] marker
+            var beforeQuestion = raw[..match.Index].TrimEnd();
+            var question = match.Groups[1].Value.Trim();
+            accumulated.Append(beforeQuestion);
+            if (beforeQuestion.Length > 0) accumulated.Append("\n\n");
+
+            // Pause and collect the author's answer
+            var answer = await AskUserAndWaitAsync(bookId, chapterId, AgentRole.Writer, question, ct);
+
+            // Feed partial prose + answer back into the conversation so the LLM can continue
+            history.AddAssistantMessage(beforeQuestion.Length > 0
+                ? beforeQuestion
+                : "[Writer paused to ask a question before writing this section]");
+            history.AddUserMessage(string.IsNullOrWhiteSpace(answer)
+                ? "Please continue writing the chapter."
+                : $"Author's answer: {answer}\n\nPlease continue writing the chapter from where you left off, incorporating this answer.");
+        }
+
+        return accumulated.ToString();
     }
 
     private async Task IndexChapterAsync(int bookId, Chapter chapter, Kernel kernel, LlmConfiguration config, CancellationToken ct)
