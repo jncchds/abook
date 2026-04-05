@@ -10,4 +10,5 @@ public interface IBookNotifier
     Task NotifyStatusChangedAsync(int bookId, AgentRole role, string state, CancellationToken ct = default);
     Task NotifyChapterUpdatedAsync(int bookId, int chapterId, CancellationToken ct = default);
     Task NotifyWorkflowProgressAsync(int bookId, string step, bool isComplete, CancellationToken ct = default);
+    Task NotifyTokenStatsAsync(int bookId, int? chapterId, string agentRole, int promptTokens, int completionTokens, CancellationToken ct = default);
 }

@@ -41,7 +41,7 @@ public abstract class AgentBase
 
     /// <summary>Streams LLM tokens to the book's SignalR group and accumulates the full response.</summary>
     protected async Task<string> StreamResponseAsync(
-        Kernel kernel, ChatHistory history, int bookId, int? chapterId, CancellationToken ct)
+        Kernel kernel, ChatHistory history, int bookId, int? chapterId, AgentRole role, CancellationToken ct)
     {
         var chat = kernel.GetRequiredService<IChatCompletionService>();
         var settings = new OllamaPromptExecutionSettings { Temperature = (float?)0.8f };
@@ -55,6 +55,11 @@ public abstract class AgentBase
                 await Notifier.StreamTokenAsync(bookId, chapterId, token, ct);
             }
         }
+
+        int promptTokens = history.Sum(m => (m.Content?.Length ?? 0)) / 4;
+        int completionTokens = sb.Length / 4;
+        try { await Notifier.NotifyTokenStatsAsync(bookId, chapterId, role.ToString(), promptTokens, completionTokens, ct); }
+        catch { /* non-fatal */ }
 
         return sb.ToString();
     }

@@ -169,7 +169,7 @@ public class ContinuityCheckerAgent : AgentBase
         }
         history.AddUserMessage(userMessage);
 
-        var response = await StreamResponseAsync(kernel, history, bookId, null, ct);
+        var response = await StreamResponseAsync(kernel, history, bookId, null, AgentRole.ContinuityChecker, ct);
 
         await Repo.AddMessageAsync(new AgentMessage
         {

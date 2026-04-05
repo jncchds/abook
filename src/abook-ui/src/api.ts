@@ -109,6 +109,8 @@ export const getDefaultPrompts = (bookId: number) =>
 export const getChapters = (bookId: number) => api.get<Chapter[]>(`/books/${bookId}/chapters`)
 export const getChapter = (bookId: number, chapterId: number) =>
   api.get<Chapter>(`/books/${bookId}/chapters/${chapterId}`)
+export const createChapter = (bookId: number, data: { number: number; title: string; outline: string }) =>
+  api.post<Chapter>(`/books/${bookId}/chapters`, data)
 export const updateChapter = (bookId: number, chapterId: number, data: Partial<Chapter>) =>
   api.put<Chapter>(`/books/${bookId}/chapters/${chapterId}`, data)
 export const clearChapterContent = (bookId: number, chapter: Chapter) =>

@@ -4,7 +4,8 @@ import ReactMarkdown from 'react-markdown'
 import type { Book, Chapter, AgentMessage, AgentRunStatus } from '../api'
 import {
   getBook, getMessages, postAnswer, getAgentStatus,
-  startWorkflow, continueWorkflow, stopWorkflow, clearChapterContent
+  startWorkflow, continueWorkflow, stopWorkflow, clearChapterContent,
+  createChapter, updateChapter, updateBook
 } from '../api'
 import { useBookHub } from '../hooks/useBookHub'
 import { downloadBookAsHtml } from '../utils/bookHtmlExport'
@@ -35,10 +36,32 @@ export default function BookDetail() {
   const [pendingQuestion, setPendingQuestion] = useState<AgentMessage | null>(null)
   const [runStatus, setRunStatus] = useState<AgentRunStatus | null>(null)
   const [workflowLog, setWorkflowLog] = useState<string[]>([])
+
+  // Token stats
+  interface TokenStat { id: number; chapterId: number | null; role: string; prompt: number; completion: number; time: string }
+  const [tokenStats, setTokenStats] = useState<TokenStat[]>([])
+
+  // Chapter inline editing
+  const [editingChapter, setEditingChapter] = useState(false)
+  const [chapterEditTitle, setChapterEditTitle] = useState('')
+  const [chapterEditOutline, setChapterEditOutline] = useState('')
+
+  // Book inline editing
+  const [editingBook, setEditingBook] = useState(false)
+  const [bookEditTitle, setBookEditTitle] = useState('')
+  const [bookEditPremise, setBookEditPremise] = useState('')
+  const [bookEditGenre, setBookEditGenre] = useState('')
+  const [bookEditTargetChapters, setBookEditTargetChapters] = useState(0)
+
+  // Add chapter manually
+  const [addingChapter, setAddingChapter] = useState(false)
+  const [newChapterTitle, setNewChapterTitle] = useState('')
+  const [newChapterOutline, setNewChapterOutline] = useState('')
+
   const chatBottomRef = useRef<HTMLDivElement>(null)
   const workflowLogEndRef = useRef<HTMLDivElement>(null)
 
-  const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress } = useBookHub(bookId)
+  const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats } = useBookHub(bookId)
 
   const refreshBook = useCallback(() =>
     getBook(bookId).then(r => setBook(r.data)), [bookId])
@@ -106,7 +129,17 @@ export default function BookDetail() {
         refreshMessages()
       }
     })
-  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, refreshBook, refreshMessages])
+    setOnTokenStats((_bId, cId, role, prompt, completion) => {
+      setTokenStats(prev => [...prev, {
+        id: Date.now(),
+        chapterId: cId,
+        role,
+        prompt,
+        completion,
+        time: new Date().toLocaleTimeString()
+      }])
+    })
+  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, refreshBook, refreshMessages])
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -172,6 +205,48 @@ export default function BookDetail() {
     refreshMessages()
   }
 
+  const handleSaveChapterEdit = async () => {
+    if (!activeChapter) return
+    const r = await updateChapter(bookId, activeChapter.id, {
+      title: chapterEditTitle,
+      outline: chapterEditOutline,
+      content: activeChapter.content,
+      status: activeChapter.status as never,
+    })
+    setActiveChapter(r.data)
+    setBook(prev => prev ? { ...prev, chapters: (prev.chapters ?? []).map(c => c.id === r.data.id ? r.data : c) } : prev)
+    setEditingChapter(false)
+  }
+
+  const handleSaveBookEdit = async () => {
+    if (!book) return
+    const r = await updateBook(bookId, {
+      title: bookEditTitle,
+      premise: bookEditPremise,
+      genre: bookEditGenre,
+      targetChapterCount: bookEditTargetChapters,
+      status: book.status as never,
+      language: book.language,
+    })
+    setBook(r.data)
+    setEditingBook(false)
+  }
+
+  const handleAddChapter = async () => {
+    if (!newChapterTitle.trim()) return
+    const nextNumber = (book?.chapters?.length ?? 0) + 1
+    const r = await createChapter(bookId, {
+      number: nextNumber,
+      title: newChapterTitle.trim(),
+      outline: newChapterOutline.trim(),
+    })
+    setBook(prev => prev ? { ...prev, chapters: [...(prev.chapters ?? []), r.data] } : prev)
+    setNewChapterTitle('')
+    setNewChapterOutline('')
+    setAddingChapter(false)
+    setActiveChapter(r.data)
+  }
+
   const statusColor = (s: string) => ({
     Outlined: '#94a3b8', Writing: '#f59e0b', Review: '#3b82f6',
     Editing: '#a855f7', Done: '#22c55e'
@@ -226,7 +301,7 @@ export default function BookDetail() {
             <li
               key={c.id}
               className={activeChapter?.id === c.id ? 'active' : ''}
-              onClick={() => setActiveChapter(c)}
+              onClick={() => { setActiveChapter(c); setEditingChapter(false) }}
             >
               <span className="ch-num">{c.number}.</span>
               <span className="ch-title">{c.title || 'Untitled'}</span>
@@ -237,6 +312,30 @@ export default function BookDetail() {
             <li className="empty-chapters">Run Planner to generate chapters</li>
           )}
         </ul>
+        {!isRunning && (
+          addingChapter ? (
+            <div className="add-chapter-form">
+              <input
+                placeholder="Chapter title"
+                value={newChapterTitle}
+                onChange={e => setNewChapterTitle(e.target.value)}
+                autoFocus
+              />
+              <textarea
+                rows={2}
+                placeholder="Brief outline (optional)"
+                value={newChapterOutline}
+                onChange={e => setNewChapterOutline(e.target.value)}
+              />
+              <div className="add-chapter-actions">
+                <button className="btn-sm" onClick={handleAddChapter} disabled={!newChapterTitle.trim()}>Add</button>
+                <button className="btn-sm btn-ghost" onClick={() => { setAddingChapter(false); setNewChapterTitle(''); setNewChapterOutline('') }}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button className="btn-add-chapter" onClick={() => setAddingChapter(true)}>+ Chapter</button>
+          )
+        )}
         {(book.chapters ?? []).some(c => c.content?.trim()) && (
           <button
             className="download-html-btn"
@@ -253,59 +352,131 @@ export default function BookDetail() {
       <main className="content">
         {activeChapter ? (
           <div className="chapter-view">
-            <div className="chapter-header">
-              <h2>Chapter {activeChapter.number}: {activeChapter.title}</h2>
-              <span className="ch-status-badge" style={{ background: statusColor(activeChapter.status) }}>{activeChapter.status}</span>
-              {activeChapter.content?.trim() && (
-                <button
-                  className="btn-clear-chapter"
-                  disabled={isRunning}
-                  onClick={() => handleClearChapter(activeChapter)}
-                  title="Clear chapter content and reset status to Outlined"
-                >↺ Clear</button>
-              )}
-            </div>
-            {activeChapter.outline && (
-              <div className="outline">
-                <strong>Outline:</strong> {activeChapter.outline}
+            {editingChapter ? (
+              <div className="chapter-edit-form">
+                <label>
+                  Title
+                  <input value={chapterEditTitle} onChange={e => setChapterEditTitle(e.target.value)} />
+                </label>
+                <label>
+                  Outline
+                  <textarea rows={4} value={chapterEditOutline} onChange={e => setChapterEditOutline(e.target.value)} />
+                </label>
+                <div className="chapter-edit-actions">
+                  <button onClick={handleSaveChapterEdit}>Save</button>
+                  <button className="btn-ghost" onClick={() => setEditingChapter(false)}>Cancel</button>
+                </div>
               </div>
+            ) : (
+              <>
+                <div className="chapter-header">
+                  <h2>Chapter {activeChapter.number}: {activeChapter.title}</h2>
+                  <span className="ch-status-badge" style={{ background: statusColor(activeChapter.status) }}>{activeChapter.status}</span>
+                  {!isRunning && (
+                    <button
+                      className="btn-edit-chapter"
+                      onClick={() => {
+                        setChapterEditTitle(activeChapter.title)
+                        setChapterEditOutline(activeChapter.outline ?? '')
+                        setEditingChapter(true)
+                      }}
+                      title="Edit chapter title and outline"
+                    >✎ Edit</button>
+                  )}
+                  {activeChapter.content?.trim() && (
+                    <button
+                      className="btn-clear-chapter"
+                      disabled={isRunning}
+                      onClick={() => handleClearChapter(activeChapter)}
+                      title="Clear chapter content and reset status to Outlined"
+                    >↺ Clear</button>
+                  )}
+                </div>
+                {activeChapter.outline && (
+                  <div className="outline">
+                    <strong>Outline:</strong> {activeChapter.outline}
+                  </div>
+                )}
+                <div className="chapter-content">
+                  {streamBuffer && streamingChapterId === activeChapter.id ? (
+                    <ReactMarkdown>{streamBuffer}</ReactMarkdown>
+                  ) : activeChapter.content ? (
+                    <ReactMarkdown>{activeChapter.content}</ReactMarkdown>
+                  ) : (
+                    <p className="empty">Waiting to be written by the agents…</p>
+                  )}
+                </div>
+              </>
             )}
-            <div className="chapter-content">
-              {streamBuffer && streamingChapterId === activeChapter.id ? (
-                <ReactMarkdown>{streamBuffer}</ReactMarkdown>
-              ) : activeChapter.content ? (
-                <ReactMarkdown>{activeChapter.content}</ReactMarkdown>
-              ) : (
-                <p className="empty">Waiting to be written by the agents…</p>
-              )}
-            </div>
           </div>
         ) : (
           <div className="book-overview">
-            <h2>{book.title}</h2>
-            <p><strong>Premise:</strong> {book.premise}</p>
-            <p><strong>Genre:</strong> {book.genre} · <strong>Language:</strong> {book.language} · <strong>Target chapters:</strong> {book.targetChapterCount}</p>
-
-            {isRunning && runStatus?.role === 'Planner' && plannerBuffer && (
-              <div className="planning-preview">
-                <h3>Planning in progress…</h3>
-                {planningChapters.length > 0 ? (
-                  <div className="plan-chapters">
-                    {planningChapters.map(c => (
-                      <div key={c.number} className="plan-chapter-card">
-                        <span className="plan-ch-num">Ch. {c.number}</span>
-                        <div>
-                          <strong>{c.title}</strong>
-                          <p>{c.outline}</p>
-                        </div>
-                      </div>
-                    ))}
-                    <p className="plan-partial-hint">Building chapter plan…</p>
-                  </div>
-                ) : (
-                  <div className="stream-raw"><span className="spinner" /> Generating outlines…</div>
-                )}
+            {editingBook ? (
+              <div className="book-edit-form">
+                <label>
+                  Title
+                  <input value={bookEditTitle} onChange={e => setBookEditTitle(e.target.value)} />
+                </label>
+                <label>
+                  Genre
+                  <input value={bookEditGenre} onChange={e => setBookEditGenre(e.target.value)} />
+                </label>
+                <label>
+                  Target chapters
+                  <input type="number" min={1} value={bookEditTargetChapters} onChange={e => setBookEditTargetChapters(+e.target.value)} />
+                </label>
+                <label>
+                  Premise / Plot
+                  <textarea rows={6} value={bookEditPremise} onChange={e => setBookEditPremise(e.target.value)} />
+                </label>
+                <div className="book-edit-actions">
+                  <button onClick={handleSaveBookEdit}>Save</button>
+                  <button className="btn-ghost" onClick={() => setEditingBook(false)}>Cancel</button>
+                </div>
               </div>
+            ) : (
+              <>
+                <div className="book-overview-header">
+                  <h2>{book.title}</h2>
+                  {!isRunning && (
+                    <button
+                      className="btn-edit-book"
+                      onClick={() => {
+                        setBookEditTitle(book.title)
+                        setBookEditPremise(book.premise)
+                        setBookEditGenre(book.genre)
+                        setBookEditTargetChapters(book.targetChapterCount)
+                        setEditingBook(true)
+                      }}
+                      title="Edit book details"
+                    >✎ Edit</button>
+                  )}
+                </div>
+                <p><strong>Premise:</strong> {book.premise}</p>
+                <p><strong>Genre:</strong> {book.genre} · <strong>Language:</strong> {book.language} · <strong>Target chapters:</strong> {book.targetChapterCount}</p>
+
+                {isRunning && runStatus?.role === 'Planner' && plannerBuffer && (
+                  <div className="planning-preview">
+                    <h3>Planning in progress…</h3>
+                    {planningChapters.length > 0 ? (
+                      <div className="plan-chapters">
+                        {planningChapters.map(c => (
+                          <div key={c.number} className="plan-chapter-card">
+                            <span className="plan-ch-num">Ch. {c.number}</span>
+                            <div>
+                              <strong>{c.title}</strong>
+                              <p>{c.outline}</p>
+                            </div>
+                          </div>
+                        ))}
+                        <p className="plan-partial-hint">Building chapter plan…</p>
+                      </div>
+                    ) : (
+                      <div className="stream-raw"><span className="spinner" /> Generating outlines…</div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -340,6 +511,31 @@ export default function BookDetail() {
             />
             <button onClick={handleAnswer}>Send Answer</button>
           </div>
+        )}
+        {tokenStats.length > 0 && (
+          <details className="token-stats-panel">
+            <summary>Token stats ({tokenStats.length} calls)</summary>
+            <div className="token-stats-list">
+              <table>
+                <thead>
+                  <tr><th>Time</th><th>Agent</th><th>Prompt</th><th>Completion</th></tr>
+                </thead>
+                <tbody>
+                  {tokenStats.map(s => (
+                    <tr key={s.id}>
+                      <td>{s.time}</td>
+                      <td>{s.role}</td>
+                      <td>{s.prompt.toLocaleString()}</td>
+                      <td>{s.completion.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="token-stats-total">
+                Total: {tokenStats.reduce((a, s) => a + s.prompt + s.completion, 0).toLocaleString()} tokens
+              </div>
+            </div>
+          </details>
         )}
       </aside>
     </div>

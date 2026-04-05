@@ -247,6 +247,10 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **`EditorAgent` notes split**: uses a regex to find any `## Editorial Notes` / `## Editor's Notes` / `## Feedback` etc. heading (case-insensitive) instead of a hard string compare; more resilient to LLM phrasing variation.
 - **Settings UI placeholder hint**: the "Custom Agent System Prompts" section now shows a reference block listing all supported template tokens and reminds users that the Editor prompt must end with `## Editorial Notes`.
 - **`ContinuityCheckerAgent.CheckAsync` focused mode**: accepts optional `int? chapterId`. When provided (per-chapter workflow), separates chapters into "preceding facts" vs "chapter under review" and instructs the LLM to report only issues *introduced by* that chapter, ignoring pre-existing issues between earlier chapters. No-id calls (final check, standalone button) retain full cross-manuscript review behaviour. `AgentOrchestrator` per-chapter call sites now pass `chapter.Id`; final checks pass null.
+- **Token statistics**: `AgentBase.StreamResponseAsync` now accepts `AgentRole role` (required param before `CancellationToken`). After each LLM streaming call, emits approximate token counts (chars/4) via `IBookNotifier.NotifyTokenStatsAsync` → SignalR `TokenStats` event. UI receives stats via `useBookHub.setOnTokenStats` and shows them as a collapsible `<details>` panel at the bottom of the chat sidebar. Total accumulated tokens shown.
+- **Chapter inline edit**: "✎ Edit" button appears on chapter header when not running. Opens an inline form to edit title and outline; saves via `PUT /api/books/{id}/chapters/{chapterId}`.
+- **Book inline edit**: "✎ Edit" button on book overview. Opens an inline form to edit title, genre, target chapters, premise/plot; saves via `PUT /api/books/{id}`.
+- **Add chapter manually**: "+ Chapter" button at the bottom of the sidebar chapter list. Inline form collects title and outline; auto-assigns the next chapter number; saves via `POST /api/books/{id}/chapters` and immediately selects the new chapter.
 
 ---
 

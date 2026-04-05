@@ -54,7 +54,7 @@ public class PlannerAgent : AgentBase
             Create {book.TargetChapterCount} chapter outlines for this book.
             """);
 
-        var raw = await StreamResponseAsync(kernel, history, bookId, null, ct);
+        var raw = await StreamResponseAsync(kernel, history, bookId, null, AgentRole.Planner, ct);
 
         // Parse the JSON response
         var chapters = ParseChapterOutlines(bookId, raw);

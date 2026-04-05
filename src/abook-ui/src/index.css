@@ -122,6 +122,42 @@ label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bot
 .question-label { font-size: 0.78rem; font-weight: 600; color: var(--warning); }
 .question-text { font-size: 0.85rem; color: var(--text); }
 
+/* ── Token stats panel ── */
+.token-stats-panel { border-top: 1px solid var(--border); font-size: 0.78rem; }
+.token-stats-panel summary { padding: 0.5rem 0.75rem; cursor: pointer; color: var(--text-muted); user-select: none; }
+.token-stats-panel summary:hover { color: var(--text); }
+.token-stats-list { padding: 0 0.75rem 0.65rem; overflow-x: auto; }
+.token-stats-list table { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
+.token-stats-list th { color: var(--text-muted); text-align: left; padding: 0.2rem 0.4rem; border-bottom: 1px solid var(--border); font-weight: 600; text-transform: uppercase; font-size: 0.68rem; }
+.token-stats-list td { padding: 0.18rem 0.4rem; color: var(--text); }
+.token-stats-list tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+.token-stats-total { margin-top: 0.35rem; text-align: right; color: var(--text-muted); font-size: 0.76rem; }
+
+/* ── Chapter inline edit ── */
+.chapter-edit-form { padding: 0.5rem 0; display: flex; flex-direction: column; gap: 0.75rem; max-width: 600px; }
+.chapter-edit-actions { display: flex; gap: 0.5rem; }
+.btn-edit-chapter { color: var(--accent) !important; background: transparent !important; border: 1px solid var(--accent) !important; border-radius: 4px !important; padding: 0.22rem 0.55rem !important; font-size: 0.8rem !important; cursor: pointer !important; flex-shrink: 0; }
+.btn-edit-chapter:hover { background: rgba(99,102,241,0.15) !important; }
+
+/* ── Book inline edit ── */
+.book-overview-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+.book-overview-header h2 { font-size: 1.6rem; }
+.btn-edit-book { color: var(--accent) !important; background: transparent !important; border: 1px solid var(--accent) !important; border-radius: 4px !important; padding: 0.22rem 0.55rem !important; font-size: 0.8rem !important; cursor: pointer !important; flex-shrink: 0; }
+.btn-edit-book:hover { background: rgba(99,102,241,0.15) !important; }
+.book-edit-form { display: flex; flex-direction: column; gap: 0.75rem; max-width: 600px; }
+.book-edit-actions { display: flex; gap: 0.5rem; }
+
+/* ── Add chapter (sidebar) ── */
+.btn-add-chapter { background: transparent !important; color: var(--accent) !important; border: 1px dashed var(--accent) !important; border-radius: 5px !important; padding: 0.25rem 0.55rem !important; font-size: 0.78rem !important; cursor: pointer !important; width: 100%; text-align: left; }
+.btn-add-chapter:hover { background: rgba(99,102,241,0.1) !important; }
+.add-chapter-form { display: flex; flex-direction: column; gap: 0.4rem; padding: 0.4rem 0; }
+.add-chapter-form input, .add-chapter-form textarea { font-size: 0.82rem; }
+.add-chapter-actions { display: flex; gap: 0.4rem; }
+
+/* Generic ghost button */
+.btn-ghost { background: transparent !important; color: var(--text-muted) !important; border: 1px solid var(--border) !important; }
+.btn-ghost:hover { background: var(--surface) !important; color: var(--text) !important; }
+
 /* ── Settings ── */
 .settings-page { max-width: 680px; }
 .settings-page h1 { margin-bottom: 1.5rem; }

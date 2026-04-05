@@ -110,7 +110,7 @@ public class WriterAgent : AgentBase
 
         for (int round = 0; round < maxRounds; round++)
         {
-            var raw = await StreamResponseAsync(kernel, history, bookId, chapterId, ct);
+            var raw = await StreamResponseAsync(kernel, history, bookId, chapterId, AgentRole.Writer, ct);
 
             var match = AskMarkerRegex.Match(raw);
             if (!match.Success)

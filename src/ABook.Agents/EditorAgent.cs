@@ -60,7 +60,7 @@ public class EditorAgent : AgentBase
             """;
         history.AddUserMessage(editRequest);
 
-        var edited = await StreamResponseAsync(kernel, history, bookId, chapterId, ct);
+        var edited = await StreamResponseAsync(kernel, history, bookId, chapterId, AgentRole.Editor, ct);
 
         // Split off the editorial notes section.
         // We search for the LAST occurrence of any level-2 heading that looks like notes/feedback

@@ -25,4 +25,7 @@ public class SignalRBookNotifier : IBookNotifier
 
     public Task NotifyWorkflowProgressAsync(int bookId, string step, bool isComplete, CancellationToken ct = default) =>
         _hub.Clients.Group(bookId.ToString()).SendAsync("WorkflowProgress", bookId, step, isComplete, ct);
+
+    public Task NotifyTokenStatsAsync(int bookId, int? chapterId, string agentRole, int promptTokens, int completionTokens, CancellationToken ct = default) =>
+        _hub.Clients.Group(bookId.ToString()).SendAsync("TokenStats", bookId, chapterId, agentRole, promptTokens, completionTokens, ct);
 }
