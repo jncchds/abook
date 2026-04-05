@@ -1,4 +1,4 @@
-#pragma warning disable SKEXP0070
+#pragma warning disable SKEXP0070, SKEXP0010
 
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
@@ -6,6 +6,8 @@ using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.Ollama;
 using Microsoft.SemanticKernel.Embeddings;
+using OpenAI;
+using System.ClientModel;
 
 namespace ABook.Infrastructure.Llm;
 
@@ -18,8 +20,7 @@ public class LlmProviderFactory : ILlmProviderFactory
             LlmProvider.OpenAI => new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIChatCompletionService(
                 config.ModelName, config.ApiKey ?? throw new InvalidOperationException("OpenAI requires an API key.")),
             LlmProvider.LMStudio => new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIChatCompletionService(
-                config.ModelName, config.ApiKey ?? "lm-studio",
-                endpoint: new Uri(config.Endpoint.TrimEnd('/') + "/v1")),
+                config.ModelName, new Uri(config.Endpoint.TrimEnd('/') + "/v1"), config.ApiKey ?? "lm-studio"),
             _ => throw new NotSupportedException($"Provider {config.Provider} is not yet supported.")
         };
 
@@ -32,8 +33,9 @@ public class LlmProviderFactory : ILlmProviderFactory
             LlmProvider.OpenAI => new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAITextEmbeddingGenerationService(
                 embeddingModel, config.ApiKey ?? throw new InvalidOperationException("OpenAI requires an API key.")),
             LlmProvider.LMStudio => new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAITextEmbeddingGenerationService(
-                embeddingModel, config.ApiKey ?? "lm-studio",
-                endpoint: new Uri(config.Endpoint.TrimEnd('/') + "/v1")),
+                embeddingModel, new OpenAIClient(
+                    new ApiKeyCredential(config.ApiKey ?? "lm-studio"),
+                    new OpenAIClientOptions { Endpoint = new Uri(config.Endpoint.TrimEnd('/') + "/v1") })),
             _ => throw new NotSupportedException($"Provider {config.Provider} is not yet supported for embeddings.")
         };
     }
@@ -57,9 +59,14 @@ public class LlmProviderFactory : ILlmProviderFactory
             case LlmProvider.LMStudio:
                 var lmKey = config.ApiKey ?? "lm-studio";
                 var lmEndpoint = new Uri(config.Endpoint.TrimEnd('/') + "/v1");
-                builder.AddOpenAIChatCompletion(config.ModelName, lmKey, endpoint: lmEndpoint);
+                builder.AddOpenAIChatCompletion(config.ModelName, lmEndpoint, lmKey);
                 if (!string.IsNullOrWhiteSpace(config.EmbeddingModelName))
-                    builder.AddOpenAITextEmbeddingGeneration(config.EmbeddingModelName, lmKey, endpoint: lmEndpoint);
+                {
+                    var lmClient = new OpenAIClient(
+                        new ApiKeyCredential(lmKey),
+                        new OpenAIClientOptions { Endpoint = lmEndpoint });
+                    builder.AddOpenAITextEmbeddingGeneration(config.EmbeddingModelName, lmClient);
+                }
                 break;
             default:
                 throw new NotSupportedException($"Provider {config.Provider} is not yet supported.");

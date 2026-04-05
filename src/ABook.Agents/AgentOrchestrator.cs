@@ -89,7 +89,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             throw new InvalidOperationException("An agent is already running for this book.");
         try
         {
-            await _continuity.CheckAsync(bookId, ct);
+            await _continuity.CheckAsync(bookId, ct: ct);
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.ContinuityChecker, "Done", null));
         }
         catch
@@ -147,7 +147,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             ct.ThrowIfCancellationRequested();
             _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, null);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Running final continuity check…", false, ct);
-            await _continuity.CheckAsync(bookId, ct);
+            await _continuity.CheckAsync(bookId, ct: ct);
 
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.ContinuityChecker, "Done", null));
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow complete!", true, ct);
@@ -260,7 +260,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             ct.ThrowIfCancellationRequested();
             _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, null);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Running continuity check…", false, ct);
-            await _continuity.CheckAsync(bookId, ct);
+            await _continuity.CheckAsync(bookId, ct: ct);
 
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.ContinuityChecker, "Done", null));
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow complete!", true, ct);

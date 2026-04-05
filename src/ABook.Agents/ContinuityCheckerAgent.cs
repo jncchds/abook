@@ -123,7 +123,7 @@ public class ContinuityCheckerAgent : AgentBase
                     $"Chapter {c.Number}: {c.Title}\nOutline: {c.Outline}\nContent excerpt: {c.Content?[..Math.Min(600, c.Content?.Length ?? 0)]}..."))
                 : "(No preceding chapters yet.)";
 
-            var currentExcerpt = c =>
+            var currentExcerpt =
                 $"Chapter {currentChapter.Number}: {currentChapter.Title}\n" +
                 $"Outline: {currentChapter.Outline}\n" +
                 $"Content: {currentChapter.Content}";
@@ -137,7 +137,7 @@ public class ContinuityCheckerAgent : AgentBase
                     {prevSynopsis}
 
                     ## Chapter Under Review
-                    {currentExcerpt(currentChapter)}
+                    {currentExcerpt}
                     """
                 : $"""
                     Check Chapter {currentChapter.Number} ("{currentChapter.Title}") for continuity issues
@@ -147,7 +147,7 @@ public class ContinuityCheckerAgent : AgentBase
                     {prevSynopsis}
 
                     ## Chapter Under Review
-                    {currentExcerpt(currentChapter)}
+                    {currentExcerpt}
 
                     ## Detailed Passages (retrieved for continuity review)
                     {ragContext}
