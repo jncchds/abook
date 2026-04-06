@@ -60,6 +60,18 @@ public abstract class AgentBase
         int completionTokens = sb.Length / 4;
         try { await Notifier.NotifyTokenStatsAsync(bookId, chapterId, role.ToString(), promptTokens, completionTokens, ct); }
         catch { /* non-fatal */ }
+        try
+        {
+            await Repo.AddTokenUsageAsync(new TokenUsageRecord
+            {
+                BookId = bookId,
+                ChapterId = chapterId,
+                AgentRole = role,
+                PromptTokens = promptTokens,
+                CompletionTokens = completionTokens
+            });
+        }
+        catch { /* non-fatal — do not interrupt agent on DB write failure */ }
 
         return sb.ToString();
     }

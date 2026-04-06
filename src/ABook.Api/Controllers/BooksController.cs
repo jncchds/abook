@@ -83,6 +83,24 @@ public class BooksController : ControllerBase
         return NoContent();
     }
 
+    [HttpGet("{id:int}/token-usage")]
+    public async Task<IActionResult> GetTokenUsage(int id)
+    {
+        var book = await _repo.GetByIdAsync(id);
+        if (book is null) return NotFound();
+        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
+        var records = await _repo.GetTokenUsageAsync(id);
+        return Ok(records.Select(r => new
+        {
+            r.Id,
+            r.ChapterId,
+            agentRole = r.AgentRole.ToString(),
+            r.PromptTokens,
+            r.CompletionTokens,
+            r.CreatedAt
+        }));
+    }
+
     [HttpGet("{id:int}/default-prompts")]
     public async Task<IActionResult> GetDefaultPrompts(int id)
     {

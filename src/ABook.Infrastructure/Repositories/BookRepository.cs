@@ -144,4 +144,18 @@ public class BookRepository : IBookRepository
         await _db.SaveChangesAsync();
         return config;
     }
+
+    public async Task<TokenUsageRecord> AddTokenUsageAsync(TokenUsageRecord record)
+    {
+        record.CreatedAt = DateTime.UtcNow;
+        _db.TokenUsageRecords.Add(record);
+        await _db.SaveChangesAsync();
+        return record;
+    }
+
+    public async Task<IEnumerable<TokenUsageRecord>> GetTokenUsageAsync(int bookId) =>
+        await _db.TokenUsageRecords
+            .Where(r => r.BookId == bookId)
+            .OrderBy(r => r.CreatedAt)
+            .ToListAsync();
 }

@@ -178,13 +178,13 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 ## Relevant Files
 
 - `ABook.slnx` — Solution root (XML format)
-- `src/ABook.Core/Models/` — `Book.cs`, `Chapter.cs`, `AgentMessage.cs`, `LlmConfiguration.cs`, `AppUser.cs`, `Enums.cs`
+- `src/ABook.Core/Models/` — `Book.cs`, `Chapter.cs`, `AgentMessage.cs`, `LlmConfiguration.cs`, `AppUser.cs`, `TokenUsageRecord.cs`, `Enums.cs`
 - `src/ABook.Core/Interfaces/` — `IBookRepository.cs`, `IAgentOrchestrator.cs`, `ILlmProviderFactory.cs`, `IVectorStoreService.cs`, `IBookNotifier.cs`, `IUserRepository.cs`
 - `src/ABook.Infrastructure/Data/AppDbContext.cs` — EF Core context
 - `src/ABook.Infrastructure/Repositories/` — Data access repositories
 - `src/ABook.Infrastructure/Llm/LlmProviderFactory.cs` — Pluggable LLM factory
 - `src/ABook.Infrastructure/VectorStore/QdrantVectorStoreService.cs` — Qdrant integration, chunking, embedding
-- `src/ABook.Infrastructure/Migrations/` — EF Core migrations (`InitialCreate`, `AddLanguageAndUsers`)
+- `src/ABook.Infrastructure/Migrations/` — EF Core migrations (`InitialCreate`, `AddLanguageAndUsers`, `AddUserLlmConfig`, `AddTokenUsageRecord`)
 - `src/ABook.Agents/AgentBase.cs` — Base class for all agents
 - `src/ABook.Agents/PlannerAgent.cs`, `WriterAgent.cs`, `EditorAgent.cs`, `ContinuityCheckerAgent.cs`
 - `src/ABook.Agents/AgentOrchestrator.cs` — Run lifecycle management
@@ -247,7 +247,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **`EditorAgent` notes split**: uses a regex to find any `## Editorial Notes` / `## Editor's Notes` / `## Feedback` etc. heading (case-insensitive) instead of a hard string compare; more resilient to LLM phrasing variation.
 - **Settings UI placeholder hint**: the "Custom Agent System Prompts" section now shows a reference block listing all supported template tokens and reminds users that the Editor prompt must end with `## Editorial Notes`.
 - **`ContinuityCheckerAgent.CheckAsync` focused mode**: accepts optional `int? chapterId`. When provided (per-chapter workflow), separates chapters into "preceding facts" vs "chapter under review" and instructs the LLM to report only issues *introduced by* that chapter, ignoring pre-existing issues between earlier chapters. No-id calls (final check, standalone button) retain full cross-manuscript review behaviour. `AgentOrchestrator` per-chapter call sites now pass `chapter.Id`; final checks pass null.
-- **Token statistics**: `AgentBase.StreamResponseAsync` now accepts `AgentRole role` (required param before `CancellationToken`). After each LLM streaming call, emits approximate token counts (chars/4) via `IBookNotifier.NotifyTokenStatsAsync` → SignalR `TokenStats` event. UI receives stats via `useBookHub.setOnTokenStats` and shows them as a collapsible `<details>` panel at the bottom of the chat sidebar. Total accumulated tokens shown.
+- **Token statistics**: `AgentBase.StreamResponseAsync` now accepts `AgentRole role` (required param before `CancellationToken`). After each LLM streaming call, emits approximate token counts (chars/4) via `IBookNotifier.NotifyTokenStatsAsync` → SignalR `TokenStats` event. Also **persists** a `TokenUsageRecord` row (BookId, ChapterId, AgentRole, PromptTokens, CompletionTokens) via `IBookRepository.AddTokenUsageAsync`. `GET /api/books/{id}/token-usage` returns all persisted records. UI loads historical stats on page load and refreshes them on each `TokenStats` SignalR event; shown as a collapsible `<details>` panel at the bottom of the chat sidebar. Total accumulated tokens shown.
 - **Chapter inline edit**: "✎ Edit" button appears on chapter header when not running. Opens an inline form to edit title and outline; saves via `PUT /api/books/{id}/chapters/{chapterId}`.
 - **Book inline edit**: "✎ Edit" button on book overview. Opens an inline form to edit title, genre, target chapters, premise/plot; saves via `PUT /api/books/{id}`.
 - **Add chapter manually**: "+ Chapter" button at the bottom of the sidebar chapter list. Inline form collects title and outline; auto-assigns the next chapter number; saves via `POST /api/books/{id}/chapters` and immediately selects the new chapter.

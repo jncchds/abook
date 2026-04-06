@@ -140,6 +140,18 @@ export const stopWorkflow = (bookId: number) => api.post(`/books/${bookId}/agent
 export const getAgentStatus = (bookId: number) =>
   api.get<AgentRunStatus>(`/books/${bookId}/agent/status`)
 
+// Token usage
+export interface TokenUsageRecord {
+  id: number
+  chapterId: number | null
+  agentRole: string
+  promptTokens: number
+  completionTokens: number
+  createdAt: string
+}
+export const getTokenUsage = (bookId: number) =>
+  api.get<TokenUsageRecord[]>(`/books/${bookId}/token-usage`)
+
 // LLM Config
 export const getLlmConfig = (bookId?: number) =>
   api.get<LlmConfig>('/configuration', { params: { bookId } })

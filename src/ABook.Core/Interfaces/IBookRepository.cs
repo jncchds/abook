@@ -24,5 +24,8 @@ public interface IBookRepository
 
     Task<LlmConfiguration?> GetLlmConfigAsync(int? bookId, int? userId = null);
     Task<LlmConfiguration> UpsertLlmConfigAsync(LlmConfiguration config);
+
+    Task<TokenUsageRecord> AddTokenUsageAsync(TokenUsageRecord record);
+    Task<IEnumerable<TokenUsageRecord>> GetTokenUsageAsync(int bookId);
 }
 

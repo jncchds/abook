@@ -5,7 +5,7 @@ import type { Book, Chapter, AgentMessage, AgentRunStatus } from '../api'
 import {
   getBook, getMessages, postAnswer, getAgentStatus,
   startWorkflow, continueWorkflow, stopWorkflow, clearChapterContent,
-  createChapter, updateChapter, updateBook
+  createChapter, updateChapter, updateBook, getTokenUsage
 } from '../api'
 import { useBookHub } from '../hooks/useBookHub'
 import { downloadBookAsHtml } from '../utils/bookHtmlExport'
@@ -37,8 +37,8 @@ export default function BookDetail() {
   const [runStatus, setRunStatus] = useState<AgentRunStatus | null>(null)
   const [workflowLog, setWorkflowLog] = useState<string[]>([])
 
-  // Token stats
-  interface TokenStat { id: number; chapterId: number | null; role: string; prompt: number; completion: number; time: string }
+  // Token stats — persisted (from DB) + live (from SignalR during current session)
+  interface TokenStat { id: number; chapterId: number | null; role: string; prompt: number; completion: number; time: string; persisted?: boolean }
   const [tokenStats, setTokenStats] = useState<TokenStat[]>([])
 
   // Chapter inline editing
@@ -82,7 +82,18 @@ export default function BookDetail() {
   useEffect(() => {
     refreshBook()
     refreshMessages()
-  }, [refreshBook, refreshMessages])
+    getTokenUsage(bookId).then(r => {
+      setTokenStats(r.data.map(rec => ({
+        id: rec.id,
+        chapterId: rec.chapterId,
+        role: rec.agentRole,
+        prompt: rec.promptTokens,
+        completion: rec.completionTokens,
+        time: new Date(rec.createdAt).toLocaleString(),
+        persisted: true
+      })))
+    }).catch(() => {})
+  }, [refreshBook, refreshMessages, bookId])
 
   useEffect(() => {
     setOnStream((_bId, cId, token) => {
@@ -134,14 +145,28 @@ export default function BookDetail() {
       }
     })
     setOnTokenStats((_bId, cId, role, prompt, completion) => {
-      setTokenStats(prev => [...prev, {
-        id: Date.now(),
-        chapterId: cId,
-        role,
-        prompt,
-        completion,
-        time: new Date().toLocaleTimeString()
-      }])
+      // Reload from DB so the new persisted record is shown (avoids duplicates from live + stored)
+      getTokenUsage(bookId).then(r => {
+        setTokenStats(r.data.map(rec => ({
+          id: rec.id,
+          chapterId: rec.chapterId,
+          role: rec.agentRole,
+          prompt: rec.promptTokens,
+          completion: rec.completionTokens,
+          time: new Date(rec.createdAt).toLocaleString(),
+          persisted: true
+        })))
+      }).catch(() => {
+        // Fallback: add the live stat if DB reload fails
+        setTokenStats(prev => [...prev, {
+          id: Date.now(),
+          chapterId: cId,
+          role,
+          prompt,
+          completion,
+          time: new Date().toLocaleTimeString()
+        }])
+      })
     })
   }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, refreshBook, refreshMessages])
 

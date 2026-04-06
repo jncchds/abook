@@ -6,7 +6,8 @@ ABook is a self-hosted web application that uses AI agents to collaboratively wr
 
 - **Four collaborative agents** working through the book pipeline (Plan → Write → Edit → Continuity Check)
 - **Human-in-the-loop** — agents pause and ask you plot/character questions before proceeding; Writer can emit `[ASK: question]` mid-generation to request input on pivotal decisions
-- **Real-time streaming** — watch chapters being written token by token via SignalR, with live token statistics
+- **Real-time streaming** — watch chapters being written token by token via SignalR
+- **Token usage statistics** — per-agent prompt and completion token counts displayed in a collapsible panel and persisted to the database
 - **RAG context retrieval** — agents query relevant prior chapters via Qdrant vector embeddings to stay consistent across long books
 - **Pluggable LLM backend** — Ollama (default, local), LM Studio, OpenAI, Azure OpenAI, or Anthropic; configurable globally, per-user, or per-book
 - **Per-book customization** — language, genre, and per-agent system prompt overrides with supported template tokens
@@ -45,7 +46,7 @@ docker-compose up -d
 open http://localhost:5000
 ```
 
-Log in with the default admin account created on first run, then go to **Settings** to configure your LLM provider and pull an Ollama model.
+On first launch the app shows a **Create Admin Account** setup screen — the first account registered automatically becomes admin. After signing in, go to **Settings** to configure your LLM provider and pull an Ollama model.
 
 ### Run from Docker Hub
 
@@ -126,6 +127,13 @@ volumes:
 | `Qdrant__Host` | `localhost` | Qdrant host |
 | `Qdrant__Port` | `6334` | Qdrant gRPC port |
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` disables Swagger |
+| `LlmDefaults__Provider` | `Ollama` | Default LLM provider (`Ollama`, `LMStudio`, `OpenAI`, `AzureOpenAI`, `Anthropic`) |
+| `LlmDefaults__ModelName` | `llama3` | Default model name |
+| `LlmDefaults__Endpoint` | `http://host.docker.internal:11434` | Default LLM endpoint |
+| `LlmDefaults__ApiKey` | — | API key for the default LLM provider (optional for Ollama/LMStudio) |
+| `LlmDefaults__EmbeddingModelName` | — | Embedding model for RAG (optional; falls back to chat model) |
+
+The `LlmDefaults__*` variables seed the global LLM configuration on startup. They can also be set in `appsettings.Local.json` (copy from `appsettings.Local.example.json`) for local development, or in `docker-compose.override.yml` for Docker-based local overrides.
 
 ### LLM Providers
 
@@ -147,7 +155,7 @@ Configurations can be set globally, per-user, or per-book. The lookup order is: 
 User creates book (title, premise, genre)
          │
          ▼
-  [Planner Agent] — generates chapter outlines from book metadata
+  [Planner Agent] — asks an initial guidance question, then generates chapter outlines
          │ chapter outlines
          ▼
   For each chapter:
@@ -189,6 +197,8 @@ cd src/ABook.Api
 dotnet run
 ```
 
+For local LLM configuration, copy `src/ABook.Api/appsettings.Local.example.json` to `appsettings.Local.json` and fill in your values. Alternatively, create a `docker-compose.override.yml` (see the committed example) to set `LlmDefaults__*` environment variables for Docker runs.
+
 The React dev server runs at `http://localhost:5173` and proxies `/api` and `/hub` to the ASP.NET server at `http://localhost:5178`.
 
 ### Build Docker Image
@@ -213,4 +223,4 @@ The multi-stage Dockerfile builds the React app (Node 20), compiles the .NET API
 
 ## License
 
-[MIT](LICENSE)
+[Apache-2.0 license](LICENSE)

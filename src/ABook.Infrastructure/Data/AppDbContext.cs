@@ -12,6 +12,7 @@ public class AppDbContext : DbContext
     public DbSet<AgentMessage> AgentMessages => Set<AgentMessage>();
     public DbSet<LlmConfiguration> LlmConfigurations => Set<LlmConfiguration>();
     public DbSet<AppUser> Users => Set<AppUser>();
+    public DbSet<TokenUsageRecord> TokenUsageRecords => Set<TokenUsageRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -92,6 +93,21 @@ public class AppDbContext : DbContext
                 Endpoint = "http://host.docker.internal:11434",
                 EmbeddingModelName = "nomic-embed-text"
             });
+        });
+
+        modelBuilder.Entity<TokenUsageRecord>(t =>
+        {
+            t.HasKey(x => x.Id);
+            t.Property(x => x.AgentRole).HasConversion<string>();
+            t.HasOne(x => x.Book)
+             .WithMany()
+             .HasForeignKey(x => x.BookId)
+             .OnDelete(DeleteBehavior.Cascade);
+            t.HasOne(x => x.Chapter)
+             .WithMany()
+             .HasForeignKey(x => x.ChapterId)
+             .OnDelete(DeleteBehavior.SetNull)
+             .IsRequired(false);
         });
     }
 }
