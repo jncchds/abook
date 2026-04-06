@@ -1,5 +1,6 @@
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
+using Microsoft.Extensions.Logging;
 
 namespace ABook.Agents;
 
@@ -16,6 +17,7 @@ public class AgentOrchestrator : IAgentOrchestrator
     private readonly ContinuityCheckerAgent _continuity;
     private readonly AgentRunStateService _state;
     private readonly IBookNotifier _notifier;
+    private readonly ILogger<AgentOrchestrator> _logger;
 
     public AgentOrchestrator(
         IBookRepository repo,
@@ -24,7 +26,8 @@ public class AgentOrchestrator : IAgentOrchestrator
         EditorAgent editor,
         ContinuityCheckerAgent continuity,
         AgentRunStateService state,
-        IBookNotifier notifier)
+        IBookNotifier notifier,
+        ILogger<AgentOrchestrator> logger)
     {
         _repo = repo;
         _planner = planner;
@@ -33,20 +36,30 @@ public class AgentOrchestrator : IAgentOrchestrator
         _continuity = continuity;
         _state = state;
         _notifier = notifier;
+        _logger = logger;
     }
 
     public async Task StartPlanningAsync(int bookId, CancellationToken ct = default)
     {
         if (!_state.TryStartRun(bookId, AgentRole.Planner, null))
             throw new InvalidOperationException("An agent is already running for this book.");
+        _logger.LogInformation("[Book {BookId}] Planner started.", bookId);
         try
         {
             await _planner.PlanAsync(bookId, ct);
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, "Done", null));
+            _logger.LogInformation("[Book {BookId}] Planner finished.", bookId);
         }
-        catch
+        catch (OperationCanceledException)
         {
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, "Failed", null));
+            _logger.LogWarning("[Book {BookId}] Planner cancelled.", bookId);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, "Failed", null));
+            _logger.LogError(ex, "[Book {BookId}] Planner failed.", bookId);
             throw;
         }
     }
@@ -55,14 +68,23 @@ public class AgentOrchestrator : IAgentOrchestrator
     {
         if (!_state.TryStartRun(bookId, AgentRole.Writer, chapterId))
             throw new InvalidOperationException("An agent is already running for this book.");
+        _logger.LogInformation("[Book {BookId}] Writer started for chapter {ChapterId}.", bookId, chapterId);
         try
         {
             await _writer.WriteAsync(bookId, chapterId, ct);
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Writer, "Done", chapterId));
+            _logger.LogInformation("[Book {BookId}] Writer finished chapter {ChapterId}.", bookId, chapterId);
         }
-        catch
+        catch (OperationCanceledException)
         {
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Writer, "Failed", chapterId));
+            _logger.LogWarning("[Book {BookId}] Writer cancelled for chapter {ChapterId}.", bookId, chapterId);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Writer, "Failed", chapterId));
+            _logger.LogError(ex, "[Book {BookId}] Writer failed for chapter {ChapterId}.", bookId, chapterId);
             throw;
         }
     }
@@ -71,14 +93,23 @@ public class AgentOrchestrator : IAgentOrchestrator
     {
         if (!_state.TryStartRun(bookId, AgentRole.Editor, chapterId))
             throw new InvalidOperationException("An agent is already running for this book.");
+        _logger.LogInformation("[Book {BookId}] Editor started for chapter {ChapterId}.", bookId, chapterId);
         try
         {
             await _editor.EditAsync(bookId, chapterId, ct);
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Editor, "Done", chapterId));
+            _logger.LogInformation("[Book {BookId}] Editor finished chapter {ChapterId}.", bookId, chapterId);
         }
-        catch
+        catch (OperationCanceledException)
         {
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Editor, "Failed", chapterId));
+            _logger.LogWarning("[Book {BookId}] Editor cancelled for chapter {ChapterId}.", bookId, chapterId);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Editor, "Failed", chapterId));
+            _logger.LogError(ex, "[Book {BookId}] Editor failed for chapter {ChapterId}.", bookId, chapterId);
             throw;
         }
     }
@@ -87,14 +118,23 @@ public class AgentOrchestrator : IAgentOrchestrator
     {
         if (!_state.TryStartRun(bookId, AgentRole.ContinuityChecker, null))
             throw new InvalidOperationException("An agent is already running for this book.");
+        _logger.LogInformation("[Book {BookId}] ContinuityChecker started.", bookId);
         try
         {
             await _continuity.CheckAsync(bookId, ct: ct);
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.ContinuityChecker, "Done", null));
+            _logger.LogInformation("[Book {BookId}] ContinuityChecker finished.", bookId);
         }
-        catch
+        catch (OperationCanceledException)
         {
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.ContinuityChecker, "Failed", null));
+            _logger.LogWarning("[Book {BookId}] ContinuityChecker cancelled.", bookId);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _state.SetStatus(bookId, new AgentRunStatus(AgentRole.ContinuityChecker, "Failed", null));
+            _logger.LogError(ex, "[Book {BookId}] ContinuityChecker failed.", bookId);
             throw;
         }
     }
@@ -107,6 +147,7 @@ public class AgentOrchestrator : IAgentOrchestrator
     {
         if (!_state.TryStartRun(bookId, AgentRole.Planner, null))
             throw new InvalidOperationException("An agent is already running for this book.");
+        _logger.LogInformation("[Book {BookId}] Full workflow started.", bookId);
         try
         {
             // 1. Plan
@@ -151,6 +192,7 @@ public class AgentOrchestrator : IAgentOrchestrator
 
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.ContinuityChecker, "Done", null));
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow complete!", true, ct);
+            _logger.LogInformation("[Book {BookId}] Full workflow completed.", bookId);
         }
         catch (OperationCanceledException)
         {
@@ -159,15 +201,17 @@ public class AgentOrchestrator : IAgentOrchestrator
             _state.SetStatus(bookId, new AgentRunStatus(cancelledRole, "Cancelled", cur?.ChapterId));
             await _notifier.NotifyStatusChangedAsync(bookId, cancelledRole, "Cancelled", CancellationToken.None);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow stopped.", true, CancellationToken.None);
+            _logger.LogWarning("[Book {BookId}] Full workflow cancelled.", bookId);
             throw;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             var cur = _state.GetStatus(bookId);
             var failedRole = cur?.Role ?? AgentRole.Planner;
             _state.SetStatus(bookId, new AgentRunStatus(failedRole, "Failed", cur?.ChapterId));
             await _notifier.NotifyStatusChangedAsync(bookId, failedRole, "Failed", CancellationToken.None);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow failed.", true, CancellationToken.None);
+            _logger.LogError(ex, "[Book {BookId}] Full workflow failed.", bookId);
             throw;
         }
     }
@@ -264,6 +308,7 @@ public class AgentOrchestrator : IAgentOrchestrator
 
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.ContinuityChecker, "Done", null));
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow complete!", true, ct);
+            _logger.LogInformation("[Book {BookId}] Continue-workflow completed.", bookId);
         }
         catch (OperationCanceledException)
         {
@@ -272,15 +317,17 @@ public class AgentOrchestrator : IAgentOrchestrator
             _state.SetStatus(bookId, new AgentRunStatus(cancelledRole, "Cancelled", cur?.ChapterId));
             await _notifier.NotifyStatusChangedAsync(bookId, cancelledRole, "Cancelled", CancellationToken.None);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow stopped.", true, CancellationToken.None);
+            _logger.LogWarning("[Book {BookId}] Continue-workflow cancelled.", bookId);
             throw;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             var cur = _state.GetStatus(bookId);
             var failedRole = cur?.Role ?? AgentRole.Writer;
             _state.SetStatus(bookId, new AgentRunStatus(failedRole, "Failed", cur?.ChapterId));
             await _notifier.NotifyStatusChangedAsync(bookId, failedRole, "Failed", CancellationToken.None);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow failed.", true, CancellationToken.None);
+            _logger.LogError(ex, "[Book {BookId}] Continue-workflow failed.", bookId);
             throw;
         }
     }

@@ -99,7 +99,9 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    app.Logger.LogInformation("Applying database migrations…");
     await db.Database.MigrateAsync();
+    app.Logger.LogInformation("Database migrations applied.");
 
     // Seed global LLM defaults from env / appsettings ──────────────────────────
     var llmSection = app.Configuration.GetSection("LlmDefaults");
@@ -120,6 +122,9 @@ using (var scope = app.Services.CreateScope())
         var embeddingModel = llmSection["EmbeddingModelName"];
         if (!string.IsNullOrWhiteSpace(embeddingModel)) config.EmbeddingModelName = embeddingModel;
         await repo.UpsertLlmConfigAsync(config);
+        app.Logger.LogInformation(
+            "LLM default config: provider={Provider} model={Model} endpoint={Endpoint}",
+            config.Provider, config.ModelName, config.Endpoint);
     }
 }
 
@@ -134,4 +139,5 @@ app.MapHub<BookHub>("/hubs/book");
 // React SPA fallback — serve index.html for all non-API routes
 app.MapFallbackToFile("index.html");
 
+app.Logger.LogInformation("ABook API starting.");
 app.Run();
