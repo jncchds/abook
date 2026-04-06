@@ -14,6 +14,9 @@ using Qdrant.Client;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Load optional local overrides (not committed to Git)
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+
 // ── Database ──────────────────────────────────────────────────────────────────
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? "Host=localhost;Port=5432;Database=abook;Username=abook;Password=abook";
