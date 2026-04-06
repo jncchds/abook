@@ -97,6 +97,27 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.MigrateAsync();
+
+    // Seed global LLM defaults from env / appsettings ──────────────────────────
+    var llmSection = app.Configuration.GetSection("LlmDefaults");
+    var providerStr = llmSection["Provider"];
+    if (!string.IsNullOrWhiteSpace(providerStr) &&
+        Enum.TryParse<LlmProvider>(providerStr, ignoreCase: true, out var provider))
+    {
+        var repo = scope.ServiceProvider.GetRequiredService<IBookRepository>();
+        var existing = await repo.GetLlmConfigAsync(null, null);
+        var config = existing ?? new LlmConfiguration();
+        config.Provider = provider;
+        var modelName = llmSection["ModelName"];
+        if (!string.IsNullOrWhiteSpace(modelName)) config.ModelName = modelName;
+        var endpoint = llmSection["Endpoint"];
+        if (!string.IsNullOrWhiteSpace(endpoint)) config.Endpoint = endpoint;
+        var apiKey = llmSection["ApiKey"];
+        if (!string.IsNullOrWhiteSpace(apiKey)) config.ApiKey = apiKey;
+        var embeddingModel = llmSection["EmbeddingModelName"];
+        if (!string.IsNullOrWhiteSpace(embeddingModel)) config.EmbeddingModelName = embeddingModel;
+        await repo.UpsertLlmConfigAsync(config);
+    }
 }
 
 app.UseCors();

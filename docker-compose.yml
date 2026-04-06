@@ -10,6 +10,12 @@ services:
       - Qdrant__Host=qdrant
       - Qdrant__Port=6334
       - ASPNETCORE_ENVIRONMENT=Production
+      # Default LLM provider for new books (overrides the built-in Ollama defaults)
+      # - LlmDefaults__Provider=Ollama
+      # - LlmDefaults__ModelName=llama3
+      # - LlmDefaults__Endpoint=http://host.docker.internal:11434
+      # - LlmDefaults__ApiKey=
+      # - LlmDefaults__EmbeddingModelName=
     depends_on:
       postgres:
         condition: service_healthy

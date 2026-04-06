@@ -251,6 +251,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **Chapter inline edit**: "✎ Edit" button appears on chapter header when not running. Opens an inline form to edit title and outline; saves via `PUT /api/books/{id}/chapters/{chapterId}`.
 - **Book inline edit**: "✎ Edit" button on book overview. Opens an inline form to edit title, genre, target chapters, premise/plot; saves via `PUT /api/books/{id}`.
 - **Add chapter manually**: "+ Chapter" button at the bottom of the sidebar chapter list. Inline form collects title and outline; auto-assigns the next chapter number; saves via `POST /api/books/{id}/chapters` and immediately selects the new chapter.
+- **Default LLM config from env vars**: on startup, `Program.cs` reads `LlmDefaults` config section and upserts the global `LlmConfiguration` record (BookId=null, UserId=null). Env var names follow .NET double-underscore convention: `LlmDefaults__Provider`, `LlmDefaults__ModelName`, `LlmDefaults__Endpoint`, `LlmDefaults__ApiKey`, `LlmDefaults__EmbeddingModelName`. Defaults are pre-populated in `appsettings.json` (Provider=Ollama, ModelName=llama3, Endpoint=http://host.docker.internal:11434). Commented examples in `docker-compose.yml`.
 
 ---
 
