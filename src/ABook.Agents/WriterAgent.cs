@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using ABook.Infrastructure.VectorStore;
+using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 
@@ -17,8 +18,9 @@ public class WriterAgent : AgentBase
         ILlmProviderFactory llmFactory,
         IVectorStoreService vectorStore,
         IBookNotifier notifier,
-        AgentRunStateService stateService)
-        : base(repo, llmFactory, vectorStore, notifier, stateService) { }
+        AgentRunStateService stateService,
+        ILoggerFactory loggerFactory)
+        : base(repo, llmFactory, vectorStore, notifier, stateService, loggerFactory) { }
 
     public async Task WriteAsync(int bookId, int chapterId, CancellationToken ct = default)
     {

@@ -60,6 +60,8 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, "Failed", null));
             _logger.LogError(ex, "[Book {BookId}] Planner failed.", bookId);
+            await _notifier.NotifyAgentErrorAsync(bookId, AgentRole.Planner.ToString(),
+                $"Planner failed: {ex.Message}", CancellationToken.None);
             throw;
         }
     }
@@ -85,6 +87,8 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Writer, "Failed", chapterId));
             _logger.LogError(ex, "[Book {BookId}] Writer failed for chapter {ChapterId}.", bookId, chapterId);
+            await _notifier.NotifyAgentErrorAsync(bookId, AgentRole.Writer.ToString(),
+                $"Writer failed for chapter {chapterId}: {ex.Message}", CancellationToken.None);
             throw;
         }
     }
@@ -110,6 +114,8 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Editor, "Failed", chapterId));
             _logger.LogError(ex, "[Book {BookId}] Editor failed for chapter {ChapterId}.", bookId, chapterId);
+            await _notifier.NotifyAgentErrorAsync(bookId, AgentRole.Editor.ToString(),
+                $"Editor failed for chapter {chapterId}: {ex.Message}", CancellationToken.None);
             throw;
         }
     }
@@ -135,6 +141,8 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.ContinuityChecker, "Failed", null));
             _logger.LogError(ex, "[Book {BookId}] ContinuityChecker failed.", bookId);
+            await _notifier.NotifyAgentErrorAsync(bookId, AgentRole.ContinuityChecker.ToString(),
+                $"Continuity checker failed: {ex.Message}", CancellationToken.None);
             throw;
         }
     }
@@ -211,6 +219,8 @@ public class AgentOrchestrator : IAgentOrchestrator
             _state.SetStatus(bookId, new AgentRunStatus(failedRole, "Failed", cur?.ChapterId));
             await _notifier.NotifyStatusChangedAsync(bookId, failedRole, "Failed", CancellationToken.None);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow failed.", true, CancellationToken.None);
+            await _notifier.NotifyAgentErrorAsync(bookId, failedRole.ToString(),
+                $"{failedRole} failed: {ex.Message}", CancellationToken.None);
             _logger.LogError(ex, "[Book {BookId}] Full workflow failed.", bookId);
             throw;
         }
@@ -327,6 +337,8 @@ public class AgentOrchestrator : IAgentOrchestrator
             _state.SetStatus(bookId, new AgentRunStatus(failedRole, "Failed", cur?.ChapterId));
             await _notifier.NotifyStatusChangedAsync(bookId, failedRole, "Failed", CancellationToken.None);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow failed.", true, CancellationToken.None);
+            await _notifier.NotifyAgentErrorAsync(bookId, failedRole.ToString(),
+                $"{failedRole} failed: {ex.Message}", CancellationToken.None);
             _logger.LogError(ex, "[Book {BookId}] Continue-workflow failed.", bookId);
             throw;
         }

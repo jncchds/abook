@@ -2,6 +2,7 @@
 
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
+using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 
@@ -14,8 +15,9 @@ public class PlannerAgent : AgentBase
         ILlmProviderFactory llmFactory,
         IVectorStoreService vectorStore,
         IBookNotifier notifier,
-        AgentRunStateService stateService)
-        : base(repo, llmFactory, vectorStore, notifier, stateService) { }
+        AgentRunStateService stateService,
+        ILoggerFactory loggerFactory)
+        : base(repo, llmFactory, vectorStore, notifier, stateService, loggerFactory) { }
 
     /// <summary>
     /// Generates chapter outlines for the book.
@@ -56,8 +58,29 @@ public class PlannerAgent : AgentBase
 
         var raw = await StreamResponseAsync(kernel, history, bookId, null, AgentRole.Planner, ct);
 
-        // Parse the JSON response
-        var chapters = ParseChapterOutlines(bookId, raw);
+        // Parse the JSON response — log the raw output if it cannot be parsed
+        List<Chapter> chapters;
+        try
+        {
+            chapters = ParseChapterOutlines(bookId, raw);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex,
+                "[Book {BookId}] Planner produced a response that could not be parsed as chapter outlines.\nRaw LLM response ({Chars} chars):\n{Raw}",
+                bookId, raw.Length, raw);
+            await Notifier.NotifyAgentErrorAsync(bookId, AgentRole.Planner.ToString(),
+                "Planner error: the LLM response was not valid JSON chapter outlines. " +
+                "Try again — if the problem persists, simplify your premise or check the LLM configuration.", ct);
+            throw;
+        }
+
+        if (chapters.Count == 0)
+        {
+            Logger.LogWarning(
+                "[Book {BookId}] Planner parsed zero chapters from LLM response ({Chars} chars):\n{Raw}",
+                bookId, raw.Length, raw);
+        }
 
         foreach (var chapter in chapters)
             await Repo.AddChapterAsync(chapter);

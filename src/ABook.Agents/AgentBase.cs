@@ -2,6 +2,7 @@
 
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
+using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.Ollama;
@@ -16,19 +17,22 @@ public abstract class AgentBase
     protected readonly IVectorStoreService VectorStore;
     protected readonly IBookNotifier Notifier;
     protected readonly AgentRunStateService StateService;
+    protected readonly ILogger Logger;
 
     protected AgentBase(
         IBookRepository repo,
         ILlmProviderFactory llmFactory,
         IVectorStoreService vectorStore,
         IBookNotifier notifier,
-        AgentRunStateService stateService)
+        AgentRunStateService stateService,
+        ILoggerFactory loggerFactory)
     {
         Repo = repo;
         LlmFactory = llmFactory;
         VectorStore = vectorStore;
         Notifier = notifier;
         StateService = stateService;
+        Logger = loggerFactory.CreateLogger(GetType().FullName ?? GetType().Name);
     }
 
     protected async Task<Kernel> GetKernelAsync(int bookId)
@@ -47,17 +51,38 @@ public abstract class AgentBase
         var settings = new OllamaPromptExecutionSettings { Temperature = (float?)0.8f };
         var sb = new System.Text.StringBuilder();
 
-        await foreach (var chunk in chat.GetStreamingChatMessageContentsAsync(history, settings, kernel, ct))
+        try
         {
-            if (chunk.Content is { Length: > 0 } token)
+            await foreach (var chunk in chat.GetStreamingChatMessageContentsAsync(history, settings, kernel, ct))
             {
-                sb.Append(token);
-                await Notifier.StreamTokenAsync(bookId, chapterId, token, ct);
+                if (chunk.Content is { Length: > 0 } token)
+                {
+                    sb.Append(token);
+                    await Notifier.StreamTokenAsync(bookId, chapterId, token, ct);
+                }
             }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[Book {BookId}] [{Role}] LLM streaming call failed after receiving {Chars} chars. Partial response:\n{Partial}",
+                bookId, role, sb.Length, sb.Length > 0 ? sb.ToString() : "(empty)");
+            throw;
+        }
+
+        var result = sb.ToString();
+        if (result.Trim().Length == 0)
+        {
+            Logger.LogWarning("[Book {BookId}] [{Role}] LLM returned an empty response.", bookId, role);
+        }
+        else if (result.Length < 50)
+        {
+            Logger.LogWarning("[Book {BookId}] [{Role}] LLM returned a suspiciously short response ({Chars} chars): {Response}",
+                bookId, role, result.Length, result.Trim());
         }
 
         int promptTokens = history.Sum(m => (m.Content?.Length ?? 0)) / 4;
-        int completionTokens = sb.Length / 4;
+        int completionTokens = result.Length / 4;
         try { await Notifier.NotifyTokenStatsAsync(bookId, chapterId, role.ToString(), promptTokens, completionTokens, ct); }
         catch { /* non-fatal */ }
         try
@@ -73,7 +98,7 @@ public abstract class AgentBase
         }
         catch { /* non-fatal — do not interrupt agent on DB write failure */ }
 
-        return sb.ToString();
+        return result;
     }
 
     /// <summary>Persist a question message and notify the UI to pause.</summary>
@@ -132,7 +157,11 @@ public abstract class AgentBase
             return string.Join("\n\n---\n\n", chunks.Select(c => $"[Chapter {c.ChapterNumber}]\n{c.Text}"));
         }
         catch (OperationCanceledException) { throw; }
-        catch { return string.Empty; }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "[Book {BookId}] RAG context retrieval failed — continuing without context.", bookId);
+            return string.Empty;
+        }
     }
 
     /// <summary>Remove any leading markdown heading(s) the LLM added for the chapter title.</summary>

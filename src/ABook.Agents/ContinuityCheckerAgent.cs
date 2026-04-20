@@ -2,6 +2,7 @@
 
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
+using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 
@@ -14,8 +15,9 @@ public class ContinuityCheckerAgent : AgentBase
         ILlmProviderFactory llmFactory,
         IVectorStoreService vectorStore,
         IBookNotifier notifier,
-        AgentRunStateService stateService)
-        : base(repo, llmFactory, vectorStore, notifier, stateService) { }
+        AgentRunStateService stateService,
+        ILoggerFactory loggerFactory)
+        : base(repo, llmFactory, vectorStore, notifier, stateService, loggerFactory) { }
 
     /// <summary>
     /// Checks continuity. When <paramref name="chapterId"/> is provided, only reports issues

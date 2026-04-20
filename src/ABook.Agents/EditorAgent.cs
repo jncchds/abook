@@ -2,6 +2,7 @@
 
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
+using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 
@@ -14,8 +15,9 @@ public class EditorAgent : AgentBase
         ILlmProviderFactory llmFactory,
         IVectorStoreService vectorStore,
         IBookNotifier notifier,
-        AgentRunStateService stateService)
-        : base(repo, llmFactory, vectorStore, notifier, stateService) { }
+        AgentRunStateService stateService,
+        ILoggerFactory loggerFactory)
+        : base(repo, llmFactory, vectorStore, notifier, stateService, loggerFactory) { }
 
     public async Task EditAsync(int bookId, int chapterId, CancellationToken ct = default, string? continuityNotes = null)
     {

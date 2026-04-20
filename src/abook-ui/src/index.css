@@ -59,6 +59,31 @@ label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bot
 /* ── Book detail layout ── */
 .book-detail { display: grid; grid-template-columns: 240px 1fr 300px; height: 100vh; overflow: hidden; }
 
+/* ── Agent error banner ── */
+.agent-error-banner {
+  grid-column: 1 / -1;
+  background: #7f1d1d;
+  color: #fecaca;
+  padding: 0.65rem 1rem;
+  font-size: 0.88rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  z-index: 10;
+}
+.agent-error-banner strong { color: #fca5a5; }
+.agent-error-dismiss {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: #fca5a5;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.25rem;
+}
+.agent-error-dismiss:hover { color: #fff; }
+
 .sidebar { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 1rem; overflow-y: auto; gap: 0.75rem; }
 .sidebar h2 { font-size: 1rem; font-weight: 700; }
 .sidebar .genre { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; }
