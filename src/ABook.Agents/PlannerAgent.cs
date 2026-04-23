@@ -30,9 +30,6 @@ public class PlannerAgent : AgentBase
 
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, "Running", ct);
 
-        // Clear existing chapters before re-planning so there are no duplicates
-        await Repo.DeleteChaptersAsync(bookId);
-
         var kernel = await GetKernelAsync(bookId);
 
         var history = new ChatHistory();
@@ -69,8 +66,8 @@ public class PlannerAgent : AgentBase
             Logger.LogError(ex,
                 "[Book {BookId}] Planner produced a response that could not be parsed as chapter outlines.\nRaw LLM response ({Chars} chars):\n{Raw}",
                 bookId, raw.Length, raw);
-            await Notifier.NotifyAgentErrorAsync(bookId, AgentRole.Planner.ToString(),
-                "Planner error: the LLM response was not valid JSON chapter outlines. " +
+            await ReportErrorAsync(bookId, null, AgentRole.Planner,
+                "The LLM response was not valid JSON chapter outlines. " +
                 "Try again — if the problem persists, simplify your premise or check the LLM configuration.", ct);
             throw;
         }
@@ -81,6 +78,9 @@ public class PlannerAgent : AgentBase
                 "[Book {BookId}] Planner parsed zero chapters from LLM response ({Chars} chars):\n{Raw}",
                 bookId, raw.Length, raw);
         }
+
+        // Clear existing chapters *after* successful parsing so a failed re-plan doesn't wipe the book
+        await Repo.DeleteChaptersAsync(bookId);
 
         foreach (var chapter in chapters)
             await Repo.AddChapterAsync(chapter);
@@ -95,6 +95,12 @@ public class PlannerAgent : AgentBase
         // Strip markdown code fences if present
         json = json.Trim();
         if (json.StartsWith("```")) json = string.Join('\n', json.Split('\n').Skip(1).TakeWhile(l => !l.StartsWith("```")));
+
+        // Extract just the JSON array (handles trailing commentary from the LLM)
+        var start = json.IndexOf('[');
+        var end = json.LastIndexOf(']');
+        if (start >= 0 && end > start)
+            json = json[start..(end + 1)];
 
         using var doc = System.Text.Json.JsonDocument.Parse(json);
         var chapters = new List<Chapter>();

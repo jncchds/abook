@@ -55,6 +55,12 @@ public class QdrantVectorStoreService : IVectorStoreService
         int bookId, ReadOnlyMemory<float> queryEmbedding, int topK = 5, CancellationToken ct = default)
     {
         var name = CollectionName(bookId);
+
+        // Gracefully handle the case where no chapters have been indexed yet (collection doesn't exist)
+        var collections = await _client.ListCollectionsAsync(ct);
+        if (!collections.Any(c => c == name))
+            return [];
+
         var results = await _client.SearchAsync(name, queryEmbedding.ToArray(), limit: (ulong)topK,
             payloadSelector: true, cancellationToken: ct);
 

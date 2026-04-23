@@ -144,6 +144,29 @@ public abstract class AgentBase
         return answer;
     }
 
+    /// <summary>
+    /// Persists an error as a SystemNote agent message so it appears in the chat panel,
+    /// then fires the AgentError SignalR event. Never throws.
+    /// </summary>
+    protected async Task ReportErrorAsync(int bookId, int? chapterId, AgentRole role, string message, CancellationToken ct = default)
+    {
+        try
+        {
+            await Repo.AddMessageAsync(new AgentMessage
+            {
+                BookId = bookId,
+                ChapterId = chapterId,
+                AgentRole = role,
+                MessageType = MessageType.SystemNote,
+                Content = $"❌ {message}",
+                IsResolved = true
+            });
+        }
+        catch { /* non-fatal */ }
+        try { await Notifier.NotifyAgentErrorAsync(bookId, role.ToString(), message, ct); }
+        catch { /* non-fatal */ }
+    }
+
     /// <summary>Retrieve relevant context chunks from Qdrant for RAG. Returns empty on failure.</summary>
     protected async Task<string> GetRagContextAsync(
         int bookId, string query, int topK, ILlmProviderFactory factory, LlmConfiguration config)

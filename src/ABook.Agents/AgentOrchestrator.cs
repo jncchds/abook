@@ -60,8 +60,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, "Failed", null));
             _logger.LogError(ex, "[Book {BookId}] Planner failed.", bookId);
-            await _notifier.NotifyAgentErrorAsync(bookId, AgentRole.Planner.ToString(),
-                $"Planner failed: {ex.Message}", CancellationToken.None);
+            await ReportAgentErrorAsync(bookId, AgentRole.Planner, null, $"Planner failed: {ex.Message}");
             throw;
         }
     }
@@ -87,8 +86,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Writer, "Failed", chapterId));
             _logger.LogError(ex, "[Book {BookId}] Writer failed for chapter {ChapterId}.", bookId, chapterId);
-            await _notifier.NotifyAgentErrorAsync(bookId, AgentRole.Writer.ToString(),
-                $"Writer failed for chapter {chapterId}: {ex.Message}", CancellationToken.None);
+            await ReportAgentErrorAsync(bookId, AgentRole.Writer, chapterId, $"Writer failed for chapter {chapterId}: {ex.Message}");
             throw;
         }
     }
@@ -114,8 +112,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Editor, "Failed", chapterId));
             _logger.LogError(ex, "[Book {BookId}] Editor failed for chapter {ChapterId}.", bookId, chapterId);
-            await _notifier.NotifyAgentErrorAsync(bookId, AgentRole.Editor.ToString(),
-                $"Editor failed for chapter {chapterId}: {ex.Message}", CancellationToken.None);
+            await ReportAgentErrorAsync(bookId, AgentRole.Editor, chapterId, $"Editor failed for chapter {chapterId}: {ex.Message}");
             throw;
         }
     }
@@ -141,8 +138,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.ContinuityChecker, "Failed", null));
             _logger.LogError(ex, "[Book {BookId}] ContinuityChecker failed.", bookId);
-            await _notifier.NotifyAgentErrorAsync(bookId, AgentRole.ContinuityChecker.ToString(),
-                $"Continuity checker failed: {ex.Message}", CancellationToken.None);
+            await ReportAgentErrorAsync(bookId, AgentRole.ContinuityChecker, null, $"Continuity checker failed: {ex.Message}");
             throw;
         }
     }
@@ -202,14 +198,27 @@ public class AgentOrchestrator : IAgentOrchestrator
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow complete!", true, ct);
             _logger.LogInformation("[Book {BookId}] Full workflow completed.", bookId);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             var cur = _state.GetStatus(bookId);
             var cancelledRole = cur?.Role ?? AgentRole.Planner;
             _state.SetStatus(bookId, new AgentRunStatus(cancelledRole, "Cancelled", cur?.ChapterId));
             await _notifier.NotifyStatusChangedAsync(bookId, cancelledRole, "Cancelled", CancellationToken.None);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow stopped.", true, CancellationToken.None);
-            _logger.LogWarning("[Book {BookId}] Full workflow cancelled.", bookId);
+            _logger.LogWarning("[Book {BookId}] Full workflow stopped by user.", bookId);
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            // Not user-initiated — likely an LLM timeout or connection failure
+            var cur = _state.GetStatus(bookId);
+            var failedRole = cur?.Role ?? AgentRole.Planner;
+            _state.SetStatus(bookId, new AgentRunStatus(failedRole, "Failed", cur?.ChapterId));
+            await _notifier.NotifyStatusChangedAsync(bookId, failedRole, "Failed", CancellationToken.None);
+            await ReportAgentErrorAsync(bookId, failedRole, cur?.ChapterId,
+                $"Request cancelled unexpectedly — possible LLM timeout or connection issue. Detail: {ex.Message}");
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow failed (request cancelled).", true, CancellationToken.None);
+            _logger.LogError(ex, "[Book {BookId}] Full workflow failed due to unexpected cancellation (not user-initiated).", bookId);
             throw;
         }
         catch (Exception ex)
@@ -219,8 +228,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             _state.SetStatus(bookId, new AgentRunStatus(failedRole, "Failed", cur?.ChapterId));
             await _notifier.NotifyStatusChangedAsync(bookId, failedRole, "Failed", CancellationToken.None);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow failed.", true, CancellationToken.None);
-            await _notifier.NotifyAgentErrorAsync(bookId, failedRole.ToString(),
-                $"{failedRole} failed: {ex.Message}", CancellationToken.None);
+            await ReportAgentErrorAsync(bookId, failedRole, cur?.ChapterId, $"{failedRole} failed: {ex.Message}");
             _logger.LogError(ex, "[Book {BookId}] Full workflow failed.", bookId);
             throw;
         }
@@ -320,14 +328,27 @@ public class AgentOrchestrator : IAgentOrchestrator
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow complete!", true, ct);
             _logger.LogInformation("[Book {BookId}] Continue-workflow completed.", bookId);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             var cur = _state.GetStatus(bookId);
             var cancelledRole = cur?.Role ?? AgentRole.Writer;
             _state.SetStatus(bookId, new AgentRunStatus(cancelledRole, "Cancelled", cur?.ChapterId));
             await _notifier.NotifyStatusChangedAsync(bookId, cancelledRole, "Cancelled", CancellationToken.None);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow stopped.", true, CancellationToken.None);
-            _logger.LogWarning("[Book {BookId}] Continue-workflow cancelled.", bookId);
+            _logger.LogWarning("[Book {BookId}] Continue-workflow stopped by user.", bookId);
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            // Not user-initiated — likely an LLM timeout or connection failure
+            var cur = _state.GetStatus(bookId);
+            var failedRole = cur?.Role ?? AgentRole.Writer;
+            _state.SetStatus(bookId, new AgentRunStatus(failedRole, "Failed", cur?.ChapterId));
+            await _notifier.NotifyStatusChangedAsync(bookId, failedRole, "Failed", CancellationToken.None);
+            await ReportAgentErrorAsync(bookId, failedRole, cur?.ChapterId,
+                $"Request cancelled unexpectedly — possible LLM timeout or connection issue. Detail: {ex.Message}");
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow failed (request cancelled).", true, CancellationToken.None);
+            _logger.LogError(ex, "[Book {BookId}] Continue-workflow failed due to unexpected cancellation (not user-initiated).", bookId);
             throw;
         }
         catch (Exception ex)
@@ -337,11 +358,32 @@ public class AgentOrchestrator : IAgentOrchestrator
             _state.SetStatus(bookId, new AgentRunStatus(failedRole, "Failed", cur?.ChapterId));
             await _notifier.NotifyStatusChangedAsync(bookId, failedRole, "Failed", CancellationToken.None);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow failed.", true, CancellationToken.None);
-            await _notifier.NotifyAgentErrorAsync(bookId, failedRole.ToString(),
-                $"{failedRole} failed: {ex.Message}", CancellationToken.None);
+            await ReportAgentErrorAsync(bookId, failedRole, cur?.ChapterId, $"{failedRole} failed: {ex.Message}");
             _logger.LogError(ex, "[Book {BookId}] Continue-workflow failed.", bookId);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Persists an error as a chat-visible SystemNote message AND fires the AgentError SignalR event.
+    /// </summary>
+    private async Task ReportAgentErrorAsync(int bookId, AgentRole role, int? chapterId, string message)
+    {
+        try
+        {
+            await _repo.AddMessageAsync(new AgentMessage
+            {
+                BookId = bookId,
+                ChapterId = chapterId,
+                AgentRole = role,
+                MessageType = MessageType.SystemNote,
+                Content = $"\u274c {message}",
+                IsResolved = true
+            });
+        }
+        catch { /* non-fatal */ }
+        try { await _notifier.NotifyAgentErrorAsync(bookId, role.ToString(), message, CancellationToken.None); }
+        catch { /* non-fatal */ }
     }
 
     public async Task ResumeWithAnswerAsync(int messageId, string answer, CancellationToken ct = default)

@@ -36,7 +36,6 @@ export default function BookDetail() {
   const [pendingQuestion, setPendingQuestion] = useState<AgentMessage | null>(null)
   const [runStatus, setRunStatus] = useState<AgentRunStatus | null>(null)
   const [workflowLog, setWorkflowLog] = useState<string[]>([])
-  const [agentError, setAgentError] = useState<{ role: string; message: string } | null>(null)
 
   // Token stats — persisted (from DB) + live (from SignalR during current session)
   interface TokenStat { id: number; chapterId: number | null; role: string; prompt: number; completion: number; time: string; persisted?: boolean }
@@ -169,8 +168,9 @@ export default function BookDetail() {
         }])
       })
     })
-    setOnAgentError((_bId, role, message) => {
-      setAgentError({ role, message })
+    setOnAgentError((_bId, _role, _message) => {
+      // Error is persisted as a chat message on the backend — just reload messages
+      refreshMessages()
       setMobilePanel('chat')
     })
   }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, refreshBook, refreshMessages])
@@ -293,12 +293,6 @@ export default function BookDetail() {
 
   return (
     <div className="book-detail">
-      {agentError && (
-        <div className="agent-error-banner" role="alert">
-          <strong>{agentError.role} error:</strong> {agentError.message}
-          <button className="agent-error-dismiss" onClick={() => setAgentError(null)} aria-label="Dismiss">✕</button>
-        </div>
-      )}
       {/* Mobile tab bar (hidden on desktop via CSS) */}
       <nav className="mobile-nav-tabs">
         <button
