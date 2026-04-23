@@ -29,7 +29,12 @@ public class LlmProviderFactory : ILlmProviderFactory
         var embeddingModel = config.EmbeddingModelName ?? config.ModelName;
         return config.Provider switch
         {
-            LlmProvider.Ollama => new OllamaTextEmbeddingGenerationService(embeddingModel, new Uri(config.Endpoint)),
+            // OllamaTextEmbeddingGenerationService is broken in SK 1.74.0-alpha (internal cast fails).
+            // Use the OpenAI-compatible embedding endpoint that Ollama has supported since 0.4.x.
+            LlmProvider.Ollama => new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAITextEmbeddingGenerationService(
+                embeddingModel, new OpenAIClient(
+                    new ApiKeyCredential("ollama"),
+                    new OpenAIClientOptions { Endpoint = new Uri(config.Endpoint.TrimEnd('/') + "/v1") })),
             LlmProvider.OpenAI => new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAITextEmbeddingGenerationService(
                 embeddingModel, config.ApiKey ?? throw new InvalidOperationException("OpenAI requires an API key.")),
             LlmProvider.LMStudio => new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAITextEmbeddingGenerationService(
