@@ -41,7 +41,7 @@ public class PlannerAgent : AgentBase
             : $"""
             You are a creative writing Planner. Your task is to outline a book in detail.
             For each chapter, output a JSON array of objects with fields:
-              "number" (int), "title" (string), "outline" (string, 2-4 sentences synopsis).
+              "number" (int), "title" (string), "outline" (string — a thorough description of the chapter: key scenes, character actions, emotional beats, foreshadowing, and how the chapter advances the plot. Write as much detail as you need to fully convey your vision for the chapter).
             Output ONLY the JSON array, no additional text.
             Write all content in {book.Language}.
             """;
