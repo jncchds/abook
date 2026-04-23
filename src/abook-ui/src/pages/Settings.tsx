@@ -31,6 +31,8 @@ export default function Settings() {
   const [modelsLoading, setModelsLoading] = useState(false)
   const [customModel, setCustomModel] = useState('')
   const [useCustomModel, setUseCustomModel] = useState(false)
+  const [useCustomEmbeddingModel, setUseCustomEmbeddingModel] = useState(false)
+  const [customEmbeddingModel, setCustomEmbeddingModel] = useState('')
   const [pullModel, setPullModel] = useState('')
   const [pullStatus, setPullStatus] = useState('')
   const [saved, setSaved] = useState(false)
@@ -38,7 +40,7 @@ export default function Settings() {
   const [defaultPrompts, setDefaultPrompts] = useState<DefaultPrompts | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  const fetchModels = (endpoint: string, provider?: string, currentModel?: string) => {
+  const fetchModels = (endpoint: string, provider?: string, currentModel?: string, currentEmbeddingModel?: string) => {
     const prov = provider ?? config.provider
     if (!MODEL_LIST_PROVIDERS.has(prov)) {
       setOllamaModels([])
@@ -48,11 +50,17 @@ export default function Settings() {
     getOllamaModels(endpoint, prov)
       .then(r => {
         setOllamaModels(r.data)
-        // If saved model isn't in the list, switch to custom mode
+        // If saved chat model isn't in the list, switch to custom mode
         const model = currentModel ?? config.modelName
         if (model && !r.data.some(m => m.name === model)) {
           setUseCustomModel(true)
           setCustomModel(model)
+        }
+        // If saved embedding model isn't in the list, switch to custom mode
+        const embModel = currentEmbeddingModel ?? config.embeddingModelName ?? ''
+        if (embModel && !r.data.some(m => m.name === embModel)) {
+          setUseCustomEmbeddingModel(true)
+          setCustomEmbeddingModel(embModel)
         }
       })
       .catch(() => {
@@ -65,7 +73,7 @@ export default function Settings() {
     getLlmConfig(bookId).then(r => {
       if (r.data) {
         setConfig(r.data)
-        fetchModels(r.data.endpoint ?? '', r.data.provider, r.data.modelName)
+        fetchModels(r.data.endpoint ?? '', r.data.provider, r.data.modelName, r.data.embeddingModelName ?? '')
       }
     })
     if (bookId) {
@@ -87,7 +95,8 @@ export default function Settings() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     const modelName = useCustomModel ? customModel : config.modelName
-    await updateLlmConfig({ ...config, modelName, bookId })
+    const embeddingModelName = useCustomEmbeddingModel ? customEmbeddingModel : config.embeddingModelName
+    await updateLlmConfig({ ...config, modelName, embeddingModelName, bookId })
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -170,6 +179,7 @@ export default function Settings() {
               setConfig(c => ({ ...c, provider: prov, endpoint: newEndpoint }))
               setOllamaModels([])
               setUseCustomModel(false)
+              setUseCustomEmbeddingModel(false)
               fetchModels(newEndpoint, prov)
             }}>
               {PROVIDERS.map(p => <option key={p}>{p}</option>)}
@@ -216,7 +226,37 @@ export default function Settings() {
           </label>
           <label>
             Embedding Model
-            <input value={config.embeddingModelName ?? ''} onChange={e => setConfig(c => ({ ...c, embeddingModelName: e.target.value }))} />
+            {MODEL_LIST_PROVIDERS.has(config.provider) ? (
+              <div className="model-selector">
+                <select
+                  value={useCustomEmbeddingModel ? '__custom__' : (config.embeddingModelName ?? '')}
+                  onChange={e => {
+                    if (e.target.value === '__custom__') { setUseCustomEmbeddingModel(true) }
+                    else { setUseCustomEmbeddingModel(false); setConfig(c => ({ ...c, embeddingModelName: e.target.value })) }
+                  }}
+                >
+                  {fetchedModelNames.length === 0 && !useCustomEmbeddingModel && (
+                    <option value={config.embeddingModelName ?? ''}>{config.embeddingModelName || '— no models fetched —'}</option>
+                  )}
+                  {fetchedModelNames.map(m => <option key={m} value={m}>{m}</option>)}
+                  <option value="__custom__">— Custom model name —</option>
+                </select>
+                {useCustomEmbeddingModel && (
+                  <input
+                    placeholder="e.g. nomic-embed-text"
+                    value={customEmbeddingModel}
+                    onChange={e => setCustomEmbeddingModel(e.target.value)}
+                  />
+                )}
+                {modelsLoading && <span className="hint">Loading…</span>}
+              </div>
+            ) : (
+              <input
+                placeholder="e.g. text-embedding-3-small"
+                value={config.embeddingModelName ?? ''}
+                onChange={e => setConfig(c => ({ ...c, embeddingModelName: e.target.value }))}
+              />
+            )}
           </label>
           <label>
             API Key (optional)
