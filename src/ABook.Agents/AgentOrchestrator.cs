@@ -165,6 +165,14 @@ public class AgentOrchestrator : IAgentOrchestrator
             {
                 ct.ThrowIfCancellationRequested();
 
+                // Pre-write check: auto-fix outline if it contradicts established facts
+                _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapter.Id);
+                await _notifier.NotifyWorkflowProgressAsync(bookId,
+                    $"Pre-write review for Chapter {chapter.Number}…", false, ct);
+                await _continuity.PreWriteCheckAndFixAsync(bookId, chapter.Id, ct);
+
+                ct.ThrowIfCancellationRequested();
+
                 _state.UpdateRunRole(bookId, AgentRole.Writer, chapter.Id);
                 await _notifier.NotifyWorkflowProgressAsync(bookId,
                     $"Writing Chapter {chapter.Number}: {chapter.Title}…", false, ct);
@@ -281,6 +289,13 @@ public class AgentOrchestrator : IAgentOrchestrator
 
                 if (needsWrite)
                 {
+                    // Pre-write check: auto-fix outline contradictions before writing
+                    _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapter.Id);
+                    await _notifier.NotifyWorkflowProgressAsync(bookId,
+                        $"Pre-write review for Chapter {chapter.Number}…", false, ct);
+                    await _continuity.PreWriteCheckAndFixAsync(bookId, chapter.Id, ct);
+                    ct.ThrowIfCancellationRequested();
+
                     _state.UpdateRunRole(bookId, AgentRole.Writer, chapter.Id);
                     await _notifier.NotifyWorkflowProgressAsync(bookId,
                         $"Writing Chapter {chapter.Number}: {chapter.Title}…", false, ct);

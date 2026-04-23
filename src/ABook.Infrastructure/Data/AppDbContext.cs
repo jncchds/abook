@@ -13,6 +13,9 @@ public class AppDbContext : DbContext
     public DbSet<LlmConfiguration> LlmConfigurations => Set<LlmConfiguration>();
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<TokenUsageRecord> TokenUsageRecords => Set<TokenUsageRecord>();
+    public DbSet<StoryBible> StoryBibles => Set<StoryBible>();
+    public DbSet<CharacterCard> CharacterCards => Set<CharacterCard>();
+    public DbSet<PlotThread> PlotThreads => Set<PlotThread>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,6 +49,11 @@ public class AppDbContext : DbContext
             c.HasKey(x => x.Id);
             c.Property(x => x.Title).HasMaxLength(500);
             c.Property(x => x.Status).HasConversion<string>();
+            c.Property(x => x.PovCharacter).HasDefaultValue(string.Empty);
+            c.Property(x => x.CharactersInvolvedJson).HasDefaultValue("[]");
+            c.Property(x => x.PlotThreadsJson).HasDefaultValue("[]");
+            c.Property(x => x.ForeshadowingNotes).HasDefaultValue(string.Empty);
+            c.Property(x => x.PayoffNotes).HasDefaultValue(string.Empty);
             c.HasOne(x => x.Book)
              .WithMany(x => x.Chapters)
              .HasForeignKey(x => x.BookId)
@@ -108,6 +116,38 @@ public class AppDbContext : DbContext
              .HasForeignKey(x => x.ChapterId)
              .OnDelete(DeleteBehavior.SetNull)
              .IsRequired(false);
+        });
+
+        modelBuilder.Entity<StoryBible>(s =>
+        {
+            s.HasKey(x => x.Id);
+            s.HasOne(x => x.Book)
+             .WithOne(x => x.StoryBible)
+             .HasForeignKey<StoryBible>(x => x.BookId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CharacterCard>(c =>
+        {
+            c.HasKey(x => x.Id);
+            c.Property(x => x.Name).IsRequired().HasMaxLength(200);
+            c.Property(x => x.Role).HasConversion<string>();
+            c.HasOne(x => x.Book)
+             .WithMany(x => x.CharacterCards)
+             .HasForeignKey(x => x.BookId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PlotThread>(p =>
+        {
+            p.HasKey(x => x.Id);
+            p.Property(x => x.Name).IsRequired().HasMaxLength(300);
+            p.Property(x => x.Type).HasConversion<string>();
+            p.Property(x => x.Status).HasConversion<string>();
+            p.HasOne(x => x.Book)
+             .WithMany(x => x.PlotThreads)
+             .HasForeignKey(x => x.BookId)
+             .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

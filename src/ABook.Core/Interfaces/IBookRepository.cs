@@ -27,5 +27,25 @@ public interface IBookRepository
 
     Task<TokenUsageRecord> AddTokenUsageAsync(TokenUsageRecord record);
     Task<IEnumerable<TokenUsageRecord>> GetTokenUsageAsync(int bookId);
+
+    // Story Bible
+    Task<StoryBible?> GetStoryBibleAsync(int bookId);
+    Task<StoryBible> UpsertStoryBibleAsync(StoryBible bible);
+
+    // Character Cards
+    Task<IEnumerable<CharacterCard>> GetCharacterCardsAsync(int bookId);
+    Task<CharacterCard?> GetCharacterCardAsync(int bookId, int cardId);
+    Task<CharacterCard> AddCharacterCardAsync(CharacterCard card);
+    Task UpdateCharacterCardAsync(CharacterCard card);
+    Task DeleteCharacterCardAsync(int bookId, int cardId);
+    Task DeleteCharacterCardsAsync(int bookId);
+
+    // Plot Threads
+    Task<IEnumerable<PlotThread>> GetPlotThreadsAsync(int bookId);
+    Task<PlotThread?> GetPlotThreadAsync(int bookId, int threadId);
+    Task<PlotThread> AddPlotThreadAsync(PlotThread thread);
+    Task UpdatePlotThreadAsync(PlotThread thread);
+    Task DeletePlotThreadAsync(int bookId, int threadId);
+    Task DeletePlotThreadsAsync(int bookId);
 }
 

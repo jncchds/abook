@@ -22,4 +22,7 @@ public class Book
     public ICollection<Chapter> Chapters { get; set; } = new List<Chapter>();
     public ICollection<AgentMessage> AgentMessages { get; set; } = new List<AgentMessage>();
     public ICollection<LlmConfiguration> LlmConfigurations { get; set; } = new List<LlmConfiguration>();
+    public StoryBible? StoryBible { get; set; }
+    public ICollection<CharacterCard> CharacterCards { get; set; } = new List<CharacterCard>();
+    public ICollection<PlotThread> PlotThreads { get; set; } = new List<PlotThread>();
 }

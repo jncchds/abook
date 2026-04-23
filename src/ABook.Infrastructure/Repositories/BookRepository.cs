@@ -158,4 +158,110 @@ public class BookRepository : IBookRepository
             .Where(r => r.BookId == bookId)
             .OrderBy(r => r.CreatedAt)
             .ToListAsync();
+
+    // ── Story Bible ───────────────────────────────────────────────────────────
+
+    public async Task<StoryBible?> GetStoryBibleAsync(int bookId) =>
+        await _db.StoryBibles.FirstOrDefaultAsync(s => s.BookId == bookId);
+
+    public async Task<StoryBible> UpsertStoryBibleAsync(StoryBible bible)
+    {
+        var existing = await _db.StoryBibles.FirstOrDefaultAsync(s => s.BookId == bible.BookId);
+        if (existing is null)
+        {
+            bible.CreatedAt = bible.UpdatedAt = DateTime.UtcNow;
+            _db.StoryBibles.Add(bible);
+            await _db.SaveChangesAsync();
+            return bible;
+        }
+        existing.SettingDescription = bible.SettingDescription;
+        existing.TimePeriod = bible.TimePeriod;
+        existing.Themes = bible.Themes;
+        existing.ToneAndStyle = bible.ToneAndStyle;
+        existing.WorldRules = bible.WorldRules;
+        existing.Notes = bible.Notes;
+        existing.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return existing;
+    }
+
+    // ── Character Cards ───────────────────────────────────────────────────────
+
+    public async Task<IEnumerable<CharacterCard>> GetCharacterCardsAsync(int bookId) =>
+        await _db.CharacterCards.Where(c => c.BookId == bookId).OrderBy(c => c.Name).ToListAsync();
+
+    public async Task<CharacterCard?> GetCharacterCardAsync(int bookId, int cardId) =>
+        await _db.CharacterCards.FirstOrDefaultAsync(c => c.BookId == bookId && c.Id == cardId);
+
+    public async Task<CharacterCard> AddCharacterCardAsync(CharacterCard card)
+    {
+        card.CreatedAt = card.UpdatedAt = DateTime.UtcNow;
+        _db.CharacterCards.Add(card);
+        await _db.SaveChangesAsync();
+        return card;
+    }
+
+    public async Task UpdateCharacterCardAsync(CharacterCard card)
+    {
+        card.UpdatedAt = DateTime.UtcNow;
+        _db.CharacterCards.Update(card);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task DeleteCharacterCardAsync(int bookId, int cardId)
+    {
+        var card = await _db.CharacterCards.FirstOrDefaultAsync(c => c.BookId == bookId && c.Id == cardId);
+        if (card is not null)
+        {
+            _db.CharacterCards.Remove(card);
+            await _db.SaveChangesAsync();
+        }
+    }
+
+    public async Task DeleteCharacterCardsAsync(int bookId)
+    {
+        var cards = await _db.CharacterCards.Where(c => c.BookId == bookId).ToListAsync();
+        _db.CharacterCards.RemoveRange(cards);
+        await _db.SaveChangesAsync();
+    }
+
+    // ── Plot Threads ──────────────────────────────────────────────────────────
+
+    public async Task<IEnumerable<PlotThread>> GetPlotThreadsAsync(int bookId) =>
+        await _db.PlotThreads.Where(p => p.BookId == bookId).OrderBy(p => p.IntroducedChapterNumber).ThenBy(p => p.Name).ToListAsync();
+
+    public async Task<PlotThread?> GetPlotThreadAsync(int bookId, int threadId) =>
+        await _db.PlotThreads.FirstOrDefaultAsync(p => p.BookId == bookId && p.Id == threadId);
+
+    public async Task<PlotThread> AddPlotThreadAsync(PlotThread thread)
+    {
+        thread.CreatedAt = thread.UpdatedAt = DateTime.UtcNow;
+        _db.PlotThreads.Add(thread);
+        await _db.SaveChangesAsync();
+        return thread;
+    }
+
+    public async Task UpdatePlotThreadAsync(PlotThread thread)
+    {
+        thread.UpdatedAt = DateTime.UtcNow;
+        _db.PlotThreads.Update(thread);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task DeletePlotThreadAsync(int bookId, int threadId)
+    {
+        var thread = await _db.PlotThreads.FirstOrDefaultAsync(p => p.BookId == bookId && p.Id == threadId);
+        if (thread is not null)
+        {
+            _db.PlotThreads.Remove(thread);
+            await _db.SaveChangesAsync();
+        }
+    }
+
+    public async Task DeletePlotThreadsAsync(int bookId)
+    {
+        var threads = await _db.PlotThreads.Where(p => p.BookId == bookId).ToListAsync();
+        _db.PlotThreads.RemoveRange(threads);
+        await _db.SaveChangesAsync();
+    }
 }

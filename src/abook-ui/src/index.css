@@ -317,3 +317,124 @@ button:disabled:hover { background: var(--accent); }
   .agent-actions { flex-direction: column; }
   .btn-primary, .btn-stop, .btn-continue { flex: none; width: 100%; }
 }
+
+/* ======== Overview Tabs ======== */
+.overview-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+.overview-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.88rem;
+  border-radius: 4px 4px 0 0;
+  transition: color 0.15s, border-color 0.15s;
+}
+.overview-tab:hover { color: var(--text); }
+.overview-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ======== Story Bible ======== */
+.bible-view-header, .characters-header, .plotthreads-header {
+  display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;
+}
+.bible-pre {
+  white-space: pre-wrap; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 0.85rem; margin: 0.25rem 0 0.75rem;
+}
+.bible-edit-form label, .char-edit-form label, .thread-edit-form label {
+  display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.6rem;
+  font-size: 0.85rem; color: var(--text-muted);
+}
+.bible-edit-form input, .bible-edit-form textarea,
+.char-edit-form input, .char-edit-form textarea, .char-edit-form select,
+.thread-edit-form input, .thread-edit-form textarea, .thread-edit-form select {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text); padding: 0.4rem 0.6rem; font-size: 0.85rem; width: 100%;
+}
+.bible-edit-actions, .char-edit-actions, .thread-edit-actions {
+  display: flex; gap: 0.5rem; margin-top: 0.5rem;
+}
+
+/* ======== Character Cards ======== */
+.char-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.75rem 1rem; margin-bottom: 0.65rem;
+}
+.char-card-header {
+  display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem;
+}
+.char-role-badge {
+  padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600;
+}
+.role-protagonist { background: #1e3a5f; color: #60a5fa; }
+.role-antagonist { background: #3f1515; color: #f87171; }
+.role-supporting { background: #1e3a2e; color: #4ade80; }
+.role-minor { background: #2d2d2d; color: #94a3b8; }
+.char-card-actions { margin-left: auto; display: flex; gap: 0.35rem; }
+.char-field { margin: 0.2rem 0; font-size: 0.85rem; color: var(--text-muted); }
+
+/* ======== Plot Thread Cards ======== */
+.thread-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.75rem 1rem; margin-bottom: 0.65rem;
+  border-left: 3px solid var(--border);
+}
+.thread-card.status-active { border-left-color: #22c55e; }
+.thread-card.status-resolved { border-left-color: #60a5fa; }
+.thread-card.status-dormant { border-left-color: #94a3b8; }
+.thread-card-header {
+  display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; flex-wrap: wrap;
+}
+.thread-type-badge {
+  background: var(--surface-2, #1e293b); border: 1px solid var(--border);
+  color: var(--text-muted); padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.72rem;
+}
+.thread-status-badge {
+  padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600;
+}
+.thread-status-badge.status-active { background: #052e16; color: #4ade80; }
+.thread-status-badge.status-resolved { background: #172554; color: #93c5fd; }
+.thread-status-badge.status-dormant { background: #1e293b; color: #94a3b8; }
+.thread-card-actions { margin-left: auto; display: flex; gap: 0.35rem; }
+.thread-desc { margin: 0.2rem 0; font-size: 0.85rem; color: var(--text-muted); }
+.thread-meta { display: flex; gap: 1rem; margin-top: 0.3rem; font-size: 0.78rem; color: var(--text-muted); }
+
+/* ======== Icon buttons ======== */
+.btn-icon {
+  background: none; border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text-muted); cursor: pointer; padding: 0.15rem 0.45rem; font-size: 0.8rem;
+  line-height: 1.4; transition: background 0.15s, color 0.15s;
+}
+.btn-icon:hover { background: var(--surface); color: var(--text); }
+.btn-icon.btn-danger:hover { background: #3f1515; color: #f87171; border-color: #7f1d1d; }
+
+/* ======== Chapter meta fields ======== */
+.chapter-meta-fields {
+  display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 0.4rem 0 0.75rem;
+  padding: 0.5rem 0.75rem; background: var(--surface); border-radius: 6px;
+  border: 1px solid var(--border); font-size: 0.83rem;
+}
+.ch-meta-item { color: var(--text-muted); }
+.ch-meta-item strong { color: var(--text); margin-right: 0.25rem; }
+
+/* ======== Back to overview button ======== */
+.btn-back-overview {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.6rem;
+  margin-right: 0.5rem;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.btn-back-overview:hover { color: var(--accent); border-color: var(--accent); }

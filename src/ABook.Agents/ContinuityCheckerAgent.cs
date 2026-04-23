@@ -1,5 +1,6 @@
 #pragma warning disable SKEXP0001, SKEXP0010, SKEXP0070
 
+using System.Text.Json;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -20,9 +21,109 @@ public class ContinuityCheckerAgent : AgentBase
         : base(repo, llmFactory, vectorStore, notifier, stateService, loggerFactory) { }
 
     /// <summary>
+    /// Pre-write two-step check: detects outline contradictions in a single chapter against
+    /// established facts (CharacterCards, PlotThreads, prior chapter synopses), then
+    /// automatically fixes the outline if issues are found.
+    /// Never blocks the workflow â€” always returns so writing can proceed.
+    /// </summary>
+    public async Task PreWriteCheckAndFixAsync(int bookId, int chapterId, CancellationToken ct = default)
+    {
+        var book = await Repo.GetByIdAsync(bookId)
+            ?? throw new InvalidOperationException($"Book {bookId} not found.");
+        var chapter = await Repo.GetChapterAsync(bookId, chapterId)
+            ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
+
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Running", ct);
+
+        var kernel = await GetKernelAsync(bookId);
+        var establishedFacts = await BuildEstablishedFactsAsync(bookId, chapter);
+
+        // â”€â”€ Step 1: Detect â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        var detectHistory = new ChatHistory();
+        detectHistory.AddSystemMessage($"""
+            You are a story continuity expert. Your task is to evaluate a single chapter outline
+            against the established facts of a book and identify any contradictions.
+            If the outline is consistent, respond with exactly the text: No issues found.
+            Otherwise list each contradiction on a numbered line. Be specific: name the
+            established fact it conflicts with and what the outline says instead.
+            Book: {book.Title} | Genre: {book.Genre} | Language: {book.Language}
+            """);
+        detectHistory.AddUserMessage($"""
+            ## Established Facts
+            {establishedFacts}
+
+            ## Chapter Outline Under Review
+            Chapter {chapter.Number}: {chapter.Title}
+            Outline: {chapter.Outline}
+            {(chapter.PovCharacter.Length > 0 ? $"POV: {chapter.PovCharacter}" : "")}
+            {(chapter.ForeshadowingNotes.Length > 0 ? $"Foreshadowing notes: {chapter.ForeshadowingNotes}" : "")}
+            {(chapter.PayoffNotes.Length > 0 ? $"Payoff notes: {chapter.PayoffNotes}" : "")}
+
+            Are there any contradictions between this outline and the established facts above?
+            """);
+
+        var detectResponse = await StreamResponseAsync(kernel, detectHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct);
+
+        if (detectResponse.Trim().StartsWith("No issues found", StringComparison.OrdinalIgnoreCase))
+        {
+            await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", ct);
+            return;
+        }
+
+        // â”€â”€ Step 2: Fix â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        var fixHistory = new ChatHistory();
+        fixHistory.AddSystemMessage($"""
+            You are a story editor. Your task is to rewrite a chapter outline to resolve
+            all listed contradictions with the established facts, while preserving the
+            chapter's narrative purpose and key events.
+            Output ONLY the corrected outline text â€” no headings, no explanations.
+            Write in {book.Language}.
+            """);
+        fixHistory.AddUserMessage($"""
+            ## Established Facts
+            {establishedFacts}
+
+            ## Original Chapter Outline
+            Chapter {chapter.Number}: {chapter.Title}
+            {chapter.Outline}
+
+            ## Contradictions to Resolve
+            {detectResponse}
+
+            Rewrite the outline to resolve all contradictions above.
+            """);
+
+        var fixedOutline = await StreamResponseAsync(kernel, fixHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct);
+
+        if (!string.IsNullOrWhiteSpace(fixedOutline))
+        {
+            var originalOutline = chapter.Outline;
+            chapter.Outline = fixedOutline.Trim();
+            await Repo.UpdateChapterAsync(chapter);
+            await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
+
+            // Persist a SystemNote so the correction is visible in the chat panel
+            await Repo.AddMessageAsync(new AgentMessage
+            {
+                BookId = bookId,
+                ChapterId = chapterId,
+                AgentRole = AgentRole.ContinuityChecker,
+                MessageType = MessageType.SystemNote,
+                Content = $"â„¹ï¸ Pre-write review auto-corrected the outline for Chapter {chapter.Number}.\n\n" +
+                          $"**Issues found:**\n{detectResponse}\n\n" +
+                          $"**Original outline:**\n{originalOutline}",
+                IsResolved = true
+            });
+        }
+
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", ct);
+    }
+
+    /// <summary>
     /// Checks continuity. When <paramref name="chapterId"/> is provided, only reports issues
     /// introduced by that chapter against the preceding ones (ignoring pre-existing issues
     /// between earlier chapters). When null, performs a full manuscript review.
+    /// Now uses CharacterCards and PlotThreads as structured context alongside RAG.
     /// </summary>
     public async Task<string> CheckAsync(int bookId, int? chapterId = null, CancellationToken ct = default)
     {
@@ -40,7 +141,6 @@ public class ContinuityCheckerAgent : AgentBase
             return string.Empty;
         }
 
-        // Determine whether we're doing a focused check or a full review
         var currentChapter = chapterId.HasValue
             ? doneChapters.FirstOrDefault(c => c.Id == chapterId.Value)
             : null;
@@ -51,11 +151,13 @@ public class ContinuityCheckerAgent : AgentBase
             ? doneChapters.Where(c => c.Number <= currentChapter.Number).ToList()
             : doneChapters;
 
-        // Build a compact synopsis from chapter outlines + first 800 chars of each chapter
         var synopsis = string.Join("\n\n", chaptersToSummarise.Select(c =>
             $"Chapter {c.Number}: {c.Title}\nOutline: {c.Outline}\nContent excerpt: {c.Content?[..Math.Min(800, c.Content?.Length ?? 0)]}..."));
 
-        // Retrieve detailed passages via RAG for continuity-sensitive topics
+        // Structured context from planning artifacts
+        var structuredContext = await BuildStructuredContextAsync(bookId);
+
+        // RAG passages
         var config = await Repo.GetLlmConfigAsync(bookId, book.UserId);
         var ragContext = string.Empty;
         if (config != null)
@@ -85,37 +187,44 @@ public class ContinuityCheckerAgent : AgentBase
         }
         else if (currentChapter != null)
         {
-            // Focused mode: only flag issues introduced by the current chapter
             systemPrompt = $"""
                 You are a Continuity Checker for fiction manuscripts. Your job is to verify that
                 the chapter under review does not contradict or conflict with what was established
-                in the preceding chapters.
-                IMPORTANT: Do NOT report issues that exist solely between the previous chapters.
-                Focus only on contradictions, inconsistencies, or continuity breaks that are
-                introduced by Chapter {currentChapter.Number} ("{currentChapter.Title}").
-                Examine character details (names, appearance, backstory), timeline and sequence
-                of events, and locations/settings.
-                Write a concise report in plain prose. For each issue found, state clearly which
-                detail in Chapter {currentChapter.Number} conflicts with what was established earlier
-                and suggest a fix. If no new issues are found, confirm that Chapter
-                {currentChapter.Number} is consistent with the material that precedes it.
+                in the preceding chapters or the canonical planning documents (character profiles,
+                plot threads, story bible).
+                IMPORTANT: Do NOT report issues that exist solely between previous chapters.
+                Focus only on contradictions introduced by Chapter {currentChapter.Number} ("{currentChapter.Title}").
+                Examine character details (names, appearance, backstory), timeline, and settings.
+                Write a concise report. For each issue, state which detail in Chapter
+                {currentChapter.Number} conflicts with what was established and suggest a fix.
+                If no new issues are found, confirm Chapter {currentChapter.Number} is consistent.
                 Book: {book.Title} | Genre: {book.Genre} | Language: {book.Language}
                 """;
         }
         else
         {
-            // Full review mode
             systemPrompt = $"""
-                You are a Continuity Checker for fiction manuscripts. Your job is to identify plot holes,
+                You are a Continuity Checker for fiction manuscripts. Identify plot holes,
                 character inconsistencies, timeline errors, and factual contradictions across chapters.
-                Write a concise report in plain prose. For each issue found, state the problem, which
-                chapters are affected, and a suggested fix. Group related issues together.
-                If no issues are found, write a brief summary of what was checked and confirm the
-                manuscript is consistent so far.
+                Use the canonical planning documents (character profiles, plot threads, story bible)
+                as the authoritative source of facts. Reference them by name when reporting issues.
+                Write a concise report. For each issue, state the problem, which chapters are affected,
+                and a suggested fix. Group related issues together.
+                If no issues are found, write a brief summary confirming the manuscript is consistent.
                 Book: {book.Title} | Genre: {book.Genre} | Language: {book.Language}
                 """;
         }
         history.AddSystemMessage(systemPrompt);
+
+        // Build user message
+        var contextSections = new System.Text.StringBuilder();
+        if (!string.IsNullOrWhiteSpace(structuredContext))
+            contextSections.AppendLine(structuredContext);
+        if (!string.IsNullOrWhiteSpace(ragContext))
+        {
+            contextSections.AppendLine("\n## Detailed Passages (retrieved for continuity review)");
+            contextSections.AppendLine(ragContext);
+        }
 
         string userMessage;
         if (currentChapter != null)
@@ -130,44 +239,25 @@ public class ContinuityCheckerAgent : AgentBase
                 $"Outline: {currentChapter.Outline}\n" +
                 $"Content: {currentChapter.Content}";
 
-            userMessage = string.IsNullOrWhiteSpace(ragContext)
-                ? $"""
-                    Check Chapter {currentChapter.Number} ("{currentChapter.Title}") for continuity issues
-                    against the preceding chapters. Do NOT report problems between the preceding chapters.
+            userMessage = $"""
+                Check Chapter {currentChapter.Number} ("{currentChapter.Title}") for continuity issues.
+                Do NOT report problems between the preceding chapters â€” only issues introduced by this chapter.
+                {contextSections}
+                ## Preceding Chapters (established facts)
+                {prevSynopsis}
 
-                    ## Preceding Chapters (established facts)
-                    {prevSynopsis}
-
-                    ## Chapter Under Review
-                    {currentExcerpt}
-                    """
-                : $"""
-                    Check Chapter {currentChapter.Number} ("{currentChapter.Title}") for continuity issues
-                    against the preceding chapters. Do NOT report problems between the preceding chapters.
-
-                    ## Preceding Chapters (established facts)
-                    {prevSynopsis}
-
-                    ## Chapter Under Review
-                    {currentExcerpt}
-
-                    ## Detailed Passages (retrieved for continuity review)
-                    {ragContext}
-                    """;
+                ## Chapter Under Review
+                {currentExcerpt}
+                """;
         }
         else
         {
-            userMessage = string.IsNullOrWhiteSpace(ragContext)
-                ? $"Review these chapters for continuity issues:\n\n{synopsis}"
-                : $"""
-                    Review these chapters for continuity issues.
-
-                    ## Chapter Summaries
-                    {synopsis}
-
-                    ## Detailed Passages (retrieved for continuity review)
-                    {ragContext}
-                    """;
+            userMessage = $"""
+                Review these chapters for continuity issues.
+                {contextSections}
+                ## Chapter Summaries
+                {synopsis}
+                """;
         }
         history.AddUserMessage(userMessage);
 
@@ -185,5 +275,152 @@ public class ContinuityCheckerAgent : AgentBase
 
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", ct);
         return response;
+    }
+
+    // â”€â”€ Private Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    /// <summary>
+    /// Builds a compact "established facts" block for a specific chapter's pre-write check:
+    /// relevant CharacterCards + PlotThreads + synopses of prior done chapters.
+    /// </summary>
+    private async Task<string> BuildEstablishedFactsAsync(int bookId, Chapter chapter)
+    {
+        var sb = new System.Text.StringBuilder();
+
+        // Story Bible (world rules are canonical)
+        var bible = await Repo.GetStoryBibleAsync(bookId);
+        if (bible is not null && !string.IsNullOrWhiteSpace(bible.WorldRules))
+        {
+            sb.AppendLine("### World Rules");
+            sb.AppendLine(bible.WorldRules);
+        }
+
+        // Character Cards relevant to this chapter
+        var allCards = await Repo.GetCharacterCardsAsync(bookId);
+        if (allCards.Any())
+        {
+            List<string> names;
+            try { names = JsonSerializer.Deserialize<List<string>>(chapter.CharactersInvolvedJson) ?? []; }
+            catch { names = []; }
+
+            var cards = names.Count > 0
+                ? allCards.Where(c => names.Contains(c.Name, StringComparer.OrdinalIgnoreCase)).ToList()
+                : allCards.ToList();
+
+            if (cards.Count > 0)
+            {
+                sb.AppendLine("\n### Character Profiles (canonical)");
+                foreach (var card in cards)
+                {
+                    sb.AppendLine($"\n**{card.Name}** ({card.Role})");
+                    if (!string.IsNullOrWhiteSpace(card.PhysicalDescription))
+                        sb.AppendLine($"  Appearance: {card.PhysicalDescription}");
+                    if (!string.IsNullOrWhiteSpace(card.Personality))
+                        sb.AppendLine($"  Personality: {card.Personality}");
+                    if (!string.IsNullOrWhiteSpace(card.Backstory))
+                        sb.AppendLine($"  Backstory: {card.Backstory}");
+                    if (!string.IsNullOrWhiteSpace(card.GoalMotivation))
+                        sb.AppendLine($"  Goal/motivation: {card.GoalMotivation}");
+                    if (!string.IsNullOrWhiteSpace(card.Arc))
+                        sb.AppendLine($"  Arc: {card.Arc}");
+                }
+            }
+        }
+
+        // Plot Threads relevant to this chapter
+        var allThreads = await Repo.GetPlotThreadsAsync(bookId);
+        if (allThreads.Any())
+        {
+            List<string> threadNames;
+            try { threadNames = JsonSerializer.Deserialize<List<string>>(chapter.PlotThreadsJson) ?? []; }
+            catch { threadNames = []; }
+
+            var threads = threadNames.Count > 0
+                ? allThreads.Where(t => threadNames.Contains(t.Name, StringComparer.OrdinalIgnoreCase)).ToList()
+                : allThreads.ToList();
+
+            if (threads.Count > 0)
+            {
+                sb.AppendLine("\n### Plot Threads");
+                foreach (var t in threads)
+                {
+                    sb.Append($"\n**{t.Name}** ({t.Type}, {t.Status})");
+                    if (t.IntroducedChapterNumber.HasValue)
+                        sb.Append($" â€” introduced ch.{t.IntroducedChapterNumber}");
+                    if (t.ResolvedChapterNumber.HasValue)
+                        sb.Append($", resolved ch.{t.ResolvedChapterNumber}");
+                    sb.AppendLine();
+                    sb.AppendLine($"  {t.Description}");
+                }
+            }
+        }
+
+        // Synopses of done/review chapters before this one
+        var chapters = await Repo.GetChaptersAsync(bookId);
+        var priorChapters = chapters
+            .Where(c => c.Number < chapter.Number
+                && (c.Status == ChapterStatus.Done || c.Status == ChapterStatus.Review))
+            .OrderBy(c => c.Number)
+            .ToList();
+
+        if (priorChapters.Count > 0)
+        {
+            sb.AppendLine("\n### Prior Chapter Synopses");
+            foreach (var c in priorChapters)
+                sb.AppendLine($"- Ch.{c.Number} \"{c.Title}\": {c.Outline}");
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Builds the full structured context block for the complete CheckAsync (Story Bible + all characters + all threads).
+    /// </summary>
+    private async Task<string> BuildStructuredContextAsync(int bookId)
+    {
+        var sb = new System.Text.StringBuilder();
+
+        var bible = await Repo.GetStoryBibleAsync(bookId);
+        if (bible is not null)
+        {
+            sb.AppendLine("## Story Bible");
+            if (!string.IsNullOrWhiteSpace(bible.SettingDescription))
+                sb.AppendLine($"Setting: {bible.SettingDescription}");
+            if (!string.IsNullOrWhiteSpace(bible.WorldRules))
+                sb.AppendLine($"World rules: {bible.WorldRules}");
+            if (!string.IsNullOrWhiteSpace(bible.Themes))
+                sb.AppendLine($"Themes: {bible.Themes}");
+        }
+
+        var cards = await Repo.GetCharacterCardsAsync(bookId);
+        if (cards.Any())
+        {
+            sb.AppendLine("\n## Character Profiles (canonical)");
+            foreach (var card in cards)
+            {
+                sb.AppendLine($"\n**{card.Name}** ({card.Role})");
+                if (!string.IsNullOrWhiteSpace(card.PhysicalDescription))
+                    sb.AppendLine($"  Appearance: {card.PhysicalDescription}");
+                if (!string.IsNullOrWhiteSpace(card.Backstory))
+                    sb.AppendLine($"  Backstory: {card.Backstory}");
+                if (!string.IsNullOrWhiteSpace(card.GoalMotivation))
+                    sb.AppendLine($"  Goal/motivation: {card.GoalMotivation}");
+                if (!string.IsNullOrWhiteSpace(card.Arc))
+                    sb.AppendLine($"  Arc: {card.Arc}");
+            }
+        }
+
+        var threads = await Repo.GetPlotThreadsAsync(bookId);
+        if (threads.Any())
+        {
+            sb.AppendLine("\n## Plot Threads");
+            foreach (var t in threads)
+            {
+                sb.AppendLine($"\n**{t.Name}** ({t.Type}, {t.Status})");
+                sb.AppendLine($"  {t.Description}");
+            }
+        }
+
+        return sb.ToString();
     }
 }

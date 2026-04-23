@@ -9,3 +9,9 @@ public enum AgentRole { Planner, Writer, Editor, ContinuityChecker }
 public enum MessageType { Content, Question, Answer, SystemNote, Feedback }
 
 public enum LlmProvider { Ollama, OpenAI, AzureOpenAI, Anthropic, LMStudio }
+
+public enum CharacterRole { Protagonist, Antagonist, Supporting, Minor }
+
+public enum PlotThreadType { MainPlot, Subplot, CharacterArc, Mystery, Foreshadowing, WorldBuilding, ThematicThread }
+
+public enum PlotThreadStatus { Active, Resolved, Dormant }

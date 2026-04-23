@@ -27,6 +27,11 @@ export interface Chapter {
   outline: string
   content: string
   status: string
+  povCharacter: string
+  charactersInvolvedJson: string
+  plotThreadsJson: string
+  foreshadowingNotes: string
+  payoffNotes: string
   createdAt: string
   updatedAt: string
 }
@@ -165,3 +170,68 @@ export const getOllamaModels = (endpoint?: string, provider?: string) => {
   const qs = params.toString()
   return api.get<OllamaModel[]>('/ollama/models' + (qs ? `?${qs}` : ''))
 }
+
+// Story Bible
+export interface StoryBible {
+  id?: number
+  bookId: number
+  settingDescription: string
+  timePeriod: string
+  themes: string
+  toneAndStyle: string
+  worldRules: string
+  notes: string
+  createdAt?: string
+  updatedAt?: string
+}
+export const getStoryBible = (bookId: number) =>
+  api.get<StoryBible>(`/books/${bookId}/story-bible`)
+export const updateStoryBible = (bookId: number, data: Omit<StoryBible, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
+  api.put<StoryBible>(`/books/${bookId}/story-bible`, data)
+
+// Character Cards
+export interface CharacterCard {
+  id: number
+  bookId: number
+  name: string
+  role: string
+  physicalDescription: string
+  personality: string
+  backstory: string
+  goalMotivation: string
+  arc: string
+  firstAppearanceChapterNumber?: number | null
+  notes: string
+  createdAt?: string
+  updatedAt?: string
+}
+export const getCharacters = (bookId: number) =>
+  api.get<CharacterCard[]>(`/books/${bookId}/characters`)
+export const createCharacter = (bookId: number, data: Omit<CharacterCard, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
+  api.post<CharacterCard>(`/books/${bookId}/characters`, data)
+export const updateCharacter = (bookId: number, cardId: number, data: Omit<CharacterCard, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
+  api.put<CharacterCard>(`/books/${bookId}/characters/${cardId}`, data)
+export const deleteCharacter = (bookId: number, cardId: number) =>
+  api.delete(`/books/${bookId}/characters/${cardId}`)
+
+// Plot Threads
+export interface PlotThread {
+  id: number
+  bookId: number
+  name: string
+  description: string
+  type: string
+  introducedChapterNumber?: number | null
+  resolvedChapterNumber?: number | null
+  status: string
+  createdAt?: string
+  updatedAt?: string
+}
+export const getPlotThreads = (bookId: number) =>
+  api.get<PlotThread[]>(`/books/${bookId}/plot-threads`)
+export const createPlotThread = (bookId: number, data: Omit<PlotThread, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
+  api.post<PlotThread>(`/books/${bookId}/plot-threads`, data)
+export const updatePlotThread = (bookId: number, threadId: number, data: Omit<PlotThread, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
+  api.put<PlotThread>(`/books/${bookId}/plot-threads/${threadId}`, data)
+export const deletePlotThread = (bookId: number, threadId: number) =>
+  api.delete(`/books/${bookId}/plot-threads/${threadId}`)

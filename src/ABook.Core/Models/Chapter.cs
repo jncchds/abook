@@ -9,6 +9,11 @@ public class Chapter
     public string Outline { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public ChapterStatus Status { get; set; } = ChapterStatus.Outlined;
+    public string PovCharacter { get; set; } = string.Empty;
+    public string CharactersInvolvedJson { get; set; } = "[]";
+    public string PlotThreadsJson { get; set; } = "[]";
+    public string ForeshadowingNotes { get; set; } = string.Empty;
+    public string PayoffNotes { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
