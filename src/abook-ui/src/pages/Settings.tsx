@@ -8,10 +8,14 @@ const PROVIDERS = ['Ollama', 'LMStudio', 'OpenAI', 'AzureOpenAI', 'Anthropic'] a
 const DEFAULT_ENDPOINTS: Record<string, string> = {
   Ollama: 'http://host.docker.internal:11434',
   LMStudio: 'http://host.docker.internal:1234',
+  Anthropic: 'http://localhost:4000',  // LiteLLM or other OpenAI-compatible Anthropic proxy
 }
 
-// Providers that expose a model list endpoint
+// Providers that expose a model list endpoint (via /api/tags or /v1/models)
 const MODEL_LIST_PROVIDERS = new Set(['Ollama', 'LMStudio'])
+
+// Providers that need an OpenAI-compatible proxy for Anthropic models (no native SK connector for .NET 10 yet)
+const PROXY_REQUIRED_PROVIDERS = new Set(['Anthropic'])
 
 export default function Settings() {
   const { id } = useParams<{ id: string }>()
@@ -223,6 +227,13 @@ export default function Settings() {
                 disabled={modelsLoading}
               >{modelsLoading ? '…' : '↺ Refresh'}</button>
             </div>
+            {PROXY_REQUIRED_PROVIDERS.has(config.provider) && (
+              <span className="hint">
+                Anthropic's API is not OpenAI-compatible. Point this endpoint at an OpenAI-compatible proxy
+                (e.g. <a href="https://docs.litellm.ai" target="_blank" rel="noreferrer">LiteLLM</a> at{' '}
+                <code>http://localhost:4000</code>).
+              </span>
+            )}
           </label>
           <label>
             Embedding Model

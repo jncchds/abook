@@ -19,6 +19,10 @@ public abstract class AgentBase
     protected readonly AgentRunStateService StateService;
     protected readonly ILogger Logger;
 
+    // Set LLM_DEBUG_LOGGING=true to print full prompts and responses to the console.
+    private static readonly bool DebugLoggingEnabled =
+        string.Equals(Environment.GetEnvironmentVariable("LLM_DEBUG_LOGGING"), "true", StringComparison.OrdinalIgnoreCase);
+
     protected AgentBase(
         IBookRepository repo,
         ILlmProviderFactory llmFactory,
@@ -52,6 +56,16 @@ public abstract class AgentBase
         var settings = new OllamaPromptExecutionSettings { Temperature = (float?)0.8f };
         var sb = new System.Text.StringBuilder();
 
+        if (DebugLoggingEnabled)
+        {
+            var req = new System.Text.StringBuilder();
+            req.AppendLine($"=== LLM Request [{role}] Book={bookId} Chapter={chapterId} ===");
+            foreach (var msg in history)
+                req.AppendLine($"[{msg.Role}] {msg.Content}");
+            req.AppendLine("=== End Request ===");
+            Logger.LogInformation("{LlmRequest}", req.ToString());
+        }
+
         try
         {
             await foreach (var chunk in chat.GetStreamingChatMessageContentsAsync(history, settings, kernel, ct))
@@ -72,6 +86,10 @@ public abstract class AgentBase
         }
 
         var result = sb.ToString();
+        if (DebugLoggingEnabled)
+            Logger.LogInformation("=== LLM Response [{Role}] Book={BookId} Chapter={ChapterId} ===\n{Response}\n=== End Response ===",
+                role, bookId, chapterId, result);
+
         if (result.Trim().Length == 0)
         {
             Logger.LogWarning("[Book {BookId}] [{Role}] LLM returned an empty response.", bookId, role);
