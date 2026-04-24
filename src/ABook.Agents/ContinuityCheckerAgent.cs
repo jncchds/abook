@@ -62,7 +62,7 @@ public class ContinuityCheckerAgent : AgentBase
             Are there any contradictions between this outline and the established facts above?
             """);
 
-        var detectResponse = await StreamResponseAsync(kernel, detectHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct);
+        var detectResponse = await StreamResponseAsync(kernel, detectHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct, suspiciousThreshold: 0);
 
         if (detectResponse.Trim().StartsWith("No issues found", StringComparison.OrdinalIgnoreCase))
         {
@@ -261,7 +261,7 @@ public class ContinuityCheckerAgent : AgentBase
         }
         history.AddUserMessage(userMessage);
 
-        var response = await StreamResponseAsync(kernel, history, bookId, null, AgentRole.ContinuityChecker, ct);
+        var response = await StreamResponseAsync(kernel, history, bookId, null, AgentRole.ContinuityChecker, ct, suspiciousThreshold: 0);
 
         await Repo.AddMessageAsync(new AgentMessage
         {

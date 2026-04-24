@@ -44,8 +44,9 @@ public abstract class AgentBase
     }
 
     /// <summary>Streams LLM tokens to the book's SignalR group and accumulates the full response.</summary>
+    /// <param name="suspiciousThreshold">Minimum response length before a 'suspiciously short' warning is emitted. Pass 0 to suppress.</param>
     protected async Task<string> StreamResponseAsync(
-        Kernel kernel, ChatHistory history, int bookId, int? chapterId, AgentRole role, CancellationToken ct)
+        Kernel kernel, ChatHistory history, int bookId, int? chapterId, AgentRole role, CancellationToken ct, int suspiciousThreshold = 50)
     {
         var chat = kernel.GetRequiredService<IChatCompletionService>();
         var settings = new OllamaPromptExecutionSettings { Temperature = (float?)0.8f };
@@ -75,7 +76,7 @@ public abstract class AgentBase
         {
             Logger.LogWarning("[Book {BookId}] [{Role}] LLM returned an empty response.", bookId, role);
         }
-        else if (result.Length < 50)
+        else if (suspiciousThreshold > 0 && result.Length < suspiciousThreshold)
         {
             Logger.LogWarning("[Book {BookId}] [{Role}] LLM returned a suspiciously short response ({Chars} chars): {Response}",
                 bookId, role, result.Length, result.Trim());
@@ -167,10 +168,16 @@ public abstract class AgentBase
         catch { /* non-fatal */ }
     }
 
-    /// <summary>Retrieve relevant context chunks from Qdrant for RAG. Returns empty on failure.</summary>
+    /// <summary>Retrieve relevant context chunks from Qdrant for RAG. Returns empty on failure or when no embedding model is configured.</summary>
     protected async Task<string> GetRagContextAsync(
         int bookId, string query, int topK, ILlmProviderFactory factory, LlmConfiguration config)
     {
+        if (string.IsNullOrWhiteSpace(config.EmbeddingModelName))
+        {
+            Logger.LogDebug("[Book {BookId}] No EmbeddingModelName configured — skipping RAG context retrieval.", bookId);
+            return string.Empty;
+        }
+
         try
         {
             var embedder = factory.CreateEmbeddingGeneration(config);
