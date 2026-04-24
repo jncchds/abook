@@ -49,10 +49,12 @@ public abstract class AgentBase
 
     /// <summary>
     /// Non-streaming LLM call. Used for short question-gathering queries that don't need token-by-token
-    /// streaming to the UI. Token stats are NOT emitted (no SignalR noise for internal calls).
+    /// streaming to the UI. When <paramref name="bookId"/> and <paramref name="role"/> are provided,
+    /// token usage is persisted to the DB and emitted via SignalR.
     /// </summary>
     protected async Task<string> GetCompletionAsync(
-        Kernel kernel, ChatHistory history, CancellationToken ct)
+        Kernel kernel, ChatHistory history, CancellationToken ct,
+        int? bookId = null, int? chapterId = null, AgentRole? role = null)
     {
         var chat = kernel.GetRequiredService<IChatCompletionService>();
         var settings = new OllamaPromptExecutionSettings { Temperature = (float?)0.7f };
@@ -72,6 +74,26 @@ public abstract class AgentBase
 
         if (DebugLoggingEnabled)
             Logger.LogInformation("=== LLM Completion Response ===\n{Response}\n=== End Response ===", text);
+
+        if (bookId.HasValue && role.HasValue)
+        {
+            int promptTokens = history.Sum(m => (m.Content?.Length ?? 0)) / 4;
+            int completionTokens = text.Length / 4;
+            try { await Notifier.NotifyTokenStatsAsync(bookId.Value, chapterId, role.Value.ToString(), promptTokens, completionTokens, ct); }
+            catch { /* non-fatal */ }
+            try
+            {
+                await Repo.AddTokenUsageAsync(new TokenUsageRecord
+                {
+                    BookId = bookId.Value,
+                    ChapterId = chapterId,
+                    AgentRole = role.Value,
+                    PromptTokens = promptTokens,
+                    CompletionTokens = completionTokens
+                });
+            }
+            catch { /* non-fatal */ }
+        }
 
         return text;
     }
@@ -215,9 +237,11 @@ public abstract class AgentBase
         catch { /* non-fatal */ }
     }
 
-    /// <summary>Retrieve relevant context chunks from Qdrant for RAG. Returns empty on failure or when no embedding model is configured.</summary>
+    /// <summary>Retrieve relevant context chunks from Qdrant for RAG. Returns empty on failure or when no embedding model is configured.
+    /// Token usage for the embedding call is persisted/notified when <paramref name="ct"/> and <paramref name="chapterId"/> are supplied.</summary>
     protected async Task<string> GetRagContextAsync(
-        int bookId, string query, int topK, ILlmProviderFactory factory, LlmConfiguration config)
+        int bookId, string query, int topK, ILlmProviderFactory factory, LlmConfiguration config,
+        int? chapterId = null, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(config.EmbeddingModelName))
         {
@@ -230,6 +254,23 @@ public abstract class AgentBase
             var embedder = factory.CreateEmbeddingGeneration(config);
             var embeddings = await embedder.GenerateEmbeddingsAsync([query]);
             var embedding = embeddings[0];
+
+            int promptTokens = query.Length / 4;
+            try { await Notifier.NotifyTokenStatsAsync(bookId, chapterId, AgentRole.Embedder.ToString(), promptTokens, 0, ct); }
+            catch { /* non-fatal */ }
+            try
+            {
+                await Repo.AddTokenUsageAsync(new TokenUsageRecord
+                {
+                    BookId = bookId,
+                    ChapterId = chapterId,
+                    AgentRole = AgentRole.Embedder,
+                    PromptTokens = promptTokens,
+                    CompletionTokens = 0
+                });
+            }
+            catch { /* non-fatal */ }
+
             var chunks = await VectorStore.SearchAsync(bookId, embedding, topK);
             return string.Join("\n\n---\n\n", chunks.Select(c => $"[Chapter {c.ChapterNumber}]\n{c.Text}"));
         }

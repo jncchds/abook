@@ -171,7 +171,7 @@ public class ContinuityCheckerAgent : AgentBase
             var ragParts = new List<string>();
             foreach (var q in ragQueries)
             {
-                var part = await GetRagContextAsync(bookId, q, 4, LlmFactory, config);
+                var part = await GetRagContextAsync(bookId, q, 4, LlmFactory, config, chapterId, ct);
                 if (!string.IsNullOrWhiteSpace(part)) ragParts.Add(part);
             }
             if (ragParts.Count > 0)

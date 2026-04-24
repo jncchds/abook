@@ -350,7 +350,7 @@ public class PlannerAgent : AgentBase
         history.AddUserMessage(bookContext);
 
         string response;
-        try { response = await GetCompletionAsync(kernel, history, ct); }
+        try { response = await GetCompletionAsync(kernel, history, ct, bookId, null, AgentRole.Planner); }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {

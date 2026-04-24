@@ -48,11 +48,11 @@ public class WriterAgent : AgentBase
             Genre: {book.Genre}
             Premise: {book.Premise}
             Total chapters: {book.TargetChapterCount}
-            Current chapter: {chapter.Number} of {book.TargetChapterCount} — "{chapter.Title}"
+            Current chapter: {chapter.Number} of {book.TargetChapterCount} ï¿½ "{chapter.Title}"
             Write all content in {book.Language}.
             IMPORTANT: Do NOT begin your response with any chapter heading, title, or label.
             Start immediately with narrative prose (a scene, action, dialogue, or description).
-            The character profiles and plot thread notes below are canonical — do not contradict them.
+            The character profiles and plot thread notes below are canonical ï¿½ do not contradict them.
             Honour all foreshadowing and payoff directives exactly as specified.
             {contextBlock}
             {(prevEnding.Length > 0 ? $"\nThe previous chapter ended with:\n{prevEnding}\nContinue the story naturally from this point." : "")}
@@ -123,7 +123,7 @@ public class WriterAgent : AgentBase
 
             if (relevantCards.Count > 0)
             {
-                sb.AppendLine("\n## Character Profiles (canonical — do not contradict)");
+                sb.AppendLine("\n## Character Profiles (canonical ï¿½ do not contradict)");
                 foreach (var card in relevantCards)
                 {
                     sb.AppendLine($"\n**{card.Name}** ({card.Role})");
@@ -163,7 +163,7 @@ public class WriterAgent : AgentBase
         // RAG: semantically relevant passages from prior chapters
         if (chapter.Number > 1)
         {
-            var ragContext = await GetRagContextAsync(bookId, chapter.Outline, 5, LlmFactory, config);
+            var ragContext = await GetRagContextAsync(bookId, chapter.Outline, 5, LlmFactory, config, chapter.Id, ct);
             if (!string.IsNullOrWhiteSpace(ragContext))
             {
                 sb.AppendLine("\n## Relevant Passages from Prior Chapters (for consistency)");
@@ -188,5 +188,21 @@ public class WriterAgent : AgentBase
             var embedding = embeddings[0];
             await VectorStore.UpsertChunkAsync(bookId, chapter.Id, chapter.Number, i, chunks[i], embedding, ct);
         }
+
+        int indexPromptTokens = chunks.Sum(c => c.Length) / 4;
+        try { await Notifier.NotifyTokenStatsAsync(bookId, chapter.Id, AgentRole.Embedder.ToString(), indexPromptTokens, 0, ct); }
+        catch { /* non-fatal */ }
+        try
+        {
+            await Repo.AddTokenUsageAsync(new TokenUsageRecord
+            {
+                BookId = bookId,
+                ChapterId = chapter.Id,
+                AgentRole = AgentRole.Embedder,
+                PromptTokens = indexPromptTokens,
+                CompletionTokens = 0
+            });
+        }
+        catch { /* non-fatal */ }
     }
 }
