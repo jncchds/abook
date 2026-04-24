@@ -4,14 +4,14 @@ import ReactMarkdown from 'react-markdown'
 import type { Book, Chapter, AgentMessage, AgentRunStatus, StoryBible, CharacterCard, PlotThread } from '../api'
 import {
   getBook, getMessages, postAnswer, getAgentStatus,
-  startWorkflow, continueWorkflow, stopWorkflow, clearChapterContent,
+  startPlanning, startWorkflow, continueWorkflow, stopWorkflow, clearChapterContent,
   createChapter, updateChapter, updateBook, getTokenUsage,
   getStoryBible, updateStoryBible,
   getCharacters, createCharacter, updateCharacter, deleteCharacter,
   getPlotThreads, createPlotThread, updatePlotThread, deletePlotThread,
 } from '../api'
 import { useBookHub } from '../hooks/useBookHub'
-import { downloadBookAsHtml } from '../utils/bookHtmlExport'
+import { downloadBookAsHtml, downloadBookMetadataAsHtml } from '../utils/bookHtmlExport'
 
 // Attempt to extract chapter plan entries from partial JSON
 function parsePlanningStream(raw: string): { number: number; title: string; outline: string }[] {
@@ -95,16 +95,20 @@ export default function BookDetail() {
   const refreshMessages = useCallback(() =>
     getMessages(bookId).then(r => setMessages(r.data)), [bookId])
 
-  // Poll agent status on mount to restore indicator if agent was running
-  useEffect(() => {
-    getAgentStatus(bookId)
-      .then(r => setRunStatus(r.data))
-      .catch(() => {})
-  }, [bookId])
-
   useEffect(() => {
     refreshBook()
-    refreshMessages()
+    // Load messages and agent status together so we can restore any pending question after a page refresh
+    Promise.all([
+      getMessages(bookId),
+      getAgentStatus(bookId).catch(() => ({ data: null as AgentRunStatus | null }))
+    ]).then(([msgRes, statusRes]) => {
+      setMessages(msgRes.data)
+      if (statusRes.data) setRunStatus(statusRes.data)
+      if (statusRes.data?.state === 'WaitingForInput') {
+        const q = [...msgRes.data].reverse().find(m => m.messageType === 'Question' && !m.isResolved)
+        if (q) setPendingQuestion(q)
+      }
+    }).catch(() => {})
     getTokenUsage(bookId).then(r => {
       setTokenStats(r.data.map(rec => ({
         id: rec.id,
@@ -119,7 +123,7 @@ export default function BookDetail() {
     getStoryBible(bookId).then(r => setStoryBible(r.data)).catch(() => {})
     getCharacters(bookId).then(r => setCharacters(r.data)).catch(() => {})
     getPlotThreads(bookId).then(r => setPlotThreads(r.data)).catch(() => {})
-  }, [refreshBook, refreshMessages, bookId])
+  }, [refreshBook, bookId])
 
   useEffect(() => {
     setOnStream((_bId, cId, token) => {
@@ -234,6 +238,20 @@ export default function BookDetail() {
     setWorkflowLog([])
     try {
       await startWorkflow(bookId)
+      setRunStatus({ role: 'Planner', state: 'Running' })
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string }; status?: number } })
+      if (msg?.response?.status === 409) {
+        alert('An agent is already running for this book.')
+      }
+    }
+  }
+
+  const handlePlanBook = async () => {
+    if (isRunning) return
+    setWorkflowLog([])
+    try {
+      await startPlanning(bookId)
       setRunStatus({ role: 'Planner', state: 'Running' })
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string }; status?: number } })
@@ -371,6 +389,7 @@ export default function BookDetail() {
           ) : (
             <>
               <button className="btn-primary" onClick={handleWriteBook}>▶ Write Book</button>
+              <button className="btn-plan" onClick={handlePlanBook}>🗂 Plan Only</button>
               {(book.chapters ?? []).length > 0 && (
                 <button className="btn-continue" onClick={handleContinue}>↻ Continue</button>
               )}
@@ -439,6 +458,13 @@ export default function BookDetail() {
             ⬇ Download HTML
           </button>
         )}
+        <button
+          className="download-html-btn"
+          onClick={() => downloadBookMetadataAsHtml(book, storyBible, characters, plotThreads, messages, tokenStats)}
+          title="Download book metadata (outlines, characters, plot threads, agent messages) as HTML"
+        >
+          ⬇ Download Metadata
+        </button>
         <Link to={`/books/${bookId}/settings`} className="settings-link">⚙ Settings</Link>
       </aside>
 

@@ -25,7 +25,8 @@ public class AgentController : ControllerBase
         if (current is { State: "Running" or "WaitingForInput" })
             return Conflict(new { message = "An agent run is already in progress for this book." });
 
-        _ = RunInBackground(bookId, (o, ct) => o.StartPlanningAsync(bookId, ct));
+        var ct = _runState.CreateRunCts(bookId);
+        _ = RunInBackground(bookId, (o, c) => o.StartPlanningAsync(bookId, c), ct);
         return Accepted();
     }
 
