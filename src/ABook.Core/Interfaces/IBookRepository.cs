@@ -31,6 +31,7 @@ public interface IBookRepository
     // Story Bible
     Task<StoryBible?> GetStoryBibleAsync(int bookId);
     Task<StoryBible> UpsertStoryBibleAsync(StoryBible bible);
+    Task DeleteStoryBibleAsync(int bookId);
 
     // Character Cards
     Task<IEnumerable<CharacterCard>> GetCharacterCardsAsync(int bookId);

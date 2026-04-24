@@ -100,6 +100,10 @@ label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bot
 .btn-clear-chapter { color: #ef4444 !important; background: transparent !important; border: 1px solid #ef4444 !important; border-radius: 4px !important; padding: 0.28rem 0.6rem !important; font-size: 0.8rem !important; cursor: pointer !important; }
 .btn-clear-chapter:hover { background: #ef4444 !important; color: #fff !important; }
 .btn-clear-chapter:disabled { opacity: 0.35 !important; cursor: not-allowed !important; }
+.btn-mark-done { color: #22c55e !important; background: transparent !important; border: 1px solid #22c55e !important; border-radius: 4px !important; padding: 0.28rem 0.6rem !important; font-size: 0.8rem !important; cursor: pointer !important; }
+.btn-mark-done:hover { background: #22c55e !important; color: #fff !important; }
+.btn-clear-meta { color: #f59e0b !important; background: transparent !important; border: 1px solid #f59e0b !important; border-radius: 4px !important; padding: 0.25rem 0.55rem !important; font-size: 0.8rem !important; cursor: pointer !important; margin-left: 0.4rem !important; }
+.btn-clear-meta:hover { background: #f59e0b !important; color: #fff !important; }
 .outline { background: var(--surface); border-left: 3px solid var(--accent); padding: 0.6rem 1rem; border-radius: 0 6px 6px 0; font-size: 0.875rem; margin-bottom: 1.25rem; }
 .chapter-content { line-height: 1.8; font-size: 0.95rem; }
 .chapter-content p { margin-bottom: 0.85rem; }

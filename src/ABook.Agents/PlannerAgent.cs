@@ -23,10 +23,14 @@ public class PlannerAgent : AgentBase
     /// <summary>
     /// Runs the 4-phase planning pipeline:
     ///   1. Story Bible  2. Character Cards  3. Plot Threads  4. Chapter Outlines
-    /// Questions found after phases 1-3 are asked via AskUserAndWaitAsync (up to 3 per phase).
-    /// Returns the list of chapters created.
+    /// The LLM may emit <c>[ASK: question]</c> mid-stream to pause and ask the author a clarifying
+    /// question; the answer is fed back into the same LLM call so it influences the artifact being
+    /// generated. Q&amp;A pairs accumulate in <c>qaContext</c> and are forwarded to every subsequent phase.
+    /// When <paramref name="skipCompletedPhases"/> is true, phases whose data already exists in the DB
+    /// are skipped (data-presence is treated as the done signal). Used by ContinueWorkflow to fill gaps.
+    /// Returns the chapters created or loaded.
     /// </summary>
-    public async Task<IReadOnlyList<Chapter>> PlanAsync(int bookId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<Chapter>> PlanAsync(int bookId, bool skipCompletedPhases = false, CancellationToken ct = default)
     {
         var book = await Repo.GetByIdWithDetailsAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
@@ -38,161 +42,187 @@ public class PlannerAgent : AgentBase
         var qaContext = new StringBuilder();
 
         // -- Phase 1: Story Bible ----------------------------------------------
-        await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 1/4 — Story Bible…", false, ct);
-
-        var bibleHistory = new ChatHistory();
-        bibleHistory.AddSystemMessage($"""
-            You are a world-building expert. Your task is to create a Story Bible for a book project.
-            Output a JSON object with these fields:
-              "settingDescription" (string), "timePeriod" (string), "themes" (string, comma-separated list),
-              "toneAndStyle" (string), "worldRules" (string), "notes" (string).
-            After the JSON, you MAY add a "## Questions" section with up to 3 numbered questions
-            for the author about ambiguous world-building choices. Only ask questions that would
-            meaningfully change the world design. Omit the section if nothing is unclear.
-            Write all content in {book.Language}.
-            """);
-        bibleHistory.AddUserMessage($"""
-            Book title: {book.Title}
-            Genre: {book.Genre}
-            Premise: {book.Premise}
-            Target chapter count: {book.TargetChapterCount}
-
-            Create the Story Bible for this book.
-            """);
-
-        var bibleRaw = await StreamResponseAsync(kernel, bibleHistory, bookId, null, AgentRole.Planner, ct);
-        var bibleQuestions = ParseQuestionsSection(bibleRaw);
-
         StoryBible bible;
-        try { bible = ParseStoryBible(bookId, bibleRaw); }
-        catch (Exception ex)
+        if (skipCompletedPhases && await Repo.GetStoryBibleAsync(bookId) is { } existingBible)
         {
-            Logger.LogError(ex, "[Book {BookId}] Planner Phase 1: could not parse Story Bible JSON.", bookId);
-            await ReportErrorAsync(bookId, null, AgentRole.Planner,
-                "Story Bible JSON could not be parsed. Try again or simplify the premise.", ct);
-            throw;
+            bible = existingBible;
+            await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 1/4 â€” Story Bible already exists, skipping.", false, ct);
         }
-        await Repo.UpsertStoryBibleAsync(bible);
-        await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Story Bible saved.", false, ct);
+        else
+        {
+            await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 1/4 â€” Story Bibleâ€¦", false, ct);
 
-        if (bibleQuestions.Count > 0)
-            await AskQuestionsAsync(bookId, bibleQuestions, qaContext, ct);
+            var bibleHistory = new ChatHistory();
+            bibleHistory.AddSystemMessage($"""
+                You are a world-building expert. Your task is to create a Story Bible for a book project.
+                If you need any clarification from the author before generating, emit [ASK: your question]
+                on its own line. You may ask up to 3 questions this way. After receiving answers, output
+                the Story Bible JSON â€” do NOT include [ASK: ...] in the final JSON.
+                Output a JSON object with these fields:
+                  "settingDescription" (string), "timePeriod" (string), "themes" (string, comma-separated list),
+                  "toneAndStyle" (string), "worldRules" (string), "notes" (string).
+                Write all content in {book.Language}.
+                """);
+            bibleHistory.AddUserMessage($"""
+                Book title: {book.Title}
+                Genre: {book.Genre}
+                Premise: {book.Premise}
+                Target chapter count: {book.TargetChapterCount}
+
+                Create the Story Bible for this book.
+                """);
+
+            var bibleRaw = await StreamWithQuestionsAsync(kernel, bibleHistory, bookId, null, AgentRole.Planner, qaContext, ct);
+
+            try { bible = ParseStoryBible(bookId, bibleRaw); }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "[Book {BookId}] Planner Phase 1: could not parse Story Bible JSON.", bookId);
+                await ReportErrorAsync(bookId, null, AgentRole.Planner,
+                    "Story Bible JSON could not be parsed. Try again or simplify the premise.", ct);
+                throw;
+            }
+            await Repo.UpsertStoryBibleAsync(bible);
+            await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Story Bible saved.", false, ct);
+        }
 
         // -- Phase 2: Character Cards ------------------------------------------
-        await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 2/4 — Characters…", false, ct);
-
-        var charHistory = new ChatHistory();
-        charHistory.AddSystemMessage($"""
-            You are a character development expert. Your task is to create character profiles for the main
-            and significant supporting characters in a book.
-            Output a JSON array where each element has:
-              "name" (string), "role" ("Protagonist"|"Antagonist"|"Supporting"|"Minor"),
-              "physicalDescription" (string), "personality" (string), "backstory" (string),
-              "goalMotivation" (string), "arc" (string — how the character changes over the story),
-              "firstAppearanceChapterNumber" (int or null), "notes" (string).
-            Include all characters necessary to tell the story. Be thorough.
-            After the JSON array, you MAY add a "## Questions" section with up to 3 numbered questions
-            for the author about character choices. Omit the section if nothing is unclear.
-            Write all content in {book.Language}.
-            """);
-        charHistory.AddUserMessage($"""
-            Book title: {book.Title}
-            Genre: {book.Genre}
-            Premise: {book.Premise}
-            Target chapter count: {book.TargetChapterCount}
-
-            Story Bible:
-            Setting: {bible.SettingDescription}
-            Time period: {bible.TimePeriod}
-            Themes: {bible.Themes}
-            Tone & style: {bible.ToneAndStyle}
-            World rules: {bible.WorldRules}
-            {(qaContext.Length > 0 ? $"\nAuthor guidance so far:\n{qaContext}" : "")}
-
-            Create detailed character profiles for this book.
-            """);
-
-        var charRaw = await StreamResponseAsync(kernel, charHistory, bookId, null, AgentRole.Planner, ct);
-        var charQuestions = ParseQuestionsSection(charRaw);
-
         List<CharacterCard> characters;
-        try { characters = ParseCharacterCards(bookId, charRaw); }
-        catch (Exception ex)
+        if (skipCompletedPhases && (await Repo.GetCharacterCardsAsync(bookId)).ToList() is { Count: > 0 } existingChars)
         {
-            Logger.LogError(ex, "[Book {BookId}] Planner Phase 2: could not parse Character Cards JSON.", bookId);
-            await ReportErrorAsync(bookId, null, AgentRole.Planner,
-                "Character Cards JSON could not be parsed. Try again.", ct);
-            throw;
+            characters = existingChars;
+            await Notifier.NotifyWorkflowProgressAsync(bookId, $"Planning: Phase 2/4 â€” {characters.Count} characters already exist, skipping.", false, ct);
         }
-        await Repo.DeleteCharacterCardsAsync(bookId);
-        foreach (var card in characters)
-            await Repo.AddCharacterCardAsync(card);
-        await Notifier.NotifyWorkflowProgressAsync(bookId, $"Planning: {characters.Count} character{(characters.Count == 1 ? "" : "s")} saved.", false, ct);
+        else
+        {
+            await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 2/4 â€” Charactersâ€¦", false, ct);
 
-        if (charQuestions.Count > 0)
-            await AskQuestionsAsync(bookId, charQuestions, qaContext, ct);
+            var charHistory = new ChatHistory();
+            charHistory.AddSystemMessage($"""
+                You are a character development expert. Your task is to create character profiles for the main
+                and significant supporting characters in a book.
+                If you need any clarification from the author before generating, emit [ASK: your question]
+                on its own line. You may ask up to 3 questions this way. After receiving answers, output
+                the character JSON â€” do NOT include [ASK: ...] in the final JSON array.
+                Output a JSON array where each element has:
+                  "name" (string), "role" ("Protagonist"|"Antagonist"|"Supporting"|"Minor"),
+                  "physicalDescription" (string), "personality" (string), "backstory" (string),
+                  "goalMotivation" (string), "arc" (string â€” how the character changes over the story),
+                  "firstAppearanceChapterNumber" (int or null), "notes" (string).
+                Include all characters necessary to tell the story. Be thorough.
+                Write all content in {book.Language}.
+                """);
+            charHistory.AddUserMessage($"""
+                Book title: {book.Title}
+                Genre: {book.Genre}
+                Premise: {book.Premise}
+                Target chapter count: {book.TargetChapterCount}
+
+                Story Bible:
+                Setting: {bible.SettingDescription}
+                Time period: {bible.TimePeriod}
+                Themes: {bible.Themes}
+                Tone & style: {bible.ToneAndStyle}
+                World rules: {bible.WorldRules}
+                {(qaContext.Length > 0 ? $"\nAuthor guidance so far:\n{qaContext}" : "")}
+
+                Create detailed character profiles for this book.
+                """);
+
+            var charRaw = await StreamWithQuestionsAsync(kernel, charHistory, bookId, null, AgentRole.Planner, qaContext, ct);
+
+            try { characters = ParseCharacterCards(bookId, charRaw); }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "[Book {BookId}] Planner Phase 2: could not parse Character Cards JSON.", bookId);
+                await ReportErrorAsync(bookId, null, AgentRole.Planner,
+                    "Character Cards JSON could not be parsed. Try again.", ct);
+                throw;
+            }
+            await Repo.DeleteCharacterCardsAsync(bookId);
+            foreach (var card in characters)
+                await Repo.AddCharacterCardAsync(card);
+            await Notifier.NotifyWorkflowProgressAsync(bookId, $"Planning: {characters.Count} character{(characters.Count == 1 ? "" : "s")} saved.", false, ct);
+        }
 
         // -- Phase 3: Plot Threads ---------------------------------------------
-        await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 3/4 — Plot Threads…", false, ct);
-
         var characterSummary = string.Join("\n", characters.Select(c =>
             $"- {c.Name} ({c.Role}): {c.GoalMotivation}. Arc: {c.Arc}"));
 
-        var threadHistory = new ChatHistory();
-        threadHistory.AddSystemMessage($"""
-            You are a story structure expert. Your task is to map all major and minor plot threads
-            for a book, including foreshadowing and payoff relationships.
-            Output a JSON array where each element has:
-              "name" (string), "description" (string — what this thread is about and why it matters),
-              "type" ("MainPlot"|"Subplot"|"CharacterArc"|"Mystery"|"Foreshadowing"|"WorldBuilding"|"ThematicThread"),
-              "introducedChapterNumber" (int or null), "resolvedChapterNumber" (int or null),
-              "status" ("Active"|"Resolved"|"Dormant").
-            Map every significant thread, including foreshadowing seeds that will pay off later.
-            After the JSON array, you MAY add a "## Questions" section with up to 3 numbered questions
-            about plot structure. Omit if nothing is unclear.
-            Write all content in {book.Language}.
-            """);
-        threadHistory.AddUserMessage($"""
-            Book title: {book.Title}
-            Genre: {book.Genre}
-            Premise: {book.Premise}
-            Target chapter count: {book.TargetChapterCount}
-
-            Story Bible:
-            Setting: {bible.SettingDescription}
-            Time period: {bible.TimePeriod}
-            Themes: {bible.Themes}
-            World rules: {bible.WorldRules}
-
-            Characters:
-            {characterSummary}
-            {(qaContext.Length > 0 ? $"\nAuthor guidance so far:\n{qaContext}" : "")}
-
-            Create the plot thread map for this book.
-            """);
-
-        var threadRaw = await StreamResponseAsync(kernel, threadHistory, bookId, null, AgentRole.Planner, ct);
-        var threadQuestions = ParseQuestionsSection(threadRaw);
-
         List<PlotThread> threads;
-        try { threads = ParsePlotThreads(bookId, threadRaw); }
-        catch (Exception ex)
+        if (skipCompletedPhases && (await Repo.GetPlotThreadsAsync(bookId)).ToList() is { Count: > 0 } existingThreads)
         {
-            Logger.LogError(ex, "[Book {BookId}] Planner Phase 3: could not parse Plot Threads JSON.", bookId);
-            await ReportErrorAsync(bookId, null, AgentRole.Planner,
-                "Plot Threads JSON could not be parsed. Try again.", ct);
-            throw;
+            threads = existingThreads;
+            await Notifier.NotifyWorkflowProgressAsync(bookId, $"Planning: Phase 3/4 â€” {threads.Count} plot threads already exist, skipping.", false, ct);
         }
-        await Repo.DeletePlotThreadsAsync(bookId);
-        foreach (var thread in threads)
-            await Repo.AddPlotThreadAsync(thread);
-        await Notifier.NotifyWorkflowProgressAsync(bookId, $"Planning: {threads.Count} plot thread{(threads.Count == 1 ? "" : "s")} saved.", false, ct);
+        else
+        {
+            await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 3/4 â€” Plot Threadsâ€¦", false, ct);
 
-        if (threadQuestions.Count > 0)
-            await AskQuestionsAsync(bookId, threadQuestions, qaContext, ct);
+            var threadHistory = new ChatHistory();
+            threadHistory.AddSystemMessage($"""
+                You are a story structure expert. Your task is to map all major and minor plot threads
+                for a book, including foreshadowing and payoff relationships.
+                If you need any clarification from the author before generating, emit [ASK: your question]
+                on its own line. You may ask up to 3 questions this way. After receiving answers, output
+                the plot thread JSON â€” do NOT include [ASK: ...] in the final JSON array.
+                Output a JSON array where each element has:
+                  "name" (string), "description" (string â€” what this thread is about and why it matters),
+                  "type" ("MainPlot"|"Subplot"|"CharacterArc"|"Mystery"|"Foreshadowing"|"WorldBuilding"|"ThematicThread"),
+                  "introducedChapterNumber" (int or null), "resolvedChapterNumber" (int or null),
+                  "status" ("Active"|"Resolved"|"Dormant").
+                Map every significant thread, including foreshadowing seeds that will pay off later.
+                Write all content in {book.Language}.
+                """);
+            threadHistory.AddUserMessage($"""
+                Book title: {book.Title}
+                Genre: {book.Genre}
+                Premise: {book.Premise}
+                Target chapter count: {book.TargetChapterCount}
+
+                Story Bible:
+                Setting: {bible.SettingDescription}
+                Time period: {bible.TimePeriod}
+                Themes: {bible.Themes}
+                World rules: {bible.WorldRules}
+
+                Characters:
+                {characterSummary}
+                {(qaContext.Length > 0 ? $"\nAuthor guidance so far:\n{qaContext}" : "")}
+
+                Create the plot thread map for this book.
+                """);
+
+            var threadRaw = await StreamWithQuestionsAsync(kernel, threadHistory, bookId, null, AgentRole.Planner, qaContext, ct);
+
+            try { threads = ParsePlotThreads(bookId, threadRaw); }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "[Book {BookId}] Planner Phase 3: could not parse Plot Threads JSON.", bookId);
+                await ReportErrorAsync(bookId, null, AgentRole.Planner,
+                    "Plot Threads JSON could not be parsed. Try again.", ct);
+                throw;
+            }
+            await Repo.DeletePlotThreadsAsync(bookId);
+            foreach (var thread in threads)
+                await Repo.AddPlotThreadAsync(thread);
+            await Notifier.NotifyWorkflowProgressAsync(bookId, $"Planning: {threads.Count} plot thread{(threads.Count == 1 ? "" : "s")} saved.", false, ct);
+        }
 
         // -- Phase 4: Chapter Outlines -----------------------------------------
-        await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 4/4 — Chapter Outlines…", false, ct);
+        await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 4/4 â€” Chapter Outlinesâ€¦", false, ct);
+
+        // When skipping completed phases, return existing chapters if they already exist.
+        if (skipCompletedPhases)
+        {
+            var existingChapters = (await Repo.GetChaptersAsync(bookId)).ToList();
+            if (existingChapters.Count > 0)
+            {
+                await Notifier.NotifyWorkflowProgressAsync(bookId, $"Planning: {existingChapters.Count} chapters already exist, skipping outline generation.", false, ct);
+                await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, "Done", ct);
+                return existingChapters;
+            }
+        }
 
         var threadSummary = string.Join("\n", threads.Select(t =>
             $"- {t.Name} ({t.Type}, introduced ch.{t.IntroducedChapterNumber?.ToString() ?? "?"}): {t.Description}"));
@@ -202,14 +232,17 @@ public class PlannerAgent : AgentBase
             ? InterpolateSystemPrompt(book.PlannerSystemPrompt, book)
             : $"""
             You are a creative writing Planner. Your task is to outline each chapter of a book in detail.
+            If you need any clarification from the author before generating, emit [ASK: your question]
+            on its own line. You may ask up to 3 questions this way. After receiving answers, output
+            the chapter outlines JSON â€” do NOT include [ASK: ...] in the JSON array.
             Output a JSON array where each element has:
               "number" (int), "title" (string),
-              "outline" (string — 3-6 sentence synopsis including key events and decisions),
-              "povCharacter" (string — whose point of view this chapter is written from),
-              "charactersInvolved" (array of strings — names of all characters appearing),
-              "plotThreads" (array of strings — names of plot threads active in this chapter),
-              "foreshadowingNotes" (string — any seeds to plant that pay off later; empty string if none),
-              "payoffNotes" (string — any earlier foreshadowing being paid off; empty string if none).
+              "outline" (string â€” 3-6 sentence synopsis including key events and decisions),
+              "povCharacter" (string â€” whose point of view this chapter is written from),
+              "charactersInvolved" (array of strings â€” names of all characters appearing),
+              "plotThreads" (array of strings â€” names of plot threads active in this chapter),
+              "foreshadowingNotes" (string â€” any seeds to plant that pay off later; empty string if none),
+              "payoffNotes" (string â€” any earlier foreshadowing being paid off; empty string if none).
             Output ONLY the JSON array, no additional text.
             Write all content in {book.Language}.
             """;
@@ -237,7 +270,7 @@ public class PlannerAgent : AgentBase
             Create {book.TargetChapterCount} detailed chapter outlines for this book.
             """);
 
-        var chapterRaw = await StreamResponseAsync(kernel, chapterHistory, bookId, null, AgentRole.Planner, ct);
+        var chapterRaw = await StreamWithQuestionsAsync(kernel, chapterHistory, bookId, null, AgentRole.Planner, qaContext, ct);
 
         List<Chapter> chapters;
         try { chapters = ParseChapterOutlines(bookId, chapterRaw); }
@@ -259,40 +292,6 @@ public class PlannerAgent : AgentBase
 
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, "Done", ct);
         return chapters;
-    }
-
-    // -- Q&A Helpers -----------------------------------------------------------
-
-    /// <summary>Extracts numbered questions after a "## Questions" heading in an LLM response.</summary>
-    private static List<string> ParseQuestionsSection(string response)
-    {
-        var questions = new List<string>();
-        var idx = response.IndexOf("## Questions", StringComparison.OrdinalIgnoreCase);
-        if (idx < 0) return questions;
-
-        var section = response[(idx + "## Questions".Length)..].TrimStart('\r', '\n');
-        foreach (var line in section.Split('\n'))
-        {
-            // Match lines like "1. question text" or "1) question text"
-            var trimmed = line.Trim();
-            var match = System.Text.RegularExpressions.Regex.Match(trimmed, @"^\d+[.)]\s+(.+)$");
-            if (match.Success)
-                questions.Add(match.Groups[1].Value.Trim());
-            if (questions.Count >= 3) break;
-        }
-        return questions;
-    }
-
-    /// <summary>Asks each question sequentially and appends answers to the shared qa context.</summary>
-    private async Task AskQuestionsAsync(
-        int bookId, List<string> questions, StringBuilder qaContext, CancellationToken ct)
-    {
-        foreach (var question in questions)
-        {
-            var answer = await AskUserAndWaitAsync(bookId, null, AgentRole.Planner, question, ct);
-            if (!string.IsNullOrWhiteSpace(answer))
-                qaContext.AppendLine($"Q: {question}\nA: {answer}\n");
-        }
     }
 
     // -- JSON Parsers ----------------------------------------------------------

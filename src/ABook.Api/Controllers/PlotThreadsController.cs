@@ -61,6 +61,13 @@ public class PlotThreadsController : ControllerBase
         await _repo.DeletePlotThreadAsync(bookId, threadId);
         return NoContent();
     }
+
+    [HttpDelete]
+    public async Task<IActionResult> DeleteAll(int bookId)
+    {
+        await _repo.DeletePlotThreadsAsync(bookId);
+        return NoContent();
+    }
 }
 
 public record PlotThreadRequest(
