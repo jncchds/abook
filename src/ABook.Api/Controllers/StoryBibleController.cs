@@ -35,13 +35,6 @@ public class StoryBibleController : ControllerBase
         var result = await _repo.UpsertStoryBibleAsync(bible);
         return Ok(result);
     }
-
-    [HttpDelete]
-    public async Task<IActionResult> Delete(int bookId)
-    {
-        await _repo.DeleteStoryBibleAsync(bookId);
-        return NoContent();
-    }
 }
 
 public record StoryBibleRequest(

@@ -46,7 +46,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         _logger.LogInformation("[Book {BookId}] Planner started.", bookId);
         try
         {
-            await _planner.PlanAsync(bookId, skipCompletedPhases: false, ct);
+            await _planner.PlanAsync(bookId, ct);
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, "Done", null));
             _logger.LogInformation("[Book {BookId}] Planner finished.", bookId);
         }
@@ -156,7 +156,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             // 1. Plan
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Starting planning…", false, ct);
-            var chapters = await _planner.PlanAsync(bookId, skipCompletedPhases: false, ct);
+            var chapters = await _planner.PlanAsync(bookId, ct);
             await _notifier.NotifyWorkflowProgressAsync(bookId,
                 $"Planning complete — {chapters.Count} chapter{(chapters.Count == 1 ? "" : "s")} outlined.", false, ct);
 
@@ -249,51 +249,25 @@ public class AgentOrchestrator : IAgentOrchestrator
     }
 
     /// <summary>
-    /// Continue an interrupted workflow: fills any missing planning phases (Story Bible,
-    /// Characters, Plot Threads, Chapter Outlines) by calling the Planner with
-    /// <c>skipCompletedPhases=true</c>, then writes/edits chapters that are not yet Done.
+    /// Continue an interrupted workflow: skips Done chapters, resumes writing/editing
+    /// from where it left off, then runs the continuity check.
     /// </summary>
     public async Task ContinueWorkflowAsync(int bookId, CancellationToken ct = default)
     {
-        if (!_state.TryStartRun(bookId, AgentRole.Planner, null))
+        if (!_state.TryStartRun(bookId, AgentRole.Writer, null))
             throw new InvalidOperationException("An agent is already running for this book.");
         try
         {
             var book = await _repo.GetByIdWithDetailsAsync(bookId)
                 ?? throw new InvalidOperationException($"Book {bookId} not found.");
 
+            var allChapters = book.Chapters.OrderBy(c => c.Number).ToList();
+            if (allChapters.Count == 0)
+                throw new InvalidOperationException("No chapters to continue. Run the planner first.");
+
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Continuing workflow…", false, ct);
 
-            // ---- Fill any missing planning phases first ----------------------
-            var storyBible = await _repo.GetStoryBibleAsync(bookId);
-            var characters = (await _repo.GetCharacterCardsAsync(bookId)).ToList();
-            var plotThreads = (await _repo.GetPlotThreadsAsync(bookId)).ToList();
-            var existingChapters = book.Chapters.OrderBy(c => c.Number).ToList();
-
-            bool planningNeeded = storyBible is null || !characters.Any() || !plotThreads.Any() || !existingChapters.Any();
-            if (planningNeeded)
-            {
-                var gaps = new List<string>();
-                if (storyBible is null) gaps.Add("Story Bible");
-                if (!characters.Any()) gaps.Add("Characters");
-                if (!plotThreads.Any()) gaps.Add("Plot Threads");
-                if (!existingChapters.Any()) gaps.Add("Chapter Outlines");
-                await _notifier.NotifyWorkflowProgressAsync(bookId,
-                    $"Filling planning gaps: {string.Join(", ", gaps)}…", false, ct);
-
-                _state.UpdateRunRole(bookId, AgentRole.Planner, null);
-                var chapters = await _planner.PlanAsync(bookId, skipCompletedPhases: true, ct);
-
-                // Reload from DB after planning
-                existingChapters = chapters.OrderBy(c => c.Number).ToList();
-            }
-
-            if (existingChapters.Count == 0)
-                throw new InvalidOperationException("Planning produced no chapters. Check LLM connectivity and try again.");
-
-            _state.UpdateRunRole(bookId, AgentRole.Writer, null);
-
-            foreach (var chapterRef in existingChapters)
+            foreach (var chapterRef in allChapters)
             {
                 ct.ThrowIfCancellationRequested();
 

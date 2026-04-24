@@ -6,9 +6,9 @@ import {
   getBook, getMessages, postAnswer, getAgentStatus,
   startPlanning, startWorkflow, continueWorkflow, stopWorkflow, clearChapterContent,
   createChapter, updateChapter, updateBook, getTokenUsage,
-  getStoryBible, updateStoryBible, deleteStoryBible,
-  getCharacters, createCharacter, updateCharacter, deleteCharacter, deleteAllCharacters,
-  getPlotThreads, createPlotThread, updatePlotThread, deletePlotThread, deleteAllPlotThreads,
+  getStoryBible, updateStoryBible,
+  getCharacters, createCharacter, updateCharacter, deleteCharacter,
+  getPlotThreads, createPlotThread, updatePlotThread, deletePlotThread,
 } from '../api'
 import { useBookHub } from '../hooks/useBookHub'
 import { downloadBookAsHtml, downloadBookMetadataAsHtml } from '../utils/bookHtmlExport'
@@ -283,20 +283,6 @@ export default function BookDetail() {
     }
   }
 
-  const handleMarkChapterDone = async (chapter: Chapter) => {
-    const r = await updateChapter(bookId, chapter.id, {
-      title: chapter.title,
-      outline: chapter.outline,
-      content: chapter.content,
-      status: 'Done' as never,
-    })
-    setActiveChapter(r.data)
-    setBook(prev => prev ? {
-      ...prev,
-      chapters: (prev.chapters ?? []).map(c => c.id === r.data.id ? r.data : c)
-    } : prev)
-  }
-
   const handleClearChapter = async (chapter: Chapter) => {
     if (!confirm(`Clear all content for Chapter ${chapter.number}: "${chapter.title}"? This cannot be undone.`)) return
     const r = await clearChapterContent(bookId, chapter)
@@ -518,13 +504,6 @@ export default function BookDetail() {
                       title="Edit chapter title and outline"
                     >✎ Edit</button>
                   )}
-                  {!isRunning && activeChapter.status !== 'Done' && (
-                    <button
-                      className="btn-mark-done"
-                      onClick={() => handleMarkChapterDone(activeChapter)}
-                      title="Mark this chapter as done"
-                    >✔ Mark Done</button>
-                  )}
                   {activeChapter.content?.trim() && (
                     <button
                       className="btn-clear-chapter"
@@ -645,13 +624,6 @@ export default function BookDetail() {
                   <div className="bible-view-header">
                     <h3>Story Bible</h3>
                     <button className="btn-edit-book" onClick={() => { setBibleForm(storyBible ?? {}); setEditingBible(true) }}>✎ Edit</button>
-                    {storyBible?.settingDescription || storyBible?.timePeriod || storyBible?.themes ? (
-                      <button className="btn-clear-meta" onClick={async () => {
-                        if (!confirm('Clear the Story Bible? The Planner will regenerate it on the next run.')) return
-                        await deleteStoryBible(bookId)
-                        setStoryBible(null)
-                      }} title="Delete Story Bible so the Planner regenerates it">↺ Clear</button>
-                    ) : null}
                   </div>
                   {storyBible?.settingDescription && <p><strong>Setting:</strong> {storyBible.settingDescription}</p>}
                   {storyBible?.timePeriod && <p><strong>Time Period:</strong> {storyBible.timePeriod}</p>}
@@ -672,13 +644,6 @@ export default function BookDetail() {
                 <div className="characters-header">
                   <h3>Characters ({characters.length})</h3>
                   <button className="btn-sm" onClick={() => { setCharForm({}); setAddingChar(true); setEditingCharId(null) }}>+ Add</button>
-                  {characters.length > 0 && (
-                    <button className="btn-clear-meta" onClick={async () => {
-                      if (!confirm(`Delete all ${characters.length} characters? The Planner will regenerate them on the next run.`)) return
-                      await deleteAllCharacters(bookId)
-                      setCharacters([])
-                    }} title="Delete all characters so the Planner regenerates them">↺ Clear All</button>
-                  )}
                 </div>
                 {addingChar && (
                   <div className="char-edit-form">
@@ -764,13 +729,6 @@ export default function BookDetail() {
                 <div className="plotthreads-header">
                   <h3>Plot Threads ({plotThreads.length})</h3>
                   <button className="btn-sm" onClick={() => { setThreadForm({}); setAddingThread(true); setEditingThreadId(null) }}>+ Add</button>
-                  {plotThreads.length > 0 && (
-                    <button className="btn-clear-meta" onClick={async () => {
-                      if (!confirm(`Delete all ${plotThreads.length} plot threads? The Planner will regenerate them on the next run.`)) return
-                      await deleteAllPlotThreads(bookId)
-                      setPlotThreads([])
-                    }} title="Delete all plot threads so the Planner regenerates them">↺ Clear All</button>
-                  )}
                 </div>
                 {addingThread && (
                   <div className="thread-edit-form">

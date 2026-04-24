@@ -188,8 +188,6 @@ export const getStoryBible = (bookId: number) =>
   api.get<StoryBible>(`/books/${bookId}/story-bible`)
 export const updateStoryBible = (bookId: number, data: Omit<StoryBible, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
   api.put<StoryBible>(`/books/${bookId}/story-bible`, data)
-export const deleteStoryBible = (bookId: number) =>
-  api.delete(`/books/${bookId}/story-bible`)
 
 // Character Cards
 export interface CharacterCard {
@@ -215,8 +213,6 @@ export const updateCharacter = (bookId: number, cardId: number, data: Omit<Chara
   api.put<CharacterCard>(`/books/${bookId}/characters/${cardId}`, data)
 export const deleteCharacter = (bookId: number, cardId: number) =>
   api.delete(`/books/${bookId}/characters/${cardId}`)
-export const deleteAllCharacters = (bookId: number) =>
-  api.delete(`/books/${bookId}/characters`)
 
 // Plot Threads
 export interface PlotThread {
@@ -239,5 +235,3 @@ export const updatePlotThread = (bookId: number, threadId: number, data: Omit<Pl
   api.put<PlotThread>(`/books/${bookId}/plot-threads/${threadId}`, data)
 export const deletePlotThread = (bookId: number, threadId: number) =>
   api.delete(`/books/${bookId}/plot-threads/${threadId}`)
-export const deleteAllPlotThreads = (bookId: number) =>
-  api.delete(`/books/${bookId}/plot-threads`)

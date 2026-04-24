@@ -67,13 +67,6 @@ public class CharactersController : ControllerBase
         await _repo.DeleteCharacterCardAsync(bookId, cardId);
         return NoContent();
     }
-
-    [HttpDelete]
-    public async Task<IActionResult> DeleteAll(int bookId)
-    {
-        await _repo.DeleteCharacterCardsAsync(bookId);
-        return NoContent();
-    }
 }
 
 public record CharacterCardRequest(
