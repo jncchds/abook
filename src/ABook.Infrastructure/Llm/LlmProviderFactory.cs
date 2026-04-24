@@ -13,16 +13,28 @@ namespace ABook.Infrastructure.Llm;
 
 public class LlmProviderFactory : ILlmProviderFactory
 {
-    public IChatCompletionService CreateChatCompletion(LlmConfiguration config) =>
-        config.Provider switch
+    public IChatCompletionService CreateChatCompletion(LlmConfiguration config)
+    {
+        switch (config.Provider)
         {
-            LlmProvider.Ollama => new OllamaChatCompletionService(config.ModelName, new Uri(config.Endpoint)),
-            LlmProvider.OpenAI => new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIChatCompletionService(
-                config.ModelName, config.ApiKey ?? throw new InvalidOperationException("OpenAI requires an API key.")),
-            LlmProvider.LMStudio => new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIChatCompletionService(
-                config.ModelName, new Uri(config.Endpoint.TrimEnd('/') + "/v1"), config.ApiKey ?? "lm-studio"),
-            _ => throw new NotSupportedException($"Provider {config.Provider} is not yet supported.")
-        };
+            case LlmProvider.Ollama:
+                return new OllamaChatCompletionService(config.ModelName, new Uri(config.Endpoint));
+            case LlmProvider.OpenAI:
+            {
+                var openAiEndpoint = string.IsNullOrWhiteSpace(config.Endpoint) ? null : new Uri(config.Endpoint);
+                var openAiKey = config.ApiKey ?? (openAiEndpoint == null
+                    ? throw new InvalidOperationException("OpenAI requires an API key.")
+                    : null);
+                return new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIChatCompletionService(
+                    config.ModelName, openAiEndpoint, openAiKey);
+            }
+            case LlmProvider.LMStudio:
+                return new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIChatCompletionService(
+                    config.ModelName, new Uri(config.Endpoint.TrimEnd('/') + "/v1"), config.ApiKey ?? "lm-studio");
+            default:
+                throw new NotSupportedException($"Provider {config.Provider} is not yet supported.");
+        }
+    }
 
     public ITextEmbeddingGenerationService CreateEmbeddingGeneration(LlmConfiguration config)
     {
