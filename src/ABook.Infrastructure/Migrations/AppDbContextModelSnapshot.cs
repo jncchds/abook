@@ -462,10 +462,10 @@ namespace ABook.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<int>("InputTokens")
+                    b.Property<int>("CompletionTokens")
                         .HasColumnType("integer");
 
-                    b.Property<int>("OutputTokens")
+                    b.Property<int>("PromptTokens")
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
