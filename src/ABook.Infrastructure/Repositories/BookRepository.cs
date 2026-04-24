@@ -185,6 +185,16 @@ public class BookRepository : IBookRepository
         return existing;
     }
 
+    public async Task DeleteStoryBibleAsync(int bookId)
+    {
+        var bible = await _db.StoryBibles.FirstOrDefaultAsync(s => s.BookId == bookId);
+        if (bible is not null)
+        {
+            _db.StoryBibles.Remove(bible);
+            await _db.SaveChangesAsync();
+        }
+    }
+
     // ── Character Cards ───────────────────────────────────────────────────────
 
     public async Task<IEnumerable<CharacterCard>> GetCharacterCardsAsync(int bookId) =>

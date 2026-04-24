@@ -30,6 +30,18 @@ public class AgentController : ControllerBase
         return Accepted();
     }
 
+    [HttpPost("plan/continue")]
+    public IActionResult ContinuePlanning(int bookId)
+    {
+        var current = _runState.GetStatus(bookId);
+        if (current is { State: "Running" or "WaitingForInput" })
+            return Conflict(new { message = "An agent run is already in progress for this book." });
+
+        var ct = _runState.CreateRunCts(bookId);
+        _ = RunInBackground(bookId, (o, c) => o.ContinuePlanningAsync(bookId, c), ct);
+        return Accepted();
+    }
+
     [HttpPost("write/{chapterId:int}")]
     public IActionResult Write(int bookId, int chapterId)
     {

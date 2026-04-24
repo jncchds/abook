@@ -14,6 +14,10 @@ export interface Book {
   writerSystemPrompt?: string
   editorSystemPrompt?: string
   continuityCheckerSystemPrompt?: string
+  storyBibleStatus?: string
+  charactersStatus?: string
+  plotThreadsStatus?: string
+  chaptersStatus?: string
   createdAt: string
   updatedAt: string
   chapters?: Chapter[]
@@ -134,6 +138,15 @@ export const postAnswer = (bookId: number, messageId: number, answer: string) =>
 
 // Agent actions
 export const startPlanning = (bookId: number) => api.post(`/books/${bookId}/agent/plan`)
+export const continuePlanning = (bookId: number) => api.post(`/books/${bookId}/agent/plan/continue`)
+
+// Planning phases
+export const completePlanningPhase = (bookId: number, phase: string) =>
+  api.post(`/books/${bookId}/planning-phases/${phase}/complete`)
+export const reopenPlanningPhase = (bookId: number, phase: string) =>
+  api.post(`/books/${bookId}/planning-phases/${phase}/reopen`)
+export const clearPlanningPhase = (bookId: number, phase: string) =>
+  api.delete(`/books/${bookId}/planning-phases/${phase}`)
 export const startWriting = (bookId: number, chapterId: number) =>
   api.post(`/books/${bookId}/agent/write/${chapterId}`)
 export const startEditing = (bookId: number, chapterId: number) =>

@@ -4,7 +4,8 @@ import ReactMarkdown from 'react-markdown'
 import type { Book, Chapter, AgentMessage, AgentRunStatus, StoryBible, CharacterCard, PlotThread } from '../api'
 import {
   getBook, getMessages, postAnswer, getAgentStatus,
-  startPlanning, startWorkflow, continueWorkflow, stopWorkflow, clearChapterContent,
+  startPlanning, continuePlanning, completePlanningPhase, reopenPlanningPhase, clearPlanningPhase,
+  startWorkflow, continueWorkflow, stopWorkflow, clearChapterContent,
   createChapter, updateChapter, updateBook, getTokenUsage,
   getStoryBible, updateStoryBible,
   getCharacters, createCharacter, updateCharacter, deleteCharacter,
@@ -283,6 +284,38 @@ export default function BookDetail() {
     }
   }
 
+  const handleContinuePlanning = async () => {
+    if (isRunning) return
+    setWorkflowLog([])
+    try {
+      await continuePlanning(bookId)
+      setRunStatus({ role: 'Planner', state: 'Running' })
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string }; status?: number } })
+      if (msg?.response?.status === 409) {
+        alert('An agent is already running for this book.')
+      }
+    }
+  }
+
+  const handleCompletePhase = async (phase: string) => {
+    await completePlanningPhase(bookId, phase)
+    refreshBook()
+  }
+
+  const handleReopenPhase = async (phase: string) => {
+    await reopenPlanningPhase(bookId, phase)
+    refreshBook()
+  }
+
+  const handleClearPhase = async (phase: string, clearLocal: () => void) => {
+    const labels: Record<string, string> = { storybible: 'Story Bible', characters: 'Characters', plotthreads: 'Plot Threads', chapters: 'Chapter Outlines' }
+    if (!confirm(`Clear all ${labels[phase] ?? phase} data? This cannot be undone.`)) return
+    await clearPlanningPhase(bookId, phase)
+    clearLocal()
+    refreshBook()
+  }
+
   const handleClearChapter = async (chapter: Chapter) => {
     if (!confirm(`Clear all content for Chapter ${chapter.number}: "${chapter.title}"? This cannot be undone.`)) return
     const r = await clearChapterContent(bookId, chapter)
@@ -343,6 +376,16 @@ export default function BookDetail() {
     setActiveChapter(r.data)
   }
 
+  const isPhaseComplete = (phase: string) => {
+    switch (phase) {
+      case 'storybible':  return book?.storyBibleStatus  === 'Complete'
+      case 'characters':  return book?.charactersStatus  === 'Complete'
+      case 'plotthreads': return book?.plotThreadsStatus === 'Complete'
+      case 'chapters':    return book?.chaptersStatus    === 'Complete'
+      default: return false
+    }
+  }
+
   const statusColor = (s: string) => ({
     Outlined: '#94a3b8', Writing: '#f59e0b', Review: '#3b82f6',
     Editing: '#a855f7', Done: '#22c55e'
@@ -393,6 +436,9 @@ export default function BookDetail() {
               {(book.chapters ?? []).length > 0 && (
                 <button className="btn-continue" onClick={handleContinue}>↻ Continue</button>
               )}
+              {(book.storyBibleStatus === 'Complete' || book.charactersStatus === 'Complete' || book.plotThreadsStatus === 'Complete' || book.chaptersStatus === 'Complete') && (
+                <button className="btn-continue-plan" onClick={handleContinuePlanning}>⏩ Continue Planning</button>
+              )}
             </>
           )}
 
@@ -407,6 +453,23 @@ export default function BookDetail() {
               ))}
             </ul>
             <div ref={workflowLogEndRef} />
+          </div>
+        )}
+        {(book.chapters ?? []).length > 0 && (
+          <div className="phase-actions phase-actions-chapters">
+            {isPhaseComplete('chapters') ? (
+              <>
+                <span className="phase-status-badge phase-complete">✅ Chapters</span>
+                <button className="btn-sm btn-ghost phase-action-btn" onClick={() => handleReopenPhase('chapters')}>↺ Reopen</button>
+                <button className="btn-sm btn-danger phase-action-btn" onClick={() => handleClearPhase('chapters', () => { setBook(prev => prev ? { ...prev, chapters: [] } : prev); setActiveChapter(null) })}>🗑 Clear</button>
+              </>
+            ) : (
+              <>
+                <span className="phase-status-badge phase-not-started">⬜ Chapters</span>
+                <button className="btn-sm phase-action-btn" onClick={() => handleCompletePhase('chapters')}>✓ Complete</button>
+                <button className="btn-sm btn-danger phase-action-btn" onClick={() => handleClearPhase('chapters', () => { setBook(prev => prev ? { ...prev, chapters: [] } : prev); setActiveChapter(null) })}>🗑 Clear</button>
+              </>
+            )}
           </div>
         )}
         <ul className="chapter-list">
@@ -548,6 +611,7 @@ export default function BookDetail() {
                   onClick={() => setActiveTab(tab)}
                 >
                   {{ overview: '📖 Overview', storybible: '🌍 Story Bible', characters: '👤 Characters', plotthreads: '🧵 Plot Threads' }[tab]}
+                  {tab !== 'overview' && isPhaseComplete(tab) && <span className="phase-dot-complete" title="Complete"> ●</span>}
                 </button>
               ))}
             </div>
@@ -625,6 +689,20 @@ export default function BookDetail() {
                     <h3>Story Bible</h3>
                     <button className="btn-edit-book" onClick={() => { setBibleForm(storyBible ?? {}); setEditingBible(true) }}>✎ Edit</button>
                   </div>
+                  <div className="phase-actions">
+                    {isPhaseComplete('storybible') ? (
+                      <>
+                        <span className="phase-status-badge phase-complete">✅ Complete</span>
+                        <button className="btn-sm btn-ghost phase-action-btn" onClick={() => handleReopenPhase('storybible')}>↺ Reopen</button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="phase-status-badge phase-not-started">⬜ Not Started</span>
+                        <button className="btn-sm phase-action-btn" onClick={() => handleCompletePhase('storybible')}>✓ Complete</button>
+                      </>
+                    )}
+                    <button className="btn-sm btn-danger phase-action-btn" onClick={() => handleClearPhase('storybible', () => setStoryBible(null))}>🗑 Clear</button>
+                  </div>
                   {storyBible?.settingDescription && <p><strong>Setting:</strong> {storyBible.settingDescription}</p>}
                   {storyBible?.timePeriod && <p><strong>Time Period:</strong> {storyBible.timePeriod}</p>}
                   {storyBible?.themes && <p><strong>Themes:</strong> {storyBible.themes}</p>}
@@ -644,6 +722,20 @@ export default function BookDetail() {
                 <div className="characters-header">
                   <h3>Characters ({characters.length})</h3>
                   <button className="btn-sm" onClick={() => { setCharForm({}); setAddingChar(true); setEditingCharId(null) }}>+ Add</button>
+                </div>
+                <div className="phase-actions">
+                  {isPhaseComplete('characters') ? (
+                    <>
+                      <span className="phase-status-badge phase-complete">✅ Complete</span>
+                      <button className="btn-sm btn-ghost phase-action-btn" onClick={() => handleReopenPhase('characters')}>↺ Reopen</button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="phase-status-badge phase-not-started">⬜ Not Started</span>
+                      <button className="btn-sm phase-action-btn" onClick={() => handleCompletePhase('characters')}>✓ Complete</button>
+                    </>
+                  )}
+                  <button className="btn-sm btn-danger phase-action-btn" onClick={() => handleClearPhase('characters', () => setCharacters([]))}>🗑 Clear</button>
                 </div>
                 {addingChar && (
                   <div className="char-edit-form">
@@ -729,6 +821,20 @@ export default function BookDetail() {
                 <div className="plotthreads-header">
                   <h3>Plot Threads ({plotThreads.length})</h3>
                   <button className="btn-sm" onClick={() => { setThreadForm({}); setAddingThread(true); setEditingThreadId(null) }}>+ Add</button>
+                </div>
+                <div className="phase-actions">
+                  {isPhaseComplete('plotthreads') ? (
+                    <>
+                      <span className="phase-status-badge phase-complete">✅ Complete</span>
+                      <button className="btn-sm btn-ghost phase-action-btn" onClick={() => handleReopenPhase('plotthreads')}>↺ Reopen</button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="phase-status-badge phase-not-started">⬜ Not Started</span>
+                      <button className="btn-sm phase-action-btn" onClick={() => handleCompletePhase('plotthreads')}>✓ Complete</button>
+                    </>
+                  )}
+                  <button className="btn-sm btn-danger phase-action-btn" onClick={() => handleClearPhase('plotthreads', () => setPlotThreads([]))}>🗑 Clear</button>
                 </div>
                 {addingThread && (
                   <div className="thread-edit-form">

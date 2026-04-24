@@ -46,7 +46,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         _logger.LogInformation("[Book {BookId}] Planner started.", bookId);
         try
         {
-            await _planner.PlanAsync(bookId, ct);
+            await _planner.PlanAsync(bookId, ct: ct);
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, "Done", null));
             _logger.LogInformation("[Book {BookId}] Planner finished.", bookId);
         }
@@ -61,6 +61,49 @@ public class AgentOrchestrator : IAgentOrchestrator
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, "Failed", null));
             _logger.LogError(ex, "[Book {BookId}] Planner failed.", bookId);
             await ReportAgentErrorAsync(bookId, AgentRole.Planner, null, $"Planner failed: {ex.Message}");
+            throw;
+        }
+    }
+
+    public async Task ContinuePlanningAsync(int bookId, CancellationToken ct = default)
+    {
+        if (!_state.TryStartRun(bookId, AgentRole.Planner, null))
+            throw new InvalidOperationException("An agent is already running for this book.");
+        _logger.LogInformation("[Book {BookId}] Continue Planning started.", bookId);
+        try
+        {
+            var book = await _repo.GetByIdAsync(bookId)
+                ?? throw new InvalidOperationException($"Book {bookId} not found.");
+
+            bool skipSb = book.StoryBibleStatus == PlanningPhaseStatus.Complete;
+            bool skipChars = book.CharactersStatus == PlanningPhaseStatus.Complete;
+            bool skipThreads = book.PlotThreadsStatus == PlanningPhaseStatus.Complete;
+            bool skipChapters = book.ChaptersStatus == PlanningPhaseStatus.Complete;
+
+            if (skipSb && skipChars && skipThreads && skipChapters)
+            {
+                await _notifier.NotifyWorkflowProgressAsync(bookId,
+                    "All planning phases are already complete. Use Reopen or Clear to reset a phase.", true, ct);
+                _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, "Done", null));
+                return;
+            }
+
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Continuing planning...", false, ct);
+            await _planner.PlanAsync(bookId, skipSb, skipChars, skipThreads, skipChapters, ct);
+            _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, "Done", null));
+            _logger.LogInformation("[Book {BookId}] Continue Planning finished.", bookId);
+        }
+        catch (OperationCanceledException)
+        {
+            _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, "Failed", null));
+            _logger.LogWarning("[Book {BookId}] Continue Planning cancelled.", bookId);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, "Failed", null));
+            _logger.LogError(ex, "[Book {BookId}] Continue Planning failed.", bookId);
+            await ReportAgentErrorAsync(bookId, AgentRole.Planner, null, $"Continue Planning failed: {ex.Message}");
             throw;
         }
     }
@@ -156,7 +199,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             // 1. Plan
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Starting planning…", false, ct);
-            var chapters = await _planner.PlanAsync(bookId, ct);
+            var chapters = await _planner.PlanAsync(bookId, ct: ct);
             await _notifier.NotifyWorkflowProgressAsync(bookId,
                 $"Planning complete — {chapters.Count} chapter{(chapters.Count == 1 ? "" : "s")} outlined.", false, ct);
 

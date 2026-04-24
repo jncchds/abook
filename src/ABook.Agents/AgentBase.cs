@@ -47,6 +47,35 @@ public abstract class AgentBase
         return LlmFactory.CreateKernel(config);
     }
 
+    /// <summary>
+    /// Non-streaming LLM call. Used for short question-gathering queries that don't need token-by-token
+    /// streaming to the UI. Token stats are NOT emitted (no SignalR noise for internal calls).
+    /// </summary>
+    protected async Task<string> GetCompletionAsync(
+        Kernel kernel, ChatHistory history, CancellationToken ct)
+    {
+        var chat = kernel.GetRequiredService<IChatCompletionService>();
+        var settings = new OllamaPromptExecutionSettings { Temperature = (float?)0.7f };
+
+        if (DebugLoggingEnabled)
+        {
+            var req = new System.Text.StringBuilder();
+            req.AppendLine($"=== LLM Completion Request ===");
+            foreach (var msg in history)
+                req.AppendLine($"[{msg.Role}] {msg.Content}");
+            req.AppendLine("=== End Request ===");
+            Logger.LogInformation("{LlmRequest}", req.ToString());
+        }
+
+        var result = await chat.GetChatMessageContentAsync(history, settings, kernel, ct);
+        var text = result.Content ?? string.Empty;
+
+        if (DebugLoggingEnabled)
+            Logger.LogInformation("=== LLM Completion Response ===\n{Response}\n=== End Response ===", text);
+
+        return text;
+    }
+
     /// <summary>Streams LLM tokens to the book's SignalR group and accumulates the full response.</summary>
     /// <param name="suspiciousThreshold">Minimum response length before a 'suspiciously short' warning is emitted. Pass 0 to suppress.</param>
     protected async Task<string> StreamResponseAsync(

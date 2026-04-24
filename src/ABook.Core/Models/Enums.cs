@@ -2,6 +2,8 @@ namespace ABook.Core.Models;
 
 public enum BookStatus { Draft, InProgress, Complete }
 
+public enum PlanningPhaseStatus { NotStarted, Complete }
+
 public enum ChapterStatus { Outlined, Writing, Review, Editing, Done }
 
 public enum AgentRole { Planner, Writer, Editor, ContinuityChecker }
