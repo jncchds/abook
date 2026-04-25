@@ -1,7 +1,7 @@
 import { HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr'
 import { useEffect, useRef, useState } from 'react'
 
-type StreamHandler = (bookId: number, chapterId: number | null, token: string) => void
+type StreamHandler = (bookId: number, chapterId: number | null, agentRole: string, token: string) => void
 type QuestionHandler = (bookId: number, message: unknown) => void
 type StatusHandler = (bookId: number, role: string, state: string) => void
 type ChapterUpdatedHandler = (bookId: number, chapterId: number) => void
@@ -30,7 +30,7 @@ export function useBookHub(bookId: number | null) {
       .configureLogging(LogLevel.Warning)
       .build()
 
-    conn.on('AgentStreaming', (bId, cId, token) => onStream.current?.(bId, cId, token))
+    conn.on('AgentStreaming', (bId, cId, agentRole, token) => onStream.current?.(bId, cId, agentRole, token))
     conn.on('AgentQuestion', (bId, msg) => onQuestion.current?.(bId, msg))
     conn.on('AgentStatusChanged', (bId, role, state) => onStatus.current?.(bId, role, state))
     conn.on('ChapterUpdated', (bId, cId) => onChapterUpdated.current?.(bId, cId))

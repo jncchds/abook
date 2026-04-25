@@ -33,15 +33,10 @@ public class EditorAgent : AgentBase
         var kernel = await GetKernelAsync(bookId);
 
         var history = new ChatHistory();
+        var bible = await Repo.GetStoryBibleAsync(bookId);
         var systemPrompt = !string.IsNullOrWhiteSpace(book.EditorSystemPrompt)
-            ? InterpolateSystemPrompt(book.EditorSystemPrompt, book)
-            : $"""
-            You are a professional fiction Editor. Your job is to improve prose quality, fix grammar,
-            enhance pacing, and strengthen character voice. Preserve the author's style.
-            Output the complete improved chapter in markdown — do NOT include a chapter heading.
-            After the prose, add a section headed exactly "## Editorial Notes" that lists key changes made.
-            Book: {book.Title} | Genre: {book.Genre} | Language: {book.Language}
-            """;
+            ? InterpolateSystemPrompt(book.EditorSystemPrompt, book, bible)
+            : InterpolateSystemPrompt(DefaultPrompts.Editor, book, bible);
         history.AddSystemMessage(systemPrompt);
 
         var editRequest = string.IsNullOrWhiteSpace(continuityNotes)

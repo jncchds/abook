@@ -70,6 +70,10 @@ builder.Services.AddScoped<IBookNotifier, SignalRBookNotifier>();
 
 // ── Agents ────────────────────────────────────────────────────────────────────
 builder.Services.AddSingleton<ABook.Agents.AgentRunStateService>();
+builder.Services.AddScoped<ABook.Agents.QuestionAgent>();
+builder.Services.AddScoped<ABook.Agents.StoryBibleAgent>();
+builder.Services.AddScoped<ABook.Agents.CharactersAgent>();
+builder.Services.AddScoped<ABook.Agents.PlotThreadsAgent>();
 builder.Services.AddScoped<ABook.Agents.PlannerAgent>();
 builder.Services.AddScoped<ABook.Agents.WriterAgent>();
 builder.Services.AddScoped<ABook.Agents.EditorAgent>();

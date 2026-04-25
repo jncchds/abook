@@ -64,7 +64,10 @@ public class BooksController : ControllerBase
         book.TargetChapterCount = req.TargetChapterCount;
         book.Status = req.Status;
         book.Language = req.Language ?? book.Language;
-        book.PlannerSystemPrompt = req.PlannerSystemPrompt;
+        book.StoryBibleSystemPrompt = req.StoryBibleSystemPrompt;
+        book.CharactersSystemPrompt = req.CharactersSystemPrompt;
+        book.PlotThreadsSystemPrompt = req.PlotThreadsSystemPrompt;
+        book.ChapterOutlinesSystemPrompt = req.ChapterOutlinesSystemPrompt;
         book.WriterSystemPrompt = req.WriterSystemPrompt;
         book.EditorSystemPrompt = req.EditorSystemPrompt;
         book.ContinuityCheckerSystemPrompt = req.ContinuityCheckerSystemPrompt;
@@ -101,6 +104,16 @@ public class BooksController : ControllerBase
         }));
     }
 
+    [HttpDelete("{id:int}/token-usage")]
+    public async Task<IActionResult> DeleteTokenUsage(int id)
+    {
+        var book = await _repo.GetByIdAsync(id);
+        if (book is null) return NotFound();
+        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
+        await _repo.DeleteTokenUsageAsync(id);
+        return NoContent();
+    }
+
     [HttpGet("{id:int}/default-prompts")]
     public async Task<IActionResult> GetDefaultPrompts(int id)
     {
@@ -111,7 +124,13 @@ public class BooksController : ControllerBase
 
         return Ok(new
         {
-            plannerSystemPrompt = $"You are a creative writing Planner. Your task is to outline a book in detail.\nFor each chapter, output a JSON array of objects with fields:\n  \"number\" (int), \"title\" (string), \"outline\" (string, 2-4 sentences synopsis).\nOutput ONLY the JSON array, no additional text.\nWrite all content in {lang}.",
+            storyBibleSystemPrompt = $"You are a world-building expert creating a Story Bible for a book project.\nOutput a JSON object with fields: \"settingDescription\", \"timePeriod\", \"themes\", \"toneAndStyle\", \"worldRules\", \"notes\".\nOutput ONLY the JSON object, no additional text.\nWrite all content in {lang}.",
+
+            charactersSystemPrompt = $"You are a character development expert creating character profiles.\nOutput a JSON array where each element has: \"name\", \"role\" (Protagonist|Antagonist|Supporting|Minor),\n\"physicalDescription\", \"personality\", \"backstory\", \"goalMotivation\", \"arc\",\n\"firstAppearanceChapterNumber\" (int or null), \"notes\".\nOutput ONLY the JSON array, no additional text.\nWrite all content in {lang}.",
+
+            plotThreadsSystemPrompt = $"You are a story structure expert mapping all plot threads for a book.\nOutput a JSON array where each element has: \"name\", \"description\",\n\"type\" (MainPlot|Subplot|CharacterArc|Mystery|Foreshadowing|WorldBuilding|ThematicThread),\n\"introducedChapterNumber\" (int or null), \"resolvedChapterNumber\" (int or null),\n\"status\" (Active|Resolved|Dormant).\nOutput ONLY the JSON array, no additional text.\nWrite all content in {lang}.",
+
+            chapterOutlinesSystemPrompt = $"You are a creative writing Planner outlining each chapter of a book.\nOutput a JSON array where each element has:\n  \"number\" (int), \"title\" (string),\n  \"outline\" (string - 3-6 sentence synopsis including key events and decisions),\n  \"povCharacter\" (string), \"charactersInvolved\" (array of strings),\n  \"plotThreads\" (array of strings),\n  \"foreshadowingNotes\" (string), \"payoffNotes\" (string).\nOutput ONLY the JSON array, no additional text.\nWrite all content in {lang}.",
 
             writerSystemPrompt = $"You are a creative fiction Writer. Write compelling, immersive prose in markdown.\nBook title: {book.Title}\nGenre: {book.Genre}\nPremise: {book.Premise}\nWrite all content in {lang}.",
 
@@ -136,7 +155,10 @@ public record UpdateBookRequest(
     int TargetChapterCount,
     BookStatus Status,
     string? Language = null,
-    string? PlannerSystemPrompt = null,
+    string? StoryBibleSystemPrompt = null,
+    string? CharactersSystemPrompt = null,
+    string? PlotThreadsSystemPrompt = null,
+    string? ChapterOutlinesSystemPrompt = null,
     string? WriterSystemPrompt = null,
     string? EditorSystemPrompt = null,
     string? ContinuityCheckerSystemPrompt = null);

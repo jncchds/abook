@@ -27,6 +27,8 @@ public interface IBookRepository
 
     Task<TokenUsageRecord> AddTokenUsageAsync(TokenUsageRecord record);
     Task<IEnumerable<TokenUsageRecord>> GetTokenUsageAsync(int bookId);
+    Task DeleteTokenUsageAsync(int bookId);
+    Task DeleteMessagesAsync(int bookId);
 
     // Story Bible
     Task<StoryBible?> GetStoryBibleAsync(int bookId);

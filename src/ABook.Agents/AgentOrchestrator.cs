@@ -11,6 +11,10 @@ namespace ABook.Agents;
 public class AgentOrchestrator : IAgentOrchestrator
 {
     private readonly IBookRepository _repo;
+    private readonly QuestionAgent _questions;
+    private readonly StoryBibleAgent _storyBibleAgent;
+    private readonly CharactersAgent _charactersAgent;
+    private readonly PlotThreadsAgent _plotThreadsAgent;
     private readonly PlannerAgent _planner;
     private readonly WriterAgent _writer;
     private readonly EditorAgent _editor;
@@ -21,6 +25,10 @@ public class AgentOrchestrator : IAgentOrchestrator
 
     public AgentOrchestrator(
         IBookRepository repo,
+        QuestionAgent questions,
+        StoryBibleAgent storyBibleAgent,
+        CharactersAgent charactersAgent,
+        PlotThreadsAgent plotThreadsAgent,
         PlannerAgent planner,
         WriterAgent writer,
         EditorAgent editor,
@@ -30,6 +38,10 @@ public class AgentOrchestrator : IAgentOrchestrator
         ILogger<AgentOrchestrator> logger)
     {
         _repo = repo;
+        _questions = questions;
+        _storyBibleAgent = storyBibleAgent;
+        _charactersAgent = charactersAgent;
+        _plotThreadsAgent = plotThreadsAgent;
         _planner = planner;
         _writer = writer;
         _editor = editor;
@@ -46,7 +58,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         _logger.LogInformation("[Book {BookId}] Planner started.", bookId);
         try
         {
-            await _planner.PlanAsync(bookId, ct: ct);
+            await RunPlanningPipelineAsync(bookId, false, false, false, false, ct);
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, "Done", null));
             _logger.LogInformation("[Book {BookId}] Planner finished.", bookId);
         }
@@ -89,7 +101,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             }
 
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Continuing planning...", false, ct);
-            await _planner.PlanAsync(bookId, skipSb, skipChars, skipThreads, skipChapters, ct);
+            await RunPlanningPipelineAsync(bookId, skipSb, skipChars, skipThreads, skipChapters, ct);
             _state.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, "Done", null));
             _logger.LogInformation("[Book {BookId}] Continue Planning finished.", bookId);
         }
@@ -199,7 +211,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             // 1. Plan
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Starting planning…", false, ct);
-            var chapters = await _planner.PlanAsync(bookId, ct: ct);
+            var chapters = await RunPlanningPipelineAsync(bookId, false, false, false, false, ct);
             await _notifier.NotifyWorkflowProgressAsync(bookId,
                 $"Planning complete — {chapters.Count} chapter{(chapters.Count == 1 ? "" : "s")} outlined.", false, ct);
 
@@ -420,6 +432,94 @@ public class AgentOrchestrator : IAgentOrchestrator
             _logger.LogError(ex, "[Book {BookId}] Continue-workflow failed.", bookId);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Runs the 4-phase planning pipeline, optionally skipping phases already marked Complete.
+    /// Handles Q&amp;A upfront and delegates each phase to its dedicated agent.
+    /// Returns the chapter list from Phase 4, or the existing chapters when Phase 4 is skipped.
+    /// </summary>
+    private async Task<IReadOnlyList<Chapter>> RunPlanningPipelineAsync(
+        int bookId,
+        bool skipStoryBible,
+        bool skipCharacters,
+        bool skipPlotThreads,
+        bool skipChapters,
+        CancellationToken ct)
+    {
+        var book = await _repo.GetByIdWithDetailsAsync(bookId)
+            ?? throw new InvalidOperationException($"Book {bookId} not found.");
+
+        await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, "Running", ct);
+
+        bool isContinuation = skipStoryBible || skipCharacters || skipPlotThreads || skipChapters;
+
+        // Continuation: reload prior Q&A context. Fresh run: gather and ask upfront questions.
+        var qaContext = isContinuation
+            ? await _questions.LoadExistingContextAsync(bookId)
+            : new System.Text.StringBuilder();
+
+        if (!isContinuation)
+        {
+            var bkCtx = $"Title: {book.Title}\nGenre: {book.Genre}\nPremise: {book.Premise}\nTarget chapters: {book.TargetChapterCount}";
+            var questions = await _questions.GatherQuestionsAsync(bookId, bkCtx, ct);
+            if (questions.Count > 0)
+                await _questions.AskQuestionsAsync(bookId, questions, qaContext, ct);
+        }
+
+        var qaStr = qaContext.ToString();
+
+        // Phase 1: Story Bible
+        StoryBible bible;
+        if (skipStoryBible)
+        {
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Skipping Story Bible (marked complete).", false, ct);
+            bible = await _repo.GetStoryBibleAsync(bookId)
+                ?? throw new InvalidOperationException("Story Bible is marked complete but was not found in DB.");
+        }
+        else
+        {
+            bible = await _storyBibleAgent.RunAsync(book, qaStr, ct);
+        }
+
+        // Phase 2: Character Cards
+        IReadOnlyList<CharacterCard> characters;
+        if (skipCharacters)
+        {
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Skipping Characters (marked complete).", false, ct);
+            characters = (await _repo.GetCharacterCardsAsync(bookId)).ToList();
+        }
+        else
+        {
+            characters = await _charactersAgent.RunAsync(book, bible, qaStr, ct);
+        }
+
+        // Phase 3: Plot Threads
+        IReadOnlyList<PlotThread> threads;
+        if (skipPlotThreads)
+        {
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Skipping Plot Threads (marked complete).", false, ct);
+            threads = (await _repo.GetPlotThreadsAsync(bookId)).ToList();
+        }
+        else
+        {
+            threads = await _plotThreadsAgent.RunAsync(book, bible, characters, qaStr, ct);
+        }
+
+        // Phase 4: Chapter Outlines
+        IReadOnlyList<Chapter> chapters;
+        if (skipChapters)
+        {
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Skipping Chapter Outlines (marked complete).", false, ct);
+            chapters = (await _repo.GetChaptersAsync(bookId)).ToList();
+        }
+        else
+        {
+            chapters = await _planner.RunAsync(book, bible, characters, threads, qaStr, ct);
+        }
+
+        await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, "Done", ct);
+        return chapters;
     }
 
     /// <summary>

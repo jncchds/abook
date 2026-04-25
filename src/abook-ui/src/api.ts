@@ -10,7 +10,10 @@ export interface Book {
   targetChapterCount: number
   status: string
   language: string
-  plannerSystemPrompt?: string
+  storyBibleSystemPrompt?: string
+  charactersSystemPrompt?: string
+  plotThreadsSystemPrompt?: string
+  chapterOutlinesSystemPrompt?: string
   writerSystemPrompt?: string
   editorSystemPrompt?: string
   continuityCheckerSystemPrompt?: string
@@ -106,7 +109,10 @@ export const updateBook = (id: number, data: Partial<Book>) => api.put<Book>(`/b
 export const deleteBook = (id: number) => api.delete(`/books/${id}`)
 
 export interface DefaultPrompts {
-  plannerSystemPrompt: string
+  storyBibleSystemPrompt: string
+  charactersSystemPrompt: string
+  plotThreadsSystemPrompt: string
+  chapterOutlinesSystemPrompt: string
   writerSystemPrompt: string
   editorSystemPrompt: string
   continuityCheckerSystemPrompt: string
@@ -133,6 +139,8 @@ export const clearChapterContent = (bookId: number, chapter: Chapter) =>
 // Messages
 export const getMessages = (bookId: number, chapterId?: number) =>
   api.get<AgentMessage[]>(`/books/${bookId}/messages`, { params: { chapterId } })
+export const clearMessages = (bookId: number) =>
+  api.delete(`/books/${bookId}/messages`)
 export const postAnswer = (bookId: number, messageId: number, answer: string) =>
   api.post(`/books/${bookId}/messages/answer`, { messageId, answer })
 
@@ -169,6 +177,8 @@ export interface TokenUsageRecord {
 }
 export const getTokenUsage = (bookId: number) =>
   api.get<TokenUsageRecord[]>(`/books/${bookId}/token-usage`)
+export const clearTokenUsage = (bookId: number) =>
+  api.delete(`/books/${bookId}/token-usage`)
 
 // LLM Config
 export const getLlmConfig = (bookId?: number) =>

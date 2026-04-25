@@ -28,8 +28,9 @@ export default function Settings() {
   const [book, setBook] = useState<Book | null>(null)
   const [bookForm, setBookForm] = useState({
     language: 'English',
-    plannerSystemPrompt: '', writerSystemPrompt: '',
-    editorSystemPrompt: '', continuityCheckerSystemPrompt: ''
+    storyBibleSystemPrompt: '', charactersSystemPrompt: '',
+    plotThreadsSystemPrompt: '', chapterOutlinesSystemPrompt: '',
+    writerSystemPrompt: '', editorSystemPrompt: '', continuityCheckerSystemPrompt: ''
   })
   const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([])
   const [modelsLoading, setModelsLoading] = useState(false)
@@ -85,7 +86,10 @@ export default function Settings() {
         setBook(r.data)
         setBookForm({
           language: r.data.language ?? 'English',
-          plannerSystemPrompt: r.data.plannerSystemPrompt ?? '',
+          storyBibleSystemPrompt: r.data.storyBibleSystemPrompt ?? '',
+          charactersSystemPrompt: r.data.charactersSystemPrompt ?? '',
+          plotThreadsSystemPrompt: r.data.plotThreadsSystemPrompt ?? '',
+          chapterOutlinesSystemPrompt: r.data.chapterOutlinesSystemPrompt ?? '',
           writerSystemPrompt: r.data.writerSystemPrompt ?? '',
           editorSystemPrompt: r.data.editorSystemPrompt ?? '',
           continuityCheckerSystemPrompt: r.data.continuityCheckerSystemPrompt ?? '',
@@ -111,7 +115,10 @@ export default function Settings() {
     await updateBook(book.id, {
       ...book,
       language: bookForm.language,
-      plannerSystemPrompt: bookForm.plannerSystemPrompt || undefined,
+      storyBibleSystemPrompt: bookForm.storyBibleSystemPrompt || undefined,
+      charactersSystemPrompt: bookForm.charactersSystemPrompt || undefined,
+      plotThreadsSystemPrompt: bookForm.plotThreadsSystemPrompt || undefined,
+      chapterOutlinesSystemPrompt: bookForm.chapterOutlinesSystemPrompt || undefined,
       writerSystemPrompt: bookForm.writerSystemPrompt || undefined,
       editorSystemPrompt: bookForm.editorSystemPrompt || undefined,
       continuityCheckerSystemPrompt: bookForm.continuityCheckerSystemPrompt || undefined,
@@ -315,7 +322,12 @@ export default function Settings() {
               <div className="prompt-placeholders hint">
                 <strong>Available placeholders</strong> (substituted at runtime):{' '}
                 <code>{'{TITLE}'}</code> <code>{'{GENRE}'}</code> <code>{'{PREMISE}'}</code>{' '}
-                <code>{'{LANGUAGE}'}</code> <code>{'{CHAPTER_COUNT}'}</code>
+                <code>{'{LANGUAGE}'}</code> <code>{'{CHAPTER_COUNT}'}</code>{' '}
+                <code>{'{SETTING}'}</code> <code>{'{THEMES}'}</code>{' '}
+                <code>{'{TONE}'}</code> <code>{'{WORLD_RULES}'}</code>
+                <br />
+                Story Bible placeholders (<code>{'{SETTING}'}</code>, <code>{'{THEMES}'}</code>,{' '}
+                <code>{'{TONE}'}</code>, <code>{'{WORLD_RULES}'}</code>) are available once Phase 1 is complete.
                 <br />
                 <strong>Editor prompt note:</strong> end your prompt with a section headed{' '}
                 <code>## Editorial Notes</code> — the agent will split this off and store it as feedback.
@@ -326,7 +338,10 @@ export default function Settings() {
                   className="btn-secondary"
                   onClick={() => setBookForm(f => ({
                     ...f,
-                    plannerSystemPrompt: f.plannerSystemPrompt || defaultPrompts.plannerSystemPrompt,
+                    storyBibleSystemPrompt: f.storyBibleSystemPrompt || defaultPrompts.storyBibleSystemPrompt,
+                    charactersSystemPrompt: f.charactersSystemPrompt || defaultPrompts.charactersSystemPrompt,
+                    plotThreadsSystemPrompt: f.plotThreadsSystemPrompt || defaultPrompts.plotThreadsSystemPrompt,
+                    chapterOutlinesSystemPrompt: f.chapterOutlinesSystemPrompt || defaultPrompts.chapterOutlinesSystemPrompt,
                     writerSystemPrompt: f.writerSystemPrompt || defaultPrompts.writerSystemPrompt,
                     editorSystemPrompt: f.editorSystemPrompt || defaultPrompts.editorSystemPrompt,
                     continuityCheckerSystemPrompt: f.continuityCheckerSystemPrompt || defaultPrompts.continuityCheckerSystemPrompt,
@@ -335,17 +350,25 @@ export default function Settings() {
                   Load Defaults
                 </button>
               )}
-              {(['planner', 'writer', 'editor', 'continuityChecker'] as const).map(role => {
+              {([
+                ['storyBible', 'Story Bible Agent'],
+                ['characters', 'Characters Agent'],
+                ['plotThreads', 'Plot Threads Agent'],
+                ['chapterOutlines', 'Chapter Outlines Agent'],
+                ['writer', 'Writer Agent'],
+                ['editor', 'Editor Agent'],
+                ['continuityChecker', 'Continuity Checker Agent'],
+              ] as const).map(([role, label]) => {
                 const key = `${role}SystemPrompt` as keyof typeof bookForm
                 const defaultText = defaultPrompts?.[key as keyof DefaultPrompts]
                 return (
                   <label key={role}>
-                    {role.charAt(0).toUpperCase() + role.slice(1)} prompt
+                    {label} prompt
                     <textarea
                       rows={6}
                       value={bookForm[key]}
                       onChange={e => setBookForm(f => ({ ...f, [key]: e.target.value }))}
-                      placeholder={defaultText ?? `Custom system prompt for ${role} agent…`}
+                      placeholder={defaultText ?? `Custom system prompt for ${label}…`}
                     />
                   </label>
                 )

@@ -11,8 +11,8 @@ public class SignalRBookNotifier : IBookNotifier
 
     public SignalRBookNotifier(IHubContext<BookHub> hub) => _hub = hub;
 
-    public Task StreamTokenAsync(int bookId, int? chapterId, string token, CancellationToken ct = default) =>
-        _hub.Clients.Group(bookId.ToString()).SendAsync("AgentStreaming", bookId, chapterId, token, ct);
+    public Task StreamTokenAsync(int bookId, int? chapterId, AgentRole agentRole, string token, CancellationToken ct = default) =>
+        _hub.Clients.Group(bookId.ToString()).SendAsync("AgentStreaming", bookId, chapterId, agentRole.ToString(), token, ct);
 
     public Task NotifyQuestionAsync(int bookId, AgentMessage message, CancellationToken ct = default) =>
         _hub.Clients.Group(bookId.ToString()).SendAsync("AgentQuestion", bookId, message, ct);

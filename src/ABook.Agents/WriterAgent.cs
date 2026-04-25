@@ -40,20 +40,13 @@ public class WriterAgent : AgentBase
         var prevEnding = await GetPreviousChapterEndingAsync(bookId, chapter.Number, paragraphCount: 3);
 
         var history = new ChatHistory();
-        var systemPrompt = !string.IsNullOrWhiteSpace(book.WriterSystemPrompt)
-            ? InterpolateSystemPrompt(book.WriterSystemPrompt, book)
-            : $"""
-            You are a creative fiction Writer. Write compelling, immersive prose in markdown.
-            Book title: {book.Title}
-            Genre: {book.Genre}
-            Premise: {book.Premise}
-            Total chapters: {book.TargetChapterCount}
-            Current chapter: {chapter.Number} of {book.TargetChapterCount} � "{chapter.Title}"
-            Write all content in {book.Language}.
-            IMPORTANT: Do NOT begin your response with any chapter heading, title, or label.
-            Start immediately with narrative prose (a scene, action, dialogue, or description).
-            The character profiles and plot thread notes below are canonical � do not contradict them.
-            Honour all foreshadowing and payoff directives exactly as specified.
+        var bible = await Repo.GetStoryBibleAsync(bookId);
+        var basePrompt = !string.IsNullOrWhiteSpace(book.WriterSystemPrompt)
+            ? InterpolateSystemPrompt(book.WriterSystemPrompt, book, bible)
+            : InterpolateSystemPrompt(DefaultPrompts.Writer, book, bible);
+        var systemPrompt = $"""
+            {basePrompt}
+            Current chapter: {chapter.Number} of {book.TargetChapterCount} — "{chapter.Title}"
             {contextBlock}
             {(prevEnding.Length > 0 ? $"\nThe previous chapter ended with:\n{prevEnding}\nContinue the story naturally from this point." : "")}
             """;

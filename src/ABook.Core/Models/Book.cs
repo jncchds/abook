@@ -9,7 +9,10 @@ public class Book
     public int TargetChapterCount { get; set; }
     public BookStatus Status { get; set; } = BookStatus.Draft;
     public string Language { get; set; } = "English";
-    public string? PlannerSystemPrompt { get; set; }
+    public string? StoryBibleSystemPrompt { get; set; }
+    public string? CharactersSystemPrompt { get; set; }
+    public string? PlotThreadsSystemPrompt { get; set; }
+    public string? ChapterOutlinesSystemPrompt { get; set; }
     public string? WriterSystemPrompt { get; set; }
     public string? EditorSystemPrompt { get; set; }
     public string? ContinuityCheckerSystemPrompt { get; set; }

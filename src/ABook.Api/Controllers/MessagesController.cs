@@ -16,6 +16,13 @@ public class MessagesController : ControllerBase
     public async Task<IActionResult> GetAll(int bookId, [FromQuery] int? chapterId) =>
         Ok(await _repo.GetMessagesAsync(bookId, chapterId));
 
+    [HttpDelete]
+    public async Task<IActionResult> DeleteAll(int bookId)
+    {
+        await _repo.DeleteMessagesAsync(bookId);
+        return NoContent();
+    }
+
     [HttpPost("answer")]
     public async Task<IActionResult> PostAnswer(int bookId,
         [FromBody] PostAnswerRequest req,

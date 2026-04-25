@@ -159,6 +159,20 @@ public class BookRepository : IBookRepository
             .OrderBy(r => r.CreatedAt)
             .ToListAsync();
 
+    public async Task DeleteTokenUsageAsync(int bookId)
+    {
+        var records = await _db.TokenUsageRecords.Where(r => r.BookId == bookId).ToListAsync();
+        _db.TokenUsageRecords.RemoveRange(records);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task DeleteMessagesAsync(int bookId)
+    {
+        var messages = await _db.AgentMessages.Where(m => m.BookId == bookId).ToListAsync();
+        _db.AgentMessages.RemoveRange(messages);
+        await _db.SaveChangesAsync();
+    }
+
     // ── Story Bible ───────────────────────────────────────────────────────────
 
     public async Task<StoryBible?> GetStoryBibleAsync(int bookId) =>

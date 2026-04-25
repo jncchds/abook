@@ -180,39 +180,22 @@ public class ContinuityCheckerAgent : AgentBase
 
         var history = new ChatHistory();
 
+        var bible = await Repo.GetStoryBibleAsync(bookId);
+
         string systemPrompt;
         if (!string.IsNullOrWhiteSpace(book.ContinuityCheckerSystemPrompt))
         {
-            systemPrompt = InterpolateSystemPrompt(book.ContinuityCheckerSystemPrompt, book);
+            systemPrompt = InterpolateSystemPrompt(book.ContinuityCheckerSystemPrompt, book, bible);
         }
         else if (currentChapter != null)
         {
-            systemPrompt = $"""
-                You are a Continuity Checker for fiction manuscripts. Your job is to verify that
-                the chapter under review does not contradict or conflict with what was established
-                in the preceding chapters or the canonical planning documents (character profiles,
-                plot threads, story bible).
-                IMPORTANT: Do NOT report issues that exist solely between previous chapters.
-                Focus only on contradictions introduced by Chapter {currentChapter.Number} ("{currentChapter.Title}").
-                Examine character details (names, appearance, backstory), timeline, and settings.
-                Write a concise report. For each issue, state which detail in Chapter
-                {currentChapter.Number} conflicts with what was established and suggest a fix.
-                If no new issues are found, confirm Chapter {currentChapter.Number} is consistent.
-                Book: {book.Title} | Genre: {book.Genre} | Language: {book.Language}
-                """;
+            systemPrompt = InterpolateSystemPrompt(DefaultPrompts.ContinuityCheckerPerChapter, book, bible) +
+                $"\nIMPORTANT: Do NOT report issues that exist solely between previous chapters. " +
+                $"Focus only on contradictions introduced by Chapter {currentChapter.Number} (\"{currentChapter.Title}\").";
         }
         else
         {
-            systemPrompt = $"""
-                You are a Continuity Checker for fiction manuscripts. Identify plot holes,
-                character inconsistencies, timeline errors, and factual contradictions across chapters.
-                Use the canonical planning documents (character profiles, plot threads, story bible)
-                as the authoritative source of facts. Reference them by name when reporting issues.
-                Write a concise report. For each issue, state the problem, which chapters are affected,
-                and a suggested fix. Group related issues together.
-                If no issues are found, write a brief summary confirming the manuscript is consistent.
-                Book: {book.Title} | Genre: {book.Genre} | Language: {book.Language}
-                """;
+            systemPrompt = InterpolateSystemPrompt(DefaultPrompts.ContinuityCheckerFull, book, bible);
         }
         history.AddSystemMessage(systemPrompt);
 

@@ -6,7 +6,7 @@ import {
   getBook, getMessages, postAnswer, getAgentStatus,
   startPlanning, continuePlanning, completePlanningPhase, reopenPlanningPhase, clearPlanningPhase,
   startWorkflow, continueWorkflow, stopWorkflow, clearChapterContent,
-  createChapter, updateChapter, updateBook, getTokenUsage,
+  createChapter, updateChapter, updateBook, getTokenUsage, clearMessages, clearTokenUsage,
   getStoryBible, updateStoryBible,
   getCharacters, createCharacter, updateCharacter, deleteCharacter,
   getPlotThreads, createPlotThread, updatePlotThread, deletePlotThread,
@@ -21,7 +21,61 @@ function parsePlanningStream(raw: string): { number: number; title: string; outl
   const re = /\{\s*"number"\s*:\s*(\d+)\s*,\s*"title"\s*:\s*"([^"\\]*)"\s*,\s*"outline"\s*:\s*"([^"\\]*)"\s*\}/g
   let m: RegExpExecArray | null
   while ((m = re.exec(raw)) !== null) {
-    results.push({ number: +m[1], title: m[2], outline: m[3] })
+    try { results.push({ number: +m[1], title: m[2], outline: m[3] }) } catch { /* skip malformed */ }
+  }
+  return results
+}
+
+// Progressively extract Story Bible fields from partial JSON
+function parseStoryBibleStream(raw: string): Partial<StoryBible> {
+  const result: Partial<StoryBible> = {}
+  const fields = ['settingDescription', 'timePeriod', 'themes', 'toneAndStyle', 'worldRules', 'notes'] as const
+  for (const field of fields) {
+    try {
+      const re = new RegExp(`"${field}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`, 's')
+      const m = re.exec(raw)
+      if (m) (result as Record<string, string>)[field] = m[1].replace(/\\n/g, '\n').replace(/\\"/g, '"')
+    } catch { /* skip */ }
+  }
+  return result
+}
+
+// Progressively extract character cards from partial JSON stream
+function parseCharactersStream(raw: string): Partial<CharacterCard>[] {
+  const results: Partial<CharacterCard>[] = []
+  let depth = 0, start = -1
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] === '{') { if (depth === 0) start = i; depth++ }
+    else if (raw[i] === '}') {
+      depth--
+      if (depth === 0 && start >= 0) {
+        try {
+          const obj = JSON.parse(raw.slice(start, i + 1))
+          if (obj.name) results.push(obj)
+        } catch { /* skip malformed */ }
+        start = -1
+      }
+    }
+  }
+  return results
+}
+
+// Progressively extract plot threads from partial JSON stream
+function parsePlotThreadsStream(raw: string): Partial<PlotThread>[] {
+  const results: Partial<PlotThread>[] = []
+  let depth = 0, start = -1
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] === '{') { if (depth === 0) start = i; depth++ }
+    else if (raw[i] === '}') {
+      depth--
+      if (depth === 0 && start >= 0) {
+        try {
+          const obj = JSON.parse(raw.slice(start, i + 1))
+          if (obj.name) results.push(obj)
+        } catch { /* skip malformed */ }
+        start = -1
+      }
+    }
   }
   return results
 }
@@ -36,6 +90,9 @@ export default function BookDetail() {
   const [plannerBuffer, setPlannerBuffer] = useState('')
   const [streamBuffer, setStreamBuffer] = useState('')
   const [streamingChapterId, setStreamingChapterId] = useState<number | null>(null)
+  const [storyBibleStream, setStoryBibleStream] = useState('')
+  const [charactersStream, setCharactersStream] = useState('')
+  const [plotThreadsStream, setPlotThreadsStream] = useState('')
   const [answerText, setAnswerText] = useState('')
   const [pendingQuestion, setPendingQuestion] = useState<AgentMessage | null>(null)
   const [runStatus, setRunStatus] = useState<AgentRunStatus | null>(null)
@@ -127,8 +184,14 @@ export default function BookDetail() {
   }, [refreshBook, bookId])
 
   useEffect(() => {
-    setOnStream((_bId, cId, token) => {
-      if (cId === null) {
+    setOnStream((_bId, cId, agentRole, token) => {
+      if (agentRole === 'StoryBibleAgent') {
+        setStoryBibleStream(prev => prev + token)
+      } else if (agentRole === 'CharactersAgent') {
+        setCharactersStream(prev => prev + token)
+      } else if (agentRole === 'PlotThreadsAgent') {
+        setPlotThreadsStream(prev => prev + token)
+      } else if (cId === null) {
         // Planner stream — buffer for planning preview
         setPlannerBuffer(prev => prev + token)
       } else {
@@ -149,6 +212,9 @@ export default function BookDetail() {
         setPlannerBuffer('')
         setStreamBuffer('')
         setStreamingChapterId(null)
+        setStoryBibleStream('')
+        setCharactersStream('')
+        setPlotThreadsStream('')
         refreshBook()
         refreshMessages()
       }
@@ -174,6 +240,9 @@ export default function BookDetail() {
         setPlannerBuffer('')
         setStreamBuffer('')
         setStreamingChapterId(null)
+        setStoryBibleStream('')
+        setCharactersStream('')
+        setPlotThreadsStream('')
         refreshBook()
         refreshMessages()
       }
@@ -181,14 +250,17 @@ export default function BookDetail() {
       // Refresh the relevant data and auto-switch to its tab (only when no chapter is open).
       if (step.includes('Phase 2/4')) {
         // Phase 1 (Story Bible) just finished
+        setStoryBibleStream('')
         getStoryBible(bookId).then(r => setStoryBible(r.data)).catch(() => {})
         setActiveChapter(prev => { if (!prev) setActiveTab('storybible'); return prev })
       } else if (step.includes('Phase 3/4')) {
         // Phase 2 (Characters) just finished
+        setCharactersStream('')
         getCharacters(bookId).then(r => setCharacters(r.data)).catch(() => {})
         setActiveChapter(prev => { if (!prev) setActiveTab('characters'); return prev })
       } else if (step.includes('Phase 4/4')) {
         // Phase 3 (Plot Threads) just finished
+        setPlotThreadsStream('')
         getPlotThreads(bookId).then(r => setPlotThreads(r.data)).catch(() => {})
         setActiveChapter(prev => { if (!prev) setActiveTab('plotthreads'); return prev })
       }
@@ -709,7 +781,21 @@ export default function BookDetail() {
                   {storyBible?.toneAndStyle && <p><strong>Tone & Style:</strong> {storyBible.toneAndStyle}</p>}
                   {storyBible?.worldRules && <><strong>World Rules:</strong><pre className="bible-pre">{storyBible.worldRules}</pre></>}
                   {storyBible?.notes && <><strong>Notes:</strong><pre className="bible-pre">{storyBible.notes}</pre></>}
-                  {!storyBible?.settingDescription && !storyBible?.timePeriod && !storyBible?.themes && (
+                  {storyBibleStream && (() => {
+                    const preview = parseStoryBibleStream(storyBibleStream)
+                    return Object.keys(preview).length > 0 ? (
+                      <div className="stream-preview">
+                        <div className="stream-preview-label">⏳ Generating Story Bible…</div>
+                        {preview.settingDescription && <p><strong>Setting:</strong> {preview.settingDescription}</p>}
+                        {preview.timePeriod && <p><strong>Time Period:</strong> {preview.timePeriod}</p>}
+                        {preview.themes && <p><strong>Themes:</strong> {preview.themes}</p>}
+                        {preview.toneAndStyle && <p><strong>Tone & Style:</strong> {preview.toneAndStyle}</p>}
+                        {preview.worldRules && <><strong>World Rules:</strong><pre className="bible-pre">{preview.worldRules}</pre></>}
+                        {preview.notes && <><strong>Notes:</strong><pre className="bible-pre">{preview.notes}</pre></>}
+                      </div>
+                    ) : <div className="stream-preview"><div className="stream-preview-label">⏳ Generating Story Bible…</div></div>
+                  })()}
+                  {!storyBible?.settingDescription && !storyBible?.timePeriod && !storyBible?.themes && !storyBibleStream && (
                     <p className="empty">No Story Bible yet. Run the Planner or edit manually.</p>
                   )}
                 </div>
@@ -763,7 +849,24 @@ export default function BookDetail() {
                     </div>
                   </div>
                 )}
-                {characters.length === 0 && !addingChar && <p className="empty">No characters yet. Run the Planner or add manually.</p>}
+                {charactersStream && (() => {
+                  const preview = parseCharactersStream(charactersStream)
+                  return (
+                    <div className="stream-preview">
+                      <div className="stream-preview-label">⏳ Generating Characters… ({preview.length} so far)</div>
+                      {preview.map((c, i) => (
+                        <div key={i} className="char-card">
+                          <div className="char-card-header">
+                            <strong>{c.name}</strong>
+                            {c.role && <span className={`char-role-badge role-${(c.role as string).toLowerCase()}`}>{c.role as string}</span>}
+                          </div>
+                          {c.goalMotivation && <p className="char-field"><em>Goal:</em> {c.goalMotivation}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
+                {characters.length === 0 && !addingChar && !charactersStream && <p className="empty">No characters yet. Run the Planner or add manually.</p>}
                 {characters.map(ch => (
                   <div key={ch.id} className="char-card">
                     {editingCharId === ch.id ? (
@@ -864,7 +967,24 @@ export default function BookDetail() {
                     </div>
                   </div>
                 )}
-                {plotThreads.length === 0 && !addingThread && <p className="empty">No plot threads yet. Run the Planner or add manually.</p>}
+                {plotThreadsStream && (() => {
+                  const preview = parsePlotThreadsStream(plotThreadsStream)
+                  return (
+                    <div className="stream-preview">
+                      <div className="stream-preview-label">⏳ Generating Plot Threads… ({preview.length} so far)</div>
+                      {preview.map((t, i) => (
+                        <div key={i} className={`thread-card status-${(t.status as string | undefined)?.toLowerCase() ?? 'active'}`}>
+                          <div className="thread-card-header">
+                            <strong>{t.name}</strong>
+                            {t.type && <span className="thread-type-badge">{t.type as string}</span>}
+                          </div>
+                          {t.description && <p className="thread-desc">{t.description}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
+                {plotThreads.length === 0 && !addingThread && !plotThreadsStream && <p className="empty">No plot threads yet. Run the Planner or add manually.</p>}
                 {plotThreads.map(t => (
                   <div key={t.id} className={`thread-card status-${t.status?.toLowerCase()}`}>
                     {editingThreadId === t.id ? (
@@ -925,7 +1045,16 @@ export default function BookDetail() {
 
       {/* Chat panel */}
       <aside className={`chat-panel${mobilePanel === 'chat' ? ' mobile-panel-active' : ''}`}>
-        <h3>Agent Messages</h3>
+        <div className="chat-panel-header">
+          <h3>Agent Messages</h3>
+          {messages.length > 0 && !isRunning && (
+            <button className="btn-sm btn-ghost" title="Clear all messages" onClick={async () => {
+              if (!confirm('Clear all agent messages for this book?')) return
+              await clearMessages(bookId)
+              setMessages([])
+            }}>🗑 Clear</button>
+          )}
+        </div>
         <div className="chat-messages">
           {messages.map(m => (
             <div key={m.id} className={`chat-msg msg-${m.messageType.toLowerCase()}`}>
@@ -955,7 +1084,17 @@ export default function BookDetail() {
         )}
         {tokenStats.length > 0 && (
           <details className="token-stats-panel">
-            <summary>Token stats ({tokenStats.length} calls)</summary>
+            <summary>
+              Token stats ({tokenStats.length} calls)
+              {!isRunning && (
+                <button className="btn-sm btn-ghost" style={{ marginLeft: '0.5rem' }} title="Clear token stats" onClick={async e => {
+                  e.preventDefault()
+                  if (!confirm('Clear all token usage stats for this book?')) return
+                  await clearTokenUsage(bookId)
+                  setTokenStats([])
+                }}>🗑 Clear</button>
+              )}
+            </summary>
             <div className="token-stats-list">
               <table>
                 <thead>

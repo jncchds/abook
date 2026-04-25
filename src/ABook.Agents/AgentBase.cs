@@ -124,7 +124,7 @@ public abstract class AgentBase
                 if (chunk.Content is { Length: > 0 } token)
                 {
                     sb.Append(token);
-                    await Notifier.StreamTokenAsync(bookId, chapterId, token, ct);
+                    await Notifier.StreamTokenAsync(bookId, chapterId, role, token, ct);
                 }
             }
         }
@@ -311,16 +311,33 @@ public abstract class AgentBase
     }
 
     /// <summary>
-    /// Interpolate well-known placeholders in a user-supplied system prompt with book metadata.
-    /// Supported tokens: {TITLE}, {GENRE}, {PREMISE}, {LANGUAGE}, {CHAPTER_COUNT}, {AUTHOR_NOTES}.
+    /// Substitutes <see cref="PromptPlaceholders"/> tokens in a user-supplied system prompt
+    /// with live data from <paramref name="book"/> and, when provided, <paramref name="bible"/>.
+    /// <para>
+    /// Book-level tokens: {TITLE}, {GENRE}, {PREMISE}, {CHAPTER_COUNT}, {LANGUAGE}.
+    /// Story-Bible tokens (require <paramref name="bible"/>): {SETTING}, {THEMES}, {TONE}, {WORLD_RULES}.
+    /// </para>
     /// </summary>
-    protected static string InterpolateSystemPrompt(string prompt, Book book) =>
-        prompt
-            .Replace("{TITLE}", book.Title ?? "")
-            .Replace("{GENRE}", book.Genre ?? "")
-            .Replace("{PREMISE}", book.Premise ?? "")
-            .Replace("{LANGUAGE}", book.Language ?? "English")
-            .Replace("{CHAPTER_COUNT}", book.TargetChapterCount.ToString());
+    protected static string InterpolateSystemPrompt(string prompt, Book book, ABook.Core.Models.StoryBible? bible = null)
+    {
+        var result = prompt
+            .Replace(PromptPlaceholders.Title, book.Title ?? "")
+            .Replace(PromptPlaceholders.Genre, book.Genre ?? "")
+            .Replace(PromptPlaceholders.Premise, book.Premise ?? "")
+            .Replace(PromptPlaceholders.Language, book.Language ?? "English")
+            .Replace(PromptPlaceholders.ChapterCount, book.TargetChapterCount.ToString());
+
+        if (bible is not null)
+        {
+            result = result
+                .Replace(PromptPlaceholders.Setting, bible.SettingDescription ?? "")
+                .Replace(PromptPlaceholders.Themes, bible.Themes ?? "")
+                .Replace(PromptPlaceholders.Tone, bible.ToneAndStyle ?? "")
+                .Replace(PromptPlaceholders.WorldRules, bible.WorldRules ?? "");
+        }
+
+        return result;
+    }
 
     /// <summary>
     /// Returns the last few paragraphs of the previous chapter to give the Writer
@@ -348,5 +365,20 @@ public abstract class AgentBase
             return $"[End of Chapter {prev.Number}: {prev.Title}]\n\n" + string.Join("\n\n", tail);
         }
         catch { return string.Empty; }
+    }
+
+    /// <summary>
+    /// Extract the outermost JSON object or array from a raw LLM response,
+    /// stripping any markdown code fences and surrounding prose.
+    /// </summary>
+    protected static string ExtractJson(string raw, char open, char close)
+    {
+        raw = raw.Trim();
+        if (raw.StartsWith("```"))
+            raw = string.Join('\n', raw.Split('\n').Skip(1).TakeWhile(l => !l.StartsWith("```")));
+        var start = raw.IndexOf(open);
+        var end = raw.LastIndexOf(close);
+        if (start >= 0 && end > start) return raw[start..(end + 1)];
+        return raw;
     }
 }
