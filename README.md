@@ -9,7 +9,7 @@ ABook is a self-hosted web application that uses AI agents to collaboratively wr
 - **Real-time streaming** — watch chapters being written token by token via SignalR; Story Bible, Characters, and Plot Threads stream to their respective tabs with live progressive JSON previews
 - **Token usage statistics** — per-agent prompt and completion token counts displayed in a scrollable collapsible panel and persisted to the database; Clear button to reset
 - **RAG context retrieval** — agents query relevant prior chapters via Qdrant vector embeddings to stay consistent across long books
-- **Pluggable LLM backend** — Ollama (default, local), LM Studio, OpenAI, Azure OpenAI, or Anthropic; configurable globally, per-user, or per-book
+- **Pluggable LLM backend** — Ollama (default, local), LM Studio, OpenAI, or Anthropic (via OpenAI-compatible proxy); configurable globally, per-user, or per-book
 - **Per-book customization** — language, genre, and per-phase system prompt overrides (Story Bible, Characters, Plot Threads, Chapter Outlines, Writer, Editor, Continuity Checker) with supported template tokens
 - **Inline editing** — edit book metadata, chapter titles/outlines, and add chapters manually without leaving the detail page
 - **Multi-user** — cookie-based authentication with admin role for user management
@@ -130,7 +130,7 @@ volumes:
 | `Qdrant__Host` | `localhost` | Qdrant host |
 | `Qdrant__Port` | `6334` | Qdrant gRPC port |
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` disables Swagger |
-| `LlmDefaults__Provider` | `Ollama` | Default LLM provider (`Ollama`, `LMStudio`, `OpenAI`, `AzureOpenAI`, `Anthropic`) |
+| `LlmDefaults__Provider` | `Ollama` | Default LLM provider (`Ollama`, `LMStudio`, `OpenAI`, `Anthropic`) |
 | `LlmDefaults__ModelName` | `llama3` | Default model name |
 | `LlmDefaults__Endpoint` | `http://host.docker.internal:11434` | Default LLM endpoint |
 | `LlmDefaults__ApiKey` | — | API key for the default LLM provider (optional for Ollama/LMStudio) |
@@ -146,9 +146,8 @@ Configure the LLM backend in the app's **Settings** page or via the API:
 |---|---|
 | **Ollama** | Default. Runs locally; `host.docker.internal` resolves to the host from inside Docker. |
 | **LM Studio** | OpenAI-compatible local server. Default endpoint `http://host.docker.internal:1234`. API key defaults to `lm-studio`. |
-| **OpenAI** | Provide API key and model name (e.g. `gpt-4o`). |
-| **Azure OpenAI** | Provide endpoint, deployment name, and API key. |
-| **Anthropic** | Provide API key and model name (e.g. `claude-3-5-sonnet`). |
+| **OpenAI** | Provide API key and model name (e.g. `gpt-4o`). Leave endpoint blank for the real OpenAI API; set a custom endpoint to use any OpenAI-compatible API (Groq, Together, etc.). |
+| **Anthropic** | Requires an OpenAI-compatible proxy such as [LiteLLM](https://github.com/BerriAI/litellm). Set Endpoint to the proxy URL (e.g. `http://localhost:4000`) and provide your Anthropic API key and model name (e.g. `claude-3-5-sonnet`). |
 
 Configurations can be set globally, per-user, or per-book. The lookup order is: book-specific → user-default → global.
 
@@ -238,7 +237,7 @@ The multi-stage Dockerfile builds the React app (Node 20), compiles the .NET API
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 18, TypeScript, Vite, Zustand, react-markdown |
+| Frontend | React 19, TypeScript, Vite, Zustand, react-markdown |
 | Backend | ASP.NET Core 10, C#, Semantic Kernel |
 | Database | PostgreSQL 16 via EF Core 10 + Npgsql |
 | Vector DB | Qdrant |
