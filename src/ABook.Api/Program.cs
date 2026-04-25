@@ -76,6 +76,7 @@ builder.Services.AddScoped<ABook.Agents.WriterAgent>();
 builder.Services.AddScoped<ABook.Agents.EditorAgent>();
 builder.Services.AddScoped<ABook.Agents.ContinuityCheckerAgent>();
 builder.Services.AddScoped<IAgentOrchestrator, ABook.Agents.AgentOrchestrator>();
+builder.Services.AddHostedService<ABook.Api.HostedServices.RunRecoveryService>();
 
 // ── API ───────────────────────────────────────────────────────────────────────
 builder.Services.AddControllers()

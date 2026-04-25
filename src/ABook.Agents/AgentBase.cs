@@ -193,6 +193,7 @@ public abstract class AgentBase
     /// <summary>
     /// Ask the user a question, pause execution, and return their answer.
     /// Sets run state to WaitingForInput until the answer is submitted via the API.
+    /// The pause is persisted to the DB so the run survives an app restart.
     /// </summary>
     protected async Task<string> AskUserAndWaitAsync(
         int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct)
@@ -206,9 +207,13 @@ public abstract class AgentBase
         StateService.SetStatus(bookId, new AgentRunStatus(role, "WaitingForInput", chapterId));
         await Notifier.NotifyStatusChangedAsync(bookId, role, "WaitingForInput", ct);
 
+        // Persist pause so the question survives a process restart
+        await StateService.PersistRunPausedAsync(bookId, msg.Id);
+
         var answer = await tcs.Task; // throws OperationCanceledException if stopped
 
         StateService.SetStatus(bookId, new AgentRunStatus(role, "Running", chapterId));
+        await StateService.PersistRunResumedAsync(bookId);
         await Notifier.NotifyStatusChangedAsync(bookId, role, "Running", ct);
 
         return answer;

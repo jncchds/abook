@@ -17,6 +17,7 @@ public class AppDbContext : DbContext
     public DbSet<StoryBible> StoryBibles => Set<StoryBible>();
     public DbSet<CharacterCard> CharacterCards => Set<CharacterCard>();
     public DbSet<PlotThread> PlotThreads => Set<PlotThread>();
+    public DbSet<AgentRun> AgentRuns => Set<AgentRun>();
     public DbSet<ChapterEmbedding> ChapterEmbeddings => Set<ChapterEmbedding>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -161,6 +162,24 @@ public class AppDbContext : DbContext
             e.Property(x => x.Embedding).HasColumnType("vector");
             e.HasIndex(x => new { x.BookId, x.ChapterId, x.ChunkIndex }).IsUnique();
             e.HasIndex(x => x.BookId);
+        });
+
+        modelBuilder.Entity<AgentRun>(r =>
+        {
+            r.HasKey(x => x.Id);
+            r.Property(x => x.RunType).IsRequired().HasMaxLength(50);
+            r.Property(x => x.Status).HasConversion<string>();
+            r.Property(x => x.CurrentRole).HasConversion<string>();
+            r.HasOne(x => x.Book)
+             .WithMany()
+             .HasForeignKey(x => x.BookId)
+             .OnDelete(DeleteBehavior.Cascade);
+            r.HasOne(x => x.PendingMessage)
+             .WithMany()
+             .HasForeignKey(x => x.PendingMessageId)
+             .OnDelete(DeleteBehavior.SetNull)
+             .IsRequired(false);
+            r.HasIndex(x => new { x.BookId, x.Status });
         });
     }
 }

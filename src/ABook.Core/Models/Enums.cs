@@ -17,3 +17,13 @@ public enum CharacterRole { Protagonist, Antagonist, Supporting, Minor }
 public enum PlotThreadType { MainPlot, Subplot, CharacterArc, Mystery, Foreshadowing, WorldBuilding, ThematicThread }
 
 public enum PlotThreadStatus { Active, Resolved, Dormant }
+
+public enum AgentRunPersistStatus
+{
+    Running,
+    WaitingForInput,
+    Completed,
+    Failed,
+    Cancelled,
+    Orphaned
+}

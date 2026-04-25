@@ -288,4 +288,36 @@ public class BookRepository : IBookRepository
         _db.PlotThreads.RemoveRange(threads);
         await _db.SaveChangesAsync();
     }
+
+    // ── Agent Runs ────────────────────────────────────────────────────────────
+
+    public async Task<AgentRun> CreateRunAsync(AgentRun run)
+    {
+        run.CreatedAt = DateTime.UtcNow;
+        run.UpdatedAt = DateTime.UtcNow;
+        _db.AgentRuns.Add(run);
+        await _db.SaveChangesAsync();
+        return run;
+    }
+
+    public async Task<AgentRun?> GetRunByIdAsync(Guid runId) =>
+        await _db.AgentRuns.FindAsync(runId);
+
+    public async Task<AgentRun?> GetActiveRunForBookAsync(int bookId) =>
+        await _db.AgentRuns
+            .Where(r => r.BookId == bookId &&
+                (r.Status == AgentRunPersistStatus.Running ||
+                 r.Status == AgentRunPersistStatus.WaitingForInput))
+            .OrderByDescending(r => r.CreatedAt)
+            .FirstOrDefaultAsync();
+
+    public async Task UpdateRunAsync(AgentRun run)
+    {
+        run.UpdatedAt = DateTime.UtcNow;
+        _db.AgentRuns.Update(run);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<IEnumerable<AgentRun>> GetRunsByStatusAsync(AgentRunPersistStatus status) =>
+        await _db.AgentRuns.Where(r => r.Status == status).ToListAsync();
 }

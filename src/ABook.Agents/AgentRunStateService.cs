@@ -1,14 +1,22 @@
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 
 namespace ABook.Agents;
 
 /// <summary>
 /// Singleton service that tracks per-book agent run state across HTTP requests.
+/// Keeps fast in-memory state for active runs and persists key lifecycle events
+/// (start, pause, resume, finish) to the database so runs can be recovered after
+/// a process restart.
 /// </summary>
 public class AgentRunStateService
 {
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ILogger<AgentRunStateService> _logger;
+
     private readonly ConcurrentDictionary<int, AgentRunStatus> _status = new();
 
     // bookId -> (messageId, TaskCompletionSource for answer)
@@ -16,6 +24,15 @@ public class AgentRunStateService
 
     // Per-book cancellation tokens (for workflow stop)
     private readonly ConcurrentDictionary<int, CancellationTokenSource> _cts = new();
+
+    // bookId -> persisted AgentRun.Id
+    private readonly ConcurrentDictionary<int, Guid> _runIds = new();
+
+    public AgentRunStateService(IServiceScopeFactory scopeFactory, ILogger<AgentRunStateService> logger)
+    {
+        _scopeFactory = scopeFactory;
+        _logger = logger;
+    }
 
     public AgentRunStatus? GetStatus(int bookId) =>
         _status.TryGetValue(bookId, out var s) ? s : null;
@@ -30,6 +47,102 @@ public class AgentRunStateService
             return false;
         _status[bookId] = new AgentRunStatus(role, "Running", chapterId);
         return true;
+    }
+
+    /// <summary>
+    /// Persist a new AgentRun row and cache the run Id for subsequent updates.
+    /// Call immediately after TryStartRun succeeds.
+    /// </summary>
+    public async Task PersistRunStartAsync(int bookId, AgentRole role, int? chapterId, string runType)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var repo = scope.ServiceProvider.GetRequiredService<IBookRepository>();
+
+            // Mark any previous active run from prior process as orphaned
+            var stale = await repo.GetActiveRunForBookAsync(bookId);
+            if (stale is not null)
+            {
+                stale.Status = AgentRunPersistStatus.Orphaned;
+                await repo.UpdateRunAsync(stale);
+            }
+
+            var run = await repo.CreateRunAsync(new AgentRun
+            {
+                BookId = bookId,
+                RunType = runType,
+                Status = AgentRunPersistStatus.Running,
+                CurrentRole = role,
+                ChapterId = chapterId
+            });
+            _runIds[bookId] = run.Id;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Book {BookId}] Failed to persist run start — continuing without persistence.", bookId);
+        }
+    }
+
+    /// <summary>Persist the run in WaitingForInput state with the question message id.</summary>
+    public async Task PersistRunPausedAsync(int bookId, int messageId, string? workflowContext = null)
+    {
+        if (!_runIds.TryGetValue(bookId, out var runId)) return;
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var repo = scope.ServiceProvider.GetRequiredService<IBookRepository>();
+            var run = await repo.GetRunByIdAsync(runId);
+            if (run is null) return;
+            run.Status = AgentRunPersistStatus.WaitingForInput;
+            run.PendingMessageId = messageId;
+            if (workflowContext is not null) run.WorkflowContext = workflowContext;
+            await repo.UpdateRunAsync(run);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Book {BookId}] Failed to persist run pause.", bookId);
+        }
+    }
+
+    /// <summary>Persist the run back to Running after an answer is received.</summary>
+    public async Task PersistRunResumedAsync(int bookId)
+    {
+        if (!_runIds.TryGetValue(bookId, out var runId)) return;
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var repo = scope.ServiceProvider.GetRequiredService<IBookRepository>();
+            var run = await repo.GetRunByIdAsync(runId);
+            if (run is null) return;
+            run.Status = AgentRunPersistStatus.Running;
+            run.PendingMessageId = null;
+            await repo.UpdateRunAsync(run);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Book {BookId}] Failed to persist run resume.", bookId);
+        }
+    }
+
+    /// <summary>Persist terminal state (Completed / Failed / Cancelled) and clean up in-memory run id.</summary>
+    public async Task PersistRunFinishedAsync(int bookId, AgentRunPersistStatus finalStatus)
+    {
+        if (!_runIds.TryRemove(bookId, out var runId)) return;
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var repo = scope.ServiceProvider.GetRequiredService<IBookRepository>();
+            var run = await repo.GetRunByIdAsync(runId);
+            if (run is null) return;
+            run.Status = finalStatus;
+            run.PendingMessageId = null;
+            await repo.UpdateRunAsync(run);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Book {BookId}] Failed to persist run finish ({Status}).", bookId, finalStatus);
+        }
     }
 
     public void SetPending(int bookId, int messageId, TaskCompletionSource<string> tcs) =>
@@ -73,4 +186,22 @@ public class AgentRunStateService
     /// <summary>Updates the active role/chapter while keeping state = Running (used mid-workflow).</summary>
     public void UpdateRunRole(int bookId, AgentRole role, int? chapterId) =>
         _status[bookId] = new AgentRunStatus(role, "Running", chapterId);
+
+    /// <summary>
+    /// Reconstitute in-memory state from a persisted WaitingForInput run after process restart.
+    /// Called by RunRecoveryService. Creates a fresh TCS that will be resolved when the user answers.
+    /// </summary>
+    public void RehydrateWaitingRun(int bookId, Guid runId, AgentRole role, int? chapterId, int pendingMessageId)
+    {
+        _status[bookId] = new AgentRunStatus(role, "WaitingForInput", chapterId);
+        _runIds[bookId] = runId;
+
+        // Register a fresh TCS so ResumeWithAnswerAsync can unblock it when the answer arrives
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pending[bookId] = (pendingMessageId, tcs);
+    }
+
+    /// <summary>Returns the TCS task for a rehydrated waiting run, so the recovery service can await it.</summary>
+    public Task<string>? GetPendingTask(int bookId) =>
+        _pending.TryGetValue(bookId, out var p) ? p.Tcs.Task : null;
 }

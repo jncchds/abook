@@ -50,5 +50,12 @@ public interface IBookRepository
     Task UpdatePlotThreadAsync(PlotThread thread);
     Task DeletePlotThreadAsync(int bookId, int threadId);
     Task DeletePlotThreadsAsync(int bookId);
+
+    // Agent Runs (durable run state for restart resilience)
+    Task<AgentRun> CreateRunAsync(AgentRun run);
+    Task<AgentRun?> GetRunByIdAsync(Guid runId);
+    Task<AgentRun?> GetActiveRunForBookAsync(int bookId);
+    Task UpdateRunAsync(AgentRun run);
+    Task<IEnumerable<AgentRun>> GetRunsByStatusAsync(AgentRunPersistStatus status);
 }
 
