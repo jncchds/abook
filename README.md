@@ -8,7 +8,7 @@ ABook is a self-hosted web application that uses AI agents to collaboratively wr
 - **Human-in-the-loop** — agents pause and ask you plot/character questions before proceeding; Writer can emit `[ASK: question]` mid-generation to request input on pivotal decisions; pending questions are restored after page refresh
 - **Real-time streaming** — watch chapters being written token by token via SignalR; Story Bible, Characters, and Plot Threads stream to their respective tabs with live progressive JSON previews
 - **Token usage statistics** — per-agent prompt and completion token counts displayed in a scrollable collapsible panel and persisted to the database; Clear button to reset
-- **RAG context retrieval** — agents query relevant prior chapters via Qdrant vector embeddings to stay consistent across long books
+- **RAG context retrieval** — agents query relevant prior chapters via pgvector embeddings stored in PostgreSQL to stay consistent across long books
 - **Pluggable LLM backend** — Ollama (default, local), LM Studio, OpenAI, or Anthropic (via OpenAI-compatible proxy); configurable globally, per-user, or per-book
 - **Per-book customization** — language, genre, and per-phase system prompt overrides (Story Bible, Characters, Plot Threads, Chapter Outlines, Writer, Editor, Continuity Checker) with supported template tokens
 - **Inline editing** — edit book metadata, chapter titles/outlines, and add chapters manually without leaving the detail page
@@ -26,8 +26,8 @@ ABook is a self-hosted web application that uses AI agents to collaboratively wr
 [React SPA — served as static files from ASP.NET wwwroot]
         ↕ REST API + SignalR
 [ASP.NET Core 10 API]
-        ↕ Semantic Kernel          ↕ EF Core          ↕ Qdrant .NET client
-[LLM (Ollama/OpenAI/…)]    [PostgreSQL]           [Qdrant]
+        ↕ Semantic Kernel          ↕ EF Core + pgvector
+[LLM (Ollama/OpenAI/…)]    [PostgreSQL (vectors stored in-DB)]
 ```
 
 React is built at image-build time and served from `wwwroot/` — there is no separate frontend container.
@@ -58,13 +58,11 @@ On first launch the app shows a **Create Admin Account** setup screen — the fi
 docker run -d \
   -p 5000:8080 \
   -e ConnectionStrings__DefaultConnection="Host=<postgres-host>;Port=5432;Database=abook;Username=abook;Password=abook" \
-  -e Qdrant__Host=<qdrant-host> \
-  -e Qdrant__Port=6334 \
   --add-host host.docker.internal:host-gateway \
   jncchds/abook:latest
 ```
 
-> PostgreSQL and Qdrant must be reachable.  The compose file below starts them automatically.
+> PostgreSQL (with the pgvector extension) must be reachable. The compose file below starts it automatically.
 
 <details>
 <summary>Full docker-compose.yml</summary>
@@ -77,20 +75,16 @@ services:
       - "5000:8080"
     environment:
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=abook;Username=abook;Password=abook
-      - Qdrant__Host=qdrant
-      - Qdrant__Port=6334
       - ASPNETCORE_ENVIRONMENT=Production
     depends_on:
       postgres:
         condition: service_healthy
-      qdrant:
-        condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_DB: abook
       POSTGRES_USER: abook
@@ -104,18 +98,8 @@ services:
       retries: 10
     restart: unless-stopped
 
-  qdrant:
-    image: qdrant/qdrant:latest
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    volumes:
-      - qdrant_data:/qdrant/storage
-    restart: unless-stopped
-
 volumes:
   postgres_data:
-  qdrant_data:
 ```
 
 </details>
@@ -127,8 +111,6 @@ volumes:
 | Variable | Default | Description |
 |---|---|---|
 | `ConnectionStrings__DefaultConnection` | — | PostgreSQL connection string |
-| `Qdrant__Host` | `localhost` | Qdrant host |
-| `Qdrant__Port` | `6334` | Qdrant gRPC port |
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` disables Swagger |
 | `LlmDefaults__Provider` | `Ollama` | Default LLM provider (`Ollama`, `LMStudio`, `OpenAI`, `Anthropic`) |
 | `LlmDefaults__ModelName` | `llama3` | Default model name |
@@ -203,13 +185,13 @@ Agents stream tokens via SignalR as they write. Workflow controls:
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - [Node.js 20+](https://nodejs.org/)
-- Docker (for PostgreSQL + Qdrant)
+- Docker (for PostgreSQL with pgvector)
 
 ### Local Setup
 
 ```bash
 # Start supporting services
-docker-compose up postgres qdrant -d
+docker-compose up postgres -d
 
 # Start the UI dev server (proxies API to localhost:5178)
 cd src/abook-ui
@@ -240,7 +222,7 @@ The multi-stage Dockerfile builds the React app (Node 20), compiles the .NET API
 | Frontend | React 19, TypeScript, Vite, Zustand, react-markdown |
 | Backend | ASP.NET Core 10, C#, Semantic Kernel |
 | Database | PostgreSQL 16 via EF Core 10 + Npgsql |
-| Vector DB | Qdrant |
+| Vector store | pgvector (stored in PostgreSQL, `Pgvector.EntityFrameworkCore` 0.x) |
 | Real-time | SignalR |
 | Auth | Cookie-based, `IPasswordHasher<T>` |
 | Container | Docker, Docker Compose |

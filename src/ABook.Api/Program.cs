@@ -10,7 +10,7 @@ using ABook.Infrastructure.VectorStore;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Qdrant.Client;
+using Pgvector.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,13 +22,10 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
     ?? "Host=localhost;Port=5432;Database=abook;Username=abook;Password=abook";
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(connectionString));
+    options.UseNpgsql(connectionString, o => o.UseVector()));
 
-// ── Qdrant ────────────────────────────────────────────────────────────────────
-var qdrantHost = builder.Configuration["Qdrant:Host"] ?? "localhost";
-var qdrantPort = int.Parse(builder.Configuration["Qdrant:Port"] ?? "6334");
-builder.Services.AddSingleton(new QdrantClient(qdrantHost, qdrantPort));
-builder.Services.AddSingleton<IVectorStoreService, QdrantVectorStoreService>();
+// ── Vector store (pgvector via PostgreSQL) ────────────────────────────────────
+builder.Services.AddScoped<IVectorStoreService, PgvectorVectorStoreService>();
 
 // ── Core services ─────────────────────────────────────────────────────────────
 builder.Services.AddScoped<IBookRepository, BookRepository>();

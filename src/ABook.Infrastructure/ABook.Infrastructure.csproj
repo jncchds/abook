@@ -13,7 +13,7 @@
     <PackageReference Include="Microsoft.SemanticKernel" Version="1.*" />
     <PackageReference Include="Microsoft.SemanticKernel.Connectors.Ollama" Version="1.74.0-alpha" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.*" />
-    <PackageReference Include="Qdrant.Client" Version="1.*" />
+    <PackageReference Include="Pgvector.EntityFrameworkCore" Version="0.*" />
   </ItemGroup>
 
   <PropertyGroup>

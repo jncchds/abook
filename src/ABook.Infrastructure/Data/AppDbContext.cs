@@ -1,4 +1,5 @@
 using ABook.Core.Models;
+using ABook.Infrastructure.VectorStore;
 using Microsoft.EntityFrameworkCore;
 
 namespace ABook.Infrastructure.Data;
@@ -16,10 +17,13 @@ public class AppDbContext : DbContext
     public DbSet<StoryBible> StoryBibles => Set<StoryBible>();
     public DbSet<CharacterCard> CharacterCards => Set<CharacterCard>();
     public DbSet<PlotThread> PlotThreads => Set<PlotThread>();
+    public DbSet<ChapterEmbedding> ChapterEmbeddings => Set<ChapterEmbedding>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.HasPostgresExtension("vector");
 
         modelBuilder.Entity<AppUser>(u =>
         {
@@ -148,6 +152,15 @@ public class AppDbContext : DbContext
              .WithMany(x => x.PlotThreads)
              .HasForeignKey(x => x.BookId)
              .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ChapterEmbedding>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Text).IsRequired();
+            e.Property(x => x.Embedding).HasColumnType("vector");
+            e.HasIndex(x => new { x.BookId, x.ChapterId, x.ChunkIndex }).IsUnique();
+            e.HasIndex(x => x.BookId);
         });
     }
 }

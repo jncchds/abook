@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Build a Docker-packaged ASP.NET Core 10 web app with a React (TypeScript/Vite) UI **served as static files from wwwroot** (NOT a separate Docker service) that uses Semantic Kernel to orchestrate four AI agents (Planner, Writer, Editor, Continuity Checker) for collaborative book writing. Agents stream progress via SignalR and can pause to ask the user plot-clarifying questions. PostgreSQL stores relational data; **Qdrant vector database** (separate Docker service) stores chapter embeddings for RAG-based context retrieval. LLM provider is pluggable (Ollama by default, swappable to OpenAI/Azure/Anthropic via configuration). Multi-user with cookie-based authentication.
+Build a Docker-packaged ASP.NET Core 10 web app with a React (TypeScript/Vite) UI **served as static files from wwwroot** (NOT a separate Docker service) that uses Semantic Kernel to orchestrate four AI agents (Planner, Writer, Editor, Continuity Checker) for collaborative book writing. Agents stream progress via SignalR and can pause to ask the user plot-clarifying questions. PostgreSQL stores relational data; **pgvector** (PostgreSQL extension) stores chapter embeddings for RAG-based context retrieval. LLM provider is pluggable (Ollama by default, swappable to OpenAI/Azure/Anthropic via configuration). Multi-user with cookie-based authentication.
 
 ---
 
@@ -13,11 +13,11 @@ Build a Docker-packaged ASP.NET Core 10 web app with a React (TypeScript/Vite) U
     ↕ REST API + SignalR
 [ASP.NET Core 10 API]
     ↕ Semantic Kernel (pluggable LLM connector)
-    ↕ EF Core                    ↕ Qdrant .NET client
-[PostgreSQL (Docker)]    [Qdrant (Docker)]    [Ollama (host machine)]
+    ↕ EF Core + pgvector
+[PostgreSQL (Docker, pgvector/pgvector:pg16)]    [Ollama (host machine)]
 ```
 
-Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreSQL + Qdrant**. Ollama is external on the host. React is NOT a separate service — it's built in a Dockerfile stage and copied into `wwwroot/`.
+Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreSQL**. Ollama is external on the host. React is NOT a separate service — it's built in a Dockerfile stage and copied into `wwwroot/`.
 
 ---
 
@@ -30,12 +30,14 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
   - Lookup chain: book-specific (BookId) → user-default (UserId, no BookId) → global (neither)
 - **AppUser**: Id, Username, PasswordHash, IsAdmin
 
-### Vector Store (Qdrant)
-- **ChapterEmbedding** — collection per book, stores chunked chapter text with embeddings
+### Vector Store (PostgreSQL + pgvector)
+- **ChapterEmbedding** — `ChapterEmbeddings` table in PostgreSQL, stores chunked chapter text with embeddings
   - Each chapter is split into ~500-token overlapping chunks
   - Metadata: BookId, ChapterId, ChapterNumber, ChunkIndex
   - Used by agents for RAG: query relevant passages across all chapters without exceeding context window
   - Embedding model: configurable (default: Ollama embedding model or OpenAI `text-embedding-3-small`)
+  - `vector` column type (dimension-free, supports any embedding model)
+  - Unique index on `(BookId, ChapterId, ChunkIndex)` + index on `BookId`
 
 ---
 
@@ -86,16 +88,17 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
    - `src/abook-ui/` — React + TypeScript + Vite app
 2. Set up Docker infrastructure:
    - `Dockerfile` (multi-stage: build .NET + build React → final runtime image with static files in wwwroot)
-   - `docker-compose.yml` (app + PostgreSQL + Qdrant, with `extra_hosts` for host Ollama access)
+   - `docker-compose.yml` (app + PostgreSQL with pgvector, with `extra_hosts` for host Ollama access)
    - `.dockerignore`
 3. Configure PostgreSQL with EF Core (Npgsql):
    - `AppDbContext` with entities from data model
    - Initial migration
    - Connection string from environment variables / `appsettings.json`
-4. Configure Qdrant client:
+4. Configure pgvector:
    - `IVectorStoreService` interface in `ABook.Core`
-   - `QdrantVectorStoreService` in `ABook.Infrastructure` using `Qdrant.Client` NuGet
-   - Embedding generation via SK `ITextEmbeddingGenerationService` (pluggable, same factory pattern as chat completion)
+   - `PgvectorVectorStoreService` in `ABook.Infrastructure.VectorStore` using `Pgvector.EntityFrameworkCore`
+   - `ChapterEmbedding` EF Core entity in `ABook.Infrastructure.VectorStore`
+   - EF migration `AddChapterEmbeddings` creates `CREATE EXTENSION IF NOT EXISTS vector` + `ChapterEmbeddings` table
 
 ### Phase 2: Backend Core (API + SignalR) — *depends on Phase 1*
 5. Define domain models in `ABook.Core`:
@@ -122,7 +125,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
    - Support Ollama via `OllamaApiClient` / OpenAI-compatible endpoint
    - Support OpenAI, Azure OpenAI, Anthropic connectors behind same interface
 10. Implement vector store integration for RAG:
-    - On chapter save/update → chunk text → generate embeddings → upsert to Qdrant
+    - On chapter save/update → chunk text → generate embeddings → upsert to `ChapterEmbeddings` table via pgvector
     - `RetrieveContext(bookId, query, topK)` method for agents to pull relevant passages
     - Agents use retrieved context instead of full chapter text to stay within context window
 11. Implement agent orchestrator (`AgentOrchestrator`):
@@ -170,9 +173,9 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
     - Stage 2: Build .NET (`mcr.microsoft.com/dotnet/sdk:10.0`, `dotnet publish`)
     - Stage 3: Runtime (`mcr.microsoft.com/dotnet/aspnet:10.0`, copy published + wwwroot)
 19. Finalize `docker-compose.yml`:
-    - `abook-api` service with environment variables (DB connection, Ollama URL, Qdrant URL)
+    - `abook-api` service with environment variables (DB connection, Ollama URL)
     - `postgres` service with volume for data persistence
-    - `qdrant` service (`qdrant/qdrant:latest`) with volume for vector data persistence
+    - only two services in compose (no Qdrant service)
     - `extra_hosts: ["host.docker.internal:host-gateway"]` for Ollama access
 20. ASP.NET SPA fallback middleware to serve React static files for all non-API routes
 
@@ -186,8 +189,9 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - `src/ABook.Infrastructure/Data/AppDbContext.cs` — EF Core context
 - `src/ABook.Infrastructure/Repositories/` — Data access repositories
 - `src/ABook.Infrastructure/Llm/LlmProviderFactory.cs` — Pluggable LLM factory
-- `src/ABook.Infrastructure/VectorStore/QdrantVectorStoreService.cs` — Qdrant integration, chunking, embedding
-- `src/ABook.Infrastructure/Migrations/` — EF Core migrations (`InitialCreate`, `AddLanguageAndUsers`, `AddUserLlmConfig`, `AddTokenUsageRecord`)
+- `src/ABook.Infrastructure/VectorStore/PgvectorVectorStoreService.cs` — pgvector implementation of IVectorStoreService; scoped service using AppDbContext
+- `src/ABook.Infrastructure/VectorStore/ChapterEmbedding.cs` — EF Core entity for pgvector embeddings storage
+- `src/ABook.Infrastructure/Migrations/` — EF Core migrations (`InitialCreate`, `AddLanguageAndUsers`, `AddUserLlmConfig`, `AddTokenUsageRecord`, `AddPlanningArtifacts`, `AddPlanningPhaseStatus`, `AddPlanningPhasePrompts`, `AddChapterEmbeddings`)
 - `src/ABook.Agents/AgentBase.cs` — Base class for all agents
 - `src/ABook.Agents/AgentPrompts.cs` — `PromptPlaceholders` constants + `DefaultPrompts` static class (all 7 agent default prompts)
 - `src/ABook.Agents/QuestionAgent.cs` — upfront Q&A: `GatherQuestionsAsync`, `AskQuestionsAsync`, `LoadExistingContextAsync`
@@ -197,27 +201,27 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - `src/ABook.Api/Controllers/` — `BooksController`, `ChaptersController`, `MessagesController`, `ConfigurationController`, `AgentController`, `AuthController`, `UsersController`, `OllamaController`
 - `src/ABook.Api/Hubs/BookHub.cs` — SignalR hub
 - `src/ABook.Api/Services/SignalRBookNotifier.cs` — `IBookNotifier` implementation (decouples agents from SignalR)
-- `src/ABook.Api/Program.cs` — App configuration (cookie auth, EF Core, SignalR, Qdrant, SK)
+- `src/ABook.Api/Program.cs` — App configuration (cookie auth, EF Core, SignalR, pgvector, SK)
 - `src/abook-ui/src/pages/BookDetail.tsx` — Main book view: sidebar chapter list, chapter content, agent chat panel. Overview area now has 4 tabs: Overview (book details/edit), Story Bible (edit form), Characters (card list + CRUD), Plot Threads (card list + CRUD). Chapter view shows POV character, foreshadowing/payoff meta panel. Loads StoryBible/Characters/PlotThreads on mount and refreshes on `ChapterUpdated` SignalR events.
 - `src/abook-ui/src/hooks/` — `useBookHub.ts`, `useAuth.tsx`
 - `src/abook-ui/src/utils/bookHtmlExport.ts` — Client-side HTML export: markdown→HTML converter, 6 color presets, font-size controls; `downloadBookAsHtml(book)` triggers browser download
 - `src/abook-ui/src/api.ts` — Typed API client
 - `src/abook-ui/src/App.tsx` — Router + auth guard
 - `Dockerfile` — Multi-stage build (Node 20 + .NET 10 SDK + .NET 10 runtime)
-- `docker-compose.yml` — App + PostgreSQL + Qdrant
+- `docker-compose.yml` — App + PostgreSQL (pgvector/pgvector:pg16)
 - `.dockerignore`
 
 ---
 
 ## Verification
 
-1. `docker-compose up --build` starts app + PostgreSQL + Qdrant, React UI loads at `http://localhost:5000`
+1. `docker-compose up --build` starts app + PostgreSQL, React UI loads at `http://localhost:5000`
 2. Create a book via UI → verify stored in PostgreSQL
 3. Start planning → Planner agent streams chapter outlines via SignalR, visible in UI in real-time
 4. Agent asks a question → notification appears in chat panel → answer submitted → agent resumes
 5. Write a chapter → Writer streams content → Editor reviews → Continuity Checker analyzes
 6. Switch LLM provider in settings → next agent run uses new provider
-7. `docker-compose down && docker-compose up` → data persists (PostgreSQL + Qdrant volumes)
+7. `docker-compose down && docker-compose up` → data persists (PostgreSQL volume)
 
 ---
 
@@ -234,21 +238,22 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **Per-book customization** — `Language` field and per-agent system prompt overrides stored on `Book` entity
 - **Ollama model management** — `OllamaController` proxies Ollama's `/api/tags` and streams pull progress via SSE
 - **Markdown only** for book output — no DOCX/PDF export (can be added later)
-- **PostgreSQL + Qdrant in compose** with persistent volumes
+- **pgvector for vector storage** — embeddings stored directly in PostgreSQL via the `vector` column type; no separate Docker service needed; `Pgvector.EntityFrameworkCore 0.*` package; dimension-free `vector` type to support any embedding model
+- **`IVectorStoreService` registered as Scoped** — `PgvectorVectorStoreService` injects `AppDbContext` directly; simpler than singleton+factory pattern used with Qdrant
+- **`UseVector()` on EF options builder** — `options.UseNpgsql(cs, o => o.UseVector())` in `Program.cs` with `using Pgvector.EntityFrameworkCore;`; requires `Pgvector.EntityFrameworkCore` referenced directly in both `ABook.Infrastructure` and `ABook.Api`
+- **`pgvector/pgvector:pg16` Docker image** — replaces `postgres:16-alpine`; identical behaviour but with the pgvector extension pre-installed; only one service in compose (Qdrant removed)
 - **React UI is static files** — built in Dockerfile, served from `wwwroot/` by ASP.NET Core, NOT a separate Docker service
-- **Qdrant for vector storage** — separate Docker service, used for RAG-based context retrieval so agents can handle large books without exceeding context windows
-- **`IBookNotifier` interface** (`SignalRBookNotifier` implementation) decouples agent/orchestrator code from direct SignalR hub dependency
-- **Per-user LLM settings**: `LlmConfiguration` has nullable `UserId`; lookup chain is book-specific → user-default → global. `ConfigurationController` automatically sets `UserId` from cookie claims when saving a global (non-book) config. Agents resolve config via `GetKernelAsync` which passes `book.UserId`.
+- **`IBookNotifier` interface** (`SignalRBookNotifier` implementation) decouples agent/orchestrator code from direct SignalR hub dependency: `LlmConfiguration` has nullable `UserId`; lookup chain is book-specific → user-default → global. `ConfigurationController` automatically sets `UserId` from cookie claims when saving a global (non-book) config. Agents resolve config via `GetKernelAsync` which passes `book.UserId`.
 - **Default system prompts API**: `GET /api/books/{id}/default-prompts` returns pre-interpolated default prompts. Returns 7 keys: `storyBibleSystemPrompt`, `charactersSystemPrompt`, `plotThreadsSystemPrompt`, `chapterOutlinesSystemPrompt`, `writerSystemPrompt`, `editorSystemPrompt`, `continuityCheckerSystemPrompt`. Settings page shows these as placeholders and has a "Load Defaults" button that pre-fills empty textarea fields.
 - **Migration**: `AddPlanningPhaseStatus` adds `StoryBibleStatus`, `CharactersStatus`, `PlotThreadsStatus`, `ChaptersStatus` columns. `AddPlanningPhasePrompts` renames `PlannerSystemPrompt` → `StoryBibleSystemPrompt` and adds `CharactersSystemPrompt`, `PlotThreadsSystemPrompt`, `ChapterOutlinesSystemPrompt`.
-- **Qdrant cleanup**: `IVectorStoreService.DeleteCollectionAsync` drops the whole book collection; called by `BooksController.Delete` (non-fatal). `ChaptersController.Update` calls `DeleteChapterChunksAsync` when content is cleared to empty (e.g. the "Clear" button in the UI).
+- **pgvector cleanup**: `IVectorStoreService.DeleteCollectionAsync` deletes all embeddings for the book; called by `BooksController.Delete` (non-fatal). `ChaptersController.Update` calls `DeleteChapterChunksAsync` when content is cleared to empty.
 - **LlmProvider.LMStudio**: uses SK's OpenAI connector with a custom endpoint (`/v1`). API key defaults to `"lm-studio"` if omitted. Embedding support requires `EmbeddingModelName` to be set. Default endpoint: `http://host.docker.internal:1234`.
 - **LlmProvider.OpenAI endpoint support**: when `Endpoint` is non-empty, uses the URI-based `OpenAIChatCompletionService` overload so any OpenAI-compatible API (Groq, Together, etc.) works. When `Endpoint` is empty, uses the standard apiKey-only overload (real OpenAI API). Same logic applies to `CreateEmbeddingGeneration` and `CreateKernel`.
 - **LlmProvider.Anthropic**: Anthropic's native API is not OpenAI-compatible and the SK Anthropic connector is not available for .NET 10. Uses SK's OpenAI connector with a custom endpoint — requires an OpenAI-compatible proxy (e.g. LiteLLM at `http://localhost:4000`). Endpoint is mandatory; throws `InvalidOperationException` if not set. Default endpoint hint in Settings UI: `http://localhost:4000`. Proxy note displayed in Settings when Anthropic is selected.
 - **LLM debug logging**: set env var `LLM_DEBUG_LOGGING=true` to print full chat history (all messages with roles) before each LLM call and the complete response after to the application log at `Information` level. Implemented as a static flag in `AgentBase` checked in `StreamResponseAsync`.
 - **`GET /api/ollama/models`** now accepts `?provider=` query param; when `provider=LMStudio` it queries `{endpoint}/v1/models` (OpenAI-compatible format: `{"data":[{"id":"..."}]}`). For Ollama it still queries `/api/tags`.
 - **Model list in Settings**: fetched dynamically from the configured endpoint; only Ollama and LMStudio fetch model lists. Switching provider resets endpoint to the provider's default (only if the current endpoint matches the previous provider's default).
-- **ContinuityCheckerAgent uses RAG**: runs three targeted queries (character descriptions, timeline, locations) against Qdrant before checking continuity; appends retrieved passages to the LLM prompt alongside the chapter synopsis.
+- **ContinuityCheckerAgent uses RAG**: runs three targeted queries (character descriptions, timeline, locations) against pgvector before checking continuity; appends retrieved passages to the LLM prompt alongside the chapter synopsis.
 - **`StripLeadingChapterHeading` moved to `AgentBase`** (protected): both `WriterAgent` and `EditorAgent` strip LLM-added chapter headings from prose before saving. Now handles consecutive heading lines, bold-formatted headings, and ordinal word variants ("Chapter One", "Chapter Two" etc.).
 - **`InterpolateSystemPrompt` in `AgentBase`** (protected static): substitutes `PromptPlaceholders` tokens in user-supplied or default system prompts. Signature: `InterpolateSystemPrompt(string prompt, Book book, StoryBible? bible = null)`. Book-level tokens always resolved; Story Bible tokens (`{SETTING}`, `{THEMES}`, `{TONE}`, `{WORLD_RULES}`) resolved only when `bible` is passed.
 - **`GetPreviousChapterEndingAsync` in `AgentBase`** (protected): returns the last 3 paragraphs of the immediately preceding chapter. `WriterAgent` includes this in the system prompt so prose is narratively continuous even without RAG context.
@@ -262,7 +267,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **Default LLM config from env vars**: on startup, `Program.cs` reads `LlmDefaults` config section and upserts the global `LlmConfiguration` record (BookId=null, UserId=null). Env var names follow .NET double-underscore convention: `LlmDefaults__Provider`, `LlmDefaults__ModelName`, `LlmDefaults__Endpoint`, `LlmDefaults__ApiKey`, `LlmDefaults__EmbeddingModelName`. Defaults are pre-populated in `appsettings.json` (Provider=Ollama, ModelName=llama3, Endpoint=http://host.docker.internal:11434). Commented examples in `docker-compose.yml`.
 the- **Agent error logging & UI notifications**: `IBookNotifier` gains `NotifyAgentErrorAsync(bookId, agentRole, errorMessage)` → `AgentError` SignalR event. `AgentBase` gains `ReportErrorAsync(bookId, chapterId, role, message)` (protected) and `AgentOrchestrator` gains `ReportAgentErrorAsync(bookId, role, chapterId, message)` (private): both persist a `SystemNote` `AgentMessage` to the DB **and** fire the SignalR event, so errors appear in the chat panel alongside all other agent messages (rendered with `msg-systemnote` CSS class, `❌` prefix). `AgentError` event on the frontend refreshes the message list and switches to the chat panel — the top-of-screen error banner has been removed. All `Exception` catch blocks in `AgentOrchestrator` use this helper. `AgentBase.StreamResponseAsync` still logs errors and warns on empty/short responses.
 - **Unexpected cancellation detection**: In `StartWorkflowAsync` and `ContinueWorkflowAsync`, `OperationCanceledException` is split into two catches using an exception filter: `when (ct.IsCancellationRequested)` = user clicked Stop → "Workflow stopped." with no error message; `else` = LLM timeout / connection reset → treated as a real error with `ReportAgentErrorAsync` and "Workflow failed (request cancelled)." progress message.
-- **RAG graceful not-found**: `QdrantVectorStoreService.SearchAsync` checks collection existence before searching; returns an empty list when no chapter embeddings exist yet (before the first chapter is written), avoiding a spurious gRPC error in the logs.
+- **RAG graceful not-found**: `PgvectorVectorStoreService.SearchAsync` simply queries the table; returns an empty list when no rows exist for the bookId (empty query result, no pre-check needed unlike Qdrant which threw gRPC errors on missing collections).
 - **`PlannerAgent` safe re-plan**: `DeleteChaptersAsync` is now called **after** the LLM response is successfully parsed, so a JSON parse failure no longer wipes existing chapters. `ParseChapterOutlines` now extracts the JSON array (first `[` … last `]`) before parsing, making it resilient to LLM preamble/postamble text around the array.
 - **Ollama embedding fix**: `OllamaTextEmbeddingGenerationService` ctor throws `InvalidCastException` in SK 1.74.0-alpha because its internal `EmbeddingGeneratorEmbeddingGenerationService<string, float>` no longer implements `ITextEmbeddingGenerationService`. Fix: `LlmProviderFactory.CreateEmbeddingGeneration` now uses `OpenAITextEmbeddingGenerationService` with an `OpenAIClient` pointed at Ollama's OpenAI-compatible `/v1` endpoint (supported since Ollama 0.4.x), bypassing the broken Ollama-specific service entirely.
 - **`AgentController.Plan`** now calls `CreateRunCts` before starting the planner in background, so the Stop button works during a Plan Only run (same as `workflow/start`).
@@ -298,7 +303,7 @@ the- **Agent error logging & UI notifications**: `IBookNotifier` gains `NotifyAg
 
 - **EF Core / Npgsql**: Use `10.0.*` versions; both stable as of April 2026
 - **`ABook.Agents` pins `Microsoft.EntityFrameworkCore.Relational 10.0.*`** to avoid version conflict with Semantic Kernel
-- **Qdrant.Client 1.x API**: `CreateCollectionAsync(name, VectorParams, ...)` — not `VectorsConfig`
+- **pgvector / Npgsql**: `Pgvector.EntityFrameworkCore 0.*` + `Npgsql.EntityFrameworkCore.PostgreSQL 10.0.*`; call `options.UseNpgsql(cs, o => o.UseVector())` + `using Pgvector.EntityFrameworkCore`; requires direct `PackageReference` to `Pgvector.EntityFrameworkCore` in both `ABook.Infrastructure` and `ABook.Api`
 - **SK embedding API**: `ITextEmbeddingGenerationService.GenerateEmbeddingsAsync(list)` — not `GenerateEmbeddingAsync`
 - **`OllamaPromptExecutionSettings.Temperature`** is `float?` not `double`
 - **`Microsoft.AspNetCore.SignalR 1.*`** NuGet package removed — SignalR is built into the framework in .NET 3+
