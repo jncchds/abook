@@ -560,10 +560,10 @@ export function generateBookMetadataHtml(
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(book.title)} — Metadata</title>
   <style>
-    :root { --bg: #ffffff; --fg: #1a1a1a; --fs: 16px; --lh: 1.75; --accent: #6366f1; --muted: #64748b; --border: rgba(0,0,0,0.12); }
+    :root { --bg: #ffffff; --fg: #1a1a1a; --fs: 18px; --lh: 1.75; --accent: #6366f1; --muted: #64748b; --border: rgba(128,128,128,0.15); }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, sans-serif; font-size: var(--fs); line-height: var(--lh); transition: background 0.25s, color 0.25s; }
-    #toolbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 20px; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 0.85em; transition: background 0.25s; }
+    #toolbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 20px; background: var(--bg); border-bottom: 1px solid var(--border); transition: background 0.25s; }
     .toolbar-label { font-size: 0.72em; opacity: 0.55; letter-spacing: 0.04em; text-transform: uppercase; margin-right: 2px; }
     .preset-btn { padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 0.78em; font-weight: 600; white-space: nowrap; transition: opacity 0.15s; }
     .preset-btn:hover { opacity: 0.8; }
@@ -571,16 +571,16 @@ export function generateBookMetadataHtml(
     .size-btn { padding: 3px 9px; border-radius: 4px; cursor: pointer; font-weight: bold; background: transparent; color: var(--fg); border: 1px solid rgba(128,128,128,0.4); font-size: 0.85em; transition: opacity 0.15s; }
     .size-btn:hover { opacity: 0.65; }
     #font-size-label { font-size: 0.75em; min-width: 2.2em; text-align: center; opacity: 0.6; }
-    main { max-width: 860px; margin: 0 auto; padding: 40px 24px 80px; }
-    header.doc-header { margin-bottom: 48px; padding-bottom: 24px; border-bottom: 2px solid var(--border); }
+    main { max-width: 860px; margin: 0 auto; padding: 48px 24px 96px; }
+    header.doc-header { margin-bottom: 56px; padding-bottom: 24px; border-bottom: 2px solid var(--border); }
     header.doc-header h1 { font-size: 2em; margin-bottom: 6px; }
     header.doc-header .subtitle { opacity: 0.5; font-size: 0.9em; font-style: italic; }
-    nav#toc { margin-bottom: 48px; padding: 20px 24px; border: 1px solid var(--border); border-radius: 8px; }
-    nav#toc h2 { font-size: 0.85em; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.55; }
-    nav#toc ol { padding-left: 1.4em; }
-    nav#toc li { margin: 5px 0; font-size: 0.95em; }
-    nav#toc a { color: var(--fg); opacity: 0.8; text-decoration: none; border-bottom: 1px dotted rgba(128,128,128,0.4); }
-    nav#toc a:hover { opacity: 1; color: var(--accent); }
+    nav#toc { margin-bottom: 60px; padding: 24px 28px; border: 1px solid var(--border); border-radius: 6px; }
+    nav#toc h2 { font-size: 1.1em; margin-bottom: 14px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.65; }
+    nav#toc ol { padding-left: 1.5em; }
+    nav#toc li { margin: 7px 0; }
+    nav#toc a { color: var(--fg); opacity: 0.82; text-decoration: none; border-bottom: 1px dotted rgba(128,128,128,0.5); transition: opacity 0.15s; }
+    nav#toc a:hover { opacity: 1; }
     .md-section { margin-bottom: 56px; }
     .md-section h2 { font-size: 1.35em; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid var(--border); }
     .md-section h3 { font-size: 1.05em; margin: 20px 0 8px; color: var(--fg); }
@@ -644,7 +644,7 @@ export function generateBookMetadataHtml(
     <div class="toolbar-sep"></div>
     <span class="toolbar-label">Size</span>
     <button class="size-btn" id="font-smaller" title="Decrease font size">A−</button>
-    <span id="font-size-label">16</span>
+    <span id="font-size-label">18</span>
     <button class="size-btn" id="font-larger" title="Increase font size">A+</button>
   </div>
   <main>
@@ -669,7 +669,7 @@ ${tokenStatsHtml}
   <script>
     (function () {
       var presets = ${presetsJson};
-      var fontSize = 16;
+      var fontSize = 18;
       function applyPreset(index) {
         var p = presets[index];
         var root = document.documentElement;
@@ -684,7 +684,7 @@ ${tokenStatsHtml}
         try { localStorage.setItem('abook-meta-preset', index); } catch(e) {}
       }
       function applyFontSize(size) {
-        fontSize = Math.min(Math.max(size, 11), 28);
+        fontSize = Math.min(Math.max(size, 12), 36);
         document.documentElement.style.setProperty('--fs', fontSize + 'px');
         document.getElementById('font-size-label').textContent = fontSize;
         try { localStorage.setItem('abook-meta-fontsize', fontSize); } catch(e) {}
@@ -692,8 +692,8 @@ ${tokenStatsHtml}
       document.querySelectorAll('.preset-btn').forEach(function(btn, i) {
         btn.addEventListener('click', function() { applyPreset(i); });
       });
-      document.getElementById('font-smaller').addEventListener('click', function() { applyFontSize(fontSize - 1); });
-      document.getElementById('font-larger').addEventListener('click', function() { applyFontSize(fontSize + 1); });
+      document.getElementById('font-smaller').addEventListener('click', function() { applyFontSize(fontSize - 2); });
+      document.getElementById('font-larger').addEventListener('click', function() { applyFontSize(fontSize + 2); });
       try {
         var sp = localStorage.getItem('abook-meta-preset'); if (sp !== null) applyPreset(Number(sp));
         var sf = localStorage.getItem('abook-meta-fontsize'); if (sf !== null) applyFontSize(Number(sf));
