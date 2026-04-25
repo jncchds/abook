@@ -2,10 +2,11 @@
 
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
+using Microsoft.Extensions.AI;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.Ollama;
-using Microsoft.SemanticKernel.Embeddings;
+using OllamaSharp;
 using OpenAI;
 using System.ClientModel;
 
@@ -26,7 +27,7 @@ public class LlmProviderFactory : ILlmProviderFactory
         switch (config.Provider)
         {
             case LlmProvider.Ollama:
-                return new OllamaChatCompletionService(config.ModelName, new Uri(config.Endpoint));
+                return new OllamaApiClient(new Uri(config.Endpoint), config.ModelName).AsChatCompletionService();
             case LlmProvider.OpenAI:
             {
                 var openAiEndpoint = string.IsNullOrWhiteSpace(config.Endpoint) ? null : new Uri(config.Endpoint);
@@ -54,27 +55,31 @@ public class LlmProviderFactory : ILlmProviderFactory
         }
     }
 
-    public ITextEmbeddingGenerationService CreateEmbeddingGeneration(LlmConfiguration config)
+    public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGeneration(LlmConfiguration config)
     {
         var embeddingModel = config.EmbeddingModelName ?? config.ModelName;
         switch (config.Provider)
         {
             case LlmProvider.Ollama:
-                // OllamaTextEmbeddingGenerationService is broken in SK 1.74.0-alpha (internal cast fails).
-                // Use the OpenAI-compatible embedding endpoint that Ollama has supported since 0.4.x.
-                return new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAITextEmbeddingGenerationService(
-                    embeddingModel, CreateOpenAIClient(config.Endpoint.TrimEnd('/') + "/v1", "ollama"));
+                // Use Ollama's OpenAI-compatible embedding endpoint (supported since 0.4.x).
+                return CreateOpenAIClient(config.Endpoint.TrimEnd('/') + "/v1", "ollama")
+                    .GetEmbeddingClient(embeddingModel)
+                    .AsIEmbeddingGenerator();
             case LlmProvider.OpenAI:
             {
                 if (string.IsNullOrWhiteSpace(config.Endpoint))
-                    return new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAITextEmbeddingGenerationService(
-                        embeddingModel, config.ApiKey ?? throw new InvalidOperationException("OpenAI requires an API key."));
-                return new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAITextEmbeddingGenerationService(
-                    embeddingModel, CreateOpenAIClient(config.Endpoint, config.ApiKey));
+                    return new OpenAIClient(new ApiKeyCredential(
+                            config.ApiKey ?? throw new InvalidOperationException("OpenAI requires an API key.")))
+                        .GetEmbeddingClient(embeddingModel)
+                        .AsIEmbeddingGenerator();
+                return CreateOpenAIClient(config.Endpoint, config.ApiKey)
+                    .GetEmbeddingClient(embeddingModel)
+                    .AsIEmbeddingGenerator();
             }
             case LlmProvider.LMStudio:
-                return new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAITextEmbeddingGenerationService(
-                    embeddingModel, CreateOpenAIClient(config.Endpoint.TrimEnd('/') + "/v1", config.ApiKey ?? "lm-studio"));
+                return CreateOpenAIClient(config.Endpoint.TrimEnd('/') + "/v1", config.ApiKey ?? "lm-studio")
+                    .GetEmbeddingClient(embeddingModel)
+                    .AsIEmbeddingGenerator();
             case LlmProvider.Anthropic:
             {
                 if (string.IsNullOrWhiteSpace(config.EmbeddingModelName))
@@ -82,8 +87,9 @@ public class LlmProviderFactory : ILlmProviderFactory
                 if (string.IsNullOrWhiteSpace(config.Endpoint))
                     throw new InvalidOperationException(
                         "Anthropic requires an endpoint (e.g. an OpenAI-compatible proxy like LiteLLM).");
-                return new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAITextEmbeddingGenerationService(
-                    embeddingModel, CreateOpenAIClient(config.Endpoint, config.ApiKey));
+                return CreateOpenAIClient(config.Endpoint, config.ApiKey)
+                    .GetEmbeddingClient(embeddingModel)
+                    .AsIEmbeddingGenerator();
             }
             default:
                 throw new NotSupportedException($"Provider {config.Provider} is not yet supported for embeddings.");
@@ -100,7 +106,7 @@ public class LlmProviderFactory : ILlmProviderFactory
             {
                 builder.AddOllamaChatCompletion(config.ModelName, new Uri(config.Endpoint));
                 var embeddingModel = config.EmbeddingModelName ?? config.ModelName;
-                builder.AddOllamaTextEmbeddingGeneration(embeddingModel, new Uri(config.Endpoint));
+                builder.AddOllamaEmbeddingGenerator(embeddingModel, new Uri(config.Endpoint));
                 break;
             }
             case LlmProvider.OpenAI:
@@ -112,14 +118,14 @@ public class LlmProviderFactory : ILlmProviderFactory
                 if (openAiEndpoint == null)
                 {
                     builder.AddOpenAIChatCompletion(config.ModelName, apiKey!);
-                    builder.AddOpenAITextEmbeddingGeneration(
+                    builder.AddOpenAIEmbeddingGenerator(
                         config.EmbeddingModelName ?? "text-embedding-3-small", apiKey!);
                 }
                 else
                 {
                     builder.AddOpenAIChatCompletion(config.ModelName, openAiEndpoint, apiKey);
                     if (!string.IsNullOrWhiteSpace(config.EmbeddingModelName))
-                        builder.AddOpenAITextEmbeddingGeneration(
+                        builder.AddOpenAIEmbeddingGenerator(
                             config.EmbeddingModelName, CreateOpenAIClient(config.Endpoint, apiKey));
                 }
                 break;
@@ -130,7 +136,7 @@ public class LlmProviderFactory : ILlmProviderFactory
                 var lmEndpoint = new Uri(config.Endpoint.TrimEnd('/') + "/v1");
                 builder.AddOpenAIChatCompletion(config.ModelName, lmEndpoint, lmKey);
                 if (!string.IsNullOrWhiteSpace(config.EmbeddingModelName))
-                    builder.AddOpenAITextEmbeddingGeneration(
+                    builder.AddOpenAIEmbeddingGenerator(
                         config.EmbeddingModelName, CreateOpenAIClient(config.Endpoint.TrimEnd('/') + "/v1", lmKey));
                 break;
             }
@@ -143,7 +149,7 @@ public class LlmProviderFactory : ILlmProviderFactory
                         "Anthropic requires an endpoint (e.g. an OpenAI-compatible proxy like LiteLLM).");
                 builder.AddOpenAIChatCompletion(config.ModelName, new Uri(config.Endpoint), config.ApiKey);
                 if (!string.IsNullOrWhiteSpace(config.EmbeddingModelName))
-                    builder.AddOpenAITextEmbeddingGeneration(
+                    builder.AddOpenAIEmbeddingGenerator(
                         config.EmbeddingModelName, CreateOpenAIClient(config.Endpoint, config.ApiKey));
                 break;
             }

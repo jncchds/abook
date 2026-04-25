@@ -343,7 +343,7 @@ export default function BookDetail() {
   }
 
   const handleContinue = async () => {
-    if (isRunning) return
+    if (isRunning || !book) return
     setWorkflowLog([])
     const allPlanningComplete =
       book.storyBibleStatus === 'Complete' &&

@@ -257,8 +257,8 @@ public abstract class AgentBase
         try
         {
             var embedder = factory.CreateEmbeddingGeneration(config);
-            var embeddings = await embedder.GenerateEmbeddingsAsync([query]);
-            var embedding = embeddings[0];
+            var embeddings = await embedder.GenerateAsync([query], cancellationToken: ct);
+            var embedding = embeddings[0].Vector;
 
             int promptTokens = query.Length / 4;
             try { await Notifier.NotifyTokenStatsAsync(bookId, chapterId, AgentRole.Embedder.ToString(), promptTokens, 0, ct); }

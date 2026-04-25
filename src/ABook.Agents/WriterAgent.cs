@@ -177,8 +177,8 @@ public class WriterAgent : AgentBase
 
         for (int i = 0; i < chunks.Count; i++)
         {
-            var embeddings = await embedder.GenerateEmbeddingsAsync([chunks[i]], cancellationToken: ct);
-            var embedding = embeddings[0];
+            var embeddings = await embedder.GenerateAsync([chunks[i]], cancellationToken: ct);
+            var embedding = embeddings[0].Vector;
             await VectorStore.UpsertChunkAsync(bookId, chapter.Id, chapter.Number, i, chunks[i], embedding, ct);
         }
 
