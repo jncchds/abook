@@ -77,8 +77,6 @@ label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bot
 .btn-plan:hover { opacity: 0.88; }
 .btn-continue { background: #0ea5e9 !important; color: #fff !important; font-weight: 600 !important; padding: 0.45rem 0.9rem !important; border-radius: 6px !important; border: none !important; cursor: pointer !important; flex: 1; }
 .btn-continue:hover { opacity: 0.88; }
-.btn-continue-plan { background: #f59e0b !important; color: #fff !important; font-weight: 600 !important; padding: 0.45rem 0.9rem !important; border-radius: 6px !important; border: none !important; cursor: pointer !important; flex: 1; }
-.btn-continue-plan:hover { opacity: 0.88; }
 
 /* ======== Planning Phase Actions ======== */
 .phase-actions { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.75rem; }

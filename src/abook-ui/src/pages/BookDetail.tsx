@@ -345,23 +345,24 @@ export default function BookDetail() {
   const handleContinue = async () => {
     if (isRunning) return
     setWorkflowLog([])
+    const allPlanningComplete =
+      book.storyBibleStatus === 'Complete' &&
+      book.charactersStatus === 'Complete' &&
+      book.plotThreadsStatus === 'Complete' &&
+      book.chaptersStatus === 'Complete'
+    const anyPlanningComplete =
+      book.storyBibleStatus === 'Complete' ||
+      book.charactersStatus === 'Complete' ||
+      book.plotThreadsStatus === 'Complete' ||
+      book.chaptersStatus === 'Complete'
     try {
-      await continueWorkflow(bookId)
-      setRunStatus({ role: 'Writer', state: 'Running' })
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string }; status?: number } })
-      if (msg?.response?.status === 409) {
-        alert('An agent is already running for this book.')
+      if (!allPlanningComplete && anyPlanningComplete) {
+        await continuePlanning(bookId)
+        setRunStatus({ role: 'Planner', state: 'Running' })
+      } else {
+        await continueWorkflow(bookId)
+        setRunStatus({ role: 'Writer', state: 'Running' })
       }
-    }
-  }
-
-  const handleContinuePlanning = async () => {
-    if (isRunning) return
-    setWorkflowLog([])
-    try {
-      await continuePlanning(bookId)
-      setRunStatus({ role: 'Planner', state: 'Running' })
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string }; status?: number } })
       if (msg?.response?.status === 409) {
@@ -505,11 +506,8 @@ export default function BookDetail() {
             <>
               <button className="btn-primary" onClick={handleWriteBook}>▶ Write Book</button>
               <button className="btn-plan" onClick={handlePlanBook}>🗂 Plan Only</button>
-              {(book.chapters ?? []).length > 0 && (
+              {((book.chapters ?? []).length > 0 || book.storyBibleStatus === 'Complete' || book.charactersStatus === 'Complete' || book.plotThreadsStatus === 'Complete' || book.chaptersStatus === 'Complete') && (
                 <button className="btn-continue" onClick={handleContinue}>↻ Continue</button>
-              )}
-              {(book.storyBibleStatus === 'Complete' || book.charactersStatus === 'Complete' || book.plotThreadsStatus === 'Complete' || book.chaptersStatus === 'Complete') && (
-                <button className="btn-continue-plan" onClick={handleContinuePlanning}>⏩ Continue Planning</button>
               )}
             </>
           )}
