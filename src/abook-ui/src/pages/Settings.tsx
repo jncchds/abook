@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import type { LlmConfig, LlmPreset, OllamaModel, Book, DefaultPrompts } from '../api'
-import { getLlmConfig, updateLlmConfig, updateBook, getBook, getOllamaModels, getDefaultPrompts, getPresets, createPreset, updatePreset, deletePreset } from '../api'
+import { getLlmConfig, updateLlmConfig, updateBook, getBook, getOllamaModels, getDefaultPrompts, getPresets, createPreset, updatePreset } from '../api'
 
 const PROVIDERS = ['Ollama', 'LMStudio', 'OpenAI', 'AzureOpenAI', 'Anthropic'] as const
 
@@ -45,12 +45,10 @@ export default function Settings() {
   const [defaultPrompts, setDefaultPrompts] = useState<DefaultPrompts | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  // ── Presets state ────────────────────────────────────────────
+  // ── Presets state (for dropdown + save-as-preset) ─────────────
   const [presets, setPresets] = useState<LlmPreset[]>([])
-  const [presetForm, setPresetForm] = useState<Omit<LlmPreset, 'id' | 'userId' | 'createdAt' | 'updatedAt'>>(
-    { name: '', provider: 'Ollama', modelName: '', endpoint: '', apiKey: '', embeddingModelName: '' }
-  )
-  const [editingPresetId, setEditingPresetId] = useState<number | null>(null)
+  const [showSaveAsPreset, setShowSaveAsPreset] = useState(false)
+  const [saveAsPresetName, setSaveAsPresetName] = useState('')
   const [presetSaved, setPresetSaved] = useState(false)
 
   const fetchModels = (endpoint: string, provider?: string, currentModel?: string, currentEmbeddingModel?: string) => {
@@ -137,40 +135,32 @@ export default function Settings() {
   }
 
   // ── Preset handlers ──────────────────────────────────────────────────────
-  const emptyPresetForm = { name: '', provider: 'Ollama', modelName: '', endpoint: '', apiKey: '', embeddingModelName: '' } as const
-
-  const handlePresetSave = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (editingPresetId !== null) {
-      const updated = await updatePreset(editingPresetId, presetForm)
-      setPresets(ps => ps.map(p => p.id === editingPresetId ? updated.data : p))
+  const handleSaveAsPreset = async () => {
+    const name = saveAsPresetName.trim()
+    if (!name) return
+    const modelName = useCustomModel ? customModel : config.modelName
+    const embeddingModelName = useCustomEmbeddingModel ? customEmbeddingModel : config.embeddingModelName
+    const data = {
+      name,
+      provider: config.provider,
+      modelName,
+      endpoint: config.endpoint,
+      apiKey: config.apiKey ?? '',
+      embeddingModelName: embeddingModelName ?? '',
+    }
+    // Only check user-owned presets (userId !== null) for duplicates
+    const existing = presets.find(p => p.userId !== null && p.name.toLowerCase() === name.toLowerCase())
+    if (existing) {
+      if (!confirm(`A preset named "${name}" already exists. Overwrite it?`)) return
+      const updated = await updatePreset(existing.id, data)
+      setPresets(ps => ps.map(p => p.id === existing.id ? updated.data : p))
     } else {
-      const created = await createPreset(presetForm)
+      const created = await createPreset(data)
       setPresets(ps => [...ps, created.data])
     }
-    setPresetForm(emptyPresetForm)
-    setEditingPresetId(null)
+    setShowSaveAsPreset(false)
     setPresetSaved(true)
     setTimeout(() => setPresetSaved(false), 2000)
-  }
-
-  const handlePresetEdit = (preset: LlmPreset) => {
-    setEditingPresetId(preset.id)
-    setPresetForm({
-      name: preset.name,
-      provider: preset.provider,
-      modelName: preset.modelName,
-      endpoint: preset.endpoint,
-      apiKey: preset.apiKey ?? '',
-      embeddingModelName: preset.embeddingModelName ?? '',
-    })
-  }
-
-  const handlePresetDelete = async (id: number) => {
-    if (!confirm('Delete this preset?')) return
-    await deletePreset(id)
-    setPresets(ps => ps.filter(p => p.id !== id))
-    if (editingPresetId === id) { setEditingPresetId(null); setPresetForm(emptyPresetForm) }
   }
 
   const applyPreset = (preset: LlmPreset) => {
@@ -357,9 +347,42 @@ export default function Settings() {
             API Key (optional)
             <input type="password" value={config.apiKey ?? ''} onChange={e => setConfig(c => ({ ...c, apiKey: e.target.value }))} />
           </label>
-          <button type="submit">Save LLM Config</button>
-          {saved && <span className="saved-msg">✓ Saved</span>}
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+            <button type="submit">Save LLM Config</button>
+            {saved && <span className="saved-msg">✓ Saved</span>}
+            {!showSaveAsPreset && (
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setSaveAsPresetName(`${config.provider} - ${useCustomModel ? customModel : config.modelName}`)
+                  setShowSaveAsPreset(true)
+                  setPresetSaved(false)
+                }}
+              >
+                Save as Preset…
+              </button>
+            )}
+          </div>
+          {showSaveAsPreset && (
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+              <input
+                style={{ flex: 1, minWidth: '180px' }}
+                placeholder="Preset name"
+                value={saveAsPresetName}
+                onChange={e => setSaveAsPresetName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSaveAsPreset() } }}
+                autoFocus
+              />
+              <button type="button" onClick={handleSaveAsPreset} disabled={!saveAsPresetName.trim()}>Save Preset</button>
+              <button type="button" className="btn-secondary" onClick={() => setShowSaveAsPreset(false)}>Cancel</button>
+              {presetSaved && <span className="saved-msg">✓ Preset saved</span>}
+            </div>
+          )}
         </form>
+        <p style={{ marginTop: '0.5rem' }} className="hint">
+          <Link to="/presets">Manage credential presets →</Link>
+        </p>
       </section>
 
       {/* Ollama model pull — only relevant for Ollama */}
@@ -457,91 +480,6 @@ export default function Settings() {
         </section>
       )}
 
-      {/* Credential Presets */}
-      <section className="settings-section">
-        <h2>Credential Presets</h2>
-        <p className="hint">Save named LLM configurations that can be quickly applied to any book's settings.</p>
-
-        {presets.length > 0 && (
-          <div className="card presets-list">
-            {presets.map(p => (
-              <div key={p.id} className="preset-row">
-                <div className="preset-info">
-                  <strong>{p.name}</strong>
-                  <span className="preset-meta">{p.provider} · {p.modelName} · {p.endpoint}</span>
-                  {p.embeddingModelName && <span className="preset-meta">embed: {p.embeddingModelName}</span>}
-                  {!p.userId && <span className="preset-badge">global</span>}
-                </div>
-                <div className="preset-actions">
-                  <button type="button" className="btn-secondary btn-sm" onClick={() => handlePresetEdit(p)}>Edit</button>
-                  <button type="button" className="btn-danger btn-sm" onClick={() => handlePresetDelete(p.id)}>Delete</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <form className="card settings-form" onSubmit={handlePresetSave}>
-          <h3 style={{ margin: '0 0 0.5rem' }}>{editingPresetId !== null ? 'Edit Preset' : 'New Preset'}</h3>
-          <label>
-            Preset Name
-            <input
-              required
-              placeholder="e.g. Local Ollama"
-              value={presetForm.name}
-              onChange={e => setPresetForm(f => ({ ...f, name: e.target.value }))}
-            />
-          </label>
-          <label>
-            Provider
-            <select value={presetForm.provider} onChange={e => setPresetForm(f => ({ ...f, provider: e.target.value }))}>
-              {PROVIDERS.map(p => <option key={p}>{p}</option>)}
-            </select>
-          </label>
-          <label>
-            Model Name
-            <input
-              required
-              placeholder="e.g. llama3"
-              value={presetForm.modelName}
-              onChange={e => setPresetForm(f => ({ ...f, modelName: e.target.value }))}
-            />
-          </label>
-          <label>
-            Endpoint
-            <input
-              placeholder={DEFAULT_ENDPOINTS[presetForm.provider] ?? ''}
-              value={presetForm.endpoint}
-              onChange={e => setPresetForm(f => ({ ...f, endpoint: e.target.value }))}
-            />
-          </label>
-          <label>
-            Embedding Model (optional)
-            <input
-              placeholder="e.g. nomic-embed-text"
-              value={presetForm.embeddingModelName ?? ''}
-              onChange={e => setPresetForm(f => ({ ...f, embeddingModelName: e.target.value }))}
-            />
-          </label>
-          <label>
-            API Key (optional)
-            <input
-              type="password"
-              value={presetForm.apiKey ?? ''}
-              onChange={e => setPresetForm(f => ({ ...f, apiKey: e.target.value }))}
-            />
-          </label>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <button type="submit">{editingPresetId !== null ? 'Update Preset' : 'Save Preset'}</button>
-            {editingPresetId !== null && (
-              <button type="button" className="btn-secondary" onClick={() => { setEditingPresetId(null); setPresetForm(emptyPresetForm) }}>
-                Cancel
-              </button>
-            )}
-            {presetSaved && <span className="saved-msg">✓ Saved</span>}
-          </div>
-        </form>
-      </section>
     </div>
   )
 }

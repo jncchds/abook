@@ -4,6 +4,7 @@ import BookDetail from './pages/BookDetail'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
 import AdminUsers from './pages/AdminUsers'
+import Presets from './pages/Presets'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 
 function ProtectedRoutes() {
@@ -16,6 +17,7 @@ function ProtectedRoutes() {
       <Route path="/books/:id" element={<BookDetail />} />
       <Route path="/books/:id/settings" element={<Settings />} />
       <Route path="/settings" element={<Settings />} />
+      <Route path="/presets" element={<Presets />} />
       <Route path="/admin/users" element={<AdminUsers />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

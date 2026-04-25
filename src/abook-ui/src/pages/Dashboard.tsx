@@ -40,6 +40,7 @@ export default function Dashboard() {
         <div className="header-actions">
           <button onClick={() => setShowForm(v => !v)}>+ New Book</button>
           {user?.isAdmin && <Link to="/admin/users" className="btn">👥 Users</Link>}
+          <Link to="/presets" className="btn-secondary btn">🔑 Presets</Link>
           <button className="btn-secondary" onClick={handleLogout}>Sign Out ({user?.username})</button>
         </div>
       </div>

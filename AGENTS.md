@@ -31,7 +31,9 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **LlmPreset**: Id, UserId (nullable, FK → AppUser), Name, Provider, ModelName, Endpoint, ApiKey (nullable), EmbeddingModelName (nullable), CreatedAt, UpdatedAt
   - Visible to: own presets (UserId = currentUser) + global presets (UserId = null)
   - Managed via `GET/POST /api/presets`, `PUT/DELETE /api/presets/{id}`
-  - In Settings UI: "Credential Presets" section for CRUD; "Apply Preset" dropdown in LLM Config pre-fills fields
+- **LLM Presets page**: `Presets.tsx` at `/presets` route. Full CRUD for user-owned presets. Global presets (userId=null) are read-only. Dashboard header has a "🔑 Presets" link.
+- **"Save as Preset" in Settings**: LLM config form has a "Save as Preset…" button that opens an inline name input. Checks for duplicate name among user-owned presets (case-insensitive); prompts to overwrite if found, then calls `updatePreset`; otherwise calls `createPreset`. Settings page retains the "Apply Preset" dropdown for filling settings from an existing preset.
+- **Credential Presets CRUD removed from Settings page**: the full preset management form has been moved to the dedicated `/presets` page. Settings only retains the dropdown for applying presets and the save-as-preset flow.
 - **AppUser**: Id, Username, PasswordHash, IsAdmin
 
 ### Vector Store (PostgreSQL + pgvector)
@@ -209,6 +211,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - `src/ABook.Api/HostedServices/RunRecoveryService.cs` — Startup `BackgroundService`: rehydrates `WaitingForInput` runs (creates fresh TCS) and orphans stale `Running` runs
 - `src/ABook.Api/Program.cs` — App configuration (cookie auth, EF Core, SignalR, pgvector, SK)
 - `src/abook-ui/src/pages/BookDetail.tsx` — Main book view: sidebar chapter list, chapter content, agent chat panel. Overview area now has 4 tabs: Overview (book details/edit), Story Bible (edit form), Characters (card list + CRUD), Plot Threads (card list + CRUD). Chapter view shows POV character, foreshadowing/payoff meta panel. Loads StoryBible/Characters/PlotThreads on mount and refreshes on `ChapterUpdated` SignalR events.
+- `src/abook-ui/src/pages/Presets.tsx` — Dedicated page for credential preset CRUD (`/presets` route). Lists all visible presets (user-owned + global), with edit/delete actions. Global presets show a "global" badge and cannot be deleted.
 - `src/abook-ui/src/hooks/` — `useBookHub.ts`, `useAuth.tsx`
 - `src/abook-ui/src/utils/bookHtmlExport.ts` — Client-side HTML export: markdown→HTML converter, 6 color presets, font-size controls; `downloadBookAsHtml(book)` triggers browser download
 - `src/abook-ui/src/api.ts` — Typed API client
