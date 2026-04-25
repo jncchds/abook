@@ -26,3 +26,26 @@ Specifically, keep these sections accurate:
 - **Tech Stack** — framework and library versions
 
 README.md is the public-facing documentation. It must always reflect what the app actually does.
+
+## EF Core Migrations
+
+Always create Entity Framework Core migrations using the `dotnet ef` CLI tool — never by manually creating migration files. Run from the solution root:
+
+```
+dotnet ef migrations add <MigrationName> --project src/ABook.Infrastructure --startup-project src/ABook.Api
+```
+
+After adding a migration, verify it looks correct before applying it. Apply with:
+
+```
+dotnet ef database update --project src/ABook.Infrastructure --startup-project src/ABook.Api
+```
+
+## Fix Compilation Errors
+
+After every change — whether to .NET (C#) or TypeScript/React code — check for and fix compilation errors before considering the task done.
+
+- **.NET**: run `dotnet build` from the solution root; resolve all errors and warnings that relate to the change.
+- **TypeScript**: run `npm run build` (or `npx tsc --noEmit`) inside `src/abook-ui`; resolve all type errors.
+
+Do not leave a codebase in a broken state. If a change introduces errors in files outside the directly edited file, fix those too.
