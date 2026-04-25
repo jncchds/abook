@@ -1,5 +1,6 @@
 {
     "chat.tools.terminal.autoApprove": {
-        "git add": true
+        "git add": true,
+        "npx tsc": true
     }
 }

@@ -28,6 +28,10 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **AgentMessage**: Id, BookId, ChapterId (nullable), AgentRole, MessageType (Content/Question/Answer/SystemNote/Feedback), Content, IsResolved, CreatedAt
 - **LlmConfiguration**: Id, BookId (nullable, FK → Book), **UserId (nullable, FK → AppUser)**, Provider (Ollama/OpenAI/Azure/Anthropic), ModelName, Endpoint, ApiKey (nullable), EmbeddingModelName (nullable)
   - Lookup chain: book-specific (BookId) → user-default (UserId, no BookId) → global (neither)
+- **LlmPreset**: Id, UserId (nullable, FK → AppUser), Name, Provider, ModelName, Endpoint, ApiKey (nullable), EmbeddingModelName (nullable), CreatedAt, UpdatedAt
+  - Visible to: own presets (UserId = currentUser) + global presets (UserId = null)
+  - Managed via `GET/POST /api/presets`, `PUT/DELETE /api/presets/{id}`
+  - In Settings UI: "Credential Presets" section for CRUD; "Apply Preset" dropdown in LLM Config pre-fills fields
 - **AppUser**: Id, Username, PasswordHash, IsAdmin
 
 ### Vector Store (PostgreSQL + pgvector)
@@ -191,14 +195,15 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - `src/ABook.Infrastructure/Llm/LlmProviderFactory.cs` — Pluggable LLM factory
 - `src/ABook.Infrastructure/VectorStore/PgvectorVectorStoreService.cs` — pgvector implementation of IVectorStoreService; scoped service using AppDbContext
 - `src/ABook.Infrastructure/VectorStore/ChapterEmbedding.cs` — EF Core entity for pgvector embeddings storage
-- `src/ABook.Infrastructure/Migrations/` — EF Core migrations (`InitialCreate`, `AddLanguageAndUsers`, `AddUserLlmConfig`, `AddTokenUsageRecord`, `AddPlanningArtifacts`, `AddPlanningPhaseStatus`, `AddPlanningPhasePrompts`, `AddChapterEmbeddings`)
+- `src/ABook.Infrastructure/Migrations/` — EF Core migrations (`InitialCreate`, `AddLanguageAndUsers`, `AddUserLlmConfig`, `AddTokenUsageRecord`, `AddPlanningArtifacts`, `AddPlanningPhaseStatus`, `AddPlanningPhasePrompts`, `AddChapterEmbeddings`, `AddAgentRuns`, `AddLlmPresets`)
 - `src/ABook.Agents/AgentBase.cs` — Base class for all agents
 - `src/ABook.Agents/AgentPrompts.cs` — `PromptPlaceholders` constants + `DefaultPrompts` static class (all 7 agent default prompts)
 - `src/ABook.Agents/QuestionAgent.cs` — upfront Q&A: `GatherQuestionsAsync`, `AskQuestionsAsync`, `LoadExistingContextAsync`
 - `src/ABook.Agents/StoryBibleAgent.cs`, `CharactersAgent.cs`, `PlotThreadsAgent.cs`, `PlannerAgent.cs`, `WriterAgent.cs`, `EditorAgent.cs`, `ContinuityCheckerAgent.cs`
 - `src/ABook.Agents/AgentOrchestrator.cs` — Run lifecycle management
 - `src/ABook.Agents/AgentRunStateService.cs` — Singleton run state tracker
-- `src/ABook.Api/Controllers/` — `BooksController`, `ChaptersController`, `MessagesController`, `ConfigurationController`, `AgentController`, `AuthController`, `UsersController`, `OllamaController`
+- `src/ABook.Core/Models/LlmPreset.cs` — Preset entity (Id, UserId, Name, Provider, ModelName, Endpoint, ApiKey, EmbeddingModelName, timestamps)
+- `src/ABook.Api/Controllers/` — `BooksController`, `ChaptersController`, `MessagesController`, `ConfigurationController`, `AgentController`, `AuthController`, `UsersController`, `OllamaController`, `PresetsController`
 - `src/ABook.Api/Hubs/BookHub.cs` — SignalR hub
 - `src/ABook.Core/Models/AgentRun.cs` — Persisted agent run entity (Id GUID, BookId, RunType, Status, CurrentRole, ChapterId, PendingMessageId, WorkflowContext, timestamps)
 - `src/ABook.Api/HostedServices/RunRecoveryService.cs` — Startup `BackgroundService`: rehydrates `WaitingForInput` runs (creates fresh TCS) and orphans stale `Running` runs

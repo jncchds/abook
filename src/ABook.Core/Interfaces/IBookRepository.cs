@@ -57,5 +57,12 @@ public interface IBookRepository
     Task<AgentRun?> GetActiveRunForBookAsync(int bookId);
     Task UpdateRunAsync(AgentRun run);
     Task<IEnumerable<AgentRun>> GetRunsByStatusAsync(AgentRunPersistStatus status);
+
+    // LLM Presets
+    Task<IEnumerable<LlmPreset>> GetPresetsAsync(int? userId);
+    Task<LlmPreset?> GetPresetAsync(int id);
+    Task<LlmPreset> CreatePresetAsync(LlmPreset preset);
+    Task UpdatePresetAsync(LlmPreset preset);
+    Task DeletePresetAsync(int id);
 }
 

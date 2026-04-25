@@ -258,3 +258,23 @@ export const updatePlotThread = (bookId: number, threadId: number, data: Omit<Pl
   api.put<PlotThread>(`/books/${bookId}/plot-threads/${threadId}`, data)
 export const deletePlotThread = (bookId: number, threadId: number) =>
   api.delete(`/books/${bookId}/plot-threads/${threadId}`)
+
+// LLM Presets
+export interface LlmPreset {
+  id: number
+  userId?: number | null
+  name: string
+  provider: string
+  modelName: string
+  endpoint: string
+  apiKey?: string | null
+  embeddingModelName?: string | null
+  createdAt?: string
+  updatedAt?: string
+}
+export const getPresets = () => api.get<LlmPreset[]>('/presets')
+export const createPreset = (data: Omit<LlmPreset, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) =>
+  api.post<LlmPreset>('/presets', data)
+export const updatePreset = (id: number, data: Omit<LlmPreset, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) =>
+  api.put<LlmPreset>(`/presets/${id}`, data)
+export const deletePreset = (id: number) => api.delete(`/presets/${id}`)

@@ -198,6 +198,15 @@ details[open] summary { margin-bottom: 1rem; }
 .endpoint-row input { flex: 1; }
 .btn-sm { padding: 0.3rem 0.65rem; font-size: 0.8rem; flex-shrink: 0; }
 
+/* Presets */
+.presets-list { display: flex; flex-direction: column; gap: 0; margin-bottom: 1rem; padding: 0; }
+.preset-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); }
+.preset-row:last-child { border-bottom: none; }
+.preset-info { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.preset-meta { font-size: 0.78rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.preset-badge { font-size: 0.7rem; color: var(--accent); background: var(--accent-faint, rgba(99,102,241,0.12)); border-radius: 3px; padding: 0 5px; align-self: flex-start; }
+.preset-actions { display: flex; gap: 0.35rem; flex-shrink: 0; }
+
 /* Ollama pull */
 .pull-section { }
 .pull-row { display: flex; gap: 0.5rem; align-items: center; }

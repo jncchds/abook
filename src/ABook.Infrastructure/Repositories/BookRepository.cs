@@ -320,4 +320,40 @@ public class BookRepository : IBookRepository
 
     public async Task<IEnumerable<AgentRun>> GetRunsByStatusAsync(AgentRunPersistStatus status) =>
         await _db.AgentRuns.Where(r => r.Status == status).ToListAsync();
+
+    // ── LLM Presets ───────────────────────────────────────────────────────────
+
+    public async Task<IEnumerable<LlmPreset>> GetPresetsAsync(int? userId) =>
+        await _db.LlmPresets
+            .Where(p => p.UserId == null || p.UserId == userId)
+            .OrderBy(p => p.Name)
+            .ToListAsync();
+
+    public async Task<LlmPreset?> GetPresetAsync(int id) =>
+        await _db.LlmPresets.FindAsync(id);
+
+    public async Task<LlmPreset> CreatePresetAsync(LlmPreset preset)
+    {
+        preset.CreatedAt = preset.UpdatedAt = DateTime.UtcNow;
+        _db.LlmPresets.Add(preset);
+        await _db.SaveChangesAsync();
+        return preset;
+    }
+
+    public async Task UpdatePresetAsync(LlmPreset preset)
+    {
+        preset.UpdatedAt = DateTime.UtcNow;
+        _db.LlmPresets.Update(preset);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task DeletePresetAsync(int id)
+    {
+        var preset = await _db.LlmPresets.FindAsync(id);
+        if (preset is not null)
+        {
+            _db.LlmPresets.Remove(preset);
+            await _db.SaveChangesAsync();
+        }
+    }
 }

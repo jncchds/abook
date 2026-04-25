@@ -19,6 +19,7 @@ public class AppDbContext : DbContext
     public DbSet<PlotThread> PlotThreads => Set<PlotThread>();
     public DbSet<AgentRun> AgentRuns => Set<AgentRun>();
     public DbSet<ChapterEmbedding> ChapterEmbeddings => Set<ChapterEmbedding>();
+    public DbSet<LlmPreset> LlmPresets => Set<LlmPreset>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -162,6 +163,20 @@ public class AppDbContext : DbContext
             e.Property(x => x.Embedding).HasColumnType("vector");
             e.HasIndex(x => new { x.BookId, x.ChapterId, x.ChunkIndex }).IsUnique();
             e.HasIndex(x => x.BookId);
+        });
+
+        modelBuilder.Entity<LlmPreset>(p =>
+        {
+            p.HasKey(x => x.Id);
+            p.Property(x => x.Name).IsRequired().HasMaxLength(200);
+            p.Property(x => x.Provider).HasConversion<string>();
+            p.Property(x => x.ModelName).IsRequired().HasMaxLength(200);
+            p.Property(x => x.Endpoint).HasMaxLength(500);
+            p.HasOne(x => x.User)
+             .WithMany()
+             .HasForeignKey(x => x.UserId)
+             .OnDelete(DeleteBehavior.SetNull)
+             .IsRequired(false);
         });
 
         modelBuilder.Entity<AgentRun>(r =>
