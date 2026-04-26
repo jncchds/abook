@@ -10,11 +10,13 @@ public class BooksController : ControllerBase
 {
     private readonly IBookRepository _repo;
     private readonly IVectorStoreService _vectorStore;
+    private readonly ILlmProviderFactory _llmFactory;
 
-    public BooksController(IBookRepository repo, IVectorStoreService vectorStore)
+    public BooksController(IBookRepository repo, IVectorStoreService vectorStore, ILlmProviderFactory llmFactory)
     {
         _repo = repo;
         _vectorStore = vectorStore;
+        _llmFactory = llmFactory;
     }
 
     private int? CurrentUserId =>
@@ -115,8 +117,7 @@ public class BooksController : ControllerBase
     }
 
     [HttpGet("{id:int}/default-prompts")]
-    public async Task<IActionResult> GetDefaultPrompts(int id)
-    {
+    public async Task<IActionResult> GetDefaultPrompts(int id)    {
         var book = await _repo.GetByIdAsync(id);
         if (book is null) return NotFound();
 
@@ -138,6 +139,77 @@ public class BooksController : ControllerBase
 
             continuityCheckerSystemPrompt = $"You are a Continuity Checker for fiction manuscripts. Your job is to identify plot holes,\ncharacter inconsistencies, timeline errors, and factual contradictions across chapters.\nOutput a JSON array of issues, each with:\n  \"description\" (string), \"chapterNumbers\" (int[]), \"suggestion\" (string).\nIf no issues found, output an empty array [].\nBook: {book.Title} | Genre: {book.Genre} | Language: {lang}"
         });
+    }
+
+    /// <summary>
+    /// Diagnostic endpoint: reports embedding configuration and optionally runs a RAG search.
+    /// GET /api/books/{id}/rag/search?query=the+protagonist+woke+up&topK=5
+    /// Returns 200 with diagnostic info. The "results" array is empty when no chapters have been indexed
+    /// or when no query is provided; "error" is non-null when the embedding call itself failed.
+    /// </summary>
+    [HttpGet("{id:int}/rag/search")]
+    public async Task<IActionResult> RagSearch(int id, [FromQuery] string? query = null, [FromQuery] int topK = 5)
+    {
+        var book = await _repo.GetByIdAsync(id);
+        if (book is null) return NotFound();
+        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
+
+        var config = await _repo.GetLlmConfigAsync(id, book.UserId);
+        var embeddingModelConfigured = config is not null && !string.IsNullOrWhiteSpace(config.EmbeddingModelName);
+        var indexedChunkCount = await _vectorStore.CountChunksAsync(id);
+
+        if (string.IsNullOrWhiteSpace(query) || config is null || !embeddingModelConfigured)
+        {
+            return Ok(new
+            {
+                embeddingModelConfigured,
+                embeddingModel = config?.EmbeddingModelName,
+                provider = config?.Provider.ToString(),
+                indexedChunkCount,
+                query = (string?)null,
+                results = Array.Empty<object>(),
+                error = (string?)(embeddingModelConfigured ? null : "Set EmbeddingModelName in LLM settings to enable RAG.")
+            });
+        }
+
+        try
+        {
+            var embedder = _llmFactory.CreateEmbeddingGeneration(config);
+            var embeddings = await embedder.GenerateAsync([query]);
+            var embedding = embeddings[0].Vector;
+            var chunks = (await _vectorStore.SearchAsync(id, embedding, topK)).ToList();
+
+            return Ok(new
+            {
+                embeddingModelConfigured,
+                embeddingModel = config.EmbeddingModelName,
+                provider = config.Provider.ToString(),
+                indexedChunkCount,
+                query,
+                results = chunks.Select(c => new
+                {
+                    c.ChapterId,
+                    c.ChapterNumber,
+                    c.ChunkIndex,
+                    c.Score,
+                    textPreview = c.Text.Length > 300 ? c.Text[..300] + "…" : c.Text
+                }),
+                error = (string?)null
+            });
+        }
+        catch (Exception ex)
+        {
+            return Ok(new
+            {
+                embeddingModelConfigured,
+                embeddingModel = config.EmbeddingModelName,
+                provider = config.Provider.ToString(),
+                indexedChunkCount,
+                query,
+                results = Array.Empty<object>(),
+                error = ex.Message
+            });
+        }
     }
 }
 

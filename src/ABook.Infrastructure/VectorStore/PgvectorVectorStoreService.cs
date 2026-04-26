@@ -71,6 +71,13 @@ public class PgvectorVectorStoreService : IVectorStoreService
         return rows.Select(r => new ChunkResult(r.ChapterId, r.ChapterNumber, r.ChunkIndex, r.Text, r.Score));
     }
 
+    public async Task<int> CountChunksAsync(int bookId, CancellationToken ct = default)
+    {
+        return await _context.ChapterEmbeddings
+            .Where(e => e.BookId == bookId)
+            .CountAsync(ct);
+    }
+
     public async Task DeleteChapterChunksAsync(int bookId, int chapterId, CancellationToken ct = default)
     {
         await _context.ChapterEmbeddings

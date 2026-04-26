@@ -242,7 +242,7 @@ public abstract class AgentBase
         catch { /* non-fatal */ }
     }
 
-    /// <summary>Retrieve relevant context chunks from Qdrant for RAG. Returns empty on failure or when no embedding model is configured.
+    /// <summary>Retrieve relevant context chunks from pgvector for RAG. Returns empty on failure or when no embedding model is configured.
     /// Token usage for the embedding call is persisted/notified when <paramref name="ct"/> and <paramref name="chapterId"/> are supplied.</summary>
     protected async Task<string> GetRagContextAsync(
         int bookId, string query, int topK, ILlmProviderFactory factory, LlmConfiguration config,

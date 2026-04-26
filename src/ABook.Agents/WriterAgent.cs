@@ -73,10 +73,10 @@ public class WriterAgent : AgentBase
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Writer, "Done", ct);
 
-        // Index chapter in Qdrant for RAG (non-fatal)
+        // Index chapter in pgvector for RAG (non-fatal)
         try { await IndexChapterAsync(bookId, chapter, kernel, config!, ct); }
         catch (OperationCanceledException) { throw; }
-        catch { /* Qdrant unavailable */ }
+        catch { /* non-fatal — embeddings unavailable */ }
     }
 
     /// <summary>
