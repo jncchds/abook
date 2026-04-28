@@ -1,20 +1,23 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import type { LlmConfig, LlmPreset, OllamaModel, Book, DefaultPrompts } from '../api'
-import { getLlmConfig, updateLlmConfig, updateBook, getBook, getOllamaModels, getDefaultPrompts, getPresets, createPreset, updatePreset } from '../api'
+import type { LlmConfig, LlmPreset, ProviderModel, Book, DefaultPrompts } from '../api'
+import { getLlmConfig, updateLlmConfig, updateBook, getBook, getModels, getDefaultPrompts, getPresets, createPreset, updatePreset } from '../api'
 
-const PROVIDERS = ['Ollama', 'LMStudio', 'OpenAI', 'AzureOpenAI', 'Anthropic'] as const
+const PROVIDERS = ['Ollama', 'OpenAI', 'AzureOpenAI', 'Anthropic', 'GoogleAIStudio'] as const
 
 const DEFAULT_ENDPOINTS: Record<string, string> = {
   Ollama: 'http://host.docker.internal:11434',
-  LMStudio: 'http://host.docker.internal:1234',
   Anthropic: 'http://localhost:4000',  // LiteLLM or other OpenAI-compatible Anthropic proxy
+  GoogleAIStudio: 'https://generativelanguage.googleapis.com/v1beta/openai',
 }
 
-// Providers that expose a model list endpoint (via /api/tags or /v1/models)
-const MODEL_LIST_PROVIDERS = new Set(['Ollama', 'LMStudio'])
+// Providers that expose a model list endpoint (fetched server-side via /api/models)
+const MODEL_LIST_PROVIDERS = new Set(['Ollama', 'OpenAI', 'GoogleAIStudio'])
 
-// Providers that need an OpenAI-compatible proxy for Anthropic models (no native SK connector for .NET 10 yet)
+// Providers that need an API key to fetch the model list
+const API_KEY_REQUIRED_PROVIDERS = new Set(['OpenAI', 'GoogleAIStudio'])
+
+// Providers that need an OpenAI-compatible proxy (no native SK connector)
 const PROXY_REQUIRED_PROVIDERS = new Set(['Anthropic'])
 
 export default function Settings() {
@@ -32,12 +35,8 @@ export default function Settings() {
     plotThreadsSystemPrompt: '', chapterOutlinesSystemPrompt: '',
     writerSystemPrompt: '', editorSystemPrompt: '', continuityCheckerSystemPrompt: ''
   })
-  const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([])
+  const [models, setModels] = useState<ProviderModel[]>([])
   const [modelsLoading, setModelsLoading] = useState(false)
-  const [customModel, setCustomModel] = useState('')
-  const [useCustomModel, setUseCustomModel] = useState(false)
-  const [useCustomEmbeddingModel, setUseCustomEmbeddingModel] = useState(false)
-  const [customEmbeddingModel, setCustomEmbeddingModel] = useState('')
   const [pullModel, setPullModel] = useState('')
   const [pullStatus, setPullStatus] = useState('')
   const [saved, setSaved] = useState(false)
@@ -51,32 +50,16 @@ export default function Settings() {
   const [saveAsPresetName, setSaveAsPresetName] = useState('')
   const [presetSaved, setPresetSaved] = useState(false)
 
-  const fetchModels = (endpoint: string, provider?: string, currentModel?: string, currentEmbeddingModel?: string) => {
+  const fetchModels = (endpoint: string, provider?: string, apiKey?: string) => {
     const prov = provider ?? config.provider
     if (!MODEL_LIST_PROVIDERS.has(prov)) {
-      setOllamaModels([])
+      setModels([])
       return
     }
     setModelsLoading(true)
-    getOllamaModels(endpoint, prov)
-      .then(r => {
-        setOllamaModels(r.data)
-        // If saved chat model isn't in the list, switch to custom mode
-        const model = currentModel ?? config.modelName
-        if (model && !r.data.some(m => m.name === model)) {
-          setUseCustomModel(true)
-          setCustomModel(model)
-        }
-        // If saved embedding model isn't in the list, switch to custom mode
-        const embModel = currentEmbeddingModel ?? config.embeddingModelName ?? ''
-        if (embModel && !r.data.some(m => m.name === embModel)) {
-          setUseCustomEmbeddingModel(true)
-          setCustomEmbeddingModel(embModel)
-        }
-      })
-      .catch(() => {
-        setOllamaModels([])
-      })
+    getModels(endpoint, prov, apiKey)
+      .then(r => setModels(r.data))
+      .catch(() => setModels([]))
       .finally(() => setModelsLoading(false))
   }
 
@@ -84,7 +67,7 @@ export default function Settings() {
     getLlmConfig(bookId).then(r => {
       if (r.data) {
         setConfig(r.data)
-        fetchModels(r.data.endpoint ?? '', r.data.provider, r.data.modelName, r.data.embeddingModelName ?? '')
+        fetchModels(r.data.endpoint ?? '', r.data.provider, r.data.apiKey ?? undefined)
       }
     })
     getPresets().then(r => setPresets(r.data)).catch(() => {})
@@ -109,9 +92,7 @@ export default function Settings() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
-    const modelName = useCustomModel ? customModel : config.modelName
-    const embeddingModelName = useCustomEmbeddingModel ? customEmbeddingModel : config.embeddingModelName
-    await updateLlmConfig({ ...config, modelName, embeddingModelName, bookId })
+    await updateLlmConfig({ ...config, bookId })
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -138,15 +119,13 @@ export default function Settings() {
   const handleSaveAsPreset = async () => {
     const name = saveAsPresetName.trim()
     if (!name) return
-    const modelName = useCustomModel ? customModel : config.modelName
-    const embeddingModelName = useCustomEmbeddingModel ? customEmbeddingModel : config.embeddingModelName
     const data = {
       name,
       provider: config.provider,
-      modelName,
+      modelName: config.modelName,
       endpoint: config.endpoint,
       apiKey: config.apiKey ?? '',
-      embeddingModelName: embeddingModelName ?? '',
+      embeddingModelName: config.embeddingModelName ?? '',
     }
     // Only check user-owned presets (userId !== null) for duplicates
     const existing = presets.find(p => p.userId !== null && p.name.toLowerCase() === name.toLowerCase())
@@ -165,17 +144,16 @@ export default function Settings() {
 
   const applyPreset = (preset: LlmPreset) => {
     const defaultEndpoint = DEFAULT_ENDPOINTS[preset.provider] ?? ''
-    setConfig({
+    const newConfig = {
       ...config,
       provider: preset.provider,
       modelName: preset.modelName,
       endpoint: preset.endpoint || defaultEndpoint,
       apiKey: preset.apiKey ?? undefined,
       embeddingModelName: preset.embeddingModelName ?? undefined,
-    })
-    setUseCustomModel(false)
-    setUseCustomEmbeddingModel(false)
-    fetchModels(preset.endpoint || defaultEndpoint, preset.provider, preset.modelName, preset.embeddingModelName ?? '')
+    }
+    setConfig(newConfig)
+    fetchModels(newConfig.endpoint, newConfig.provider, newConfig.apiKey)
   }
 
   const handlePull = async () => {
@@ -208,7 +186,7 @@ export default function Settings() {
             const total = obj.total ? ` (${Math.round(obj.completed / obj.total * 100)}%)` : ''
             setPullStatus(status + total)
             if (status === 'success') {
-              fetchModels(config.endpoint, config.provider)
+              fetchModels(config.endpoint, config.provider, config.apiKey)
             }
           } catch { /* skip malformed */ }
         }
@@ -219,7 +197,7 @@ export default function Settings() {
     }
   }
 
-  const fetchedModelNames = ollamaModels.map(m => m.name)
+  const fetchedModelNames = models.map(m => m.name)
 
   return (
     <div className="container settings-page">
@@ -255,10 +233,8 @@ export default function Settings() {
                 ? defaultEndpoint
                 : config.endpoint
               setConfig(c => ({ ...c, provider: prov, endpoint: newEndpoint }))
-              setOllamaModels([])
-              setUseCustomModel(false)
-              setUseCustomEmbeddingModel(false)
-              fetchModels(newEndpoint, prov)
+              setModels([])
+              fetchModels(newEndpoint, prov, config.apiKey)
             }}>
               {PROVIDERS.map(p => <option key={p}>{p}</option>)}
             </select>
@@ -266,26 +242,16 @@ export default function Settings() {
           <label>
             Model
             <div className="model-selector">
-              <select
-                value={useCustomModel ? '__custom__' : config.modelName}
-                onChange={e => {
-                  if (e.target.value === '__custom__') { setUseCustomModel(true) }
-                  else { setUseCustomModel(false); setConfig(c => ({ ...c, modelName: e.target.value })) }
-                }}
-              >
-                {fetchedModelNames.length === 0 && !useCustomModel && (
-                  <option value={config.modelName}>{config.modelName || '— no models fetched —'}</option>
-                )}
-                {fetchedModelNames.map(m => <option key={m} value={m}>{m}</option>)}
-                <option value="__custom__">— Custom model name —</option>
-              </select>
-              {useCustomModel && (
-                <input
-                  placeholder="e.g. llama3.2:3b"
-                  value={customModel}
-                  onChange={e => setCustomModel(e.target.value)}
-                />
-              )}
+              <input
+                list="models-list"
+                value={config.modelName}
+                onChange={e => setConfig(c => ({ ...c, modelName: e.target.value }))}
+                placeholder="e.g. gemini-2.0-flash"
+                required
+              />
+              <datalist id="models-list">
+                {fetchedModelNames.map(m => <option key={m} value={m} />)}
+              </datalist>
               {modelsLoading && <span className="hint">Loading…</span>}
             </div>
           </label>
@@ -297,7 +263,7 @@ export default function Settings() {
                 type="button"
                 className="btn-secondary btn-sm"
                 title="Refresh model list from this endpoint"
-              onClick={() => fetchModels(config.endpoint, config.provider)}
+              onClick={() => fetchModels(config.endpoint, config.provider, config.apiKey)}
                 disabled={modelsLoading}
               >{modelsLoading ? '…' : '↺ Refresh'}</button>
             </div>
@@ -308,40 +274,29 @@ export default function Settings() {
                 <code>http://localhost:4000</code>).
               </span>
             )}
+            {API_KEY_REQUIRED_PROVIDERS.has(config.provider) && (
+              <span className="hint">
+                Enter your API key below, then click ↺ Refresh to load the model list.{' '}
+                {config.provider === 'GoogleAIStudio' && (
+                  <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Get a key at Google AI Studio →</a>
+                )}
+              </span>
+            )}
           </label>
           <label>
             Embedding Model
-            {MODEL_LIST_PROVIDERS.has(config.provider) ? (
-              <div className="model-selector">
-                <select
-                  value={useCustomEmbeddingModel ? '__custom__' : (config.embeddingModelName ?? '')}
-                  onChange={e => {
-                    if (e.target.value === '__custom__') { setUseCustomEmbeddingModel(true) }
-                    else { setUseCustomEmbeddingModel(false); setConfig(c => ({ ...c, embeddingModelName: e.target.value })) }
-                  }}
-                >
-                  {fetchedModelNames.length === 0 && !useCustomEmbeddingModel && (
-                    <option value={config.embeddingModelName ?? ''}>{config.embeddingModelName || '— no models fetched —'}</option>
-                  )}
-                  {fetchedModelNames.map(m => <option key={m} value={m}>{m}</option>)}
-                  <option value="__custom__">— Custom model name —</option>
-                </select>
-                {useCustomEmbeddingModel && (
-                  <input
-                    placeholder="e.g. nomic-embed-text"
-                    value={customEmbeddingModel}
-                    onChange={e => setCustomEmbeddingModel(e.target.value)}
-                  />
-                )}
-                {modelsLoading && <span className="hint">Loading…</span>}
-              </div>
-            ) : (
+            <div className="model-selector">
               <input
-                placeholder="e.g. text-embedding-3-small"
+                list="embedding-list"
                 value={config.embeddingModelName ?? ''}
                 onChange={e => setConfig(c => ({ ...c, embeddingModelName: e.target.value }))}
+                placeholder={config.provider === 'GoogleAIStudio' ? 'e.g. text-embedding-004' : 'e.g. text-embedding-3-small'}
               />
-            )}
+              <datalist id="embedding-list">
+                {fetchedModelNames.map(m => <option key={m} value={m} />)}
+              </datalist>
+              {modelsLoading && <span className="hint">Loading…</span>}
+            </div>
           </label>
           <label>
             API Key (optional)
@@ -355,7 +310,7 @@ export default function Settings() {
                 type="button"
                 className="btn-secondary"
                 onClick={() => {
-                  setSaveAsPresetName(`${config.provider} - ${useCustomModel ? customModel : config.modelName}`)
+                  setSaveAsPresetName(`${config.provider} - ${config.modelName}`)
                   setShowSaveAsPreset(true)
                   setPresetSaved(false)
                 }}

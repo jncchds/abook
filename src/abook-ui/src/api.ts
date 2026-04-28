@@ -70,7 +70,7 @@ export interface AgentRunStatus {
   chapterId?: number
 }
 
-export interface OllamaModel {
+export interface ProviderModel {
   name: string
   size: number
 }
@@ -185,13 +185,14 @@ export const getLlmConfig = (bookId?: number) =>
   api.get<LlmConfig>('/configuration', { params: { bookId } })
 export const updateLlmConfig = (data: LlmConfig) => api.put<LlmConfig>('/configuration', data)
 
-// Ollama
-export const getOllamaModels = (endpoint?: string, provider?: string) => {
+// Models
+export const getModels = (endpoint?: string, provider?: string, apiKey?: string) => {
   const params = new URLSearchParams()
   if (endpoint) params.set('endpoint', endpoint)
   if (provider) params.set('provider', provider)
+  if (apiKey) params.set('apiKey', apiKey)
   const qs = params.toString()
-  return api.get<OllamaModel[]>('/ollama/models' + (qs ? `?${qs}` : ''))
+  return api.get<ProviderModel[]>('/models' + (qs ? `?${qs}` : ''))
 }
 
 // Story Bible

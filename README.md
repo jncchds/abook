@@ -112,10 +112,10 @@ volumes:
 |---|---|---|
 | `ConnectionStrings__DefaultConnection` | — | PostgreSQL connection string |
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` disables Swagger |
-| `LlmDefaults__Provider` | `Ollama` | Default LLM provider (`Ollama`, `LMStudio`, `OpenAI`, `Anthropic`) |
+| `LlmDefaults__Provider` | `Ollama` | Default LLM provider (`Ollama`, `OpenAI`, `Anthropic`, `GoogleAIStudio`) |
 | `LlmDefaults__ModelName` | `llama3` | Default model name |
 | `LlmDefaults__Endpoint` | `http://host.docker.internal:11434` | Default LLM endpoint |
-| `LlmDefaults__ApiKey` | — | API key for the default LLM provider (optional for Ollama/LMStudio) |
+| `LlmDefaults__ApiKey` | — | API key for the default LLM provider (required for OpenAI / GoogleAIStudio; optional for Ollama) |
 | `LlmDefaults__EmbeddingModelName` | — | Embedding model for RAG (optional; falls back to chat model) |
 
 The `LlmDefaults__*` variables seed the global LLM configuration on startup. They can also be set in `appsettings.Local.json` (copy from `appsettings.Local.example.json`) for local development, or in `docker-compose.override.yml` for Docker-based local overrides.
@@ -127,8 +127,8 @@ Configure the LLM backend in the app's **Settings** page or via the API:
 | Provider | Notes |
 |---|---|
 | **Ollama** | Default. Runs locally; `host.docker.internal` resolves to the host from inside Docker. |
-| **LM Studio** | OpenAI-compatible local server. Default endpoint `http://host.docker.internal:1234`. API key defaults to `lm-studio`. |
-| **OpenAI** | Provide API key and model name (e.g. `gpt-4o`). Leave endpoint blank for the real OpenAI API; set a custom endpoint to use any OpenAI-compatible API (Groq, Together, etc.). |
+| **OpenAI** | Provide API key and model name (e.g. `gpt-4o`). Leave endpoint blank for the real OpenAI API; set a custom endpoint to use any OpenAI-compatible API (Groq, Together, LM Studio at `http://host.docker.internal:1234/v1`, etc.). |
+| **Google AI Studio** | Native Gemini connector. Requires an API key (get one at [aistudio.google.com](https://aistudio.google.com/apikey)). Models: `gemini-2.0-flash`, `gemini-2.5-pro`, etc. Embedding model: `text-embedding-004`. |
 | **Anthropic** | Requires an OpenAI-compatible proxy such as [LiteLLM](https://github.com/BerriAI/litellm). Set Endpoint to the proxy URL (e.g. `http://localhost:4000`) and provide your Anthropic API key and model name (e.g. `claude-3-5-sonnet`). |
 
 Configurations can be set globally, per-user, or per-book. The lookup order is: book-specific → user-default → global.
