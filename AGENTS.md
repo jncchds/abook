@@ -206,6 +206,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - `src/ABook.Agents/AgentRunStateService.cs` — Singleton run state tracker
 - `src/ABook.Core/Models/LlmPreset.cs` — Preset entity (Id, UserId, Name, Provider, ModelName, Endpoint, ApiKey, EmbeddingModelName, timestamps)
 - `src/ABook.Api/Auth/ApiTokenAuthenticationHandler.cs` — Bearer token auth scheme used by MCP endpoint; reads `Authorization: Bearer {token}` header, looks up user by `ApiToken` column
+- `src/ABook.Api/Mcp/UserMcpTools.cs` — User-level MCP tools: `get_current_user`, `get_llm_config`, `set_llm_config`, `list_presets`, `apply_preset`, `generate_book` (creates book + immediately starts full workflow)
 - `src/ABook.Api/Mcp/BookMcpTools.cs` — MCP tools: `list_books`, `get_book`, `create_book`, `update_book`, `delete_book`, `get_agent_messages`, `get_agent_status`, `get_token_usage`
 - `src/ABook.Api/Mcp/ContentMcpTools.cs` — MCP tools: `get_story_bible`, `update_story_bible`, `list_characters`, `create/update/delete_character`, `list_plot_threads`, `create/update/delete_plot_thread`, `list_chapters`, `get_chapter`, `create/update_chapter`
 - `src/ABook.Api/Mcp/AgentMcpTools.cs` — MCP tools: `start_planning`, `continue_planning`, `start_workflow`, `continue_workflow`, `stop_workflow`, `write_chapter`, `edit_chapter`, `run_continuity_check`, `answer_agent_question`
@@ -306,6 +307,7 @@ the- **Agent error logging & UI notifications**: `IBookNotifier` gains `NotifyAg
 - **Clear Chat button**: appears in the chat panel header when messages exist and agent is not running. Calls `DELETE /api/books/{id}/messages` → `MessagesController.DeleteAll` → `IBookRepository.DeleteMessagesAsync`.
 - **Clear Token Stats button**: appears inside the token stats `<summary>` when stats exist and agent is not running. Calls `DELETE /api/books/{id}/token-usage` → `BooksController.DeleteTokenUsage` → `IBookRepository.DeleteTokenUsageAsync`.
 
+- **MCP tools are organized in two tiers**: `UserMcpTools` for user-level operations (profile, LLM config, presets, `generate_book`); `BookMcpTools` / `ContentMcpTools` / `AgentMcpTools` for per-book operations. `generate_book` creates a book and immediately fires `StartWorkflowAsync` in background — single tool for end-to-end book generation.
 - **MCP server embedded in `ABook.Api`**: `ModelContextProtocol.AspNetCore 1.2.0` package; `AddMcpServer().WithHttpTransport().WithTools<T>()` registration; mounted at `/mcp` via `app.MapMcp("/mcp").RequireAuthorization(...)`
 - **ApiToken auth for MCP**: `ApiTokenAuthenticationHandler` implements `Authorization: Bearer {guid}` scheme registered as `"ApiToken"` alongside cookie scheme. MCP endpoint accepts either scheme. `AppUser.ApiToken` column (nullable string) added via `AddApiToken` migration. Plaintext GUID — acceptable for local dev tool; threat model excludes DB-level attackers.
 - **One token per user**: simple UX; regenerate to rotate via `POST /api/auth/api-token/regenerate`. `GET /api/auth/api-token` returns current token for display.

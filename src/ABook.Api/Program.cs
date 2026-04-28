@@ -86,6 +86,7 @@ builder.Services.AddHostedService<ABook.Api.HostedServices.RunRecoveryService>()
 // ── MCP Server ────────────────────────────────────────────────────────────────
 builder.Services.AddMcpServer()
     .WithHttpTransport()
+    .WithTools<UserMcpTools>()
     .WithTools<BookMcpTools>()
     .WithTools<ContentMcpTools>()
     .WithTools<AgentMcpTools>();
