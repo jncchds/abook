@@ -1,5 +1,7 @@
 using ABook.Agents;
+using ABook.Api.Auth;
 using ABook.Api.Hubs;
+using ABook.Api.Mcp;
 using ABook.Api.Services;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
@@ -7,6 +9,7 @@ using ABook.Infrastructure.Data;
 using ABook.Infrastructure.Llm;
 using ABook.Infrastructure.Repositories;
 using ABook.Infrastructure.VectorStore;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -33,8 +36,9 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddSingleton<ILlmProviderFactory, LlmProviderFactory>();
 builder.Services.AddScoped<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>();
 builder.Services.AddHttpClient("ollama");
+builder.Services.AddHttpContextAccessor();
 
-// ── Auth (cookie-based, SPA-friendly) ─────────────────────────────────────────
+// ── Auth (cookie-based + ApiToken for MCP) ────────────────────────────────────
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(o =>
     {
@@ -51,7 +55,8 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
             ctx.Response.StatusCode = 403;
             return Task.CompletedTask;
         };
-    });
+    })
+    .AddScheme<AuthenticationSchemeOptions, ApiTokenAuthenticationHandler>("ApiToken", null);
 builder.Services.AddAuthorization();
 
 // ── SignalR ───────────────────────────────────────────────────────────────────
@@ -77,6 +82,13 @@ builder.Services.AddScoped<ABook.Agents.EditorAgent>();
 builder.Services.AddScoped<ABook.Agents.ContinuityCheckerAgent>();
 builder.Services.AddScoped<IAgentOrchestrator, ABook.Agents.AgentOrchestrator>();
 builder.Services.AddHostedService<ABook.Api.HostedServices.RunRecoveryService>();
+
+// ── MCP Server ────────────────────────────────────────────────────────────────
+builder.Services.AddMcpServer()
+    .WithHttpTransport()
+    .WithTools<BookMcpTools>()
+    .WithTools<ContentMcpTools>()
+    .WithTools<AgentMcpTools>();
 
 // ── API ───────────────────────────────────────────────────────────────────────
 builder.Services.AddControllers()
@@ -137,6 +149,12 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapControllers();
 app.MapHub<BookHub>("/hubs/book");
+
+// ── MCP endpoint (authenticated via ApiToken Bearer or session cookie) ────────
+app.MapMcp("/mcp")
+   .RequireAuthorization(policy => policy
+       .AddAuthenticationSchemes("ApiToken", CookieAuthenticationDefaults.AuthenticationScheme)
+       .RequireAuthenticatedUser());
 
 // React SPA fallback — serve index.html for all non-API routes
 app.MapFallbackToFile("index.html");

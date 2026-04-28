@@ -105,6 +105,26 @@ public class AuthController : ControllerBase
             new AuthenticationProperties { IsPersistent = true, ExpiresUtc = DateTimeOffset.UtcNow.AddDays(30) });
     }
 
+    [HttpGet("api-token")]
+    [Authorize]
+    public async Task<IActionResult> GetApiToken()
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var user = await _users.GetByIdAsync(userId);
+        if (user is null) return Unauthorized();
+        return Ok(new { token = user.ApiToken });
+    }
+
+    [HttpPost("api-token/regenerate")]
+    [Authorize]
+    public async Task<IActionResult> RegenerateApiToken()
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var newToken = Guid.NewGuid().ToString();
+        await _users.UpdateApiTokenAsync(userId, newToken);
+        return Ok(new { token = newToken });
+    }
+
     private static object UserDto(AppUser u) => new { u.Id, u.Username, u.IsAdmin };
 }
 

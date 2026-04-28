@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import type { LlmConfig, LlmPreset, ProviderModel, Book, DefaultPrompts } from '../api'
-import { getLlmConfig, updateLlmConfig, updateBook, getBook, getModels, getDefaultPrompts, getPresets, createPreset, updatePreset } from '../api'
+import { getLlmConfig, updateLlmConfig, updateBook, getBook, getModels, getDefaultPrompts, getPresets, createPreset, updatePreset, getApiToken, regenerateApiToken } from '../api'
 
 const PROVIDERS = ['Ollama', 'OpenAI', 'AzureOpenAI', 'Anthropic', 'GoogleAIStudio'] as const
 
@@ -50,6 +50,12 @@ export default function Settings() {
   const [saveAsPresetName, setSaveAsPresetName] = useState('')
   const [presetSaved, setPresetSaved] = useState(false)
 
+  // ── MCP token state ──────────────────────────────────────────
+  const [mcpToken, setMcpToken] = useState<string | null>(null)
+  const [mcpTokenVisible, setMcpTokenVisible] = useState(false)
+  const [mcpTokenCopied, setMcpTokenCopied] = useState(false)
+  const [mcpTokenRegenConfirm, setMcpTokenRegenConfirm] = useState(false)
+
   const fetchModels = (endpoint: string, provider?: string, apiKey?: string) => {
     const prov = provider ?? config.provider
     if (!MODEL_LIST_PROVIDERS.has(prov)) {
@@ -71,6 +77,7 @@ export default function Settings() {
       }
     })
     getPresets().then(r => setPresets(r.data)).catch(() => {})
+    getApiToken().then(r => setMcpToken(r.data.token)).catch(() => {})
     if (bookId) {
       getBook(bookId).then(r => {
         setBook(r.data)
@@ -156,6 +163,13 @@ export default function Settings() {
     fetchModels(newConfig.endpoint, newConfig.provider, newConfig.apiKey)
   }
 
+  const handleRegenMcpToken = async () => {
+    const r = await regenerateApiToken()
+    setMcpToken(r.data.token)
+    setMcpTokenVisible(true)
+    setMcpTokenRegenConfirm(false)
+  }
+
   const handlePull = async () => {
     if (!pullModel.trim()) return
     abortRef.current = new AbortController()
@@ -203,6 +217,96 @@ export default function Settings() {
     <div className="container settings-page">
       <Link to={bookId ? `/books/${bookId}` : '/'} className="back-link">← Back</Link>
       <h1>Settings {bookId ? `— Book #${bookId}` : '(Global)'}</h1>
+
+      {/* MCP Access */}
+      <section className="settings-section">
+        <h2>MCP Access</h2>
+        <div className="card settings-form">
+          <p style={{ margin: '0 0 0.75rem', color: 'var(--text-secondary)' }}>
+            Use this API token to connect an MCP client (Claude Desktop, VS Code Copilot, etc.) to ABook.
+          </p>
+          {!mcpToken ? (
+            <div>
+              <p style={{ color: 'var(--text-secondary)' }}>No token generated yet.</p>
+              <button type="button" className="btn" onClick={handleRegenMcpToken}>Generate Token</button>
+            </div>
+          ) : (
+            <>
+              <label>
+                API Token
+                <div className="endpoint-row">
+                  <input
+                    type={mcpTokenVisible ? 'text' : 'password'}
+                    readOnly
+                    value={mcpToken}
+                    style={{ fontFamily: 'monospace' }}
+                  />
+                  <button type="button" className="btn btn-sm" onClick={() => setMcpTokenVisible(v => !v)}>
+                    {mcpTokenVisible ? 'Hide' : 'Show'}
+                  </button>
+                  <button type="button" className="btn btn-sm" onClick={() => {
+                    navigator.clipboard.writeText(mcpToken)
+                    setMcpTokenCopied(true)
+                    setTimeout(() => setMcpTokenCopied(false), 2000)
+                  }}>
+                    {mcpTokenCopied ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
+              </label>
+              {!mcpTokenRegenConfirm ? (
+                <button type="button" className="btn btn-secondary" onClick={() => setMcpTokenRegenConfirm(true)}>
+                  Regenerate Token…
+                </button>
+              ) : (
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <span style={{ color: 'var(--danger)' }}>Old token will stop working immediately.</span>
+                  <button type="button" className="btn btn-danger" onClick={handleRegenMcpToken}>Confirm Regenerate</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => setMcpTokenRegenConfirm(false)}>Cancel</button>
+                </div>
+              )}
+            </>
+          )}
+          <details style={{ marginTop: '1rem' }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 600 }}>How to connect MCP clients</summary>
+            <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div>
+                <strong>MCP endpoint URL:</strong>
+                <code style={{ display: 'block', margin: '0.25rem 0', padding: '0.4rem 0.6rem', background: 'var(--bg-secondary)', borderRadius: '4px' }}>
+                  http://localhost:5000/mcp
+                </code>
+              </div>
+              <div>
+                <strong>Claude Desktop</strong> — add to <code>claude_desktop_config.json</code>:
+                <pre style={{ background: 'var(--bg-secondary)', borderRadius: '4px', padding: '0.6rem', overflow: 'auto', fontSize: '0.8rem' }}>{`{
+  "mcpServers": {
+    "abook": {
+      "type": "http",
+      "url": "http://localhost:5000/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_TOKEN"
+      }
+    }
+  }
+}`}</pre>
+              </div>
+              <div>
+                <strong>VS Code / GitHub Copilot</strong> — add to <code>.vscode/mcp.json</code>:
+                <pre style={{ background: 'var(--bg-secondary)', borderRadius: '4px', padding: '0.6rem', overflow: 'auto', fontSize: '0.8rem' }}>{`{
+  "servers": {
+    "abook": {
+      "type": "http",
+      "url": "http://localhost:5000/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_TOKEN"
+      }
+    }
+  }
+}`}</pre>
+              </div>
+            </div>
+          </details>
+        </div>
+      </section>
 
       {/* LLM Config */}
       <section className="settings-section">

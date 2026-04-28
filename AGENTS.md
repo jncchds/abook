@@ -34,7 +34,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **LLM Presets page**: `Presets.tsx` at `/presets` route. Full CRUD for user-owned presets. Global presets (userId=null) are read-only. Dashboard header has a "🔑 Presets" link.
 - **"Save as Preset" in Settings**: LLM config form has a "Save as Preset…" button that opens an inline name input. Checks for duplicate name among user-owned presets (case-insensitive); prompts to overwrite if found, then calls `updatePreset`; otherwise calls `createPreset`. Settings page retains the "Apply Preset" dropdown for filling settings from an existing preset.
 - **Credential Presets CRUD removed from Settings page**: the full preset management form has been moved to the dedicated `/presets` page. Settings only retains the dropdown for applying presets and the save-as-preset flow.
-- **AppUser**: Id, Username, PasswordHash, IsAdmin
+- **AppUser**: Id, Username, PasswordHash, IsAdmin, **ApiToken (nullable GUID string)**, CreatedAt
 
 ### Vector Store (PostgreSQL + pgvector)
 - **ChapterEmbedding** — `ChapterEmbeddings` table in PostgreSQL, stores chunked chapter text with embeddings
@@ -197,7 +197,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - `src/ABook.Infrastructure/Llm/LlmProviderFactory.cs` — Pluggable LLM factory
 - `src/ABook.Infrastructure/VectorStore/PgvectorVectorStoreService.cs` — pgvector implementation of IVectorStoreService; scoped service using AppDbContext
 - `src/ABook.Infrastructure/VectorStore/ChapterEmbedding.cs` — EF Core entity for pgvector embeddings storage
-- `src/ABook.Infrastructure/Migrations/` — EF Core migrations (`InitialCreate`, `AddLanguageAndUsers`, `AddUserLlmConfig`, `AddTokenUsageRecord`, `AddPlanningArtifacts`, `AddPlanningPhaseStatus`, `AddPlanningPhasePrompts`, `AddChapterEmbeddings`, `AddAgentRuns`, `AddLlmPresets`)
+- `src/ABook.Infrastructure/Migrations/` — EF Core migrations (`InitialCreate`, `AddLanguageAndUsers`, `AddUserLlmConfig`, `AddTokenUsageRecord`, `AddPlanningArtifacts`, `AddPlanningPhaseStatus`, `AddPlanningPhasePrompts`, `AddChapterEmbeddings`, `AddAgentRuns`, `AddLlmPresets`, `AddApiToken`)
 - `src/ABook.Agents/AgentBase.cs` — Base class for all agents
 - `src/ABook.Agents/AgentPrompts.cs` — `PromptPlaceholders` constants + `DefaultPrompts` static class (all 7 agent default prompts)
 - `src/ABook.Agents/QuestionAgent.cs` — upfront Q&A: `GatherQuestionsAsync`, `AskQuestionsAsync`, `LoadExistingContextAsync`
@@ -205,6 +205,10 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - `src/ABook.Agents/AgentOrchestrator.cs` — Run lifecycle management
 - `src/ABook.Agents/AgentRunStateService.cs` — Singleton run state tracker
 - `src/ABook.Core/Models/LlmPreset.cs` — Preset entity (Id, UserId, Name, Provider, ModelName, Endpoint, ApiKey, EmbeddingModelName, timestamps)
+- `src/ABook.Api/Auth/ApiTokenAuthenticationHandler.cs` — Bearer token auth scheme used by MCP endpoint; reads `Authorization: Bearer {token}` header, looks up user by `ApiToken` column
+- `src/ABook.Api/Mcp/BookMcpTools.cs` — MCP tools: `list_books`, `get_book`, `create_book`, `update_book`, `delete_book`, `get_agent_messages`, `get_agent_status`, `get_token_usage`
+- `src/ABook.Api/Mcp/ContentMcpTools.cs` — MCP tools: `get_story_bible`, `update_story_bible`, `list_characters`, `create/update/delete_character`, `list_plot_threads`, `create/update/delete_plot_thread`, `list_chapters`, `get_chapter`, `create/update_chapter`
+- `src/ABook.Api/Mcp/AgentMcpTools.cs` — MCP tools: `start_planning`, `continue_planning`, `start_workflow`, `continue_workflow`, `stop_workflow`, `write_chapter`, `edit_chapter`, `run_continuity_check`, `answer_agent_question`
 - `src/ABook.Api/Controllers/` — `BooksController`, `ChaptersController`, `MessagesController`, `ConfigurationController`, `AgentController`, `AuthController`, `UsersController`, `OllamaController`, `PresetsController`
 - `src/ABook.Api/Hubs/BookHub.cs` — SignalR hub
 - `src/ABook.Core/Models/AgentRun.cs` — Persisted agent run entity (Id GUID, BookId, RunType, Status, CurrentRole, ChapterId, PendingMessageId, WorkflowContext, timestamps)
@@ -301,6 +305,14 @@ the- **Agent error logging & UI notifications**: `IBookNotifier` gains `NotifyAg
 - **Planning stream previews**: Each planning tab (Story Bible, Characters, Plot Threads) shows a live `⏳ Generating…` preview while the corresponding agent is streaming. Three progressive parsers in `BookDetail.tsx`: `parseStoryBibleStream` (regex-extracts JSON fields), `parseCharactersStream` (extracts complete `{...}` objects), `parsePlotThreadsStream` (same). All parsers are fault-tolerant — they skip malformed items and keep already-parsed ones.
 - **Clear Chat button**: appears in the chat panel header when messages exist and agent is not running. Calls `DELETE /api/books/{id}/messages` → `MessagesController.DeleteAll` → `IBookRepository.DeleteMessagesAsync`.
 - **Clear Token Stats button**: appears inside the token stats `<summary>` when stats exist and agent is not running. Calls `DELETE /api/books/{id}/token-usage` → `BooksController.DeleteTokenUsage` → `IBookRepository.DeleteTokenUsageAsync`.
+
+- **MCP server embedded in `ABook.Api`**: `ModelContextProtocol.AspNetCore 1.2.0` package; `AddMcpServer().WithHttpTransport().WithTools<T>()` registration; mounted at `/mcp` via `app.MapMcp("/mcp").RequireAuthorization(...)`
+- **ApiToken auth for MCP**: `ApiTokenAuthenticationHandler` implements `Authorization: Bearer {guid}` scheme registered as `"ApiToken"` alongside cookie scheme. MCP endpoint accepts either scheme. `AppUser.ApiToken` column (nullable string) added via `AddApiToken` migration. Plaintext GUID — acceptable for local dev tool; threat model excludes DB-level attackers.
+- **One token per user**: simple UX; regenerate to rotate via `POST /api/auth/api-token/regenerate`. `GET /api/auth/api-token` returns current token for display.
+- **MCP tool DI pattern**: tool classes (Scoped) inject `IBookRepository`, `AgentRunStateService`, `IServiceScopeFactory`, `IHttpContextAccessor`. User ID extracted from `ClaimTypes.NameIdentifier` on `IHttpContextAccessor.HttpContext.User`.
+- **`AddHttpContextAccessor()`** registered in `Program.cs` — required so `IHttpContextAccessor` resolves correctly in MCP tool classes.
+- **MCP tools use fire-and-forget pattern** for long-running agent operations: same `RunInBackground` / `IServiceScopeFactory` pattern as `AgentController`. Agent errors logged via `ILogger<AgentMcpTools>`; agent status polled via `get_agent_status` tool.
+- **Settings UI `MCP Access` section**: loads token on mount via `getApiToken()`; show/hide toggle + copy-to-clipboard button; regenerate with inline confirmation; collapsible `<details>` with Claude Desktop and VS Code connection config snippets.
 
 ---
 

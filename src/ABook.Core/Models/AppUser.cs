@@ -6,6 +6,7 @@ public class AppUser
     public string Username { get; set; } = string.Empty;
     public string PasswordHash { get; set; } = string.Empty;
     public bool IsAdmin { get; set; }
+    public string? ApiToken { get; set; }
     public DateTime CreatedAt { get; set; }
 
     public ICollection<Book> Books { get; set; } = new List<Book>();

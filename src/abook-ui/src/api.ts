@@ -90,6 +90,8 @@ export const authRegister = (username: string, password: string) =>
   api.post<AppUser>('/auth/register', { username, password })
 export const authLogout = () => api.post('/auth/logout')
 export const authMe = () => api.get<AppUser>('/auth/me')
+export const getApiToken = () => api.get<{ token: string | null }>('/auth/api-token')
+export const regenerateApiToken = () => api.post<{ token: string }>('/auth/api-token/regenerate')
 
 // Users (admin)
 export const getUsers = () => api.get<AppUser[]>('/users')

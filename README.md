@@ -19,6 +19,7 @@ ABook is a self-hosted web application that uses AI agents to collaboratively wr
 - **Clear buttons** — clear agent messages or token stats for a book without deleting any content
 - **HTML export** — download the finished book with 6 colour themes and adjustable font size, or download a **Metadata document** (book info, chapter outlines, Story Bible, Characters, Plot Threads, agent messages, token statistics) in the same themed format
 - **Fully containerized** — single `docker-compose up` starts everything
+- **MCP server** — built-in Model Context Protocol server at `/mcp`; any MCP-compatible client (Claude Desktop, VS Code Copilot) can read and write book content and trigger agents using a per-user API token generated in Settings
 
 ## Architecture
 
@@ -117,6 +118,45 @@ volumes:
 | `LlmDefaults__Endpoint` | `http://host.docker.internal:11434` | Default LLM endpoint |
 | `LlmDefaults__ApiKey` | — | API key for the default LLM provider (required for OpenAI / GoogleAIStudio; optional for Ollama) |
 | `LlmDefaults__EmbeddingModelName` | — | Embedding model for RAG (optional; falls back to chat model) |
+
+### MCP Access
+
+ABook includes a built-in [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server at `/mcp`. Any MCP-compatible client (Claude Desktop, VS Code / GitHub Copilot, etc.) can connect to it to:
+
+- Read and manage books, story bibles, characters, plot threads, and chapters
+- Trigger agent workflows (plan, write, edit, continuity check)
+- Answer agent questions and poll run status
+
+To connect:
+1. Open **Settings** in ABook and find the **MCP Access** section
+2. Generate an API token (or click Regenerate to rotate)
+3. Add the server to your MCP client config using `Authorization: Bearer <token>`
+
+**Claude Desktop** (`claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "abook": {
+      "type": "http",
+      "url": "http://localhost:5000/mcp",
+      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+    }
+  }
+}
+```
+
+**VS Code / GitHub Copilot** (`.vscode/mcp.json`):
+```json
+{
+  "servers": {
+    "abook": {
+      "type": "http",
+      "url": "http://localhost:5000/mcp",
+      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+    }
+  }
+}
+```
 
 The `LlmDefaults__*` variables seed the global LLM configuration on startup. They can also be set in `appsettings.Local.json` (copy from `appsettings.Local.example.json`) for local development, or in `docker-compose.override.yml` for Docker-based local overrides.
 
@@ -224,7 +264,8 @@ The multi-stage Dockerfile builds the React app (Node 20), compiles the .NET API
 | Database | PostgreSQL 16 via EF Core 10 + Npgsql |
 | Vector store | pgvector (stored in PostgreSQL, `Pgvector.EntityFrameworkCore` 0.x) |
 | Real-time | SignalR |
-| Auth | Cookie-based, `IPasswordHasher<T>` |
+| Auth | Cookie-based, `IPasswordHasher<T>`, API token (Bearer) for MCP |
+| MCP | `ModelContextProtocol.AspNetCore` 1.2.0 — HTTP/SSE transport, 25 tools |
 | Container | Docker, Docker Compose |
 
 ## License
