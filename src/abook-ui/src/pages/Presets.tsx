@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import type { LlmPreset } from '../api'
 import { getPresets, createPreset, updatePreset, deletePreset } from '../api'
 
@@ -65,8 +64,7 @@ export default function Presets() {
   }
 
   return (
-    <div className="container settings-page">
-      <Link to="/" className="back-link">← Back to Dashboard</Link>
+    <>
       <h1>Credential Presets</h1>
       <p className="hint">
         Save named LLM configurations for quick reuse. Presets are per-user and can be applied from any
@@ -162,6 +160,6 @@ export default function Presets() {
           </div>
         </form>
       </section>
-    </div>
+    </>
   )
 }

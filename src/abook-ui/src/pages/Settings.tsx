@@ -214,8 +214,7 @@ export default function Settings() {
   const fetchedModelNames = models.map(m => m.name)
 
   return (
-    <div className="container settings-page">
-      <Link to={bookId ? `/books/${bookId}` : '/'} className="back-link">← Back</Link>
+    <>
       <h1>Settings {bookId ? `— Book #${bookId}` : '(Global)'}</h1>
 
       {/* MCP Access */}
@@ -539,6 +538,6 @@ export default function Settings() {
         </section>
       )}
 
-    </div>
+    </>
   )
 }

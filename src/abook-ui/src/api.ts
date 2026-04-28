@@ -175,6 +175,9 @@ export interface TokenUsageRecord {
   agentRole: string
   promptTokens: number
   completionTokens: number
+  stepLabel?: string | null   // non-null = workflow step row (not token usage)
+  endpoint?: string | null
+  modelName?: string | null
   createdAt: string
 }
 export const getTokenUsage = (bookId: number) =>

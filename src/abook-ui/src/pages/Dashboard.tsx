@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { Book } from '../api'
-import { createBook, deleteBook, getBooks, authLogout } from '../api'
-import { useAuth } from '../hooks/useAuth'
+import { createBook, deleteBook, getBooks } from '../api'
 
 export default function Dashboard() {
   const [books, setBooks] = useState<Book[]>([])
-  const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ title: '', premise: '', genre: '', targetChapterCount: 10, language: 'English' })
   const navigate = useNavigate()
-  const { user, setUser } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const showForm = searchParams.get('new') === '1'
 
   useEffect(() => {
     getBooks().then(r => setBooks(r.data)).catch(console.error)
@@ -27,55 +26,44 @@ export default function Dashboard() {
     setBooks(prev => prev.filter(b => b.id !== id))
   }
 
-  const handleLogout = async () => {
-    await authLogout()
-    setUser(null)
-    navigate('/login')
-  }
+  const statusClass = (s: string) => `status status-${s.toLowerCase()}`
 
-  return (
-    <div className="container">
-      <div className="header">
-        <h1>ABook</h1>
-        <div className="header-actions">
-          <button onClick={() => setShowForm(v => !v)}>+ New Book</button>
-          {user?.isAdmin && <Link to="/admin/users" className="btn">👥 Users</Link>}
-          <Link to="/presets" className="btn-secondary btn">🔑 Presets</Link>
-          <button className="btn-secondary" onClick={handleLogout}>Sign Out ({user?.username})</button>
-        </div>
+  return showForm ? (
+    <form className="card" style={{ maxWidth: 560 }} onSubmit={handleCreate}>
+      <h2>New Book</h2>
+      <label>Title<input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} required autoFocus /></label>
+      <label>Genre<input value={form.genre} onChange={e => setForm(f => ({ ...f, genre: e.target.value }))} /></label>
+      <label>Language<input value={form.language} onChange={e => setForm(f => ({ ...f, language: e.target.value }))} placeholder="English" /></label>
+      <label>Target chapters<input type="number" min={1} max={100} value={form.targetChapterCount} onChange={e => setForm(f => ({ ...f, targetChapterCount: +e.target.value }))} /></label>
+      <label>Premise<textarea rows={4} value={form.premise} onChange={e => setForm(f => ({ ...f, premise: e.target.value }))} required /></label>
+      <div className="actions">
+        <button type="submit">Create</button>
+        <button type="button" className="btn-ghost" onClick={() => setSearchParams({})}>Cancel</button>
       </div>
-
-      {showForm && (
-        <form className="card" onSubmit={handleCreate}>
-          <h2>New Book</h2>
-          <label>Title<input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} required /></label>
-          <label>Genre<input value={form.genre} onChange={e => setForm(f => ({ ...f, genre: e.target.value }))} /></label>
-          <label>Language
-            <input value={form.language} onChange={e => setForm(f => ({ ...f, language: e.target.value }))} placeholder="English" />
-          </label>
-          <label>Target chapters<input type="number" min={1} max={100} value={form.targetChapterCount} onChange={e => setForm(f => ({ ...f, targetChapterCount: +e.target.value }))} /></label>
-          <label>Premise<textarea rows={4} value={form.premise} onChange={e => setForm(f => ({ ...f, premise: e.target.value }))} required /></label>
-          <div className="actions">
-            <button type="submit">Create</button>
-            <button type="button" onClick={() => setShowForm(false)}>Cancel</button>
-          </div>
-        </form>
-      )}
-
-      <div className="book-grid">
-        {books.map(b => (
-          <div key={b.id} className="card book-card">
-            <Link to={`/books/${b.id}`}><h3>{b.title}</h3></Link>
-            <p className="genre">{b.genre} · {b.language}</p>
-            <p className="premise">{b.premise.slice(0, 120)}{b.premise.length > 120 ? '…' : ''}</p>
-            <div className="meta">
-              <span className={`status status-${b.status.toLowerCase()}`}>{b.status}</span>
-              <button className="delete-btn" onClick={() => handleDelete(b.id)}>Delete</button>
+    </form>
+  ) : (
+    <div className="book-list">
+      {books.map(b => (
+        <div key={b.id} className="book-list-card">
+          <div className="book-list-card-left">
+            <h3 onClick={() => navigate(`/books/${b.id}`)}>{b.title}</h3>
+            <div className="blc-meta">
+              {b.genre && <span className="blc-genre">{b.genre}</span>}
+              {b.language && <span className="blc-lang">{b.language}</span>}
+              <span className={statusClass(b.status)}>{b.status}</span>
             </div>
+            {b.premise && <p className="blc-premise">{b.premise}</p>}
           </div>
-        ))}
-        {books.length === 0 && <p className="empty">No books yet. Create one to get started.</p>}
-      </div>
+          <div className="book-list-card-right">
+            <span className="blc-chapters">{b.targetChapterCount} chapters</span>
+            <button onClick={() => navigate(`/books/${b.id}`)}>Open →</button>
+            <button className="delete-btn" onClick={() => handleDelete(b.id)}>Delete</button>
+          </div>
+        </div>
+      ))}
+      {books.length === 0 && (
+        <p className="empty">No books yet. Click <strong>➕ New Book</strong> to get started.</p>
+      )}
     </div>
   )
 }

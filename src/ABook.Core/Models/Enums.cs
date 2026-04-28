@@ -6,7 +6,7 @@ public enum PlanningPhaseStatus { NotStarted, Complete }
 
 public enum ChapterStatus { Outlined, Writing, Review, Editing, Done }
 
-public enum AgentRole { Planner, Writer, Editor, ContinuityChecker, Embedder, StoryBibleAgent, CharactersAgent, PlotThreadsAgent }
+public enum AgentRole { Planner, Writer, Editor, ContinuityChecker, Embedder, StoryBibleAgent, CharactersAgent, PlotThreadsAgent, WorkflowStep = 99 }
 
 public enum MessageType { Content, Question, Answer, SystemNote, Feedback }
 

@@ -26,6 +26,7 @@ public interface IBookRepository
     Task<LlmConfiguration> UpsertLlmConfigAsync(LlmConfiguration config);
 
     Task<TokenUsageRecord> AddTokenUsageAsync(TokenUsageRecord record);
+    Task AddWorkflowStepAsync(int bookId, string step, string? endpoint = null, string? modelName = null, CancellationToken ct = default);
     Task<IEnumerable<TokenUsageRecord>> GetTokenUsageAsync(int bookId);
     Task DeleteTokenUsageAsync(int bookId);
     Task DeleteMessagesAsync(int bookId);

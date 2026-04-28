@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import type { AppUser } from '../api'
 import { getUsers, createUser, changePassword, changeRole } from '../api'
@@ -42,10 +41,9 @@ export default function AdminUsers() {
   }
 
   return (
-    <div className="container">
-      <div className="header">
-        <Link to="/" className="back-link">← Books</Link>
-        <h1>User Management</h1>
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
+        <h1 style={{ margin: 0 }}>User Management</h1>
         <button onClick={() => setShowForm(v => !v)}>+ New User</button>
       </div>
 
@@ -108,6 +106,6 @@ export default function AdminUsers() {
           </tbody>
         </table>
       </div>
-    </div>
+    </>
   )
 }

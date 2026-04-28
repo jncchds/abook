@@ -153,6 +153,22 @@ public class BookRepository : IBookRepository
         return record;
     }
 
+    public async Task AddWorkflowStepAsync(int bookId, string step, string? endpoint = null, string? modelName = null, CancellationToken ct = default)
+    {
+        _db.TokenUsageRecords.Add(new TokenUsageRecord
+        {
+            BookId = bookId,
+            AgentRole = AgentRole.WorkflowStep,
+            PromptTokens = 0,
+            CompletionTokens = 0,
+            StepLabel = step,
+            Endpoint = endpoint,
+            ModelName = modelName,
+            CreatedAt = DateTime.UtcNow,
+        });
+        await _db.SaveChangesAsync(ct);
+    }
+
     public async Task<IEnumerable<TokenUsageRecord>> GetTokenUsageAsync(int bookId) =>
         await _db.TokenUsageRecords
             .Where(r => r.BookId == bookId)
