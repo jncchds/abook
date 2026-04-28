@@ -1,12 +1,11 @@
 import { useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { useBookContext } from '../../contexts/BookContext'
 import { updateChapter, clearChapterContent } from '../../api'
 
 export default function ChapterView() {
   const { chapterId } = useParams<{ chapterId: string }>()
-  const navigate = useNavigate()
   const { book, setBook, streamBuffer, streamingChapterId, isRunning } = useBookContext()
 
   const [editingChapter, setEditingChapter] = useState(false)
@@ -59,7 +58,6 @@ export default function ChapterView() {
       ) : (
         <>
           <div className="chapter-header">
-            <button className="btn-back-overview" onClick={() => navigate(`/books/${bookId}/overview`)} title="Back to book overview">← Overview</button>
             <h2>Chapter {chapter.number}: {chapter.title}</h2>
             <span className="ch-status-badge" style={{ background: statusColor(chapter.status) }}>{chapter.status}</span>
             {!isRunning && (

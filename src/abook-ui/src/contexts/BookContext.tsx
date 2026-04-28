@@ -17,6 +17,8 @@ export interface TokenStat {
   prompt: number
   completion: number
   time: string
+  endpoint?: string | null
+  modelName?: string | null
   persisted?: boolean
 }
 
@@ -152,6 +154,8 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         prompt: rec.promptTokens,
         completion: rec.completionTokens,
         time: new Date(rec.createdAt).toLocaleString(),
+        endpoint: rec.endpoint,
+        modelName: rec.modelName,
         persisted: true,
       })))
     }).catch(() => {})
@@ -243,6 +247,8 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
           prompt: rec.promptTokens,
           completion: rec.completionTokens,
           time: new Date(rec.createdAt).toLocaleString(),
+          endpoint: rec.endpoint,
+          modelName: rec.modelName,
           persisted: true,
         })))
       }).catch(() => {

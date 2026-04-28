@@ -33,6 +33,8 @@ export default function TokenStatsPage() {
                   <th>Time</th>
                   <th>Agent</th>
                   <th>Chapter</th>
+                  <th>Model</th>
+                  <th>Endpoint</th>
                   <th style={{ textAlign: 'right' }}>Prompt</th>
                   <th style={{ textAlign: 'right' }}>Completion</th>
                   <th style={{ textAlign: 'right' }}>Total</th>
@@ -44,6 +46,8 @@ export default function TokenStatsPage() {
                     <td>{s.time}</td>
                     <td>{s.role}</td>
                     <td>{chapterLabel(s.chapterId)}</td>
+                    <td>{s.modelName ?? '—'}</td>
+                    <td style={{ fontFamily: 'monospace', fontSize: '0.8em' }}>{s.endpoint ?? '—'}</td>
                     <td style={{ textAlign: 'right' }}>{s.prompt.toLocaleString()}</td>
                     <td style={{ textAlign: 'right' }}>{s.completion.toLocaleString()}</td>
                     <td style={{ textAlign: 'right', fontWeight: 600 }}>{(s.prompt + s.completion).toLocaleString()}</td>
@@ -52,7 +56,7 @@ export default function TokenStatsPage() {
               </tbody>
               <tfoot>
                 <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700 }}>
-                  <td colSpan={3}>Totals ({tokenStats.length} calls)</td>
+                  <td colSpan={5}>Totals ({tokenStats.length} calls)</td>
                   <td style={{ textAlign: 'right' }}>{totalPrompt.toLocaleString()}</td>
                   <td style={{ textAlign: 'right' }}>{totalCompletion.toLocaleString()}</td>
                   <td style={{ textAlign: 'right' }}>{totalAll.toLocaleString()}</td>

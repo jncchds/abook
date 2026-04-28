@@ -26,10 +26,6 @@ function BookSidebar() {
   const isAt = (suffix: string) => location.pathname === `/books/${id}/${suffix}`
   const startsAt = (suffix: string) => location.pathname.startsWith(`/books/${id}/${suffix}`)
 
-  const hasWorkToContinue = (book.chapters ?? []).length > 0 ||
-    book.storyBibleStatus === 'Complete' || book.charactersStatus === 'Complete' ||
-    book.plotThreadsStatus === 'Complete' || book.chaptersStatus === 'Complete'
-
   const statusColor = (s: string) => ({
     Outlined: '#94a3b8', Writing: '#f59e0b', Review: '#3b82f6',
     Editing: '#a855f7', Done: '#22c55e'
@@ -83,8 +79,7 @@ function BookSidebar() {
       ) : (
         <>
           <SidebarBtn icon="▶" label="Write Book" onClick={handleWriteBook} />
-          <SidebarBtn icon="🗗" label="Plan Only" onClick={handlePlanBook} />
-          {hasWorkToContinue && <SidebarBtn icon="↻" label="Continue" onClick={handleContinue} />}
+          <SidebarBtn icon="🗗" label="Plan Book" onClick={handlePlanBook} />
         </>
       )}
       <SidebarDivider />
@@ -93,7 +88,7 @@ function BookSidebar() {
       <SidebarBtn icon="👤" label="Characters" active={isAt('characters')} onClick={() => navigate(`/books/${id}/characters`)} dot={isPhaseComplete('characters')} />
       <SidebarBtn icon="🧵" label="Plot Threads" active={isAt('plot-threads')} onClick={() => navigate(`/books/${id}/plot-threads`)} dot={isPhaseComplete('plotthreads')} />
       <SidebarDivider />
-      <SidebarBtn icon="💬" label="Chat" active={isAt('chat')} onClick={() => navigate(`/books/${id}/chat`)} dot={!!pendingQuestion} />
+      <SidebarBtn icon="💬" label="Chat" active={isAt('chat')} onClick={() => navigate(`/books/${id}/chat`)} dot={!!pendingQuestion} dotColor={pendingQuestion ? 'var(--warning)' : undefined} />
       <SidebarBtn icon="🏃" label="Current State" active={isAt('state')} onClick={() => navigate(`/books/${id}/state`)} />
       <SidebarBtn icon="🪙" label="Token Stats" active={isAt('token-stats')} onClick={() => navigate(`/books/${id}/token-stats`)} />
       <SidebarDivider />

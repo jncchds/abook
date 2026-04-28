@@ -217,12 +217,12 @@ label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bot
   background: var(--warning);
   flex-shrink: 0;
 }
-/* Dot on regular buttons (chat, etc.) */
+/* Dot on regular buttons (phase complete = green by default; override via style for other states) */
 .s-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--warning);
+  background: var(--success);
   flex-shrink: 0;
   margin-left: auto;
 }

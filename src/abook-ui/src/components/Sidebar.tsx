@@ -29,8 +29,8 @@ export default function Sidebar({ hasPendingQuestion, children, bottomChildren }
           onClick={toggle}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          <span className="s-icon">{collapsed ? '›' : '‹'}</span>
-          {!collapsed && <span className="s-label">Collapse</span>}
+          <span className="s-icon">☰</span>
+          {!collapsed && <span className="s-label">ABook</span>}
           {hasPendingQuestion && <span className="s-pending-dot" title="Agent waiting for your answer" />}
         </button>
       </div>
@@ -61,12 +61,13 @@ interface SidebarBtnProps {
   active?: boolean
   disabled?: boolean
   dot?: boolean
+  dotColor?: string
   title?: string
   className?: string
   hideWhenCollapsed?: boolean
 }
 
-export function SidebarBtn({ icon, label, onClick, active, disabled, dot, title, className = '', hideWhenCollapsed }: SidebarBtnProps) {
+export function SidebarBtn({ icon, label, onClick, active, disabled, dot, dotColor, title, className = '', hideWhenCollapsed }: SidebarBtnProps) {
   return (
     <button
       className={`sidebar-btn${active ? ' active' : ''}${hideWhenCollapsed ? ' hide-when-collapsed' : ''}${className ? ' ' + className : ''}`}
@@ -76,7 +77,7 @@ export function SidebarBtn({ icon, label, onClick, active, disabled, dot, title,
     >
       <span className="s-icon">{icon}</span>
       <span className="s-label">{label}</span>
-      {dot && <span className="s-dot" />}
+      {dot && <span className="s-dot" style={dotColor ? { background: dotColor } : undefined} />}
     </button>
   )
 }

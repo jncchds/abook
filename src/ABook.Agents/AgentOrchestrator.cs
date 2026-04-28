@@ -52,8 +52,25 @@ public class AgentOrchestrator : IAgentOrchestrator
     }
 
     public Task StartPlanningAsync(int bookId, CancellationToken ct = default) =>
-        ExecuteAgentRunAsync(bookId, AgentRole.Planner, null, ct,
-            async c => { await RunPlanningPipelineAsync(bookId, false, false, false, false, c); });
+        ExecuteAgentRunAsync(bookId, AgentRole.Planner, null, ct, async c =>
+        {
+            var book = await _repo.GetByIdAsync(bookId)
+                ?? throw new InvalidOperationException($"Book {bookId} not found.");
+
+            bool skipSb      = book.StoryBibleStatus   == PlanningPhaseStatus.Complete;
+            bool skipChars   = book.CharactersStatus   == PlanningPhaseStatus.Complete;
+            bool skipThreads = book.PlotThreadsStatus  == PlanningPhaseStatus.Complete;
+            bool skipChapters = book.ChaptersStatus    == PlanningPhaseStatus.Complete;
+
+            if (skipSb && skipChars && skipThreads && skipChapters)
+            {
+                await _notifier.NotifyWorkflowProgressAsync(bookId,
+                    "All planning phases are already complete. Use Reopen or Clear to reset a phase.", true, c);
+                return;
+            }
+
+            await RunPlanningPipelineAsync(bookId, skipSb, skipChars, skipThreads, skipChapters, c);
+        });
 
     public Task ContinuePlanningAsync(int bookId, CancellationToken ct = default) =>
         ExecuteAgentRunAsync(bookId, AgentRole.Planner, null, ct, async c =>
@@ -96,15 +113,36 @@ public class AgentOrchestrator : IAgentOrchestrator
     public Task StartWorkflowAsync(int bookId, CancellationToken ct = default) =>
         ExecuteAgentRunAsync(bookId, AgentRole.Planner, null, ct, async c =>
         {
-            await _notifier.NotifyWorkflowProgressAsync(bookId, "Starting planning…", false, c);
-            var chapters = await RunPlanningPipelineAsync(bookId, false, false, false, false, c);
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Starting workflow…", false, c);
+
+            var book = await _repo.GetByIdAsync(bookId)
+                ?? throw new InvalidOperationException($"Book {bookId} not found.");
+
+            bool skipSb      = book.StoryBibleStatus   == PlanningPhaseStatus.Complete;
+            bool skipChars   = book.CharactersStatus   == PlanningPhaseStatus.Complete;
+            bool skipThreads = book.PlotThreadsStatus  == PlanningPhaseStatus.Complete;
+            bool skipChapters = book.ChaptersStatus    == PlanningPhaseStatus.Complete;
+
+            var chapters = await RunPlanningPipelineAsync(bookId, skipSb, skipChars, skipThreads, skipChapters, c);
             await _notifier.NotifyWorkflowProgressAsync(bookId,
                 $"Planning complete — {chapters.Count} chapter{(chapters.Count == 1 ? "" : "s")} outlined.", false, c);
 
-            foreach (var chapter in chapters.OrderBy(ch => ch.Number))
+            foreach (var chapterRef in chapters.OrderBy(ch => ch.Number))
             {
                 c.ThrowIfCancellationRequested();
-                await ProcessChapterAsync(bookId, chapter, c);
+
+                // Re-fetch from DB to get true current status (not the planning snapshot)
+                var chapter = await _repo.GetChapterAsync(bookId, chapterRef.Id)
+                    ?? throw new InvalidOperationException($"Chapter {chapterRef.Id} not found.");
+
+                if (chapter.Status == ChapterStatus.Done)
+                {
+                    await _notifier.NotifyWorkflowProgressAsync(bookId,
+                        $"Chapter {chapter.Number} already done — skipping.", false, c);
+                    continue;
+                }
+
+                await ProcessChapterAsync(bookId, chapter, c, resumeFromStatus: chapter.Status);
             }
 
             c.ThrowIfCancellationRequested();

@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import BookListLayout from './layouts/BookListLayout'
 import BookLayout from './layouts/BookLayout'
 import Dashboard from './pages/Dashboard'
-import Settings from './pages/Settings'
+import GlobalSettings from './pages/GlobalSettings'
 import Login from './pages/Login'
 import AdminUsers from './pages/AdminUsers'
 import Presets from './pages/Presets'
@@ -14,6 +14,7 @@ import ChapterView from './pages/book/ChapterView'
 import ChatPage from './pages/book/ChatPage'
 import StatePage from './pages/book/StatePage'
 import TokenStatsPage from './pages/book/TokenStatsPage'
+import BookSettings from './pages/book/BookSettings'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 
 function ProtectedRoutes() {
@@ -24,7 +25,7 @@ function ProtectedRoutes() {
     <Routes>
       <Route element={<BookListLayout />}>
         <Route path="/" element={<Dashboard />} />
-        <Route path="/settings" element={<Settings />} />
+        <Route path="/settings" element={<GlobalSettings />} />
         <Route path="/presets" element={<Presets />} />
         <Route path="/admin/users" element={<AdminUsers />} />
       </Route>
@@ -38,7 +39,7 @@ function ProtectedRoutes() {
         <Route path="chat" element={<ChatPage />} />
         <Route path="state" element={<StatePage />} />
         <Route path="token-stats" element={<TokenStatsPage />} />
-        <Route path="settings" element={<Settings />} />
+        <Route path="settings" element={<BookSettings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
