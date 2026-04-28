@@ -42,15 +42,21 @@ export default function TokenStatsPage() {
               </thead>
               <tbody>
                 {tokenStats.map(s => (
-                  <tr key={s.id}>
+                  <tr key={s.id} style={s.failed ? { color: 'var(--error)', opacity: 0.85 } : undefined}>
                     <td>{s.time}</td>
-                    <td>{s.role}</td>
+                    <td title={s.failed ? 'LLM call failed — counts are partial' : undefined}>
+                      {s.failed ? '❌ ' : ''}{s.role}
+                    </td>
                     <td>{chapterLabel(s.chapterId)}</td>
                     <td>{s.modelName ?? '—'}</td>
                     <td style={{ fontFamily: 'monospace', fontSize: '0.8em' }}>{s.endpoint ?? '—'}</td>
                     <td style={{ textAlign: 'right' }}>{s.prompt.toLocaleString()}</td>
-                    <td style={{ textAlign: 'right' }}>{s.completion.toLocaleString()}</td>
-                    <td style={{ textAlign: 'right', fontWeight: 600 }}>{(s.prompt + s.completion).toLocaleString()}</td>
+                    <td style={{ textAlign: 'right' }} title={s.failed ? 'partial' : undefined}>
+                      {s.failed ? '~' : ''}{s.completion.toLocaleString()}
+                    </td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                      {s.failed ? '~' : ''}{(s.prompt + s.completion).toLocaleString()}
+                    </td>
                   </tr>
                 ))}
               </tbody>

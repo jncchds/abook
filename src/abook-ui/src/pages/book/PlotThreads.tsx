@@ -1,18 +1,28 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useBookContext } from '../../contexts/BookContext'
-import { createPlotThread, updatePlotThread, deletePlotThread } from '../../api'
+import { createPlotThread, updatePlotThread, deletePlotThread, getStreamBuffer } from '../../api'
 import type { PlotThread } from '../../api'
 import { parsePlotThreadsStream } from '../../utils/streamParsers'
 
 export default function PlotThreads() {
   const {
-    book, plotThreads, setPlotThreads, plotThreadsStream,
+    book, plotThreads, setPlotThreads, plotThreadsStream, setPlotThreadsStream,
     isPhaseComplete, handleCompletePhase, handleReopenPhase, handleClearPhase,
+    isRunning,
   } = useBookContext()
 
   const [editingThreadId, setEditingThreadId] = useState<number | null>(null)
   const [addingThread, setAddingThread] = useState(false)
   const [threadForm, setThreadForm] = useState<Partial<PlotThread>>({})
+
+  // Restore in-progress stream on hard-refresh
+  useEffect(() => {
+    if (!book || !isRunning || plotThreadsStream) return
+    getStreamBuffer(book.id, 'PlotThreadsAgent').then(r => {
+      if (r.data.content) setPlotThreadsStream(r.data.content)
+    }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [book?.id])
 
   if (!book) return null
 

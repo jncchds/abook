@@ -178,12 +178,21 @@ export interface TokenUsageRecord {
   stepLabel?: string | null   // non-null = workflow step row (not token usage)
   endpoint?: string | null
   modelName?: string | null
+  failed?: boolean
   createdAt: string
 }
 export const getTokenUsage = (bookId: number) =>
   api.get<TokenUsageRecord[]>(`/books/${bookId}/token-usage`)
 export const clearTokenUsage = (bookId: number) =>
   api.delete(`/books/${bookId}/token-usage`)
+
+export const getStreamBuffer = (bookId: number, agentRole?: string, chapterId?: number) => {
+  const params = new URLSearchParams()
+  if (agentRole) params.set('agentRole', agentRole)
+  if (chapterId !== undefined) params.set('chapterId', String(chapterId))
+  const qs = params.toString()
+  return api.get<{ content: string }>(`/books/${bookId}/agent/stream-buffer` + (qs ? `?${qs}` : ''))
+}
 
 // LLM Config
 export const getLlmConfig = (bookId?: number) =>

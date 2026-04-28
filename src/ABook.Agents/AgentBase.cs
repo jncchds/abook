@@ -88,7 +88,9 @@ public abstract class AgentBase
                     ChapterId = chapterId,
                     AgentRole = role.Value,
                     PromptTokens = promptTokens,
-                    CompletionTokens = completionTokens
+                    CompletionTokens = completionTokens,
+                    Endpoint = config.Endpoint,
+                    ModelName = config.ModelName,
                 });
             }
             catch { /* non-fatal */ }
@@ -104,7 +106,12 @@ public abstract class AgentBase
     {
         var chat = kernel.GetRequiredService<IChatCompletionService>();
         var settings = LlmFactory.CreateExecutionSettings(config, 0.8f, jsonMode);
-        var sb = new System.Text.StringBuilder();
+        // Reuse the singleton buffer so the HTTP endpoint can serve accumulated content on hard-refresh.
+        // Clear any stale content from a previous run with the same key before starting.
+        var sb = StateService.GetOrCreateStreamBuffer(bookId, chapterId, role.ToString());
+        sb.Clear();
+        // Prompt tokens are stable before the call; compute here so they are available in the catch block.
+        int promptTokens = history.Sum(m => (m.Content?.Length ?? 0)) / 4;
 
         if (DebugLoggingEnabled)
         {
@@ -132,6 +139,22 @@ public abstract class AgentBase
         {
             Logger.LogError(ex, "[Book {BookId}] [{Role}] LLM streaming call failed after receiving {Chars} chars. Partial response:\n{Partial}",
                 bookId, role, sb.Length, sb.Length > 0 ? sb.ToString() : "(empty)");
+            // Persist a failed record so Token Stats shows partial usage even on error.
+            try
+            {
+                await Repo.AddTokenUsageAsync(new TokenUsageRecord
+                {
+                    BookId = bookId,
+                    ChapterId = chapterId,
+                    AgentRole = role,
+                    PromptTokens = promptTokens,
+                    CompletionTokens = sb.Length / 4,
+                    Endpoint = config.Endpoint,
+                    ModelName = config.ModelName,
+                    Failed = true,
+                });
+            }
+            catch { /* non-fatal */ }
             throw;
         }
 
@@ -150,7 +173,6 @@ public abstract class AgentBase
                 bookId, role, result.Length, result.Trim());
         }
 
-        int promptTokens = history.Sum(m => (m.Content?.Length ?? 0)) / 4;
         int completionTokens = result.Length / 4;
         try { await Notifier.NotifyTokenStatsAsync(bookId, chapterId, role.ToString(), promptTokens, completionTokens, ct); }
         catch { /* non-fatal */ }
@@ -162,7 +184,9 @@ public abstract class AgentBase
                 ChapterId = chapterId,
                 AgentRole = role,
                 PromptTokens = promptTokens,
-                CompletionTokens = completionTokens
+                CompletionTokens = completionTokens,
+                Endpoint = config.Endpoint,
+                ModelName = config.ModelName,
             });
         }
         catch { /* non-fatal — do not interrupt agent on DB write failure */ }

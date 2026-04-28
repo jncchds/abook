@@ -1,12 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { useBookContext } from '../../contexts/BookContext'
-import { updateChapter, clearChapterContent } from '../../api'
+import { updateChapter, clearChapterContent, getStreamBuffer } from '../../api'
 
 export default function ChapterView() {
   const { chapterId } = useParams<{ chapterId: string }>()
-  const { book, setBook, streamBuffer, streamingChapterId, isRunning } = useBookContext()
+  const { book, setBook, streamBuffer, streamingChapterId, isRunning, setStreamBuffer, setStreamingChapterId } = useBookContext()
 
   const [editingChapter, setEditingChapter] = useState(false)
   const [chapterEditTitle, setChapterEditTitle] = useState('')
@@ -18,6 +18,16 @@ export default function ChapterView() {
   if (!chapter) return <p className="empty">Chapter not found.</p>
 
   const bookId = book.id
+
+  // Restore in-progress stream on hard-refresh
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    if (!isRunning || streamBuffer) return
+    getStreamBuffer(bookId, undefined, chapter.id).then(r => {
+      if (r.data.content) { setStreamBuffer(r.data.content); setStreamingChapterId(chapter.id) }
+    }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chapter.id])
 
   const statusColor = (s: string) => ({
     Outlined: '#94a3b8', Writing: '#f59e0b', Review: '#3b82f6',

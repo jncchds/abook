@@ -1,18 +1,28 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useBookContext } from '../../contexts/BookContext'
-import { createCharacter, updateCharacter, deleteCharacter } from '../../api'
+import { createCharacter, updateCharacter, deleteCharacter, getStreamBuffer } from '../../api'
 import type { CharacterCard } from '../../api'
 import { parseCharactersStream } from '../../utils/streamParsers'
 
 export default function Characters() {
   const {
-    book, characters, setCharacters, charactersStream,
+    book, characters, setCharacters, charactersStream, setCharactersStream,
     isPhaseComplete, handleCompletePhase, handleReopenPhase, handleClearPhase,
+    isRunning,
   } = useBookContext()
 
   const [editingCharId, setEditingCharId] = useState<number | null>(null)
   const [addingChar, setAddingChar] = useState(false)
   const [charForm, setCharForm] = useState<Partial<CharacterCard>>({})
+
+  // Restore in-progress stream on hard-refresh
+  useEffect(() => {
+    if (!book || !isRunning || charactersStream) return
+    getStreamBuffer(book.id, 'CharactersAgent').then(r => {
+      if (r.data.content) setCharactersStream(r.data.content)
+    }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [book?.id])
 
   if (!book) return null
 

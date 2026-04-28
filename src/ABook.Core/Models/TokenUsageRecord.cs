@@ -11,6 +11,7 @@ public class TokenUsageRecord
     public string? StepLabel { get; set; }
     public string? Endpoint { get; set; }
     public string? ModelName { get; set; }
+    public bool Failed { get; set; }
     public DateTime CreatedAt { get; set; }
 
     public Book Book { get; set; } = null!;

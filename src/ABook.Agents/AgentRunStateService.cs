@@ -28,6 +28,11 @@ public class AgentRunStateService
     // bookId -> persisted AgentRun.Id
     private readonly ConcurrentDictionary<int, Guid> _runIds = new();
 
+    // Per-streaming-call token accumulation buffers: (bookId, chapterId, agentRole) -> StringBuilder
+    // Reused as the actual `sb` in StreamResponseAsync so there is no duplication.
+    // Cleared when a run reaches a terminal state.
+    private readonly ConcurrentDictionary<(int BookId, int? ChapterId, string AgentRole), System.Text.StringBuilder> _streamBuffers = new();
+
     public AgentRunStateService(IServiceScopeFactory scopeFactory, ILogger<AgentRunStateService> logger)
     {
         _scopeFactory = scopeFactory;
@@ -128,6 +133,7 @@ public class AgentRunStateService
     /// <summary>Persist terminal state (Completed / Failed / Cancelled) and clean up in-memory run id.</summary>
     public async Task PersistRunFinishedAsync(int bookId, AgentRunPersistStatus finalStatus)
     {
+        ClearStreamBuffers(bookId);
         if (!_runIds.TryRemove(bookId, out var runId)) return;
         try
         {
@@ -144,6 +150,32 @@ public class AgentRunStateService
             _logger.LogWarning(ex, "[Book {BookId}] Failed to persist run finish ({Status}).", bookId, finalStatus);
         }
     }
+
+    // ─── Stream buffer helpers ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns (or creates) the StringBuilder that AgentBase uses as <c>sb</c> in
+    /// <c>StreamResponseAsync</c>. The same object is both written to during streaming
+    /// and read back by the HTTP endpoint, so no extra copy is needed.
+    /// </summary>
+    public System.Text.StringBuilder GetOrCreateStreamBuffer(int bookId, int? chapterId, string agentRole) =>
+        _streamBuffers.GetOrAdd((bookId, chapterId, agentRole), _ => new System.Text.StringBuilder());
+
+    /// <summary>Returns the accumulated content for a specific streaming call, or null if not found.</summary>
+    public string? GetStreamBufferContent(int bookId, int? chapterId, string? agentRole)
+    {
+        if (agentRole is null) return null;
+        return _streamBuffers.TryGetValue((bookId, chapterId, agentRole), out var sb) ? sb.ToString() : null;
+    }
+
+    /// <summary>Removes all stream buffers for a book. Call when the run reaches a terminal state.</summary>
+    public void ClearStreamBuffers(int bookId)
+    {
+        foreach (var key in _streamBuffers.Keys.Where(k => k.BookId == bookId).ToList())
+            _streamBuffers.TryRemove(key, out _);
+    }
+
+    // ────────────────────────────────────────────────────────────────────────────
 
     public void SetPending(int bookId, int messageId, TaskCompletionSource<string> tcs) =>
         _pending[bookId] = (messageId, tcs);

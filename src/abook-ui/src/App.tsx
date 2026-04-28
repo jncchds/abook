@@ -11,8 +11,8 @@ import StoryBible from './pages/book/StoryBible'
 import Characters from './pages/book/Characters'
 import PlotThreads from './pages/book/PlotThreads'
 import ChapterView from './pages/book/ChapterView'
+import Chapters from './pages/book/Chapters'
 import ChatPage from './pages/book/ChatPage'
-import StatePage from './pages/book/StatePage'
 import TokenStatsPage from './pages/book/TokenStatsPage'
 import BookSettings from './pages/book/BookSettings'
 import { AuthProvider, useAuth } from './hooks/useAuth'
@@ -35,9 +35,9 @@ function ProtectedRoutes() {
         <Route path="story-bible" element={<StoryBible />} />
         <Route path="characters" element={<Characters />} />
         <Route path="plot-threads" element={<PlotThreads />} />
+        <Route path="chapters" element={<Chapters />} />
         <Route path="chapters/:chapterId" element={<ChapterView />} />
         <Route path="chat" element={<ChatPage />} />
-        <Route path="state" element={<StatePage />} />
         <Route path="token-stats" element={<TokenStatsPage />} />
         <Route path="settings" element={<BookSettings />} />
       </Route>

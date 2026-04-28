@@ -19,6 +19,7 @@ export interface TokenStat {
   time: string
   endpoint?: string | null
   modelName?: string | null
+  failed?: boolean
   persisted?: boolean
 }
 
@@ -45,8 +46,13 @@ interface BookContextValue {
   streamBuffer: string
   streamingChapterId: number | null
   storyBibleStream: string
+  setStoryBibleStream: React.Dispatch<React.SetStateAction<string>>
   charactersStream: string
+  setCharactersStream: React.Dispatch<React.SetStateAction<string>>
   plotThreadsStream: string
+  setPlotThreadsStream: React.Dispatch<React.SetStateAction<string>>
+  setStreamBuffer: React.Dispatch<React.SetStateAction<string>>
+  setStreamingChapterId: React.Dispatch<React.SetStateAction<number | null>>
 
   storyBible: StoryBible | null
   setStoryBible: React.Dispatch<React.SetStateAction<StoryBible | null>>
@@ -148,16 +154,17 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         modelName: rec.modelName,
       })))
       setTokenStats(r.data.filter(rec => !rec.stepLabel).map(rec => ({
-        id: rec.id,
-        chapterId: rec.chapterId,
-        role: rec.agentRole,
-        prompt: rec.promptTokens,
-        completion: rec.completionTokens,
-        time: new Date(rec.createdAt).toLocaleString(),
-        endpoint: rec.endpoint,
-        modelName: rec.modelName,
-        persisted: true,
-      })))
+          id: rec.id,
+          chapterId: rec.chapterId,
+          role: rec.agentRole,
+          prompt: rec.promptTokens,
+          completion: rec.completionTokens,
+          time: new Date(rec.createdAt).toLocaleString(),
+          endpoint: rec.endpoint,
+          modelName: rec.modelName,
+          failed: rec.failed ?? false,
+          persisted: true,
+        })))
     }).catch(() => {})
     getStoryBible(bookId).then(r => setStoryBible(r.data)).catch(() => {})
     getCharacters(bookId).then(r => setCharacters(r.data)).catch(() => {})
@@ -249,6 +256,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
           time: new Date(rec.createdAt).toLocaleString(),
           endpoint: rec.endpoint,
           modelName: rec.modelName,
+          failed: rec.failed ?? false,
           persisted: true,
         })))
       }).catch(() => {
@@ -370,7 +378,8 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     book, setBook, messages, setMessages, pendingQuestion, setPendingQuestion,
     runStatus, setRunStatus, isRunning,
     plannerBuffer, streamBuffer, streamingChapterId,
-    storyBibleStream, charactersStream, plotThreadsStream,
+    storyBibleStream, setStoryBibleStream, charactersStream, setCharactersStream,
+    plotThreadsStream, setPlotThreadsStream, setStreamBuffer, setStreamingChapterId,
     storyBible, setStoryBible, characters, setCharacters, plotThreads, setPlotThreads,
     tokenStats, setTokenStats, workflowSteps, setWorkflowSteps, workflowLog,
     answerText, setAnswerText,

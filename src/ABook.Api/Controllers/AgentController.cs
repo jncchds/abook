@@ -113,6 +113,18 @@ public class AgentController : ControllerBase
         return status is null ? NoContent() : Ok(status);
     }
 
+    /// <summary>
+    /// Returns the accumulated stream buffer for a specific agent role / chapter.
+    /// Used by the UI on hard-refresh to restore in-progress generation.
+    /// Returns { content: "" } when there is no active buffer.
+    /// </summary>
+    [HttpGet("stream-buffer")]
+    public IActionResult StreamBuffer(int bookId, [FromQuery] string? agentRole, [FromQuery] int? chapterId)
+    {
+        var content = _runState.GetStreamBufferContent(bookId, chapterId, agentRole) ?? string.Empty;
+        return Ok(new { content });
+    }
+
     private async Task RunInBackground(int bookId, Func<IAgentOrchestrator, CancellationToken, Task> action, CancellationToken ct = default)
     {
         using var scope = _scopeFactory.CreateScope();

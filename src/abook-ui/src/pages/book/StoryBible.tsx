@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useBookContext } from '../../contexts/BookContext'
-import { updateStoryBible } from '../../api'
+import { updateStoryBible, getStreamBuffer } from '../../api'
 import type { StoryBible } from '../../api'
 import { parseStoryBibleStream } from '../../utils/streamParsers'
 
@@ -8,10 +8,20 @@ export default function StoryBiblePage() {
   const {
     book, storyBible, setStoryBible, storyBibleStream,
     isPhaseComplete, handleCompletePhase, handleReopenPhase, handleClearPhase,
+    isRunning, setStoryBibleStream,
   } = useBookContext()
 
   const [editingBible, setEditingBible] = useState(false)
   const [bibleForm, setBibleForm] = useState<Partial<StoryBible>>({})
+
+  // Restore in-progress stream on hard-refresh
+  useEffect(() => {
+    if (!book || !isRunning || storyBibleStream) return
+    getStreamBuffer(book.id, 'StoryBibleAgent').then(r => {
+      if (r.data.content) setStoryBibleStream(r.data.content)
+    }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [book?.id])
 
   if (!book) return null
 
