@@ -43,4 +43,11 @@ public class GoogleAIStudioProviderStrategy : ILlmProviderStrategy
                 config.EmbeddingModelName,
                 OpenAIProviderHelpers.CreateOpenAIClient(OpenAICompatEndpoint, config.ApiKey));
     }
+
+    public PromptExecutionSettings CreateExecutionSettings(float temperature, bool jsonMode = false) =>
+        new GeminiPromptExecutionSettings
+        {
+            Temperature = (double?)temperature,
+            ResponseMimeType = jsonMode ? "application/json" : null,
+        };
 }

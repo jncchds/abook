@@ -29,7 +29,7 @@ public class StoryBibleAgent : AgentBase
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 1/4 - Story Bible...", false, ct);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.StoryBibleAgent, "Running", ct);
 
-        var kernel = await GetKernelAsync(bookId);
+        var (kernel, config) = await GetKernelAsync(bookId);
         var history = new ChatHistory();
 
         var systemPrompt = !string.IsNullOrWhiteSpace(book.StoryBibleSystemPrompt)
@@ -47,7 +47,7 @@ public class StoryBibleAgent : AgentBase
             Create the Story Bible for this book.
             """);
 
-        var raw = await StreamResponseAsync(kernel, history, bookId, null, AgentRole.StoryBibleAgent, ct);
+        var raw = await StreamResponseAsync(kernel, config, history, bookId, null, AgentRole.StoryBibleAgent, ct, jsonMode: true);
 
         StoryBible bible;
         try { bible = Parse(bookId, raw); }

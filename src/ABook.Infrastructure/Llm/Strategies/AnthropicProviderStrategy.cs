@@ -4,6 +4,7 @@ using ABook.Core.Models;
 using Microsoft.Extensions.AI;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Connectors.OpenAI;
 
 namespace ABook.Infrastructure.Llm.Strategies;
 
@@ -44,4 +45,12 @@ public class AnthropicProviderStrategy : ILlmProviderStrategy
             builder.AddOpenAIEmbeddingGenerator(
                 config.EmbeddingModelName, OpenAIProviderHelpers.CreateOpenAIClient(config.Endpoint, config.ApiKey));
     }
+
+    // Anthropic goes through an OpenAI-compatible proxy, so OpenAIPromptExecutionSettings is correct here.
+    public PromptExecutionSettings CreateExecutionSettings(float temperature, bool jsonMode = false) =>
+        new OpenAIPromptExecutionSettings
+        {
+            Temperature = (double?)temperature,
+            ResponseFormat = jsonMode ? OpenAI.Chat.ChatResponseFormat.CreateJsonObjectFormat() : null,
+        };
 }

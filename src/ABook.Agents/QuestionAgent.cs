@@ -32,7 +32,7 @@ public class QuestionAgent : AgentBase
     {
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Checking if clarification is needed…", false, ct);
 
-        var kernel = await GetKernelAsync(bookId);
+        var (kernel, config) = await GetKernelAsync(bookId);
         var history = new ChatHistory();
         history.AddSystemMessage("""
             You are helping plan a book. Given the book premise below, determine if there is anything
@@ -44,7 +44,7 @@ public class QuestionAgent : AgentBase
         history.AddUserMessage(bookContext);
 
         string response;
-        try { response = await GetCompletionAsync(kernel, history, ct, bookId, null, AgentRole.Planner); }
+        try { response = await GetCompletionAsync(kernel, config, history, ct, bookId, null, AgentRole.Planner); }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {

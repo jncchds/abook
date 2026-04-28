@@ -36,4 +36,7 @@ public class LlmProviderFactory : ILlmProviderFactory
         GetStrategy(config.Provider).ConfigureKernelBuilder(builder, config);
         return builder.Build();
     }
+
+    public PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, float temperature, bool jsonMode = false) =>
+        GetStrategy(config.Provider).CreateExecutionSettings(temperature, jsonMode);
 }

@@ -34,7 +34,7 @@ public class PlotThreadsAgent : AgentBase
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 3/4 - Plot Threads...", false, ct);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.PlotThreadsAgent, "Running", ct);
 
-        var kernel = await GetKernelAsync(bookId);
+        var (kernel, config) = await GetKernelAsync(bookId);
         var history = new ChatHistory();
 
         var characterSummary = string.Join("\n", characters.Select(c =>
@@ -64,7 +64,7 @@ public class PlotThreadsAgent : AgentBase
             Create the plot thread map for this book.
             """);
 
-        var raw = await StreamResponseAsync(kernel, history, bookId, null, AgentRole.PlotThreadsAgent, ct);
+        var raw = await StreamResponseAsync(kernel, config, history, bookId, null, AgentRole.PlotThreadsAgent, ct, jsonMode: true);
 
         List<PlotThread> threads;
         try { threads = Parse(bookId, raw); }

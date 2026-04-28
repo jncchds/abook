@@ -31,4 +31,9 @@ public class OllamaProviderStrategy : ILlmProviderStrategy
         var embeddingModel = config.EmbeddingModelName ?? config.ModelName;
         builder.AddOllamaEmbeddingGenerator(embeddingModel, new Uri(config.Endpoint));
     }
+
+    // The SK 1.74.0-alpha Ollama connector does not expose Ollama's `format: "json"` API parameter
+    // via OllamaPromptExecutionSettings. JSON output quality is ensured by the prompt text alone.
+    public PromptExecutionSettings CreateExecutionSettings(float temperature, bool jsonMode = false) =>
+        new OllamaPromptExecutionSettings { Temperature = (float?)temperature };
 }

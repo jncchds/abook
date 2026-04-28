@@ -4,6 +4,7 @@ using ABook.Core.Models;
 using Microsoft.Extensions.AI;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Connectors.OpenAI;
 using OpenAI;
 using System.ClientModel;
 
@@ -56,4 +57,11 @@ public class OpenAIProviderStrategy : ILlmProviderStrategy
                     config.EmbeddingModelName, OpenAIProviderHelpers.CreateOpenAIClient(config.Endpoint, apiKey));
         }
     }
+
+    public PromptExecutionSettings CreateExecutionSettings(float temperature, bool jsonMode = false) =>
+        new OpenAIPromptExecutionSettings
+        {
+            Temperature = (double?)temperature,
+            ResponseFormat = jsonMode ? OpenAI.Chat.ChatResponseFormat.CreateJsonObjectFormat() : null,
+        };
 }

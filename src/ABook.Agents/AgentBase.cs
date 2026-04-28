@@ -5,7 +5,6 @@ using ABook.Core.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
-using Microsoft.SemanticKernel.Connectors.Ollama;
 
 namespace ABook.Agents;
 
@@ -39,12 +38,12 @@ public abstract class AgentBase
         Logger = loggerFactory.CreateLogger(GetType().FullName ?? GetType().Name);
     }
 
-    protected async Task<Kernel> GetKernelAsync(int bookId)
+    protected async Task<(Kernel kernel, LlmConfiguration config)> GetKernelAsync(int bookId)
     {
         var book = await Repo.GetByIdAsync(bookId);
         var config = await Repo.GetLlmConfigAsync(bookId, book?.UserId)
             ?? throw new InvalidOperationException("No LLM configuration found.");
-        return LlmFactory.CreateKernel(config);
+        return (LlmFactory.CreateKernel(config), config);
     }
 
     /// <summary>
@@ -53,11 +52,11 @@ public abstract class AgentBase
     /// token usage is persisted to the DB and emitted via SignalR.
     /// </summary>
     protected async Task<string> GetCompletionAsync(
-        Kernel kernel, ChatHistory history, CancellationToken ct,
-        int? bookId = null, int? chapterId = null, AgentRole? role = null)
+        Kernel kernel, LlmConfiguration config, ChatHistory history, CancellationToken ct,
+        int? bookId = null, int? chapterId = null, AgentRole? role = null, bool jsonMode = false)
     {
         var chat = kernel.GetRequiredService<IChatCompletionService>();
-        var settings = new OllamaPromptExecutionSettings { Temperature = (float?)0.7f };
+        var settings = LlmFactory.CreateExecutionSettings(config, 0.7f, jsonMode);
 
         if (DebugLoggingEnabled)
         {
@@ -101,10 +100,10 @@ public abstract class AgentBase
     /// <summary>Streams LLM tokens to the book's SignalR group and accumulates the full response.</summary>
     /// <param name="suspiciousThreshold">Minimum response length before a 'suspiciously short' warning is emitted. Pass 0 to suppress.</param>
     protected async Task<string> StreamResponseAsync(
-        Kernel kernel, ChatHistory history, int bookId, int? chapterId, AgentRole role, CancellationToken ct, int suspiciousThreshold = 50)
+        Kernel kernel, LlmConfiguration config, ChatHistory history, int bookId, int? chapterId, AgentRole role, CancellationToken ct, bool jsonMode = false, int suspiciousThreshold = 50)
     {
         var chat = kernel.GetRequiredService<IChatCompletionService>();
-        var settings = new OllamaPromptExecutionSettings { Temperature = (float?)0.8f };
+        var settings = LlmFactory.CreateExecutionSettings(config, 0.8f, jsonMode);
         var sb = new System.Text.StringBuilder();
 
         if (DebugLoggingEnabled)

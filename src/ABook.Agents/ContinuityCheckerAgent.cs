@@ -35,7 +35,7 @@ public class ContinuityCheckerAgent : AgentBase
 
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Running", ct);
 
-        var kernel = await GetKernelAsync(bookId);
+        var (kernel, config) = await GetKernelAsync(bookId);
         var establishedFacts = await BuildEstablishedFactsAsync(bookId, chapter);
 
         // â”€â”€ Step 1: Detect â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -62,7 +62,7 @@ public class ContinuityCheckerAgent : AgentBase
             Are there any contradictions between this outline and the established facts above?
             """);
 
-        var detectResponse = await StreamResponseAsync(kernel, detectHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct, suspiciousThreshold: 0);
+        var detectResponse = await StreamResponseAsync(kernel, config, detectHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct, suspiciousThreshold: 0);
 
         if (detectResponse.Trim().StartsWith("No issues found", StringComparison.OrdinalIgnoreCase))
         {
@@ -93,7 +93,7 @@ public class ContinuityCheckerAgent : AgentBase
             Rewrite the outline to resolve all contradictions above.
             """);
 
-        var fixedOutline = await StreamResponseAsync(kernel, fixHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct);
+        var fixedOutline = await StreamResponseAsync(kernel, config, fixHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct);
 
         if (!string.IsNullOrWhiteSpace(fixedOutline))
         {
@@ -132,7 +132,7 @@ public class ContinuityCheckerAgent : AgentBase
 
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Running", ct);
 
-        var kernel = await GetKernelAsync(bookId);
+        var (kernel, config) = await GetKernelAsync(bookId);
         var doneChapters = book.Chapters.Where(c => c.Status == ChapterStatus.Done || c.Status == ChapterStatus.Review).ToList();
 
         if (doneChapters.Count == 0)
@@ -158,9 +158,7 @@ public class ContinuityCheckerAgent : AgentBase
         var structuredContext = await BuildStructuredContextAsync(bookId);
 
         // RAG passages
-        var config = await Repo.GetLlmConfigAsync(bookId, book.UserId);
         var ragContext = string.Empty;
-        if (config != null)
         {
             var ragQueries = new[]
             {
@@ -244,7 +242,7 @@ public class ContinuityCheckerAgent : AgentBase
         }
         history.AddUserMessage(userMessage);
 
-        var response = await StreamResponseAsync(kernel, history, bookId, null, AgentRole.ContinuityChecker, ct, suspiciousThreshold: 0);
+        var response = await StreamResponseAsync(kernel, config, history, bookId, null, AgentRole.ContinuityChecker, ct, suspiciousThreshold: 0);
 
         await Repo.AddMessageAsync(new AgentMessage
         {

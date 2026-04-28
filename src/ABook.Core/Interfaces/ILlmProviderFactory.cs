@@ -10,4 +10,9 @@ public interface ILlmProviderFactory
     IChatCompletionService CreateChatCompletion(LlmConfiguration config);
     IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGeneration(LlmConfiguration config);
     Kernel CreateKernel(LlmConfiguration config);
+    /// <summary>
+    /// Creates provider-specific <see cref="PromptExecutionSettings"/> with the correct JSON output
+    /// format parameter for the given provider when <paramref name="jsonMode"/> is <c>true</c>.
+    /// </summary>
+    PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, float temperature, bool jsonMode = false);
 }

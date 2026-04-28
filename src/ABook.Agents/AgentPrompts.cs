@@ -47,10 +47,9 @@ public static class DefaultPrompts
     public static readonly string StoryBible =
         $"""
         You are a world-building expert. Your task is to create a Story Bible for a book project.
-        Output a JSON object with these fields:
+        Return a JSON object with these fields:
           "settingDescription" (string), "timePeriod" (string), "themes" (string, comma-separated list),
           "toneAndStyle" (string), "worldRules" (string), "notes" (string).
-        Output ONLY the JSON object, no additional text or questions.
         Write all content in {PromptPlaceholders.Language}.
         """;
 
@@ -58,13 +57,12 @@ public static class DefaultPrompts
         $"""
         You are a character development expert. Your task is to create character profiles for the main
         and significant supporting characters in a book.
-        Output a JSON array where each element has:
+        Return a JSON array where each element has:
           "name" (string), "role" ("Protagonist"|"Antagonist"|"Supporting"|"Minor"),
           "physicalDescription" (string), "personality" (string), "backstory" (string),
           "goalMotivation" (string), "arc" (string - how the character changes over the story),
           "firstAppearanceChapterNumber" (int or null), "notes" (string).
         Include all characters necessary to tell the story. Be thorough.
-        Output ONLY the JSON array, no additional text or questions.
         Write all content in {PromptPlaceholders.Language}.
         """;
 
@@ -72,20 +70,19 @@ public static class DefaultPrompts
         $"""
         You are a story structure expert. Your task is to map all major and minor plot threads
         for a book, including foreshadowing and payoff relationships.
-        Output a JSON array where each element has:
+        Return a JSON array where each element has:
           "name" (string), "description" (string - what this thread is about and why it matters),
           "type" ("MainPlot"|"Subplot"|"CharacterArc"|"Mystery"|"Foreshadowing"|"WorldBuilding"|"ThematicThread"),
           "introducedChapterNumber" (int or null), "resolvedChapterNumber" (int or null),
           "status" ("Active"|"Resolved"|"Dormant").
         Map every significant thread, including foreshadowing seeds that will pay off later.
-        Output ONLY the JSON array, no additional text or questions.
         Write all content in {PromptPlaceholders.Language}.
         """;
 
     public static readonly string ChapterOutlines =
         $"""
         You are a creative writing Planner. Your task is to outline each chapter of a book in detail.
-        Output a JSON array where each element has:
+        Return a JSON array where each element has:
           "number" (int), "title" (string),
           "outline" (string - 3-6 sentence synopsis including key events and decisions),
           "povCharacter" (string - whose point of view this chapter is written from),
@@ -93,7 +90,6 @@ public static class DefaultPrompts
           "plotThreads" (array of strings - names of plot threads active in this chapter),
           "foreshadowingNotes" (string - any seeds to plant that pay off later; empty string if none),
           "payoffNotes" (string - any earlier foreshadowing being paid off; empty string if none).
-        Output ONLY the JSON array, no additional text.
         Write all content in {PromptPlaceholders.Language}.
         """;
 

@@ -34,7 +34,7 @@ public class PlannerAgent : AgentBase
         var bookId = book.Id;
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 4/4 - Chapter Outlines...", false, ct);
 
-        var kernel = await GetKernelAsync(bookId);
+        var (kernel, config) = await GetKernelAsync(bookId);
 
         var charSumForChapters = string.Join("\n", characters.Select(c =>
             $"- {c.Name} ({c.Role}): {c.GoalMotivation}. Arc: {c.Arc}"));
@@ -69,7 +69,7 @@ public class PlannerAgent : AgentBase
             Create {book.TargetChapterCount} detailed chapter outlines for this book.
             """);
 
-        var chapterRaw = await StreamResponseAsync(kernel, chapterHistory, bookId, null, AgentRole.Planner, ct);
+        var chapterRaw = await StreamResponseAsync(kernel, config, chapterHistory, bookId, null, AgentRole.Planner, ct, jsonMode: true);
 
         List<Chapter> chapters;
         try { chapters = ParseChapterOutlines(bookId, chapterRaw); }

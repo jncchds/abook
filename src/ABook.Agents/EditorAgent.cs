@@ -30,7 +30,7 @@ public class EditorAgent : AgentBase
         await Repo.UpdateChapterAsync(chapter);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Running", ct);
 
-        var kernel = await GetKernelAsync(bookId);
+        var (kernel, config) = await GetKernelAsync(bookId);
 
         var history = new ChatHistory();
         var bible = await Repo.GetStoryBibleAsync(bookId);
@@ -57,7 +57,7 @@ public class EditorAgent : AgentBase
             """;
         history.AddUserMessage(editRequest);
 
-        var edited = await StreamResponseAsync(kernel, history, bookId, chapterId, AgentRole.Editor, ct);
+        var edited = await StreamResponseAsync(kernel, config, history, bookId, chapterId, AgentRole.Editor, ct);
 
         // Split off the editorial notes section.
         // We search for the LAST occurrence of any level-2 heading that looks like notes/feedback

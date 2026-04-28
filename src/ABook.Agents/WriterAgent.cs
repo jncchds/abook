@@ -33,8 +33,7 @@ public class WriterAgent : AgentBase
         await Repo.UpdateChapterAsync(chapter);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Writer, "Running", ct);
 
-        var kernel = await GetKernelAsync(bookId);
-        var config = await Repo.GetLlmConfigAsync(bookId, book.UserId)!;
+        var (kernel, config) = await GetKernelAsync(bookId);
 
         var contextBlock = await BuildWriterContextAsync(bookId, chapter, config!, ct);
         var prevEnding = await GetPreviousChapterEndingAsync(bookId, chapter.Number, paragraphCount: 3);
@@ -63,7 +62,7 @@ public class WriterAgent : AgentBase
             Write at least 1000 words of narrative prose. Output markdown only. Do NOT include a chapter heading.
             """);
 
-        var content = await StreamResponseAsync(kernel, history, bookId, chapterId, AgentRole.Writer, ct);
+        var content = await StreamResponseAsync(kernel, config, history, bookId, chapterId, AgentRole.Writer, ct);
         content = StripLeadingChapterHeading(content, chapter.Number, chapter.Title);
 
         chapter.Content = content;

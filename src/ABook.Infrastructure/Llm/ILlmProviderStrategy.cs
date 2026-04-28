@@ -11,4 +11,9 @@ public interface ILlmProviderStrategy
     IChatCompletionService CreateChatCompletion(LlmConfiguration config);
     IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGeneration(LlmConfiguration config);
     void ConfigureKernelBuilder(IKernelBuilder builder, LlmConfiguration config);
+    /// <summary>
+    /// Creates provider-specific execution settings with the appropriate JSON output format parameter
+    /// when <paramref name="jsonMode"/> is <c>true</c>.
+    /// </summary>
+    PromptExecutionSettings CreateExecutionSettings(float temperature, bool jsonMode = false);
 }

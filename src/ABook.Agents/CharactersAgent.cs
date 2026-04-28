@@ -30,7 +30,7 @@ public class CharactersAgent : AgentBase
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 2/4 - Characters...", false, ct);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.CharactersAgent, "Running", ct);
 
-        var kernel = await GetKernelAsync(bookId);
+        var (kernel, config) = await GetKernelAsync(bookId);
         var history = new ChatHistory();
 
         var systemPrompt = !string.IsNullOrWhiteSpace(book.CharactersSystemPrompt)
@@ -55,7 +55,7 @@ public class CharactersAgent : AgentBase
             Create detailed character profiles for this book.
             """);
 
-        var raw = await StreamResponseAsync(kernel, history, bookId, null, AgentRole.CharactersAgent, ct);
+        var raw = await StreamResponseAsync(kernel, config, history, bookId, null, AgentRole.CharactersAgent, ct, jsonMode: true);
 
         List<CharacterCard> characters;
         try { characters = Parse(bookId, raw); }
