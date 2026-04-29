@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
 import { useBookContext } from '../../contexts/BookContext'
 import { createChapter, getStreamBuffer } from '../../api'
 import { parsePlanningStream } from '../../utils/streamParsers'
@@ -22,7 +21,6 @@ export default function Chapters() {
     book, setBook,
     isRunning, isPhaseComplete,
     handleCompletePhase, handleReopenPhase, handleClearPhase,
-    streamBuffer, streamingChapterId,
     plannerBuffer, setPlannerBuffer, runStatus,
   } = useBookContext()
 
@@ -135,11 +133,7 @@ export default function Chapters() {
                     <em>Payoff:</em> {c.payoffNotes}
                   </p>
                 )}
-                {streamBuffer && streamingChapterId === c.id && (
-                  <div className="chapter-content" style={{ marginTop: '0.75rem' }}>
-                    <ReactMarkdown>{streamBuffer}</ReactMarkdown>
-                  </div>
-                )}
+
               </div>
               <div className="book-list-card-right">
                 <button onClick={() => navigate(`/books/${id}/chapters/${c.id}`)}>Open →</button>

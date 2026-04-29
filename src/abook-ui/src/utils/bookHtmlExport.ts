@@ -1,4 +1,4 @@
-import type { Book, StoryBible, CharacterCard, PlotThread, AgentMessage } from '../api'
+﻿import type { Book, StoryBible, CharacterCard, PlotThread, AgentMessage } from '../api'
 
 export interface TokenStatEntry {
   id: number
@@ -555,7 +555,7 @@ export function generateBookMetadataHtml(
     .size-btn { padding: 3px 9px; border-radius: 4px; cursor: pointer; font-weight: bold; background: transparent; color: var(--fg); border: 1px solid rgba(128,128,128,0.4); font-size: 0.85em; transition: opacity 0.15s; }
     .size-btn:hover { opacity: 0.65; }
     #font-size-label { font-size: 0.75em; min-width: 2.2em; text-align: center; opacity: 0.6; }
-    main { max-width: 860px; margin: 0 auto; padding: 48px 24px 96px; }
+    main { padding: 48px 24px 96px; }
     header.doc-header { margin-bottom: 56px; padding-bottom: 24px; border-bottom: 2px solid var(--border); }
     header.doc-header h1 { font-size: 2em; margin-bottom: 6px; }
     header.doc-header .subtitle { opacity: 0.5; font-size: 0.9em; font-style: italic; }
@@ -701,372 +701,49 @@ export function downloadBookMetadataAsHtml(
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  const safeName = (book.title
-    .replace(/[^a-z0-9\s-]/gi, '')
-    .trim()
-    .replace(/\s+/g, '-')
-    .toLowerCase() || 'book') + '-metadata'
-  a.download = `${safeName}.html`
+  a.download = `${safeFilename(book.title)}-metadata.html`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
-
-// ── FB2 export ───────────────────────────────────────────────────
-
-function escapeFb2(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
-function inlineFb2(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><emphasis>$1</emphasis></strong>')
-    .replace(/___(.+?)___/g, '<strong><emphasis>$1</emphasis></strong>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/__(.+?)__/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<emphasis>$1</emphasis>')
-    .replace(/_(.+?)_/g, '<emphasis>$1</emphasis>')
-    .replace(/`(.+?)`/g, '$1')
-    .replace(/~~(.+?)~~/g, '$1')
-}
-
-function markdownToFb2(md: string): string {
-  const lines = md.split('\n')
-  let xml = ''
-  let inParagraph = false
-  for (const line of lines) {
-    const headerMatch = line.match(/^#{1,6}\s+(.+)$/)
-    if (headerMatch) {
-      if (inParagraph) { xml += '</p>\n'; inParagraph = false }
-      xml += `<subtitle><p>${escapeFb2(headerMatch[1])}</p></subtitle>\n`
-      continue
-    }
-    if (/^[-*]{3,}$/.test(line.trim())) {
-      if (inParagraph) { xml += '</p>\n'; inParagraph = false }
-      xml += '<empty-line/>\n'
-      continue
-    }
-    if (!line.trim()) {
-      if (inParagraph) { xml += '</p>\n'; inParagraph = false }
-      continue
-    }
-    if (!inParagraph) { xml += '<p>'; inParagraph = true }
-    xml += inlineFb2(line)
-  }
-  if (inParagraph) xml += '</p>\n'
-  return xml
-}
-
-function mapGenreToFb2(genre: string): string {
-  const g = (genre || '').toLowerCase()
-  if (g.includes('fantasy'))                          return 'sf_fantasy'
-  if (g.includes('science') || g.includes('sci-fi')) return 'sf'
-  if (g.includes('romance'))                          return 'love'
-  if (g.includes('mystery') || g.includes('detective')) return 'detective'
-  if (g.includes('horror'))                           return 'horror'
-  if (g.includes('thriller'))                         return 'thriller'
-  if (g.includes('histor'))                           return 'sf_history'
-  if (g.includes('child'))                            return 'child'
-  return 'prose_contemporary'
-}
-
-function generateFb2(book: Book, storyBible?: StoryBible | null): string {
-  const chapters = (book.chapters ?? [])
-    .filter(c => c.content?.trim())
-    .sort((a, b) => a.number - b.number)
-  const lang = (book.language || 'en').substring(0, 2).toLowerCase()
-  const year = new Date(book.createdAt || Date.now()).getFullYear().toString()
-
-  // Build annotation from premise + story bible setting/tone
-  const annotationParts: string[] = []
-  if (book.premise) annotationParts.push(escapeFb2(book.premise))
-  if (storyBible?.settingDescription) annotationParts.push(`Setting: ${escapeFb2(storyBible.settingDescription)}`)
-  if (storyBible?.toneAndStyle) annotationParts.push(`Tone: ${escapeFb2(storyBible.toneAndStyle)}`)
-  const annotationXml = annotationParts.length
-    ? `<annotation>${annotationParts.map(p => `<p>${p}</p>`).join('')}</annotation>`
-    : ''
-
-  // Keywords: genre + themes from story bible
-  const keywordParts: string[] = []
-  if (book.genre) keywordParts.push(book.genre)
-  if (storyBible?.themes) keywordParts.push(storyBible.themes)
-  const keywordsXml = keywordParts.length
-    ? `<keywords>${escapeFb2(keywordParts.join(', '))}</keywords>`
-    : ''
-
-  const sectionsXml = chapters.map(c => `
-  <section id="chapter-${c.number}">
-    <title><p>Chapter ${c.number}${c.title ? ': ' + escapeFb2(c.title) : ''}</p></title>
-    ${markdownToFb2(c.content ?? '')}
-  </section>`).join('\n')
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
-  <description>
-    <title-info>
-      <genre>${mapGenreToFb2(book.genre)}</genre>
-      <author><nickname>ABook</nickname></author>
-      <book-title>${escapeFb2(book.title)}</book-title>
-      <lang>${lang}</lang>
-      ${annotationXml}
-      ${keywordsXml}
-    </title-info>
-    <publish-info>
-      <publisher>ABook</publisher>
-      <year>${year}</year>
-    </publish-info>
-    <document-info>
-      <program-used>ABook</program-used>
-      <date>${new Date().toISOString().substring(0, 10)}</date>
-    </document-info>
-  </description>
-  <body>
-    ${sectionsXml}
-  </body>
-</FictionBook>`
-}
-
-
-
-// ── EPUB export (store-only ZIP, no external dependencies) ───────
-
-const CRC32_TABLE = (() => {
-  const t = new Uint32Array(256)
-  for (let i = 0; i < 256; i++) {
-    let c = i
-    for (let j = 0; j < 8; j++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1)
-    t[i] = c
-  }
-  return t
-})()
-
-function crc32(data: Uint8Array): number {
-  let c = 0xffffffff
-  for (let i = 0; i < data.length; i++) c = CRC32_TABLE[(c ^ data[i]) & 0xff] ^ (c >>> 8)
-  return (c ^ 0xffffffff) >>> 0
-}
-
-/** Build a store-only (no compression) ZIP archive. */
-function storeZip(entries: { name: string; data: Uint8Array }[]): Uint8Array {
-  const enc = new TextEncoder()
-  const parts: Uint8Array[] = []
-  const dirs: { nameBytes: Uint8Array; crc: number; size: number; offset: number }[] = []
-  let pos = 0
-
-  for (const entry of entries) {
-    const nameBytes = enc.encode(entry.name)
-    const crc = crc32(entry.data)
-    const size = entry.data.length
-    dirs.push({ nameBytes, crc, size, offset: pos })
-
-    const hdrBuf = new ArrayBuffer(30 + nameBytes.length)
-    const hdr = new DataView(hdrBuf)
-    hdr.setUint32(0,  0x04034b50, true) // local file header sig
-    hdr.setUint16(4,  20, true)         // version needed
-    hdr.setUint16(6,  0, true)          // general flags
-    hdr.setUint16(8,  0, true)          // STORE compression
-    hdr.setUint16(10, 0, true)          // mod time
-    hdr.setUint16(12, 0, true)          // mod date
-    hdr.setUint32(14, crc, true)
-    hdr.setUint32(18, size, true)
-    hdr.setUint32(22, size, true)
-    hdr.setUint16(26, nameBytes.length, true)
-    hdr.setUint16(28, 0, true)          // extra field length
-    const hdrView = new Uint8Array(hdrBuf)
-    for (let i = 0; i < nameBytes.length; i++) hdrView[30 + i] = nameBytes[i]
-    parts.push(hdrView)
-    parts.push(entry.data)
-    pos += 30 + nameBytes.length + size
-  }
-
-  const cdOffset = pos
-  for (const d of dirs) {
-    const cdBuf = new ArrayBuffer(46 + d.nameBytes.length)
-    const cd = new DataView(cdBuf)
-    cd.setUint32(0,  0x02014b50, true)  // central dir sig
-    cd.setUint16(4,  20, true)
-    cd.setUint16(6,  20, true)
-    cd.setUint16(8,  0, true)
-    cd.setUint16(10, 0, true)           // STORE
-    cd.setUint16(12, 0, true)
-    cd.setUint16(14, 0, true)
-    cd.setUint32(16, d.crc, true)
-    cd.setUint32(20, d.size, true)
-    cd.setUint32(24, d.size, true)
-    cd.setUint16(28, d.nameBytes.length, true)
-    cd.setUint16(30, 0, true)
-    cd.setUint16(32, 0, true)
-    cd.setUint16(34, 0, true)
-    cd.setUint16(36, 0, true)
-    cd.setUint32(38, 0, true)
-    cd.setUint32(42, d.offset, true)
-    const cdView = new Uint8Array(cdBuf)
-    for (let i = 0; i < d.nameBytes.length; i++) cdView[46 + i] = d.nameBytes[i]
-    parts.push(cdView)
-    pos += 46 + d.nameBytes.length
-  }
-
-  const cdSize = pos - cdOffset
-  const eocdBuf = new ArrayBuffer(22)
-  const eocd = new DataView(eocdBuf)
-  eocd.setUint32(0,  0x06054b50, true)
-  eocd.setUint16(4,  0, true)
-  eocd.setUint16(6,  0, true)
-  eocd.setUint16(8,  dirs.length, true)
-  eocd.setUint16(10, dirs.length, true)
-  eocd.setUint32(12, cdSize, true)
-  eocd.setUint32(16, cdOffset, true)
-  eocd.setUint16(20, 0, true)
-  parts.push(new Uint8Array(eocdBuf))
-
-  const total = parts.reduce((s, p) => s + p.length, 0)
-  const out = new Uint8Array(total)
-  let off = 0
-  for (const p of parts) { out.set(p, off); off += p.length }
-  return out
-}
-
-function markdownToXhtml(md: string): string {
-  const lines = md.split('\n')
-  let html = ''
-  let inParagraph = false
-  for (const line of lines) {
-    const headerMatch = line.match(/^(#{1,6})\s+(.+)$/)
-    if (headerMatch) {
-      if (inParagraph) { html += '</p>\n'; inParagraph = false }
-      const level = headerMatch[1].length
-      html += `<h${level}>${inlineMd(headerMatch[2])}</h${level}>\n`
-      continue
-    }
-    if (/^[-*]{3,}$/.test(line.trim())) {
-      if (inParagraph) { html += '</p>\n'; inParagraph = false }
-      html += '<hr/>\n'
-      continue
-    }
-    if (!line.trim()) {
-      if (inParagraph) { html += '</p>\n'; inParagraph = false }
-      continue
-    }
-    if (!inParagraph) { html += '<p>'; inParagraph = true }
-    else html += '\n'
-    html += inlineMd(line)
-  }
-  if (inParagraph) html += '</p>\n'
-  return html
-}
-
-function generateEpub(book: Book, storyBible?: StoryBible | null): Uint8Array {
-  const enc = new TextEncoder()
-  const chapters = (book.chapters ?? [])
-    .filter(c => c.content?.trim())
-    .sort((a, b) => a.number - b.number)
-  const lang = (book.language || 'en').substring(0, 2).toLowerCase()
-
-  const chapterStyle = `body{font-family:serif;font-size:1em;line-height:1.6;margin:1em 2em}` +
-    `p{margin-bottom:.8em;text-align:justify}h2,h3,h4{font-family:sans-serif}`
-
-  const chapterXhtmls = chapters.map(c => {
-    const heading = `Chapter ${c.number}${c.title ? ': ' + escapeHtml(c.title) : ''}`
-    const body = `<?xml version="1.0" encoding="UTF-8"?>` +
-      `<!DOCTYPE html>` +
-      `<html xmlns="http://www.w3.org/1999/xhtml">` +
-      `<head><meta charset="UTF-8"/><title>${escapeHtml(heading)}</title>` +
-      `<style>${chapterStyle}</style></head>` +
-      `<body><h2>${escapeHtml(heading)}</h2>${markdownToXhtml(c.content ?? '')}</body></html>`
-    return { name: `OEBPS/chapter-${c.number}.xhtml`, data: enc.encode(body) }
-  })
-
-  const navItems = chapters.map(c =>
-    `<li><a href="chapter-${c.number}.xhtml">Chapter ${c.number}${c.title ? ': ' + escapeHtml(c.title) : ''}</a></li>`
-  ).join('\n')
-
-  const nav =
-    `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html>` +
-    `<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">` +
-    `<head><meta charset="UTF-8"/><title>${escapeHtml(book.title)}</title></head>` +
-    `<body><nav epub:type="toc"><h1>Contents</h1><ol>${navItems}</ol></nav></body></html>`
-
-  const manifestItems = [
-    `<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>`,
-    ...chapters.map(c => `<item id="c${c.number}" href="chapter-${c.number}.xhtml" media-type="application/xhtml+xml"/>`),
-  ].join('\n    ')
-
-  const spineItems = chapters.map(c => `<itemref idref="c${c.number}"/>`).join('\n    ')
-
-  const uid = crypto.randomUUID()
-  const modified = new Date().toISOString().replace(/\.\d+Z$/, 'Z')
-  const isoDate = new Date(book.createdAt || Date.now()).toISOString().substring(0, 10)
-
-  const descriptionTag = book.premise
-    ? `<dc:description>${escapeHtml(book.premise)}</dc:description>`
-    : ''
-
-  // dc:subject entries: genre + individual themes from story bible
-  const subjects: string[] = []
-  if (book.genre) subjects.push(book.genre)
-  if (storyBible?.themes) {
-    storyBible.themes.split(/[,;\n]+/).map(t => t.trim()).filter(Boolean).forEach(t => subjects.push(t))
-  }
-  const subjectTags = subjects.map(s => `<dc:subject>${escapeHtml(s)}</dc:subject>`).join('')
-
-  const opf =
-    `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">` +
-    `<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">` +
-    `<dc:identifier id="uid">urn:uuid:${uid}</dc:identifier>` +
-    `<dc:title>${escapeHtml(book.title)}</dc:title>` +
-    `<dc:creator>ABook</dc:creator>` +
-    `<dc:publisher>ABook</dc:publisher>` +
-    `<dc:language>${lang}</dc:language>` +
-    `<dc:date>${isoDate}</dc:date>` +
-    `${descriptionTag}` +
-    `${subjectTags}` +
-    `<meta property="dcterms:modified">${modified}</meta>` +
-    `</metadata>` +
-    `<manifest>\n    ${manifestItems}\n  </manifest>` +
-    `<spine>\n    ${spineItems}\n  </spine>` +
-    `</package>`
-
-  const container =
-    `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">` +
-    `<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>` +
-    `</container>`
-
-  // mimetype MUST be the first entry and MUST use STORE (no compression)
-  return storeZip([
-    { name: 'mimetype',              data: enc.encode('application/epub+zip') },
-    { name: 'META-INF/container.xml', data: enc.encode(container) },
-    { name: 'OEBPS/content.opf',     data: enc.encode(opf) },
-    { name: 'OEBPS/nav.xhtml',       data: enc.encode(nav) },
-    ...chapterXhtmls,
-  ])
-}
-
-
 
 // ── Shared helpers ────────────────────────────────────────────────
 
-function safeFilename(title: string): string {
-  return title.replace(/[^a-z0-9\s-]/gi, '').trim().replace(/\s+/g, '-').toLowerCase() || 'book'
+const TRANSLIT_MAP: Record<string, string> = {
+  // Cyrillic (Russian / Ukrainian / Belarusian)
+  'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'yo','ж':'zh','з':'z',
+  'и':'i','й':'j','к':'k','л':'l','м':'m','н':'n','о':'o','п':'p','р':'r',
+  'с':'s','т':'t','у':'u','ф':'f','х':'kh','ц':'ts','ч':'ch','ш':'sh','щ':'shch',
+  'ъ':'','ь':'','э':'e','ю':'yu','я':'ya',
+  'А':'A','Б':'B','В':'V','Г':'G','Д':'D','Е':'E','Ё':'Yo','Ж':'Zh','З':'Z',
+  'И':'I','Й':'J','К':'K','Л':'L','М':'M','Н':'N','О':'O','П':'P','Р':'R',
+  'С':'S','Т':'T','У':'U','Ф':'F','Х':'Kh','Ц':'Ts','Ч':'Ch','Ш':'Sh','Щ':'Shch',
+  'Ъ':'','Ь':'','Э':'E','Ю':'Yu','Я':'Ya',
+  // Greek
+  'α':'a','β':'b','γ':'g','δ':'d','ε':'e','ζ':'z','η':'e','θ':'th',
+  'ι':'i','κ':'k','λ':'l','μ':'m','ν':'n','ξ':'x','ο':'o','π':'p',
+  'ρ':'r','σ':'s','ς':'s','τ':'t','υ':'y','φ':'ph','χ':'ch','ψ':'ps','ω':'o',
+  'Α':'A','Β':'B','Γ':'G','Δ':'D','Ε':'E','Ζ':'Z','Η':'E','Θ':'Th',
+  'Ι':'I','Κ':'K','Λ':'L','Μ':'M','Ν':'N','Ξ':'X','Ο':'O','Π':'P',
+  'Ρ':'R','Σ':'S','Τ':'T','Υ':'Y','Φ':'Ph','Χ':'Ch','Ψ':'Ps','Ω':'O',
 }
 
-function triggerDownload(content: string, filename: string, mime: string): void {
-  const blob = new Blob([content], { type: mime })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+function transliterate(text: string): string {
+  let result = ''
+  for (const char of text) {
+    result += Object.prototype.hasOwnProperty.call(TRANSLIT_MAP, char) ? TRANSLIT_MAP[char] : char
+  }
+  // Decompose accented Latin characters (e.g. é → e + combining accent) then strip combining marks
+  return result.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 }
+
+function safeFilename(title: string): string {
+  return transliterate(title)
+    .replace(/[^a-z0-9\s-]/gi, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .toLowerCase() || 'book'
+}
+
+

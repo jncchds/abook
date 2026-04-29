@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate, useLocation, Outlet, Navigate } from 'react-router-dom'
 import { BookContextProvider, useBookContext } from '../contexts/BookContext'
 import Sidebar, { SidebarBtn, SidebarDivider } from '../components/Sidebar'
-import { downloadBookMetadataAsHtml } from '../utils/bookHtmlExport'
 
 function agentCaption(role: string | undefined, state: string | undefined, chapterNum: number | null): string {
   if (state === 'WaitingForInput') return 'Waiting for your answer…'
@@ -29,7 +28,6 @@ function BookSidebar() {
   const {
     book, isRunning, runStatus, pendingQuestion,
     streamingChapterId,
-    messages, storyBible, characters, plotThreads, tokenStats,
     handleWriteBook, handlePlanBook, handleStop, isPhaseComplete,
   } = useBookContext()
 
@@ -85,7 +83,7 @@ function BookSidebar() {
           <SidebarBtn
             icon="📄"
             label="Download Metadata"
-            onClick={() => downloadBookMetadataAsHtml(book, storyBible, characters, plotThreads, messages, tokenStats)}
+            onClick={() => { window.location.href = `/api/books/${id}/export?format=metadata` }}
           />
           <SidebarBtn icon="⚙" label="Settings" onClick={() => navigate(`/books/${id}/settings`)} />
         </>
