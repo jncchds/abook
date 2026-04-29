@@ -356,7 +356,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         if (!isContinuation)
         {
             var bkCtx = $"Title: {book.Title}\nGenre: {book.Genre}\nPremise: {book.Premise}\nTarget chapters: {book.TargetChapterCount}";
-            var questions = await _questions.GatherQuestionsAsync(bookId, bkCtx, ct);
+            var questions = await _questions.GatherQuestionsAsync(bookId, bkCtx, book.Language, ct);
             if (questions.Count > 0)
                 await _questions.AskQuestionsAsync(bookId, questions, qaContext, ct);
         }

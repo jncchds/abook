@@ -28,16 +28,17 @@ public class QuestionAgent : AgentBase
     /// Makes a single non-streaming LLM call to gather clarifying questions about the book premise.
     /// Returns an empty list if the LLM determines nothing is unclear.
     /// </summary>
-    public async Task<List<string>> GatherQuestionsAsync(int bookId, string bookContext, CancellationToken ct)
+    public async Task<List<string>> GatherQuestionsAsync(int bookId, string bookContext, string language, CancellationToken ct)
     {
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Checking if clarification is needed…", false, ct);
 
         var (kernel, config) = await GetKernelAsync(bookId);
         var history = new ChatHistory();
-        history.AddSystemMessage("""
+        history.AddSystemMessage($"""
             You are helping plan a book. Given the book premise below, determine if there is anything
             genuinely unclear that an author decision would meaningfully change the story plan.
             If so, list those questions as a numbered list (e.g. "1. Question here?").
+            IMPORTANT: Ask all questions in {language}.
             Keep the number of questions to an absolute minimum — only ask when truly necessary.
             If everything is clear from the premise, respond with exactly: None.
             """);
