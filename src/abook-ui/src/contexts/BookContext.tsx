@@ -43,6 +43,7 @@ interface BookContextValue {
   isRunning: boolean
 
   plannerBuffer: string
+  setPlannerBuffer: React.Dispatch<React.SetStateAction<string>>
   streamBuffer: string
   streamingChapterId: number | null
   storyBibleStream: string
@@ -377,7 +378,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   const value: BookContextValue = {
     book, setBook, messages, setMessages, pendingQuestion, setPendingQuestion,
     runStatus, setRunStatus, isRunning,
-    plannerBuffer, streamBuffer, streamingChapterId,
+    plannerBuffer, setPlannerBuffer, streamBuffer, streamingChapterId,
     storyBibleStream, setStoryBibleStream, charactersStream, setCharactersStream,
     plotThreadsStream, setPlotThreadsStream, setStreamBuffer, setStreamingChapterId,
     storyBible, setStoryBible, characters, setCharacters, plotThreads, setPlotThreads,

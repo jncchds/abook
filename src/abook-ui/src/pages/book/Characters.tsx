@@ -80,7 +80,10 @@ export default function Characters() {
                   <strong>{c.name}</strong>
                   {c.role && <span className={`char-role-badge role-${(c.role as string).toLowerCase()}`}>{c.role as string}</span>}
                 </div>
+                {c.physicalDescription && <p className="char-field"><em>Appearance:</em> {c.physicalDescription}</p>}
+                {c.personality && <p className="char-field"><em>Personality:</em> {c.personality}</p>}
                 {c.goalMotivation && <p className="char-field"><em>Goal:</em> {c.goalMotivation}</p>}
+                {c.arc && <p className="char-field"><em>Arc:</em> {c.arc}</p>}
               </div>
             ))}
           </>

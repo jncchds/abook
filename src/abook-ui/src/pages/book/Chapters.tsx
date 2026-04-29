@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { useBookContext } from '../../contexts/BookContext'
-import { createChapter } from '../../api'
+import { createChapter, getStreamBuffer } from '../../api'
+import { parsePlanningStream } from '../../utils/streamParsers'
 
 const STATUS_COLOR: Record<string, string> = {
   Outlined: '#94a3b8',
@@ -22,7 +23,17 @@ export default function Chapters() {
     isRunning, isPhaseComplete,
     handleCompletePhase, handleReopenPhase, handleClearPhase,
     streamBuffer, streamingChapterId,
+    plannerBuffer, setPlannerBuffer, runStatus,
   } = useBookContext()
+
+  // Restore in-progress stream on hard-refresh
+  useEffect(() => {
+    if (!book || !isRunning || plannerBuffer) return
+    getStreamBuffer(book.id, 'ChaptersAgent').then(r => {
+      if (r.data.content) setPlannerBuffer(r.data.content)
+    }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [book?.id])
 
   const [addingChapter, setAddingChapter] = useState(false)
   const [newTitle, setNewTitle] = useState('')
@@ -31,6 +42,7 @@ export default function Chapters() {
   if (!book) return null
 
   const chapters = book.chapters ?? []
+  const planningChapters = parsePlanningStream(plannerBuffer)
 
   const handleAddChapter = async () => {
     if (!newTitle.trim()) return
@@ -70,8 +82,27 @@ export default function Chapters() {
         >🗑 Clear All</button>
       </div>
 
+      {/* Live planning stream preview */}
+      {runStatus?.role === 'ChaptersAgent' && plannerBuffer && planningChapters.length > 0 && (
+        <div className="planning-preview">
+          <div className="book-list">
+            {planningChapters.map(c => (
+              <div key={c.number} className="book-list-card">
+                <div className="book-list-card-left">
+                  <h3>{c.number}. {c.title}</h3>
+                  <div className="blc-meta">
+                    <span className="status" style={{ background: STATUS_COLOR['Outlined'], color: '#fff', borderRadius: 4, padding: '1px 7px', fontSize: '0.75rem' }}>Outlined</span>
+                  </div>
+                  {c.outline && <p className="blc-premise">{c.outline}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Chapter cards */}
-      {chapters.length === 0 ? (
+      {chapters.length === 0 && runStatus?.role !== 'ChaptersAgent' ? (
         <p className="empty">No chapters yet. Use <strong>Plan Book</strong> to generate outlines, or add one manually below.</p>
       ) : (
         <div className="book-list">

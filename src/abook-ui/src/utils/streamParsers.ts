@@ -2,10 +2,19 @@ import type { StoryBible, CharacterCard, PlotThread } from '../api'
 
 export function parsePlanningStream(raw: string): { number: number; title: string; outline: string }[] {
   const results: { number: number; title: string; outline: string }[] = []
-  const re = /\{\s*"number"\s*:\s*(\d+)\s*,\s*"title"\s*:\s*"([^"\\]*)"\s*,\s*"outline"\s*:\s*"([^"\\]*)"\s*\}/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(raw)) !== null) {
-    try { results.push({ number: +m[1], title: m[2], outline: m[3] }) } catch { /* skip malformed */ }
+  let depth = 0, start = -1
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] === '{') { if (depth === 0) start = i; depth++ }
+    else if (raw[i] === '}') {
+      depth--
+      if (depth === 0 && start >= 0) {
+        try {
+          const obj = JSON.parse(raw.slice(start, i + 1))
+          if (obj.number != null && obj.title) results.push({ number: +obj.number, title: obj.title, outline: obj.outline ?? '' })
+        } catch { /* skip malformed */ }
+        start = -1
+      }
+    }
   }
   return results
 }

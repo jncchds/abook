@@ -1,11 +1,9 @@
 import { useState } from 'react'
 import { useBookContext } from '../../contexts/BookContext'
 import { updateBook } from '../../api'
-import { parsePlanningStream } from '../../utils/streamParsers'
 
 export default function Overview() {
-  const { book, setBook, isRunning, plannerBuffer, isPhaseComplete, handleCompletePhase, handleReopenPhase, handleClearPhase, setBook: _setBook } = useBookContext()
-  void _setBook
+  const { book, setBook, isRunning, isPhaseComplete, handleCompletePhase, handleReopenPhase, handleClearPhase } = useBookContext()
 
   const [editingBook, setEditingBook] = useState(false)
   const [bookEditTitle, setBookEditTitle] = useState('')
@@ -14,8 +12,6 @@ export default function Overview() {
   const [bookEditTargetChapters, setBookEditTargetChapters] = useState(0)
 
   if (!book) return null
-
-  const planningChapters = parsePlanningStream(plannerBuffer)
 
   const handleSaveBookEdit = async () => {
     const r = await updateBook(book.id, {
@@ -69,24 +65,7 @@ export default function Overview() {
               <button className="btn-sm btn-danger phase-action-btn" onClick={() => handleClearPhase('chapters', () => setBook(prev => prev ? { ...prev, chapters: [] } : prev))}>🗑 Clear Chapters</button>
             )}
           </div>
-          {isRunning && plannerBuffer && (
-            <div className="planning-preview">
-              <h3>Planning in progress…</h3>
-              {planningChapters.length > 0 ? (
-                <div className="plan-chapters">
-                  {planningChapters.map(c => (
-                    <div key={c.number} className="plan-chapter-card">
-                      <span className="plan-ch-num">Ch. {c.number}</span>
-                      <div><strong>{c.title}</strong><p>{c.outline}</p></div>
-                    </div>
-                  ))}
-                  <p className="plan-partial-hint">Building chapter plan…</p>
-                </div>
-              ) : (
-                <div className="stream-raw"><span className="spinner" /> Generating outlines…</div>
-              )}
-            </div>
-          )}
+
         </>
       )}
     </div>

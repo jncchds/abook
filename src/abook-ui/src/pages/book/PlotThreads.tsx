@@ -77,8 +77,15 @@ export default function PlotThreads() {
                 <div className="thread-card-header">
                   <strong>{t.name}</strong>
                   {t.type && <span className="thread-type-badge">{t.type as string}</span>}
+                  {t.status && <span className={`thread-status-badge status-${(t.status as string).toLowerCase()}`}>{t.status as string}</span>}
                 </div>
                 {t.description && <p className="thread-desc">{t.description}</p>}
+                {(t.introducedChapterNumber != null || t.resolvedChapterNumber != null) && (
+                  <div className="thread-meta">
+                    {t.introducedChapterNumber != null && <span>Intro: Ch.{t.introducedChapterNumber}</span>}
+                    {t.resolvedChapterNumber != null && <span>Resolved: Ch.{t.resolvedChapterNumber}</span>}
+                  </div>
+                )}
               </div>
             ))}
           </>
