@@ -68,29 +68,23 @@ export default function StoryBiblePage() {
             )}
             <button className="btn-sm btn-danger phase-action-btn" onClick={() => handleClearPhase('storybible', () => setStoryBible(null))}>🗑 Clear</button>
           </div>
-          {storyBible?.settingDescription && <p><strong>Setting:</strong> {storyBible.settingDescription}</p>}
-          {storyBible?.timePeriod && <p><strong>Time Period:</strong> {storyBible.timePeriod}</p>}
-          {storyBible?.themes && <p><strong>Themes:</strong> {storyBible.themes}</p>}
-          {storyBible?.toneAndStyle && <p><strong>Tone &amp; Style:</strong> {storyBible.toneAndStyle}</p>}
-          {storyBible?.worldRules && <><strong>World Rules:</strong><pre className="bible-pre">{storyBible.worldRules}</pre></>}
-          {storyBible?.notes && <><strong>Notes:</strong><pre className="bible-pre">{storyBible.notes}</pre></>}
-          {storyBibleStream && (() => {
-            const preview = parseStoryBibleStream(storyBibleStream)
-            return Object.keys(preview).length > 0 ? (
-              <div className="stream-preview">
-                <div className="stream-preview-label">⏳ Generating Story Bible…</div>
-                {preview.settingDescription && <p><strong>Setting:</strong> {preview.settingDescription}</p>}
-                {preview.timePeriod && <p><strong>Time Period:</strong> {preview.timePeriod}</p>}
-                {preview.themes && <p><strong>Themes:</strong> {preview.themes}</p>}
-                {preview.toneAndStyle && <p><strong>Tone &amp; Style:</strong> {preview.toneAndStyle}</p>}
-                {preview.worldRules && <><strong>World Rules:</strong><pre className="bible-pre">{preview.worldRules}</pre></>}
-                {preview.notes && <><strong>Notes:</strong><pre className="bible-pre">{preview.notes}</pre></>}
-              </div>
-            ) : <div className="stream-preview"><div className="stream-preview-label">⏳ Generating Story Bible…</div></div>
+          {(() => {
+            const preview = storyBibleStream ? parseStoryBibleStream(storyBibleStream) : null
+            const data: Partial<StoryBible> = storyBible ?? preview ?? {}
+            return (
+              <>
+                {data.settingDescription && <p><strong>Setting:</strong> {data.settingDescription}</p>}
+                {data.timePeriod && <p><strong>Time Period:</strong> {data.timePeriod}</p>}
+                {data.themes && <p><strong>Themes:</strong> {data.themes}</p>}
+                {data.toneAndStyle && <p><strong>Tone &amp; Style:</strong> {data.toneAndStyle}</p>}
+                {data.worldRules && <><strong>World Rules:</strong><pre className="bible-pre">{data.worldRules}</pre></>}
+                {data.notes && <><strong>Notes:</strong><pre className="bible-pre">{data.notes}</pre></>}
+                {!storyBibleStream && !data.settingDescription && !data.timePeriod && !data.themes && (
+                  <p className="empty">No Story Bible yet. Run the Planner or edit manually.</p>
+                )}
+              </>
+            )
           })()}
-          {!storyBible?.settingDescription && !storyBible?.timePeriod && !storyBible?.themes && !storyBibleStream && (
-            <p className="empty">No Story Bible yet. Run the Planner or edit manually.</p>
-          )}
         </div>
       )}
     </div>

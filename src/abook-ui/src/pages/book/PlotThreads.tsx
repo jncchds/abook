@@ -71,8 +71,7 @@ export default function PlotThreads() {
       {plotThreadsStream && (() => {
         const preview = parsePlotThreadsStream(plotThreadsStream)
         return (
-          <div className="stream-preview">
-            <div className="stream-preview-label">⏳ Generating Plot Threads… ({preview.length} so far)</div>
+          <>
             {preview.map((t, i) => (
               <div key={i} className={`thread-card status-${(t.status as string | undefined)?.toLowerCase() ?? 'active'}`}>
                 <div className="thread-card-header">
@@ -82,7 +81,7 @@ export default function PlotThreads() {
                 {t.description && <p className="thread-desc">{t.description}</p>}
               </div>
             ))}
-          </div>
+          </>
         )
       })()}
       {plotThreads.length === 0 && !addingThread && !plotThreadsStream && <p className="empty">No plot threads yet. Run the Planner or add manually.</p>}

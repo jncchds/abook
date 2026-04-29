@@ -73,8 +73,7 @@ export default function Characters() {
       {charactersStream && (() => {
         const preview = parseCharactersStream(charactersStream)
         return (
-          <div className="stream-preview">
-            <div className="stream-preview-label">⏳ Generating Characters… ({preview.length} so far)</div>
+          <>
             {preview.map((c, i) => (
               <div key={i} className="char-card">
                 <div className="char-card-header">
@@ -84,7 +83,7 @@ export default function Characters() {
                 {c.goalMotivation && <p className="char-field"><em>Goal:</em> {c.goalMotivation}</p>}
               </div>
             ))}
-          </div>
+          </>
         )
       })()}
       {characters.length === 0 && !addingChar && !charactersStream && <p className="empty">No characters yet. Run the Planner or add manually.</p>}
