@@ -1,7 +1,8 @@
+import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate, useLocation, Outlet, Navigate } from 'react-router-dom'
 import { BookContextProvider, useBookContext } from '../contexts/BookContext'
 import Sidebar, { SidebarBtn, SidebarDivider } from '../components/Sidebar'
-import { downloadBookAsHtml, downloadBookMetadataAsHtml } from '../utils/bookHtmlExport'
+import { downloadBookAsHtml, downloadBookAsFb2, downloadBookAsEpub, downloadBookMetadataAsHtml } from '../utils/bookHtmlExport'
 
 function agentCaption(role: string | undefined, state: string | undefined, chapterNum: number | null): string {
   if (state === 'WaitingForInput') return 'Waiting for your answer…'
@@ -32,6 +33,20 @@ function BookSidebar() {
     handleWriteBook, handlePlanBook, handleStop, isPhaseComplete,
   } = useBookContext()
 
+  const [showExportMenu, setShowExportMenu] = useState(false)
+  const exportMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!showExportMenu) return
+    function handleClickOutside(e: MouseEvent) {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showExportMenu])
+
   if (!book) return null
 
   const isAt = (suffix: string) => location.pathname === `/books/${id}/${suffix}`
@@ -48,7 +63,24 @@ function BookSidebar() {
       bottomChildren={
         <>
           {(book.chapters ?? []).some(c => c.content?.trim()) && (
-            <SidebarBtn icon="⬇" label="Download HTML" onClick={() => downloadBookAsHtml(book)} />
+            <div className="sidebar-split-wrap" ref={exportMenuRef}>
+              <button className="sidebar-btn sidebar-split-main" title="Download Book as HTML" onClick={() => downloadBookAsHtml(book)}>
+                <span className="s-icon">⬇</span>
+                <span className="s-label">Download Book</span>
+              </button>
+              <button
+                className="sidebar-btn sidebar-split-arrow"
+                title="More export formats"
+                onClick={() => setShowExportMenu(v => !v)}
+              >▾</button>
+              {showExportMenu && (
+                <div className="sidebar-split-menu">
+                  <button onClick={() => { downloadBookAsHtml(book); setShowExportMenu(false) }}>HTML</button>
+                  <button onClick={() => { downloadBookAsFb2(book, storyBible); setShowExportMenu(false) }}>FB2</button>
+                  <button onClick={() => { downloadBookAsEpub(book, storyBible); setShowExportMenu(false) }}>EPUB</button>
+                </div>
+              )}
+            </div>
           )}
           <SidebarBtn
             icon="📄"

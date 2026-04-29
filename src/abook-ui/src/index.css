@@ -228,6 +228,55 @@ label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bot
 }
 .app-sidebar.collapsed .s-dot { margin-left: 0; }
 
+/* Split download button */
+.sidebar-split-wrap {
+  position: relative;
+  display: flex;
+  gap: 1px;
+}
+.sidebar-split-main {
+  flex: 1;
+  border-radius: 6px 0 0 6px !important;
+}
+.sidebar-split-arrow {
+  flex-shrink: 0;
+  width: 26px;
+  padding: 0 !important;
+  justify-content: center;
+  border-radius: 0 6px 6px 0 !important;
+  border-left: 1px solid rgba(128,128,128,0.18) !important;
+  font-size: 0.85rem;
+}
+.sidebar-split-menu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg2, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.22);
+  z-index: 300;
+  overflow: hidden;
+}
+.sidebar-split-menu button {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.9rem;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+.sidebar-split-menu button:last-child { border-bottom: none; }
+.sidebar-split-menu button:hover { background: rgba(99,102,241,0.12); }
+.app-sidebar.collapsed .sidebar-split-arrow { display: none; }
+.app-sidebar.collapsed .sidebar-split-main { border-radius: 6px !important; }
+
 /* Sidebar chapter list */
 .sidebar-chapters {
   overflow-y: auto;
