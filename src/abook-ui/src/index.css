@@ -496,6 +496,7 @@ details[open] summary { margin-bottom: 1rem; }
 
 /* ── Agent running indicator ── */
 .agent-running-banner { background: rgba(245,158,11,0.12); border: 1px solid var(--warning); border-radius: 6px; padding: 0.4rem 0.7rem; font-size: 0.8rem; color: var(--warning); display: flex; align-items: center; gap: 0.5rem; }
+.app-sidebar.collapsed .agent-running-banner { justify-content: center; padding: 0.4rem 0; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.2); border-top-color: currentColor; border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0; }
 button:disabled { opacity: 0.45; cursor: not-allowed; }

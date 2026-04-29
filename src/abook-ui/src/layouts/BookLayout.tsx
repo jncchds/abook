@@ -3,6 +3,22 @@ import { BookContextProvider, useBookContext } from '../contexts/BookContext'
 import Sidebar, { SidebarBtn, SidebarDivider } from '../components/Sidebar'
 import { downloadBookAsHtml, downloadBookMetadataAsHtml } from '../utils/bookHtmlExport'
 
+function agentCaption(role: string | undefined, state: string | undefined, chapterNum: number | null): string {
+  if (state === 'WaitingForInput') return 'Waiting for your answer…'
+  const ch = chapterNum ? ` Ch. ${chapterNum}` : ''
+  switch (role) {
+    case 'StoryBibleAgent':     return 'Crafting Story Bible…'
+    case 'CharactersAgent':     return 'Developing Characters…'
+    case 'PlotThreadsAgent':    return 'Weaving Plot Threads…'
+    case 'Planner':             return 'Outlining Chapters…'
+    case 'Writer':              return `Writing${ch}…`
+    case 'Editor':              return `Editing${ch}…`
+    case 'ContinuityChecker':   return `Checking Continuity${ch}…`
+    case 'Embedder':            return `Indexing${ch}…`
+    default:                    return `${role ?? 'Agent'} running…`
+  }
+}
+
 function BookSidebar() {
   const { bookId } = useParams<{ bookId: string }>()
   const id = Number(bookId)
@@ -10,6 +26,7 @@ function BookSidebar() {
   const location = useLocation()
   const {
     book, isRunning, runStatus, pendingQuestion,
+    streamingChapterId,
     messages, storyBible, characters, plotThreads, tokenStats,
     handleWriteBook, handlePlanBook, handleStop, isPhaseComplete,
   } = useBookContext()
@@ -49,9 +66,18 @@ function BookSidebar() {
       <SidebarDivider />
       {isRunning ? (
         <>
-          <div className="agent-running-banner hide-when-collapsed" style={{ margin: '0 4px 4px', fontSize: '0.75rem' }}>
-            <span className="spinner" /> {runStatus?.state === 'WaitingForInput' ? 'Waiting for input…' : `${runStatus?.role} running…`}
-          </div>
+          {(() => {
+            const chNum = streamingChapterId
+              ? (book.chapters ?? []).find(c => c.id === streamingChapterId)?.number ?? null
+              : null
+            const label = agentCaption(runStatus?.role, runStatus?.state, chNum)
+            return (
+              <div className="agent-running-banner" style={{ margin: '0 4px 4px', fontSize: '0.75rem' }}>
+                <span className="spinner" />
+                <span className="hide-when-collapsed">{label}</span>
+              </div>
+            )
+          })()}
           <SidebarBtn icon="⊙" label="Stop" onClick={handleStop} />
         </>
       ) : (
