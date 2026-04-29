@@ -57,7 +57,7 @@ export default function Dashboard() {
           <div className="book-list-card-right">
             <span className="blc-chapters">{b.targetChapterCount} chapters</span>
             <button onClick={() => navigate(`/books/${b.id}`)}>Open →</button>
-            <button className="delete-btn" onClick={() => handleDelete(b.id)}>Delete</button>
+            <button className="btn-icon btn-danger" title="Delete" onClick={() => handleDelete(b.id)}>✕</button>
           </div>
         </div>
       ))}
