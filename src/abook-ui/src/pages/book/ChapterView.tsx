@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { useBookContext } from '../../contexts/BookContext'
-import { updateChapter, clearChapterContent, getStreamBuffer } from '../../api'
+import { updateChapter, clearChapterContent } from '../../api'
+import { chapterStatusColor } from '../../utils/chapterStatus'
+import { useRestoreStream } from '../../hooks/useRestoreStream'
 
 export default function ChapterView() {
   const { chapterId } = useParams<{ chapterId: string }>()
@@ -12,27 +14,19 @@ export default function ChapterView() {
   const [chapterEditTitle, setChapterEditTitle] = useState('')
   const [chapterEditOutline, setChapterEditOutline] = useState('')
 
-  if (!book) return null
+  const chapter = book?.chapters?.find(c => c.id === Number(chapterId))
 
-  const chapter = book.chapters?.find(c => c.id === Number(chapterId))
+  // Restore in-progress stream on hard-refresh (must be before early returns)
+  useRestoreStream(book?.id, isRunning, streamBuffer, undefined, chapter?.id, (content) => {
+    setStreamBuffer(content)
+    if (chapter) setStreamingChapterId(chapter.id)
+  })
+
+  if (!book) return null
   if (!chapter) return <p className="empty">Chapter not found.</p>
 
   const bookId = book.id
-
-  // Restore in-progress stream on hard-refresh
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  useEffect(() => {
-    if (!isRunning || streamBuffer) return
-    getStreamBuffer(bookId, undefined, chapter.id).then(r => {
-      if (r.data.content) { setStreamBuffer(r.data.content); setStreamingChapterId(chapter.id) }
-    }).catch(() => {})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chapter.id])
-
-  const statusColor = (s: string) => ({
-    Outlined: '#94a3b8', Writing: '#f59e0b', Review: '#3b82f6',
-    Editing: '#a855f7', Done: '#22c55e'
-  })[s] ?? '#94a3b8'
+  const statusColor = chapterStatusColor
 
   const handleSaveChapterEdit = async () => {
     const r = await updateChapter(bookId, chapter.id, {

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate, useLocation, Outlet, Navigate } from 'react-router-dom'
 import { BookContextProvider, useBookContext } from '../contexts/BookContext'
 import Sidebar, { SidebarBtn, SidebarDivider } from '../components/Sidebar'
+import { chapterStatusColor } from '../utils/chapterStatus'
 
 function agentCaption(role: string | undefined, state: string | undefined, chapterNum: number | null): string {
   if (state === 'WaitingForInput') return 'Waiting for your answer…'
@@ -50,10 +51,7 @@ function BookSidebar() {
   const isAt = (suffix: string) => location.pathname === `/books/${id}/${suffix}`
   const startsAt = (suffix: string) => location.pathname.startsWith(`/books/${id}/${suffix}`)
 
-  const statusColor = (s: string) => ({
-    Outlined: '#94a3b8', Writing: '#f59e0b', Review: '#3b82f6',
-    Editing: '#a855f7', Done: '#22c55e'
-  })[s] ?? '#94a3b8'
+  const statusColor = chapterStatusColor
 
   return (
     <Sidebar

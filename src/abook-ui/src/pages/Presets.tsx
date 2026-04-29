@@ -1,14 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { LlmPreset } from '../api'
 import { getPresets, createPreset, updatePreset, deletePreset } from '../api'
-
-const PROVIDERS = ['Ollama', 'LMStudio', 'OpenAI', 'AzureOpenAI', 'Anthropic'] as const
-
-const DEFAULT_ENDPOINTS: Record<string, string> = {
-  Ollama: 'http://host.docker.internal:11434',
-  LMStudio: 'http://host.docker.internal:1234',
-  Anthropic: 'http://localhost:4000',
-}
+import { PROVIDERS, DEFAULT_ENDPOINTS } from '../config/providers'
 
 const emptyForm = {
   name: '', provider: 'Ollama', modelName: '', endpoint: '', apiKey: '', embeddingModelName: '',

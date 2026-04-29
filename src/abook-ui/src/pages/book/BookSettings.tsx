@@ -2,27 +2,13 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import type { LlmConfig, LlmPreset, ProviderModel, Book, DefaultPrompts } from '../../api'
 import { getLlmConfig, updateLlmConfig, updateBook, getBook, getModels, getDefaultPrompts, getPresets, createPreset, updatePreset } from '../../api'
-
-const PROVIDERS = ['Ollama', 'OpenAI', 'AzureOpenAI', 'Anthropic', 'GoogleAIStudio'] as const
-
-const DEFAULT_ENDPOINTS: Record<string, string> = {
-  Ollama: 'http://host.docker.internal:11434',
-  Anthropic: 'http://localhost:4000',
-  GoogleAIStudio: 'https://generativelanguage.googleapis.com/v1beta/openai',
-}
-
-const MODEL_LIST_PROVIDERS = new Set(['Ollama', 'OpenAI', 'GoogleAIStudio'])
-const API_KEY_REQUIRED_PROVIDERS = new Set(['OpenAI', 'GoogleAIStudio'])
-const PROXY_REQUIRED_PROVIDERS = new Set(['Anthropic'])
+import { PROVIDERS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, PROXY_REQUIRED_PROVIDERS, INITIAL_LLM_CONFIG } from '../../config/providers'
 
 export default function BookSettings() {
   const { bookId } = useParams<{ bookId: string }>()
   const id = Number(bookId)
 
-  const [config, setConfig] = useState<LlmConfig>({
-    provider: 'Ollama', modelName: 'llama3',
-    endpoint: 'http://host.docker.internal:11434', embeddingModelName: 'nomic-embed-text'
-  })
+  const [config, setConfig] = useState<LlmConfig>({ ...INITIAL_LLM_CONFIG })
   const [book, setBook] = useState<Book | null>(null)
   const [bookForm, setBookForm] = useState({
     language: 'English',

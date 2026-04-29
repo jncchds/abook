@@ -1,13 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useBookContext } from '../../contexts/BookContext'
-import { createPlotThread, updatePlotThread, deletePlotThread, getStreamBuffer } from '../../api'
+import { createPlotThread, updatePlotThread, deletePlotThread } from '../../api'
 import type { PlotThread } from '../../api'
 import { parsePlotThreadsStream } from '../../utils/streamParsers'
+import PhaseActionBar from '../../components/PhaseActionBar'
+import { useRestoreStream } from '../../hooks/useRestoreStream'
 
 export default function PlotThreads() {
   const {
     book, plotThreads, setPlotThreads, plotThreadsStream, setPlotThreadsStream,
-    isPhaseComplete, handleCompletePhase, handleReopenPhase, handleClearPhase,
     isRunning,
   } = useBookContext()
 
@@ -15,14 +16,7 @@ export default function PlotThreads() {
   const [addingThread, setAddingThread] = useState(false)
   const [threadForm, setThreadForm] = useState<Partial<PlotThread>>({})
 
-  // Restore in-progress stream on hard-refresh
-  useEffect(() => {
-    if (!book || !isRunning || plotThreadsStream) return
-    getStreamBuffer(book.id, 'PlotThreadsAgent').then(r => {
-      if (r.data.content) setPlotThreadsStream(r.data.content)
-    }).catch(() => {})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book?.id])
+  useRestoreStream(book?.id, isRunning, plotThreadsStream, 'PlotThreadsAgent', undefined, setPlotThreadsStream)
 
   if (!book) return null
 
@@ -34,20 +28,7 @@ export default function PlotThreads() {
         <h3>Plot Threads ({plotThreads.length})</h3>
         <button className="btn-sm" onClick={() => { setThreadForm({}); setAddingThread(true); setEditingThreadId(null) }}>+ Add</button>
       </div>
-      <div className="phase-actions">
-        {isPhaseComplete('plotthreads') ? (
-          <>
-            <span className="phase-status-badge phase-complete">✅ Complete</span>
-            <button className="btn-sm btn-ghost phase-action-btn" onClick={() => handleReopenPhase('plotthreads')}>↺ Reopen</button>
-          </>
-        ) : (
-          <>
-            <span className="phase-status-badge phase-not-started">⬜ Not Started</span>
-            <button className="btn-sm phase-action-btn" onClick={() => handleCompletePhase('plotthreads')}>✓ Complete</button>
-          </>
-        )}
-        <button className="btn-sm btn-danger phase-action-btn" onClick={() => handleClearPhase('plotthreads', () => setPlotThreads([]))}>🗑 Clear</button>
-      </div>
+      <PhaseActionBar phase="plotthreads" onClear={() => setPlotThreads([])} />
       {addingThread && (
         <div className="thread-edit-form">
           <label>Name<input autoFocus value={threadForm.name ?? ''} onChange={e => setThreadForm(f => ({ ...f, name: e.target.value }))} /></label>

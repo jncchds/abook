@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Book, AgentMessage, AgentRunStatus, StoryBible, CharacterCard, PlotThread } from '../api'
 import {
@@ -120,9 +120,6 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   const [workflowLog, setWorkflowLog] = useState<string[]>([])
 
   const [answerText, setAnswerText] = useState('')
-
-  const chatBottomRef = useRef<null>(null)
-  void chatBottomRef
 
   const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError } = useBookHub(bookId)
 

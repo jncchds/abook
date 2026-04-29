@@ -1,13 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useBookContext } from '../../contexts/BookContext'
-import { createCharacter, updateCharacter, deleteCharacter, getStreamBuffer } from '../../api'
+import { createCharacter, updateCharacter, deleteCharacter } from '../../api'
 import type { CharacterCard } from '../../api'
 import { parseCharactersStream } from '../../utils/streamParsers'
+import PhaseActionBar from '../../components/PhaseActionBar'
+import { useRestoreStream } from '../../hooks/useRestoreStream'
 
 export default function Characters() {
   const {
     book, characters, setCharacters, charactersStream, setCharactersStream,
-    isPhaseComplete, handleCompletePhase, handleReopenPhase, handleClearPhase,
     isRunning,
   } = useBookContext()
 
@@ -15,14 +16,7 @@ export default function Characters() {
   const [addingChar, setAddingChar] = useState(false)
   const [charForm, setCharForm] = useState<Partial<CharacterCard>>({})
 
-  // Restore in-progress stream on hard-refresh
-  useEffect(() => {
-    if (!book || !isRunning || charactersStream) return
-    getStreamBuffer(book.id, 'CharactersAgent').then(r => {
-      if (r.data.content) setCharactersStream(r.data.content)
-    }).catch(() => {})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book?.id])
+  useRestoreStream(book?.id, isRunning, charactersStream, 'CharactersAgent', undefined, setCharactersStream)
 
   if (!book) return null
 
@@ -34,20 +28,7 @@ export default function Characters() {
         <h3>Characters ({characters.length})</h3>
         <button className="btn-sm" onClick={() => { setCharForm({}); setAddingChar(true); setEditingCharId(null) }}>+ Add</button>
       </div>
-      <div className="phase-actions">
-        {isPhaseComplete('characters') ? (
-          <>
-            <span className="phase-status-badge phase-complete">✅ Complete</span>
-            <button className="btn-sm btn-ghost phase-action-btn" onClick={() => handleReopenPhase('characters')}>↺ Reopen</button>
-          </>
-        ) : (
-          <>
-            <span className="phase-status-badge phase-not-started">⬜ Not Started</span>
-            <button className="btn-sm phase-action-btn" onClick={() => handleCompletePhase('characters')}>✓ Complete</button>
-          </>
-        )}
-        <button className="btn-sm btn-danger phase-action-btn" onClick={() => handleClearPhase('characters', () => setCharacters([]))}>🗑 Clear</button>
-      </div>
+      <PhaseActionBar phase="characters" onClear={() => setCharacters([])} />
       {addingChar && (
         <div className="char-edit-form">
           <label>Name<input autoFocus value={charForm.name ?? ''} onChange={e => setCharForm(f => ({ ...f, name: e.target.value }))} /></label>

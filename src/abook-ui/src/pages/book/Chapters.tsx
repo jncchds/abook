@@ -1,16 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useBookContext } from '../../contexts/BookContext'
-import { createChapter, getStreamBuffer } from '../../api'
+import { createChapter } from '../../api'
 import { parsePlanningStream } from '../../utils/streamParsers'
-
-const STATUS_COLOR: Record<string, string> = {
-  Outlined: '#94a3b8',
-  Writing:  '#f59e0b',
-  Review:   '#3b82f6',
-  Editing:  '#a855f7',
-  Done:     '#22c55e',
-}
+import { chapterStatusColor } from '../../utils/chapterStatus'
+import PhaseActionBar from '../../components/PhaseActionBar'
+import { useRestoreStream } from '../../hooks/useRestoreStream'
 
 export default function Chapters() {
   const { bookId } = useParams<{ bookId: string }>()
@@ -19,19 +14,11 @@ export default function Chapters() {
 
   const {
     book, setBook,
-    isRunning, isPhaseComplete,
-    handleCompletePhase, handleReopenPhase, handleClearPhase,
+    isRunning,
     plannerBuffer, setPlannerBuffer, runStatus,
   } = useBookContext()
 
-  // Restore in-progress stream on hard-refresh
-  useEffect(() => {
-    if (!book || !isRunning || plannerBuffer) return
-    getStreamBuffer(book.id, 'ChaptersAgent').then(r => {
-      if (r.data.content) setPlannerBuffer(r.data.content)
-    }).catch(() => {})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book?.id])
+  useRestoreStream(book?.id, isRunning, plannerBuffer, 'ChaptersAgent', undefined, setPlannerBuffer)
 
   const [addingChapter, setAddingChapter] = useState(false)
   const [newTitle, setNewTitle] = useState('')
@@ -60,25 +47,12 @@ export default function Chapters() {
       </div>
 
       {/* Phase action bar */}
-      <div className="phase-actions" style={{ marginBottom: '1rem' }}>
-        {isPhaseComplete('chapters') ? (
-          <>
-            <span className="phase-status-badge phase-complete">✅ Complete</span>
-            <button className="btn-sm btn-ghost phase-action-btn" onClick={() => handleReopenPhase('chapters')}>↺ Reopen</button>
-          </>
-        ) : (
-          <>
-            <span className="phase-status-badge phase-not-started">⬜ Not Started</span>
-            <button className="btn-sm phase-action-btn" onClick={() => handleCompletePhase('chapters')}>✓ Complete</button>
-          </>
-        )}
-        <button
-          className="btn-sm btn-danger phase-action-btn"
-          onClick={() => handleClearPhase('chapters', () =>
-            setBook(prev => prev ? { ...prev, chapters: [] } : prev)
-          )}
-        >🗑 Clear All</button>
-      </div>
+      <PhaseActionBar
+        phase="chapters"
+        onClear={() => setBook(prev => prev ? { ...prev, chapters: [] } : prev)}
+        clearLabel="🗑 Clear All"
+        style={{ marginBottom: '1rem' }}
+      />
 
       {/* Live planning stream preview */}
       {runStatus?.role === 'ChaptersAgent' && plannerBuffer && planningChapters.length > 0 && (
@@ -89,7 +63,7 @@ export default function Chapters() {
                 <div className="book-list-card-left">
                   <h3>{c.number}. {c.title}</h3>
                   <div className="blc-meta">
-                    <span className="status" style={{ background: STATUS_COLOR['Outlined'], color: '#fff', borderRadius: 4, padding: '1px 7px', fontSize: '0.75rem' }}>Outlined</span>
+                    <span className="status" style={{ background: chapterStatusColor('Outlined'), color: '#fff', borderRadius: 4, padding: '1px 7px', fontSize: '0.75rem' }}>Outlined</span>
                   </div>
                   {c.outline && <p className="blc-premise">{c.outline}</p>}
                 </div>
@@ -116,7 +90,7 @@ export default function Chapters() {
                 <div className="blc-meta">
                   <span
                     className="status"
-                    style={{ background: STATUS_COLOR[c.status] ?? STATUS_COLOR['Outlined'], color: '#fff', borderRadius: 4, padding: '1px 7px', fontSize: '0.75rem' }}
+                    style={{ background: chapterStatusColor(c.status), color: '#fff', borderRadius: 4, padding: '1px 7px', fontSize: '0.75rem' }}
                   >
                     {c.status}
                   </span>

@@ -1,27 +1,21 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useBookContext } from '../../contexts/BookContext'
-import { updateStoryBible, getStreamBuffer } from '../../api'
+import { updateStoryBible } from '../../api'
 import type { StoryBible } from '../../api'
 import { parseStoryBibleStream } from '../../utils/streamParsers'
+import PhaseActionBar from '../../components/PhaseActionBar'
+import { useRestoreStream } from '../../hooks/useRestoreStream'
 
 export default function StoryBiblePage() {
   const {
     book, storyBible, setStoryBible, storyBibleStream,
-    isPhaseComplete, handleCompletePhase, handleReopenPhase, handleClearPhase,
     isRunning, setStoryBibleStream,
   } = useBookContext()
 
   const [editingBible, setEditingBible] = useState(false)
   const [bibleForm, setBibleForm] = useState<Partial<StoryBible>>({})
 
-  // Restore in-progress stream on hard-refresh
-  useEffect(() => {
-    if (!book || !isRunning || storyBibleStream) return
-    getStreamBuffer(book.id, 'StoryBibleAgent').then(r => {
-      if (r.data.content) setStoryBibleStream(r.data.content)
-    }).catch(() => {})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book?.id])
+  useRestoreStream(book?.id, isRunning, storyBibleStream, 'StoryBibleAgent', undefined, setStoryBibleStream)
 
   if (!book) return null
 
@@ -54,20 +48,7 @@ export default function StoryBiblePage() {
             <h3>Story Bible</h3>
             <button className="btn-edit-book" onClick={() => { setBibleForm(storyBible ?? {}); setEditingBible(true) }}>✎ Edit</button>
           </div>
-          <div className="phase-actions">
-            {isPhaseComplete('storybible') ? (
-              <>
-                <span className="phase-status-badge phase-complete">✅ Complete</span>
-                <button className="btn-sm btn-ghost phase-action-btn" onClick={() => handleReopenPhase('storybible')}>↺ Reopen</button>
-              </>
-            ) : (
-              <>
-                <span className="phase-status-badge phase-not-started">⬜ Not Started</span>
-                <button className="btn-sm phase-action-btn" onClick={() => handleCompletePhase('storybible')}>✓ Complete</button>
-              </>
-            )}
-            <button className="btn-sm btn-danger phase-action-btn" onClick={() => handleClearPhase('storybible', () => setStoryBible(null))}>🗑 Clear</button>
-          </div>
+          <PhaseActionBar phase="storybible" onClear={() => setStoryBible(null)} />
           {(() => {
             const preview = storyBibleStream ? parseStoryBibleStream(storyBibleStream) : null
             const data: Partial<StoryBible> = storyBible ?? preview ?? {}
