@@ -32,6 +32,7 @@ public class PlannerAgent : AgentBase
         CancellationToken ct = default)
     {
         var bookId = book.Id;
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ChaptersAgent, "Running", ct);
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 4/4 - Chapter Outlines...", false, ct);
 
         var (kernel, config) = await GetKernelAsync(bookId);
@@ -69,14 +70,14 @@ public class PlannerAgent : AgentBase
             Create {book.TargetChapterCount} detailed chapter outlines for this book.
             """);
 
-        var chapterRaw = await StreamResponseAsync(kernel, config, chapterHistory, bookId, null, AgentRole.Planner, ct, jsonMode: true);
+        var chapterRaw = await StreamResponseAsync(kernel, config, chapterHistory, bookId, null, AgentRole.ChaptersAgent, ct, jsonMode: true);
 
         List<Chapter> chapters;
         try { chapters = ParseChapterOutlines(bookId, chapterRaw); }
         catch (Exception ex)
         {
             Logger.LogError(ex, "[Book {BookId}] PlannerAgent: could not parse Chapter Outlines JSON.", bookId);
-            await ReportErrorAsync(bookId, null, AgentRole.Planner, "Chapter Outlines JSON could not be parsed. Try again.", ct);
+            await ReportErrorAsync(bookId, null, AgentRole.ChaptersAgent, "Chapter Outlines JSON could not be parsed. Try again.", ct);
             throw;
         }
 

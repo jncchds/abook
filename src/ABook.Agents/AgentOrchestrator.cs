@@ -217,7 +217,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         var runType = role switch
         {
             AgentRole.Planner or AgentRole.StoryBibleAgent
-            or AgentRole.CharactersAgent or AgentRole.PlotThreadsAgent => "plan",
+            or AgentRole.CharactersAgent or AgentRole.PlotThreadsAgent or AgentRole.ChaptersAgent => "plan",
             AgentRole.Writer => "write",
             AgentRole.Editor => "edit",
             AgentRole.ContinuityChecker => "continuity",

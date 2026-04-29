@@ -188,7 +188,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         setCharactersStream(prev => prev + token)
       } else if (agentRole === 'PlotThreadsAgent') {
         setPlotThreadsStream(prev => prev + token)
-      } else if (cId === null) {
+      } else if (agentRole === 'ChaptersAgent' || cId === null) {
         setPlannerBuffer(prev => prev + token)
       } else {
         setStreamingChapterId(cId)

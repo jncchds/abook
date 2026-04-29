@@ -11,6 +11,7 @@ function agentCaption(role: string | undefined, state: string | undefined, chapt
     case 'CharactersAgent':     return 'Developing Characters…'
     case 'PlotThreadsAgent':    return 'Weaving Plot Threads…'
     case 'Planner':             return 'Outlining Chapters…'
+    case 'ChaptersAgent':       return 'Outlining Chapters…'
     case 'Writer':              return `Writing${ch}…`
     case 'Editor':              return `Editing${ch}…`
     case 'ContinuityChecker':   return `Checking Continuity${ch}…`
