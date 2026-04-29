@@ -5,7 +5,7 @@ ABook is a self-hosted web application that uses AI agents to collaboratively wr
 ## Features
 
 - **Four collaborative agents** working through the book pipeline (Plan → Pre-write Check → Write → Continuity Check → Edit)
-- **Human-in-the-loop** — agents pause and ask you plot/character questions before proceeding; Writer can emit `[ASK: question]` mid-generation to request input on pivotal decisions; pending questions are restored after page refresh
+- **Human-in-the-loop** — agents ask you clarifying questions about plot, characters, and world-building upfront (before each planning phase), so all ambiguities are resolved before writing begins; pending questions are restored after page refresh
 - **Real-time streaming** — watch chapters being written token by token via SignalR; Story Bible, Characters, and Plot Threads stream to their respective tabs with live progressive JSON previews
 - **Token usage statistics** — per-agent prompt and completion token counts displayed in a scrollable collapsible panel and persisted to the database; Clear button to reset
 - **RAG context retrieval** — agents query relevant prior chapters via pgvector embeddings stored in PostgreSQL to stay consistent across long books
@@ -185,7 +185,7 @@ User creates book (title, premise, genre, target chapters)
   │   Phase 2: Character Cards (roles, arcs, goals)     │
   │   Phase 3: Plot Threads (subplots, themes, arcs)    │
   │   Phase 4: Chapter Outlines (title + synopsis each) │
-  │   ─ asks author questions before generating each phase│
+  │   ─ asks author questions upfront before each phase  │
   └─────────────────────────────────────────────────────┘
          │
          │  ← "Plan Only" stops here so you can review
@@ -196,13 +196,13 @@ User creates book (title, premise, genre, target chapters)
   [Continuity Checker]  ── pre-write: auto-fix outline contradictions
          │
          ▼
-  [Writer Agent]  ──asks─→ "How should X react to Y?"  (mid-generation [ASK:])
+  [Writer Agent]  ── writes full chapter prose
          │ draft prose
          ▼
   [Continuity Checker] ── per-chapter cross-reference against prior chapters
          │ inconsistency report
          ▼
-  [Editor Agent]  ──asks─→ "This contradicts Ch2 — which version?"
+  [Editor Agent]  ── edits and polishes prose
          │ polished chapter + editorial notes
          ▼
   [Continuity Checker] ── final full-manuscript pass after all chapters complete
