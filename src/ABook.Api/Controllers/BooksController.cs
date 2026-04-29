@@ -102,6 +102,10 @@ public class BooksController : ControllerBase
             agentRole = r.AgentRole.ToString(),
             r.PromptTokens,
             r.CompletionTokens,
+            r.StepLabel,
+            r.Endpoint,
+            r.ModelName,
+            r.Failed,
             r.CreatedAt
         }));
     }
