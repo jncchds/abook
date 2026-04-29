@@ -320,23 +320,7 @@ ${chaptersHtml}
 </html>`
 }
 
-export function downloadBookAsHtml(book: Book): void {
-  const html = generateBookHtml(book)
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  const safeName = book.title
-    .replace(/[^a-z0-9\s-]/gi, '')
-    .trim()
-    .replace(/\s+/g, '-')
-    .toLowerCase() || 'book'
-  a.download = `${safeName}.html`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
+
 
 // ── Metadata export ──────────────────────────────────────────────
 
@@ -850,10 +834,7 @@ function generateFb2(book: Book, storyBible?: StoryBible | null): string {
 </FictionBook>`
 }
 
-export function downloadBookAsFb2(book: Book, storyBible?: StoryBible | null): void {
-  const xml = generateFb2(book, storyBible)
-  triggerDownload(xml, `${safeFilename(book.title)}.fb2`, 'application/x-fictionbook+xml;charset=utf-8')
-}
+
 
 // ── EPUB export (store-only ZIP, no external dependencies) ───────
 
@@ -1070,18 +1051,7 @@ function generateEpub(book: Book, storyBible?: StoryBible | null): Uint8Array {
   ])
 }
 
-export function downloadBookAsEpub(book: Book, storyBible?: StoryBible | null): void {
-  const data = generateEpub(book, storyBible)
-  const blob = new Blob([data], { type: 'application/epub+zip' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${safeFilename(book.title)}.epub`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
+
 
 // ── Shared helpers ────────────────────────────────────────────────
 

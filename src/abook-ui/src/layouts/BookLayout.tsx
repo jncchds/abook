@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate, useLocation, Outlet, Navigate } from 'react-router-dom'
 import { BookContextProvider, useBookContext } from '../contexts/BookContext'
 import Sidebar, { SidebarBtn, SidebarDivider } from '../components/Sidebar'
-import { downloadBookAsHtml, downloadBookAsFb2, downloadBookAsEpub, downloadBookMetadataAsHtml } from '../utils/bookHtmlExport'
+import { downloadBookMetadataAsHtml } from '../utils/bookHtmlExport'
 
 function agentCaption(role: string | undefined, state: string | undefined, chapterNum: number | null): string {
   if (state === 'WaitingForInput') return 'Waiting for your answer…'
@@ -64,7 +64,7 @@ function BookSidebar() {
         <>
           {(book.chapters ?? []).some(c => c.content?.trim()) && (
             <div className="sidebar-split-wrap" ref={exportMenuRef}>
-              <button className="sidebar-btn sidebar-split-main" title="Download Book as HTML" onClick={() => downloadBookAsHtml(book)}>
+              <button className="sidebar-btn sidebar-split-main" title="Download Book as HTML" onClick={() => { window.location.href = `/api/books/${id}/export?format=html` }}>
                 <span className="s-icon">⬇</span>
                 <span className="s-label">Download Book</span>
               </button>
@@ -75,9 +75,9 @@ function BookSidebar() {
               >▾</button>
               {showExportMenu && (
                 <div className="sidebar-split-menu">
-                  <button onClick={() => { downloadBookAsHtml(book); setShowExportMenu(false) }}>HTML</button>
-                  <button onClick={() => { downloadBookAsFb2(book, storyBible); setShowExportMenu(false) }}>FB2</button>
-                  <button onClick={() => { downloadBookAsEpub(book, storyBible); setShowExportMenu(false) }}>EPUB</button>
+                  <button onClick={() => { window.location.href = `/api/books/${id}/export?format=html`; setShowExportMenu(false) }}>HTML</button>
+                  <button onClick={() => { window.location.href = `/api/books/${id}/export?format=fb2`; setShowExportMenu(false) }}>FB2</button>
+                  <button onClick={() => { window.location.href = `/api/books/${id}/export?format=epub`; setShowExportMenu(false) }}>EPUB</button>
                 </div>
               )}
             </div>
