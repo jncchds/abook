@@ -19,7 +19,8 @@ public class EditorAgent : AgentBase
         ILoggerFactory loggerFactory)
         : base(repo, llmFactory, vectorStore, notifier, stateService, loggerFactory) { }
 
-    public async Task EditAsync(int bookId, int chapterId, CancellationToken ct = default, string? continuityNotes = null)
+    public async Task EditAsync(int bookId, int chapterId, CancellationToken ct = default,
+        CheckerResult? checkerResult = null, string? humanAttentionPoints = null, bool finalizeStatus = true)
     {
         var book = await Repo.GetByIdAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
@@ -39,23 +40,40 @@ public class EditorAgent : AgentBase
             : InterpolateSystemPrompt(DefaultPrompts.Editor, book, bible);
         history.AddSystemMessage(systemPrompt);
 
-        var editRequest = string.IsNullOrWhiteSpace(continuityNotes)
-            ? $"""
-            Please edit Chapter {chapter.Number}: {chapter.Title}
+        // Build fix request from structured checker result and optional human notes
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Please fix Chapter {chapter.Number}: {chapter.Title}");
 
-            Original content:
-            {chapter.Content}
-            """
-            : $"""
-            Please edit Chapter {chapter.Number}: {chapter.Title}
+        bool hasCheckerIssues = checkerResult is { HasIssues: true };
+        if (hasCheckerIssues)
+        {
+            if (checkerResult!.ContinuityIssues.Length > 0)
+            {
+                sb.AppendLine("\n**Continuity issues to fix:**");
+                foreach (var issue in checkerResult.ContinuityIssues)
+                    sb.AppendLine($"- {issue}");
+            }
+            if (checkerResult.StyleIssues.Length > 0)
+            {
+                sb.AppendLine("\n**Style issues to fix:**");
+                foreach (var issue in checkerResult.StyleIssues)
+                    sb.AppendLine($"- {issue}");
+            }
+        }
 
-            The continuity checker identified the following issues to fix in this chapter:
-            {continuityNotes}
+        if (!string.IsNullOrWhiteSpace(humanAttentionPoints))
+        {
+            sb.AppendLine("\n**Additional attention points from the author:**");
+            sb.AppendLine(humanAttentionPoints.Trim());
+        }
 
-            Original content:
-            {chapter.Content}
-            """;
-        history.AddUserMessage(editRequest);
+        if (!hasCheckerIssues && string.IsNullOrWhiteSpace(humanAttentionPoints))
+        {
+            sb.AppendLine("\nNo specific issues listed — make only minor polish corrections if needed.");
+        }
+
+        sb.AppendLine($"\nOriginal content:\n{chapter.Content}");
+        history.AddUserMessage(sb.ToString());
 
         var edited = await StreamResponseAsync(kernel, config, history, bookId, chapterId, AgentRole.Editor, ct);
 
@@ -92,7 +110,7 @@ public class EditorAgent : AgentBase
         // Strip any leading chapter heading the LLM may have added (e.g. "# Chapter 1: Title")
         chapter.Content = StripLeadingChapterHeading(prose, chapter.Number, chapter.Title);
 
-        chapter.Status = ChapterStatus.Done;
+        chapter.Status = finalizeStatus ? ChapterStatus.Done : ChapterStatus.Review;
         await Repo.UpdateChapterAsync(chapter);
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Done", ct);

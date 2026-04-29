@@ -5,7 +5,7 @@ import { createBook, deleteBook, getBooks } from '../api'
 
 export default function Dashboard() {
   const [books, setBooks] = useState<Book[]>([])
-  const [form, setForm] = useState({ title: '', premise: '', genre: '', targetChapterCount: 10, language: 'English' })
+  const [form, setForm] = useState({ title: '', premise: '', genre: '', targetChapterCount: 10, language: 'English', humanAssisted: false })
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const showForm = searchParams.get('new') === '1'
@@ -36,6 +36,10 @@ export default function Dashboard() {
       <label>Language<input value={form.language} onChange={e => setForm(f => ({ ...f, language: e.target.value }))} placeholder="English" /></label>
       <label>Target chapters<input type="number" min={1} max={100} value={form.targetChapterCount} onChange={e => setForm(f => ({ ...f, targetChapterCount: +e.target.value }))} /></label>
       <label>Premise<textarea rows={4} value={form.premise} onChange={e => setForm(f => ({ ...f, premise: e.target.value }))} required /></label>
+      <label style={{ flexDirection: 'row', gap: '0.5rem', alignItems: 'center' }}>
+        <input type="checkbox" checked={form.humanAssisted} onChange={e => setForm(f => ({ ...f, humanAssisted: e.target.checked }))} />
+        Human-assisted generation
+      </label>
       <div className="actions">
         <button type="submit">Create</button>
         <button type="button" className="btn-ghost" onClick={() => setSearchParams({})}>Cancel</button>

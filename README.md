@@ -5,12 +5,14 @@ ABook is a self-hosted web application that uses AI agents to collaboratively wr
 ## Features
 
 - **Four collaborative agents** working through the book pipeline (Plan → Pre-write Check → Write → Continuity Check → Edit)
-- **Human-in-the-loop** — agents ask you clarifying questions about plot, characters, and world-building upfront (before each planning phase), so all ambiguities are resolved before writing begins; pending questions are restored after page refresh
+- **Human-assisted generation** — enable a per-book assisted mode that pauses after each planning phase and during chapter checking so you can add optional guidance; optional prompts support **Skip** and pending questions are restored after page refresh
+- **Guided planning Q&A** — agents ask clarifying questions up front before planning begins, then carry your answers through Story Bible, Characters, Plot Threads, and Chapter Outlines
 - **Real-time streaming** — watch chapters being written token by token via SignalR; Story Bible, Characters, and Plot Threads stream to their respective tabs with live progressive JSON previews
+- **Checker → Editor refinement loop** — every chapter goes through repeated Checker/Editor passes (up to 3 editor rounds) until no issues remain or the loop reaches its safety cap
 - **Token usage statistics** — per-agent prompt and completion token counts displayed in a scrollable collapsible panel and persisted to the database; Clear button to reset
 - **RAG context retrieval** — agents query relevant prior chapters via pgvector embeddings stored in PostgreSQL to stay consistent across long books
 - **Pluggable LLM backend** — Ollama (default, local), LM Studio, OpenAI, or Anthropic (via OpenAI-compatible proxy); configurable globally, per-user, or per-book
-- **Per-book customization** — language, genre, and per-phase system prompt overrides (Story Bible, Characters, Plot Threads, Chapter Outlines, Writer, Editor, Continuity Checker) with supported template tokens
+- **Per-book customization** — language, assisted-generation toggle, and per-phase system prompt overrides (Story Bible, Characters, Plot Threads, Chapter Outlines, Writer, Editor, Checker) with supported template tokens
 - **Inline editing** — edit book metadata, chapter titles/outlines, and add chapters manually without leaving the detail page
 - **Multi-user** — cookie-based authentication with admin role for user management
 - **Ollama/LM Studio model management** — browse installed models, pull new ones with live progress
@@ -185,7 +187,9 @@ User creates book (title, premise, genre, target chapters)
   │   Phase 2: Character Cards (roles, arcs, goals)     │
   │   Phase 3: Plot Threads (subplots, themes, arcs)    │
   │   Phase 4: Chapter Outlines (title + synopsis each) │
-  │   ─ asks author questions upfront before each phase  │
+  │   ─ asks clarifying questions up front, then        │
+  │     optionally pauses after each phase in           │
+  │     Human-assisted mode                             │
   └─────────────────────────────────────────────────────┘
          │
          │  ← "Plan Only" stops here so you can review
@@ -199,12 +203,15 @@ User creates book (title, premise, genre, target chapters)
   [Writer Agent]  ── writes full chapter prose
          │ draft prose
          ▼
-  [Continuity Checker] ── per-chapter cross-reference against prior chapters
-         │ inconsistency report
-         ▼
-  [Editor Agent]  ── edits and polishes prose
-         │ polished chapter + editorial notes
-         ▼
+    [Checker Agent] ── per-chapter continuity + style review
+      │ structured issue report (+ optional author notes in assisted mode)
+      ▼
+    [Editor Agent]  ── fixes only the reported issues
+      │ revised chapter + editorial notes
+      ▼
+    [Checker Agent] ── re-checks chapter (loop repeats, max 3 editor rounds)
+      │
+      ▼
   [Continuity Checker] ── final full-manuscript pass after all chapters complete
          │
          ▼
@@ -218,6 +225,11 @@ Agents stream tokens via SignalR as they write. Workflow controls:
 - **Continue Planning** — re-runs only the incomplete planning phases; phases already marked Complete are skipped
 - **Stop** — cancels any running agent cleanly
 - Individual stage buttons (Write / Edit / Continuity) are available per chapter
+
+In **Human-assisted generation** mode, the app also pauses:
+- after each completed planning phase to collect optional author notes
+- after each Checker pass so you can add extra attention points before the Editor runs
+- with support for **Ctrl+Enter** to submit answers quickly in the chat panel
 
 ## Development
 

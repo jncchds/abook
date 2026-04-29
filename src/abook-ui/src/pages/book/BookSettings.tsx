@@ -12,6 +12,7 @@ export default function BookSettings() {
   const [book, setBook] = useState<Book | null>(null)
   const [bookForm, setBookForm] = useState({
     language: 'English',
+    humanAssisted: false,
     storyBibleSystemPrompt: '', charactersSystemPrompt: '',
     plotThreadsSystemPrompt: '', chapterOutlinesSystemPrompt: '',
     writerSystemPrompt: '', editorSystemPrompt: '', continuityCheckerSystemPrompt: ''
@@ -49,6 +50,7 @@ export default function BookSettings() {
       setBook(r.data)
       setBookForm({
         language: r.data.language ?? 'English',
+        humanAssisted: r.data.humanAssisted ?? false,
         storyBibleSystemPrompt: r.data.storyBibleSystemPrompt ?? '',
         charactersSystemPrompt: r.data.charactersSystemPrompt ?? '',
         plotThreadsSystemPrompt: r.data.plotThreadsSystemPrompt ?? '',
@@ -75,6 +77,7 @@ export default function BookSettings() {
     await updateBook(book.id, {
       ...book,
       language: bookForm.language,
+      humanAssisted: bookForm.humanAssisted,
       storyBibleSystemPrompt: bookForm.storyBibleSystemPrompt || undefined,
       charactersSystemPrompt: bookForm.charactersSystemPrompt || undefined,
       plotThreadsSystemPrompt: bookForm.plotThreadsSystemPrompt || undefined,
@@ -284,6 +287,14 @@ export default function BookSettings() {
                 placeholder="English"
               />
             </label>
+            <label style={{ flexDirection: 'row', gap: '0.5rem', alignItems: 'center' }}>
+              <input
+                type="checkbox"
+                checked={bookForm.humanAssisted}
+                onChange={e => setBookForm(f => ({ ...f, humanAssisted: e.target.checked }))}
+              />
+              Human-assisted generation (pause for your input after each planning phase and during the Checker-Editor loop)
+            </label>
             <details>
               <summary>Custom Agent System Prompts (optional)</summary>
               <p className="hint">Leave blank to use agent defaults, or click "Load Defaults" to start editing from the defaults.</p>
@@ -325,7 +336,7 @@ export default function BookSettings() {
                 ['chapterOutlines', 'Chapter Outlines Agent'],
                 ['writer', 'Writer Agent'],
                 ['editor', 'Editor Agent'],
-                ['continuityChecker', 'Continuity Checker Agent'],
+                ['continuityChecker', 'Checker Agent'],
               ] as const).map(([role, label]) => {
                 const key = `${role}SystemPrompt` as keyof typeof bookForm
                 const defaultText = defaultPrompts?.[key as keyof DefaultPrompts]
@@ -334,7 +345,7 @@ export default function BookSettings() {
                     {label} prompt
                     <textarea
                       rows={6}
-                      value={bookForm[key]}
+                      value={bookForm[key] as string}
                       onChange={e => setBookForm(f => ({ ...f, [key]: e.target.value }))}
                       placeholder={defaultText ?? `Custom system prompt for ${label}…`}
                     />

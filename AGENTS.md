@@ -23,9 +23,9 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 
 ## Data Model
 
-- **Book**: Id, Title, Premise, Genre, TargetChapterCount, Status (Draft/InProgress/Complete), Language, StoryBibleSystemPrompt, CharactersSystemPrompt, PlotThreadsSystemPrompt, ChapterOutlinesSystemPrompt, WriterSystemPrompt, EditorSystemPrompt, ContinuityCheckerSystemPrompt, UserId (FK → AppUser), CreatedAt, UpdatedAt
+- **Book**: Id, Title, Premise, Genre, TargetChapterCount, Status (Draft/InProgress/Complete), Language, StoryBibleSystemPrompt, CharactersSystemPrompt, PlotThreadsSystemPrompt, ChapterOutlinesSystemPrompt, WriterSystemPrompt, EditorSystemPrompt, ContinuityCheckerSystemPrompt, **HumanAssisted** (bool, default false), UserId (FK → AppUser), CreatedAt, UpdatedAt
 - **Chapter**: Id, BookId, Number, Title, Outline, Content (markdown), Status (Outlined/Writing/Review/Editing/Done), CreatedAt, UpdatedAt
-- **AgentMessage**: Id, BookId, ChapterId (nullable), AgentRole, MessageType (Content/Question/Answer/SystemNote/Feedback), Content, IsResolved, CreatedAt
+- **AgentMessage**: Id, BookId, ChapterId (nullable), AgentRole, MessageType (Content/Question/Answer/SystemNote/Feedback), Content, IsResolved, **IsOptional** (bool, default false), CreatedAt
 - **LlmConfiguration**: Id, BookId (nullable, FK → Book), **UserId (nullable, FK → AppUser)**, Provider (Ollama/OpenAI/Azure/Anthropic), ModelName, Endpoint, ApiKey (nullable), EmbeddingModelName (nullable)
   - Lookup chain: book-specific (BookId) → user-default (UserId, no BookId) → global (neither)
 - **LlmPreset**: Id, UserId (nullable, FK → AppUser), Name, Provider, ModelName, Endpoint, ApiKey (nullable), EmbeddingModelName (nullable), CreatedAt, UpdatedAt
@@ -194,8 +194,9 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - `src/ABook.Infrastructure/Llm/LlmProviderFactory.cs` — Pluggable LLM factory
 - `src/ABook.Infrastructure/VectorStore/PgvectorVectorStoreService.cs` — pgvector implementation of IVectorStoreService; scoped service using AppDbContext
 - `src/ABook.Infrastructure/VectorStore/ChapterEmbedding.cs` — EF Core entity for pgvector embeddings storage
-- `src/ABook.Infrastructure/Migrations/` — EF Core migrations (`InitialCreate`, `AddLanguageAndUsers`, `AddUserLlmConfig`, `AddTokenUsageRecord`, `AddPlanningArtifacts`, `AddPlanningPhaseStatus`, `AddPlanningPhasePrompts`, `AddChapterEmbeddings`, `AddAgentRuns`, `AddLlmPresets`, `AddApiToken`)
+- `src/ABook.Infrastructure/Migrations/` — EF Core migrations (`InitialCreate`, `AddLanguageAndUsers`, `AddUserLlmConfig`, `AddTokenUsageRecord`, `AddPlanningArtifacts`, `AddPlanningPhaseStatus`, `AddPlanningPhasePrompts`, `AddChapterEmbeddings`, `AddAgentRuns`, `AddLlmPresets`, `AddApiToken`, `AddAssistedGeneration`)
 - `src/ABook.Agents/AgentBase.cs` — Base class for all agents
+- `src/ABook.Agents/CheckerResult.cs` — Structured checker output (continuity issues, style issues, summary)
 - `src/ABook.Agents/AgentPrompts.cs` — `PromptPlaceholders` constants + `DefaultPrompts` static class (all 7 agent default prompts)
 - `src/ABook.Agents/QuestionAgent.cs` — upfront Q&A: `GatherQuestionsAsync`, `AskQuestionsAsync`, `LoadExistingContextAsync`
 - `src/ABook.Agents/StoryBibleAgent.cs`, `CharactersAgent.cs`, `PlotThreadsAgent.cs`, `PlannerAgent.cs`, `WriterAgent.cs`, `EditorAgent.cs`, `ContinuityCheckerAgent.cs`
@@ -324,6 +325,14 @@ the- **Agent error logging & UI notifications**: `IBookNotifier` gains `NotifyAg
 - **Clear Chat button**: appears in the chat panel header when messages exist and agent is not running. Calls `DELETE /api/books/{id}/messages` → `MessagesController.DeleteAll` → `IBookRepository.DeleteMessagesAsync`.
 - **Clear Token Stats button**: appears inside the token stats `<summary>` when stats exist and agent is not running. Calls `DELETE /api/books/{id}/token-usage` → `BooksController.DeleteTokenUsage` → `IBookRepository.DeleteTokenUsageAsync`.
 
+- **Checker-Editor loop**: `ProcessChapterAsync` in `AgentOrchestrator` runs Checker → optional human pause (if `book.HumanAssisted`) → Editor → back to Checker; max 3 editor iterations (`MaxEditorIterations = 3`) for ALL books. Loop terminates when Checker finds no issues AND no human input, or max iterations reached. `EditorAgent.EditAsync` takes `finalizeStatus: bool` — loop passes `false` (status stays `Review` for re-checking); standalone edit passes `true` (status → Done). Final chapter is always set to Done after the loop.
+- **Human-assisted pauses during planning**: In `RunPlanningPipelineAsync`, after each non-skipped phase (StoryBible, Characters, PlotThreads, ChapterOutlines), if `book.HumanAssisted`, calls `_questions.AskSingleOptionalAsync(...)`. Non-empty responses are appended to `qaContext` and passed to subsequent phases.
+- **`IsOptional` on `AgentMessage`**: controls UI behavior — shows "Skip" button and allows empty answer submit. Set by `AskUserAndWaitAsync(..., isOptional: true)`. Used for human-assisted pauses; regular upfront Q&A remains mandatory.
+- **Ctrl+Enter shortcut**: `ChatPage.tsx` textarea `onKeyDown` handler submits the answer form on Ctrl+Enter.
+- **"Continuity Checker" renamed to "Checker" in UI only**: `BookLayout.tsx` status label changed; `BookSettings.tsx` agent label changed. `ContinuityChecker` enum value, DB column name `ContinuityCheckerSystemPrompt`, and `AgentRole.ContinuityChecker` are all unchanged.
+- **`CheckerResult` record**: in `ABook.Agents/CheckerResult.cs` — `record CheckerResult(bool HasIssues, string[] ContinuityIssues, string[] StyleIssues, string Summary)`. Checker prompts output JSON `{hasIssues, continuityIssues, styleIssues, summary}` parsed via `CheckerResultDto`. Editor receives structured issues list instead of raw text.
+- **EF migration `AddAssistedGeneration`**: adds `HumanAssisted bool NOT NULL DEFAULT false` to `Books` and `IsOptional bool NOT NULL DEFAULT false` to `AgentMessages`.
+- **`QuestionAgent.AskSingleOptionalAsync`**: thin wrapper around `AskUserAndWaitAsync(..., isOptional: true)` for a single optional question.
 - **MCP tools are organized in two tiers**: `UserMcpTools` for user-level operations (profile, LLM config, presets, `generate_book`); `BookMcpTools` / `ContentMcpTools` / `AgentMcpTools` for per-book operations. `generate_book` creates a book and immediately fires `StartWorkflowAsync` in background — single tool for end-to-end book generation.
 - **MCP server embedded in `ABook.Api`**: `ModelContextProtocol.AspNetCore 1.2.0` package; `AddMcpServer().WithHttpTransport().WithTools<T>()` registration; mounted at `/mcp` via `app.MapMcp("/mcp").RequireAuthorization(...)`
 - **ApiToken auth for MCP**: `ApiTokenAuthenticationHandler` implements `Authorization: Bearer {guid}` scheme registered as `"ApiToken"` alongside cookie scheme. MCP endpoint accepts either scheme. `AppUser.ApiToken` column (nullable string) added via `AddApiToken` migration. Plaintext GUID — acceptable for local dev tool; threat model excludes DB-level attackers.

@@ -83,6 +83,14 @@ public class QuestionAgent : AgentBase
     }
 
     /// <summary>
+    /// Asks a single optional question and returns the user's response (may be empty if skipped).
+    /// Used for human-assisted pauses after planning phases and chapter checks.
+    /// </summary>
+    public Task<string> AskSingleOptionalAsync(
+        int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct) =>
+        AskUserAndWaitAsync(bookId, chapterId, role, question, ct, isOptional: true);
+
+    /// <summary>
     /// Reconstructs the Q&amp;A context from persisted Planner messages.
     /// Used on continuation runs so prior author answers flow into subsequent phases.
     /// </summary>

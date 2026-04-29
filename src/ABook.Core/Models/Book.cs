@@ -16,6 +16,7 @@ public class Book
     public string? WriterSystemPrompt { get; set; }
     public string? EditorSystemPrompt { get; set; }
     public string? ContinuityCheckerSystemPrompt { get; set; }
+    public bool HumanAssisted { get; set; } = false;
     public PlanningPhaseStatus StoryBibleStatus { get; set; } = PlanningPhaseStatus.NotStarted;
     public PlanningPhaseStatus CharactersStatus { get; set; } = PlanningPhaseStatus.NotStarted;
     public PlanningPhaseStatus PlotThreadsStatus { get; set; } = PlanningPhaseStatus.NotStarted;

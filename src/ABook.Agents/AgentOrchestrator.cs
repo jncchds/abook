@@ -104,7 +104,7 @@ public class AgentOrchestrator : IAgentOrchestrator
 
     public Task StartContinuityCheckAsync(int bookId, CancellationToken ct = default) =>
         ExecuteAgentRunAsync(bookId, AgentRole.ContinuityChecker, null, ct,
-            c => _continuity.CheckAsync(bookId, ct: c));
+            async c => await _continuity.CheckAsync(bookId, ct: c));
 
     /// <summary>
     /// Full autonomous workflow: Plan → Write+Edit each chapter → Continuity check.
@@ -272,11 +272,13 @@ public class AgentOrchestrator : IAgentOrchestrator
     }
 
     /// <summary>
-    /// Runs the full PreCheck → Write → Continuity → Edit pipeline for one chapter.
-    /// <paramref name="resumeFromStatus"/> allows ContinueWorkflow to skip steps that
-    /// already finished (e.g. skip write if chapter is already in Review/Editing status).
-    /// When null (new workflow), all steps run unconditionally.
+    /// Runs the full PreCheck → Write → Checker-Editor loop for one chapter.
+    /// The loop runs Checker then optionally human pause, then Editor if issues found.
+    /// Loops up to <see cref="MaxEditorIterations"/> times until the chapter is clean.
+    /// <paramref name="resumeFromStatus"/> allows ContinueWorkflow to skip the write step.
     /// </summary>
+    private const int MaxEditorIterations = 3;
+
     private async Task ProcessChapterAsync(
         int bookId, Chapter chapter, CancellationToken ct,
         ChapterStatus? resumeFromStatus = null)
@@ -285,6 +287,9 @@ public class AgentOrchestrator : IAgentOrchestrator
             || resumeFromStatus == ChapterStatus.Outlined
             || resumeFromStatus == ChapterStatus.Writing
             || string.IsNullOrEmpty(chapter.Content);
+
+        var book = await _repo.GetByIdAsync(bookId)
+            ?? throw new InvalidOperationException($"Book {bookId} not found.");
 
         if (needsWrite)
         {
@@ -301,27 +306,78 @@ public class AgentOrchestrator : IAgentOrchestrator
             ct.ThrowIfCancellationRequested();
         }
 
-        // Re-read status from DB to account for interrupted runs
-        var currentStatus = (await _repo.GetChapterAsync(bookId, chapter.Id))?.Status
-            ?? ChapterStatus.Outlined;
-
-        string? continuityReport = null;
-        if (currentStatus == ChapterStatus.Review)
+        // Checker-Editor loop (max MaxEditorIterations editor runs)
+        int editorRuns = 0;
+        while (true)
         {
-            _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapter.Id);
-            await _notifier.NotifyWorkflowProgressAsync(bookId,
-                $"Checking continuity for Chapter {chapter.Number}…", false, ct);
-            continuityReport = await _continuity.CheckAsync(bookId, chapter.Id, ct);
             ct.ThrowIfCancellationRequested();
-            currentStatus = (await _repo.GetChapterAsync(bookId, chapter.Id))?.Status ?? currentStatus;
-        }
 
-        if (currentStatus != ChapterStatus.Done)
-        {
+            // Re-read status from DB — resume path may already be Done
+            var freshChapter = await _repo.GetChapterAsync(bookId, chapter.Id) ?? chapter;
+            if (freshChapter.Status == ChapterStatus.Done) break;
+            // Also skip if content is somehow missing
+            if (string.IsNullOrEmpty(freshChapter.Content)) break;
+
+            // Run Checker
+            _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapter.Id);
+            var progressMsg = editorRuns == 0
+                ? $"Checking Chapter {chapter.Number}…"
+                : $"Re-checking Chapter {chapter.Number} (round {editorRuns + 1})…";
+            await _notifier.NotifyWorkflowProgressAsync(bookId, progressMsg, false, ct);
+            var checkerResult = await _continuity.CheckAsync(bookId, chapter.Id, ct);
+            ct.ThrowIfCancellationRequested();
+
+            // Optional human pause (assisted mode only)
+            string humanPoints = string.Empty;
+            if (book.HumanAssisted)
+            {
+                humanPoints = (await _questions.AskSingleOptionalAsync(
+                    bookId, chapter.Id, AgentRole.ContinuityChecker,
+                    "Want anything to add?", ct)).Trim();
+            }
+
+            bool needsEdit = checkerResult.HasIssues || !string.IsNullOrWhiteSpace(humanPoints);
+
+            if (!needsEdit)
+            {
+                await _notifier.NotifyWorkflowProgressAsync(bookId,
+                    $"Chapter {chapter.Number} checks passed.", false, ct);
+                break;
+            }
+
+            if (editorRuns >= MaxEditorIterations)
+            {
+                await _repo.AddMessageAsync(new AgentMessage
+                {
+                    BookId = bookId,
+                    ChapterId = chapter.Id,
+                    AgentRole = AgentRole.ContinuityChecker,
+                    MessageType = MessageType.SystemNote,
+                    Content = $"ℹ️ Chapter {chapter.Number}: max editor iterations ({MaxEditorIterations}) reached. Proceeding with remaining issues.",
+                    IsResolved = true
+                });
+                await _notifier.NotifyWorkflowProgressAsync(bookId,
+                    $"Chapter {chapter.Number}: max iterations reached, proceeding.", false, ct);
+                break;
+            }
+
+            // Run Editor
             _state.UpdateRunRole(bookId, AgentRole.Editor, chapter.Id);
             await _notifier.NotifyWorkflowProgressAsync(bookId,
                 $"Editing Chapter {chapter.Number}…", false, ct);
-            await _editor.EditAsync(bookId, chapter.Id, ct, continuityReport);
+            // Don't finalize to Done — loop controls the terminal status
+            await _editor.EditAsync(bookId, chapter.Id, ct, checkerResult, humanPoints, finalizeStatus: false);
+            editorRuns++;
+            ct.ThrowIfCancellationRequested();
+        }
+
+        // Ensure chapter is marked Done
+        var finalChapter = await _repo.GetChapterAsync(bookId, chapter.Id);
+        if (finalChapter is not null && finalChapter.Status != ChapterStatus.Done)
+        {
+            finalChapter.Status = ChapterStatus.Done;
+            await _repo.UpdateChapterAsync(finalChapter);
+            await _notifier.NotifyChapterUpdatedAsync(bookId, chapter.Id, ct);
         }
 
         await _notifier.NotifyWorkflowProgressAsync(bookId,
@@ -374,6 +430,18 @@ public class AgentOrchestrator : IAgentOrchestrator
         else
         {
             bible = await _storyBibleAgent.RunAsync(book, qaStr, ct);
+
+            if (book.HumanAssisted)
+            {
+                var note = (await _questions.AskSingleOptionalAsync(
+                    bookId, null, AgentRole.StoryBibleAgent,
+                    "Story Bible is complete. Want anything to add before moving to Characters?", ct)).Trim();
+                if (!string.IsNullOrEmpty(note))
+                {
+                    qaContext.AppendLine($"\n[User note after Story Bible]: {note}");
+                    qaStr = qaContext.ToString();
+                }
+            }
         }
 
         // Phase 2: Character Cards
@@ -386,6 +454,18 @@ public class AgentOrchestrator : IAgentOrchestrator
         else
         {
             characters = await _charactersAgent.RunAsync(book, bible, qaStr, ct);
+
+            if (book.HumanAssisted)
+            {
+                var note = (await _questions.AskSingleOptionalAsync(
+                    bookId, null, AgentRole.CharactersAgent,
+                    "Characters are complete. Want anything to add before moving to Plot Threads?", ct)).Trim();
+                if (!string.IsNullOrEmpty(note))
+                {
+                    qaContext.AppendLine($"\n[User note after Characters]: {note}");
+                    qaStr = qaContext.ToString();
+                }
+            }
         }
 
         // Phase 3: Plot Threads
@@ -398,6 +478,18 @@ public class AgentOrchestrator : IAgentOrchestrator
         else
         {
             threads = await _plotThreadsAgent.RunAsync(book, bible, characters, qaStr, ct);
+
+            if (book.HumanAssisted)
+            {
+                var note = (await _questions.AskSingleOptionalAsync(
+                    bookId, null, AgentRole.PlotThreadsAgent,
+                    "Plot Threads are complete. Want anything to add before generating Chapter Outlines?", ct)).Trim();
+                if (!string.IsNullOrEmpty(note))
+                {
+                    qaContext.AppendLine($"\n[User note after Plot Threads]: {note}");
+                    qaStr = qaContext.ToString();
+                }
+            }
         }
 
         // Phase 4: Chapter Outlines
@@ -410,6 +502,18 @@ public class AgentOrchestrator : IAgentOrchestrator
         else
         {
             chapters = await _planner.RunAsync(book, bible, characters, threads, qaStr, ct);
+
+            if (book.HumanAssisted)
+            {
+                var note = (await _questions.AskSingleOptionalAsync(
+                    bookId, null, AgentRole.Planner,
+                    "Chapter Outlines are complete. Any final notes before writing begins?", ct)).Trim();
+                if (!string.IsNullOrEmpty(note))
+                {
+                    qaContext.AppendLine($"\n[User note after Chapter Outlines]: {note}");
+                    // qaStr only used downstream if StartWorkflowAsync passes it; currently unused after this point
+                }
+            }
         }
 
         await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, "Done", ct);

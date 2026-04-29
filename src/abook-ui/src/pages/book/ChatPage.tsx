@@ -40,8 +40,19 @@ export default function ChatPage() {
         <div className="answer-form">
           <p className="question-label">Agent is waiting for your answer:</p>
           <p className="question-text">{pendingQuestion.content}</p>
-          <textarea rows={3} value={answerText} onChange={e => setAnswerText(e.target.value)} placeholder="Type your answer…" />
-          <button onClick={handleAnswer}>Send Answer</button>
+          <textarea
+            rows={3}
+            value={answerText}
+            onChange={e => setAnswerText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); handleAnswer() } }}
+            placeholder={pendingQuestion.isOptional ? 'Optional — leave blank to skip…' : 'Type your answer…'}
+          />
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button onClick={handleAnswer}>Send Answer</button>
+            {pendingQuestion.isOptional && (
+              <button className="btn-sm btn-ghost" onClick={() => { setAnswerText(''); handleAnswer() }}>Skip</button>
+            )}
+          </div>
         </div>
       )}
     </div>

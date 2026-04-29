@@ -21,6 +21,7 @@ export interface Book {
   charactersStatus?: string
   plotThreadsStatus?: string
   chaptersStatus?: string
+  humanAssisted?: boolean
   createdAt: string
   updatedAt: string
   chapters?: Chapter[]
@@ -51,6 +52,7 @@ export interface AgentMessage {
   messageType: string
   content: string
   isResolved: boolean
+  isOptional?: boolean
   createdAt: string
 }
 

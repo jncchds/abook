@@ -196,7 +196,7 @@ public abstract class AgentBase
 
     /// <summary>Persist a question message and notify the UI to pause.</summary>
     protected async Task<AgentMessage> AskUserAsync(
-        int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct)
+        int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct, bool isOptional = false)
     {
         var msg = await Repo.AddMessageAsync(new AgentMessage
         {
@@ -205,7 +205,8 @@ public abstract class AgentBase
             AgentRole = role,
             MessageType = MessageType.Question,
             Content = question,
-            IsResolved = false
+            IsResolved = false,
+            IsOptional = isOptional
         });
 
         await Notifier.NotifyQuestionAsync(bookId, msg, ct);
@@ -217,11 +218,12 @@ public abstract class AgentBase
     /// Ask the user a question, pause execution, and return their answer.
     /// Sets run state to WaitingForInput until the answer is submitted via the API.
     /// The pause is persisted to the DB so the run survives an app restart.
+    /// When <paramref name="isOptional"/> is true the user may submit an empty answer to skip.
     /// </summary>
     protected async Task<string> AskUserAndWaitAsync(
-        int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct)
+        int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct, bool isOptional = false)
     {
-        var msg = await AskUserAsync(bookId, chapterId, role, question, ct);
+        var msg = await AskUserAsync(bookId, chapterId, role, question, ct, isOptional);
 
         var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         ct.Register(() => tcs.TrySetCanceled());

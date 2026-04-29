@@ -342,7 +342,8 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   }
 
   const handleAnswer = async () => {
-    if (!pendingQuestion || !answerText.trim()) return
+    if (!pendingQuestion) return
+    if (!pendingQuestion.isOptional && !answerText.trim()) return
     await postAnswer(bookId, pendingQuestion.id, answerText.trim())
     setAnswerText('')
     setPendingQuestion(null)

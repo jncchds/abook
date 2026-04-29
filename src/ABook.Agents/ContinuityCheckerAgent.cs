@@ -1,4 +1,4 @@
-#pragma warning disable SKEXP0001, SKEXP0010, SKEXP0070
+﻿#pragma warning disable SKEXP0001, SKEXP0010, SKEXP0070
 
 using System.Text.Json;
 using ABook.Core.Interfaces;
@@ -120,12 +120,12 @@ public class ContinuityCheckerAgent : AgentBase
     }
 
     /// <summary>
-    /// Checks continuity. When <paramref name="chapterId"/> is provided, only reports issues
-    /// introduced by that chapter against the preceding ones (ignoring pre-existing issues
-    /// between earlier chapters). When null, performs a full manuscript review.
-    /// Now uses CharacterCards and PlotThreads as structured context alongside RAG.
+    /// Checks quality (continuity + style). When <paramref name="chapterId"/> is provided, only
+    /// reports issues introduced by that chapter. When null, performs a full manuscript review.
+    /// Returns a structured <see cref="CheckerResult"/> so the Editor can fix precise issues.
+    /// The result is also saved as a formatted SystemNote for the chat panel.
     /// </summary>
-    public async Task<string> CheckAsync(int bookId, int? chapterId = null, CancellationToken ct = default)
+    public async Task<CheckerResult> CheckAsync(int bookId, int? chapterId = null, CancellationToken ct = default)
     {
         var book = await Repo.GetByIdWithDetailsAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
@@ -138,7 +138,7 @@ public class ContinuityCheckerAgent : AgentBase
         if (doneChapters.Count == 0)
         {
             await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", ct);
-            return string.Empty;
+            return new CheckerResult(false, [], [], "No chapters to review.");
         }
 
         var currentChapter = chapterId.HasValue
@@ -189,7 +189,7 @@ public class ContinuityCheckerAgent : AgentBase
         {
             systemPrompt = InterpolateSystemPrompt(DefaultPrompts.ContinuityCheckerPerChapter, book, bible) +
                 $"\nIMPORTANT: Do NOT report issues that exist solely between previous chapters. " +
-                $"Focus only on contradictions introduced by Chapter {currentChapter.Number} (\"{currentChapter.Title}\").";
+                $"Focus only on continuity or style problems introduced by Chapter {currentChapter.Number} (\"{currentChapter.Title}\").";
         }
         else
         {
@@ -203,7 +203,7 @@ public class ContinuityCheckerAgent : AgentBase
             contextSections.AppendLine(structuredContext);
         if (!string.IsNullOrWhiteSpace(ragContext))
         {
-            contextSections.AppendLine("\n## Detailed Passages (retrieved for continuity review)");
+            contextSections.AppendLine("\n## Detailed Passages (retrieved for review)");
             contextSections.AppendLine(ragContext);
         }
 
@@ -234,7 +234,7 @@ public class ContinuityCheckerAgent : AgentBase
         else
         {
             userMessage = $"""
-                Review these chapters for continuity issues.
+                Review these chapters for continuity and style issues.
                 {contextSections}
                 ## Chapter Summaries
                 {synopsis}
@@ -242,21 +242,75 @@ public class ContinuityCheckerAgent : AgentBase
         }
         history.AddUserMessage(userMessage);
 
-        var response = await StreamResponseAsync(kernel, config, history, bookId, null, AgentRole.ContinuityChecker, ct, suspiciousThreshold: 0);
+        var responseJson = await StreamResponseAsync(kernel, config, history, bookId, null, AgentRole.ContinuityChecker, ct, jsonMode: true, suspiciousThreshold: 0);
 
+        // Parse structured JSON result; gracefully degrade on parse failure
+        CheckerResult result;
+        try
+        {
+            var dto = System.Text.Json.JsonSerializer.Deserialize<CheckerResultDto>(responseJson, _jsonOptions);
+            result = new CheckerResult(
+                dto?.HasIssues ?? false,
+                dto?.ContinuityIssues ?? [],
+                dto?.StyleIssues ?? [],
+                dto?.Summary ?? string.Empty);
+        }
+        catch
+        {
+            Logger.LogWarning("[Book {BookId}] Checker response was not valid JSON — treating as issues found.", bookId);
+            result = new CheckerResult(true, [], [], responseJson.Trim());
+        }
+
+        // Persist formatted report so it is readable in the chat panel
         await Repo.AddMessageAsync(new AgentMessage
         {
             BookId = bookId,
-            ChapterId = null,
+            ChapterId = chapterId,
             AgentRole = AgentRole.ContinuityChecker,
             MessageType = MessageType.SystemNote,
-            Content = response,
+            Content = FormatCheckerReport(result),
             IsResolved = false
         });
 
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", ct);
-        return response;
+        return result;
     }
+
+    private static string FormatCheckerReport(CheckerResult result)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine(result.HasIssues ? "⚠️ Issues found." : "✅ No issues found.");
+        if (!string.IsNullOrWhiteSpace(result.Summary))
+            sb.AppendLine($"\n{result.Summary}");
+        if (result.ContinuityIssues.Length > 0)
+        {
+            sb.AppendLine("\n### Continuity Issues");
+            foreach (var issue in result.ContinuityIssues)
+                sb.AppendLine($"- {issue}");
+        }
+        if (result.StyleIssues.Length > 0)
+        {
+            sb.AppendLine("\n### Style Issues");
+            foreach (var issue in result.StyleIssues)
+                sb.AppendLine($"- {issue}");
+        }
+        return sb.ToString().Trim();
+    }
+
+    private static readonly System.Text.Json.JsonSerializerOptions _jsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+    };
+
+    private sealed class CheckerResultDto
+    {
+        public bool HasIssues { get; set; }
+        public string[] ContinuityIssues { get; set; } = [];
+        public string[] StyleIssues { get; set; } = [];
+        public string Summary { get; set; } = string.Empty;
+    }
+
 
     // â”€â”€ Private Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

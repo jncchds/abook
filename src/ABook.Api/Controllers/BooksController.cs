@@ -47,6 +47,7 @@ public class BooksController : ControllerBase
             Genre = req.Genre,
             TargetChapterCount = req.TargetChapterCount,
             Language = req.Language ?? "English",
+            HumanAssisted = req.HumanAssisted,
             UserId = CurrentUserId
         };
         var created = await _repo.AddAsync(book);
@@ -73,6 +74,7 @@ public class BooksController : ControllerBase
         book.WriterSystemPrompt = req.WriterSystemPrompt;
         book.EditorSystemPrompt = req.EditorSystemPrompt;
         book.ContinuityCheckerSystemPrompt = req.ContinuityCheckerSystemPrompt;
+        book.HumanAssisted = req.HumanAssisted;
         await _repo.UpdateAsync(book);
         return Ok(book);
     }
@@ -141,7 +143,7 @@ public class BooksController : ControllerBase
 
             editorSystemPrompt = $"You are a professional fiction Editor. Your job is to improve prose quality, fix grammar,\nenhance pacing, and strengthen character voice. Preserve the author's style.\nOutput the complete improved chapter in markdown, followed by a brief\n\"## Editorial Notes\" section listing key changes made.\nBook: {book.Title} | Genre: {book.Genre} | Language: {lang}",
 
-            continuityCheckerSystemPrompt = $"You are a Continuity Checker for fiction manuscripts. Your job is to identify plot holes,\ncharacter inconsistencies, timeline errors, and factual contradictions across chapters.\nOutput a JSON array of issues, each with:\n  \"description\" (string), \"chapterNumbers\" (int[]), \"suggestion\" (string).\nIf no issues found, output an empty array [].\nBook: {book.Title} | Genre: {book.Genre} | Language: {lang}"
+            continuityCheckerSystemPrompt = $"You are a quality checker for fiction manuscripts. Review the chapter for both continuity and style issues.\nReturn a JSON object with: \"hasIssues\" (bool), \"continuityIssues\" (string[]), \"styleIssues\" (string[]), \"summary\" (string).\nOutput ONLY the raw JSON object.\nBook: {book.Title} | Genre: {book.Genre} | Language: {lang}"
         });
     }
 
@@ -222,7 +224,8 @@ public record CreateBookRequest(
     string Premise,
     string Genre,
     int TargetChapterCount,
-    string? Language = "English");
+    string? Language = "English",
+    bool HumanAssisted = false);
 
 public record UpdateBookRequest(
     string Title,
@@ -237,5 +240,6 @@ public record UpdateBookRequest(
     string? ChapterOutlinesSystemPrompt = null,
     string? WriterSystemPrompt = null,
     string? EditorSystemPrompt = null,
-    string? ContinuityCheckerSystemPrompt = null);
+    string? ContinuityCheckerSystemPrompt = null,
+    bool HumanAssisted = false);
 
