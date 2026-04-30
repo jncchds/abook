@@ -18,12 +18,23 @@ public class AgentController : ControllerBase
         _runState = runState;
     }
 
-    [HttpPost("plan")]
-    public IActionResult Plan(int bookId)
+    private IActionResult? EnsureCanStart(int bookId)
     {
         var current = _runState.GetStatus(bookId);
         if (current is { State: "Running" or "WaitingForInput" })
             return Conflict(new { message = "An agent run is already in progress for this book." });
+
+        if (_runState.IsAtCapacity())
+            return Conflict(new { message = "Server is at maximum concurrent agent capacity. Please try again when a run completes." });
+
+        return null;
+    }
+
+    [HttpPost("plan")]
+    public IActionResult Plan(int bookId)
+    {
+        var blocked = EnsureCanStart(bookId);
+        if (blocked is not null) return blocked;
 
         var ct = _runState.CreateRunCts(bookId);
         _ = RunInBackground(bookId, (o, c) => o.StartPlanningAsync(bookId, c), ct);
@@ -33,9 +44,8 @@ public class AgentController : ControllerBase
     [HttpPost("plan/continue")]
     public IActionResult ContinuePlanning(int bookId)
     {
-        var current = _runState.GetStatus(bookId);
-        if (current is { State: "Running" or "WaitingForInput" })
-            return Conflict(new { message = "An agent run is already in progress for this book." });
+        var blocked = EnsureCanStart(bookId);
+        if (blocked is not null) return blocked;
 
         var ct = _runState.CreateRunCts(bookId);
         _ = RunInBackground(bookId, (o, c) => o.ContinuePlanningAsync(bookId, c), ct);
@@ -45,9 +55,8 @@ public class AgentController : ControllerBase
     [HttpPost("write/{chapterId:int}")]
     public IActionResult Write(int bookId, int chapterId)
     {
-        var current = _runState.GetStatus(bookId);
-        if (current is { State: "Running" or "WaitingForInput" })
-            return Conflict(new { message = "An agent run is already in progress for this book." });
+        var blocked = EnsureCanStart(bookId);
+        if (blocked is not null) return blocked;
 
         _ = RunInBackground(bookId, (o, ct) => o.StartWritingAsync(bookId, chapterId, ct));
         return Accepted();
@@ -56,9 +65,8 @@ public class AgentController : ControllerBase
     [HttpPost("edit/{chapterId:int}")]
     public IActionResult Edit(int bookId, int chapterId)
     {
-        var current = _runState.GetStatus(bookId);
-        if (current is { State: "Running" or "WaitingForInput" })
-            return Conflict(new { message = "An agent run is already in progress for this book." });
+        var blocked = EnsureCanStart(bookId);
+        if (blocked is not null) return blocked;
 
         _ = RunInBackground(bookId, (o, ct) => o.StartEditingAsync(bookId, chapterId, ct));
         return Accepted();
@@ -67,9 +75,8 @@ public class AgentController : ControllerBase
     [HttpPost("continuity")]
     public IActionResult Continuity(int bookId)
     {
-        var current = _runState.GetStatus(bookId);
-        if (current is { State: "Running" or "WaitingForInput" })
-            return Conflict(new { message = "An agent run is already in progress for this book." });
+        var blocked = EnsureCanStart(bookId);
+        if (blocked is not null) return blocked;
 
         _ = RunInBackground(bookId, (o, ct) => o.StartContinuityCheckAsync(bookId, ct));
         return Accepted();
@@ -78,9 +85,8 @@ public class AgentController : ControllerBase
     [HttpPost("workflow/start")]
     public IActionResult StartWorkflow(int bookId)
     {
-        var current = _runState.GetStatus(bookId);
-        if (current is { State: "Running" or "WaitingForInput" })
-            return Conflict(new { message = "An agent run is already in progress for this book." });
+        var blocked = EnsureCanStart(bookId);
+        if (blocked is not null) return blocked;
 
         var ct = _runState.CreateRunCts(bookId);
         _ = RunInBackground(bookId, (o, c) => o.StartWorkflowAsync(bookId, c), ct);
@@ -90,9 +96,8 @@ public class AgentController : ControllerBase
     [HttpPost("workflow/continue")]
     public IActionResult ContinueWorkflow(int bookId)
     {
-        var current = _runState.GetStatus(bookId);
-        if (current is { State: "Running" or "WaitingForInput" })
-            return Conflict(new { message = "An agent run is already in progress for this book." });
+        var blocked = EnsureCanStart(bookId);
+        if (blocked is not null) return blocked;
 
         var ct = _runState.CreateRunCts(bookId);
         _ = RunInBackground(bookId, (o, c) => o.ContinueWorkflowAsync(bookId, c), ct);

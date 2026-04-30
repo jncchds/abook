@@ -213,6 +213,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - `src/ABook.Core/Models/AgentRun.cs` — Persisted agent run entity (Id GUID, BookId, RunType, Status, CurrentRole, ChapterId, PendingMessageId, WorkflowContext, timestamps)
 - `src/ABook.Api/HostedServices/RunRecoveryService.cs` — Startup `BackgroundService`: rehydrates `WaitingForInput` runs (creates fresh TCS) and orphans stale `Running` runs
 - `src/ABook.Api/Program.cs` — App configuration (cookie auth, EF Core, SignalR, pgvector, SK)
+- `src/ABook.Api/appsettings.json` / `src/ABook.Api/appsettings.Local.example.json` — Includes `AgentSettings.MaxConcurrentRuns` (global concurrent run cap)
 - `src/abook-ui/src/layouts/BookListLayout.tsx` — Shared layout for Dashboard and global pages (Settings, Presets, AdminUsers); fetches books for sidebar; passes `{ books, setBooks }` via Outlet context; "New Book" → `/?new=1`
 - `src/abook-ui/src/layouts/BookLayout.tsx` — Shared layout for all book sub-pages at `/books/:bookId`; wraps `BookContextProvider`; renders `BookSidebar` (with chapter list) + `<Outlet />`; redirects index → `overview`
 - `src/abook-ui/src/contexts/BookContext.tsx` — Centralized book state provider (all book/chapter/planning/agent state); single SignalR registration via `useBookHub`; navigates to `/books/:bookId/chat` on question/error events; exported via `useBookContext()` hook
@@ -261,6 +262,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **SK Ollama connector** is alpha (`Microsoft.SemanticKernel.Connectors.Ollama` 1.x-alpha); suppress `SKEXP0070` pragma
 - **Agents use Semantic Kernel function calling** for the "ask question" tool — agent invokes a `AskUser` function which triggers the pause mechanism
 - **Agent runs are fire-and-forget** — `AgentController` returns 202 immediately; `AgentRunStateService` singleton tracks state; duplicate run returns 409
+- **Global agent run concurrency cap (env-based)** — `AgentRunStateService` enforces a process-wide max for simultaneous runs (`Running` + `WaitingForInput`) across all books/users. Configure via `AgentSettings__MaxConcurrentRuns` (`AgentSettings:MaxConcurrentRuns`), default `3`. Value is read at startup in `Program.cs`; changing it requires restart.
 - **Cookie authentication** — multi-user support with `IPasswordHasher<AppUser>`; admin role for user management
 - **Per-book customization** — `Language` field and per-agent system prompt overrides stored on `Book` entity
 - **Ollama model management** — `OllamaController` proxies Ollama's `/api/tags` and streams pull progress via SSE

@@ -16,4 +16,11 @@ public interface IAgentOrchestrator
     Task<AgentRunStatus?> GetRunStatusAsync(int bookId);
 }
 
+public enum RunStartResult
+{
+    Success,
+    BookBusy,
+    AtCapacity
+}
+
 public record AgentRunStatus(AgentRole Role, string State, int? ChapterId);

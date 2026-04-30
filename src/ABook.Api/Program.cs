@@ -110,6 +110,11 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
 
 var app = builder.Build();
 
+var configuredMaxConcurrentRuns = app.Configuration.GetValue<int?>("AgentSettings:MaxConcurrentRuns") ?? 3;
+var runStateService = app.Services.GetRequiredService<ABook.Agents.AgentRunStateService>();
+runStateService.MaxConcurrentRuns = configuredMaxConcurrentRuns;
+app.Logger.LogInformation("Agent run concurrency limit set to {MaxConcurrentRuns}.", runStateService.MaxConcurrentRuns);
+
 // ── Migrations on startup ─────────────────────────────────────────────────────
 using (var scope = app.Services.CreateScope())
 {

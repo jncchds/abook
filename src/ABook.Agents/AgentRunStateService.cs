@@ -16,6 +16,8 @@ public class AgentRunStateService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<AgentRunStateService> _logger;
+    private readonly object _startLock = new();
+    private int _maxConcurrentRuns = 3;
 
     private readonly ConcurrentDictionary<int, AgentRunStatus> _status = new();
 
@@ -42,16 +44,36 @@ public class AgentRunStateService
     public AgentRunStatus? GetStatus(int bookId) =>
         _status.TryGetValue(bookId, out var s) ? s : null;
 
+    public int MaxConcurrentRuns
+    {
+        get => _maxConcurrentRuns;
+        set => _maxConcurrentRuns = Math.Max(1, value);
+    }
+
     public void SetStatus(int bookId, AgentRunStatus status) =>
         _status[bookId] = status;
 
-    public bool TryStartRun(int bookId, AgentRole role, int? chapterId)
+    public bool IsAtCapacity()
     {
-        var current = _status.GetValueOrDefault(bookId);
-        if (current is { State: "Running" or "WaitingForInput" })
-            return false;
-        _status[bookId] = new AgentRunStatus(role, "Running", chapterId);
-        return true;
+        var activeRuns = _status.Values.Count(s => s.State is "Running" or "WaitingForInput");
+        return activeRuns >= MaxConcurrentRuns;
+    }
+
+    public RunStartResult TryStartRun(int bookId, AgentRole role, int? chapterId)
+    {
+        lock (_startLock)
+        {
+            var current = _status.GetValueOrDefault(bookId);
+            if (current is { State: "Running" or "WaitingForInput" })
+                return RunStartResult.BookBusy;
+
+            var activeRuns = _status.Values.Count(s => s.State is "Running" or "WaitingForInput");
+            if (activeRuns >= MaxConcurrentRuns)
+                return RunStartResult.AtCapacity;
+
+            _status[bookId] = new AgentRunStatus(role, "Running", chapterId);
+            return RunStartResult.Success;
+        }
     }
 
     /// <summary>

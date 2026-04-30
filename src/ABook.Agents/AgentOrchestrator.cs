@@ -210,8 +210,11 @@ public class AgentOrchestrator : IAgentOrchestrator
         int bookId, AgentRole role, int? chapterId,
         CancellationToken ct, Func<CancellationToken, Task> body)
     {
-        if (!_state.TryStartRun(bookId, role, chapterId))
+        var startResult = _state.TryStartRun(bookId, role, chapterId);
+        if (startResult == RunStartResult.BookBusy)
             throw new InvalidOperationException("An agent is already running for this book.");
+        if (startResult == RunStartResult.AtCapacity)
+            throw new InvalidOperationException("Server is at maximum concurrent agent capacity. Please try again when a run completes.");
 
         // Determine run type from role for recovery service
         var runType = role switch

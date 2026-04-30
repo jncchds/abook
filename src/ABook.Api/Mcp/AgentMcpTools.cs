@@ -43,11 +43,14 @@ public class AgentMcpTools
             throw new McpException($"Book {bookId} not found.");
     }
 
-    private void EnsureNotRunning(int bookId)
+    private void EnsureCanStart(int bookId)
     {
         var current = _runState.GetStatus(bookId);
         if (current is { State: "Running" or "WaitingForInput" })
             throw new McpException("An agent run is already in progress for this book. Stop it first or wait for it to complete.");
+
+        if (_runState.IsAtCapacity())
+            throw new McpException("Server is at maximum concurrent agent capacity. Please try again when a run completes.");
     }
 
     private async Task RunInBackground(int bookId, Func<IAgentOrchestrator, CancellationToken, Task> action, CancellationToken ct = default)
@@ -71,7 +74,7 @@ public class AgentMcpTools
         [Description("The book ID to plan.")] int bookId)
     {
         await EnsureBookOwnershipAsync(bookId);
-        EnsureNotRunning(bookId);
+        EnsureCanStart(bookId);
         var ct = _runState.CreateRunCts(bookId);
         _ = RunInBackground(bookId, (o, c) => o.StartPlanningAsync(bookId, c), ct);
         return JsonSerializer.Serialize(new { started = true, bookId, phase = "planning" }, _json);
@@ -83,7 +86,7 @@ public class AgentMcpTools
         [Description("The book ID.")] int bookId)
     {
         await EnsureBookOwnershipAsync(bookId);
-        EnsureNotRunning(bookId);
+        EnsureCanStart(bookId);
         var ct = _runState.CreateRunCts(bookId);
         _ = RunInBackground(bookId, (o, c) => o.ContinuePlanningAsync(bookId, c), ct);
         return JsonSerializer.Serialize(new { started = true, bookId, phase = "continue_planning" }, _json);
@@ -97,7 +100,7 @@ public class AgentMcpTools
         [Description("The book ID to run the full workflow for.")] int bookId)
     {
         await EnsureBookOwnershipAsync(bookId);
-        EnsureNotRunning(bookId);
+        EnsureCanStart(bookId);
         var ct = _runState.CreateRunCts(bookId);
         _ = RunInBackground(bookId, (o, c) => o.StartWorkflowAsync(bookId, c), ct);
         return JsonSerializer.Serialize(new { started = true, bookId, phase = "full_workflow" }, _json);
@@ -109,7 +112,7 @@ public class AgentMcpTools
         [Description("The book ID.")] int bookId)
     {
         await EnsureBookOwnershipAsync(bookId);
-        EnsureNotRunning(bookId);
+        EnsureCanStart(bookId);
         var ct = _runState.CreateRunCts(bookId);
         _ = RunInBackground(bookId, (o, c) => o.ContinueWorkflowAsync(bookId, c), ct);
         return JsonSerializer.Serialize(new { started = true, bookId, phase = "continue_workflow" }, _json);
@@ -133,7 +136,7 @@ public class AgentMcpTools
         [Description("The chapter ID to write.")] int chapterId)
     {
         await EnsureBookOwnershipAsync(bookId);
-        EnsureNotRunning(bookId);
+        EnsureCanStart(bookId);
         _ = RunInBackground(bookId, (o, ct) => o.StartWritingAsync(bookId, chapterId, ct));
         return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "writing" }, _json);
     }
@@ -145,7 +148,7 @@ public class AgentMcpTools
         [Description("The chapter ID to edit.")] int chapterId)
     {
         await EnsureBookOwnershipAsync(bookId);
-        EnsureNotRunning(bookId);
+        EnsureCanStart(bookId);
         _ = RunInBackground(bookId, (o, ct) => o.StartEditingAsync(bookId, chapterId, ct));
         return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "editing" }, _json);
     }
@@ -157,7 +160,7 @@ public class AgentMcpTools
         [Description("Optional chapter ID for a focused per-chapter check. Omit for a full manuscript check.")] int? chapterId = null)
     {
         await EnsureBookOwnershipAsync(bookId);
-        EnsureNotRunning(bookId);
+        EnsureCanStart(bookId);
         _ = RunInBackground(bookId, (o, ct) => o.StartContinuityCheckAsync(bookId, ct));
         return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "continuity_check" }, _json);
     }
