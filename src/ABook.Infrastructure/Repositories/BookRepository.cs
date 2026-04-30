@@ -53,8 +53,12 @@ public class BookRepository : IBookRepository
         }
     }
 
-    public async Task<IEnumerable<Chapter>> GetChaptersAsync(int bookId) =>
-        await _db.Chapters.Where(c => c.BookId == bookId).OrderBy(c => c.Number).ToListAsync();
+    public async Task<IEnumerable<Chapter>> GetChaptersAsync(int bookId, bool includeArchived = false)
+    {
+        var query = _db.Chapters.Where(c => c.BookId == bookId);
+        if (!includeArchived) query = query.Where(c => !c.IsArchived);
+        return await query.OrderBy(c => c.Number).ToListAsync();
+    }
 
     public async Task<Chapter?> GetChapterAsync(int bookId, int chapterId) =>
         await _db.Chapters.FirstOrDefaultAsync(c => c.BookId == bookId && c.Id == chapterId);
@@ -79,6 +83,126 @@ public class BookRepository : IBookRepository
         var chapters = await _db.Chapters.Where(c => c.BookId == bookId).ToListAsync();
         _db.Chapters.RemoveRange(chapters);
         await _db.SaveChangesAsync();
+    }
+
+    public async Task ArchiveChapterAsync(int bookId, int chapterId)
+    {
+        var chapter = await _db.Chapters.FirstOrDefaultAsync(c => c.BookId == bookId && c.Id == chapterId);
+        if (chapter is not null)
+        {
+            chapter.IsArchived = true;
+            chapter.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+        }
+    }
+
+    public async Task RestoreChapterAsync(int bookId, int chapterId)
+    {
+        var chapter = await _db.Chapters.FirstOrDefaultAsync(c => c.BookId == bookId && c.Id == chapterId);
+        if (chapter is not null)
+        {
+            chapter.IsArchived = false;
+            chapter.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+        }
+    }
+
+    public async Task ArchiveChaptersAsync(int bookId)
+    {
+        await _db.Chapters
+            .Where(c => c.BookId == bookId && !c.IsArchived)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(c => c.IsArchived, true)
+                .SetProperty(c => c.UpdatedAt, DateTime.UtcNow));
+    }
+
+    // ── Chapter Versions ─────────────────────────────────────────────────────
+
+    public async Task<ChapterVersion> AddChapterVersionAsync(ChapterVersion version)
+    {
+        // Deactivate all existing versions for this chapter
+        await _db.ChapterVersions
+            .Where(v => v.ChapterId == version.ChapterId)
+            .ExecuteUpdateAsync(s => s.SetProperty(v => v.IsActive, false));
+
+        version.CreatedAt = DateTime.UtcNow;
+        version.IsActive = true;
+
+        // Auto-assign version number
+        var maxVersion = await _db.ChapterVersions
+            .Where(v => v.ChapterId == version.ChapterId)
+            .MaxAsync(v => (int?)v.VersionNumber) ?? 0;
+        version.VersionNumber = maxVersion + 1;
+
+        _db.ChapterVersions.Add(version);
+
+        // Sync denormalized fields back to Chapter
+        var chapter = await _db.Chapters.FindAsync(version.ChapterId);
+        if (chapter is not null)
+        {
+            chapter.Title = version.Title;
+            chapter.Outline = version.Outline;
+            chapter.Content = version.Content;
+            chapter.Status = version.Status;
+            chapter.PovCharacter = version.PovCharacter;
+            chapter.CharactersInvolvedJson = version.CharactersInvolvedJson;
+            chapter.PlotThreadsJson = version.PlotThreadsJson;
+            chapter.ForeshadowingNotes = version.ForeshadowingNotes;
+            chapter.PayoffNotes = version.PayoffNotes;
+            chapter.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await _db.SaveChangesAsync();
+        return version;
+    }
+
+    public async Task UpdateChapterVersionAsync(ChapterVersion version)
+    {
+        _db.ChapterVersions.Update(version);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<IEnumerable<ChapterVersion>> GetChapterVersionsAsync(int chapterId) =>
+        await _db.ChapterVersions
+            .Where(v => v.ChapterId == chapterId)
+            .OrderByDescending(v => v.VersionNumber)
+            .ToListAsync();
+
+    public async Task<ChapterVersion?> GetChapterVersionAsync(int chapterId, int versionId) =>
+        await _db.ChapterVersions.FirstOrDefaultAsync(v => v.ChapterId == chapterId && v.Id == versionId);
+
+    public async Task<ChapterVersion> ActivateChapterVersionAsync(int bookId, int chapterId, int versionId)
+    {
+        var version = await _db.ChapterVersions.FirstOrDefaultAsync(v => v.ChapterId == chapterId && v.Id == versionId)
+            ?? throw new InvalidOperationException($"Version {versionId} not found for chapter {chapterId}.");
+
+        // Deactivate all versions
+        await _db.ChapterVersions
+            .Where(v => v.ChapterId == chapterId)
+            .ExecuteUpdateAsync(s => s.SetProperty(v => v.IsActive, false));
+
+        // Activate the chosen one
+        version.IsActive = true;
+        _db.ChapterVersions.Update(version);
+
+        // Sync denormalized fields back to Chapter
+        var chapter = await _db.Chapters.FindAsync(chapterId);
+        if (chapter is not null)
+        {
+            chapter.Title = version.Title;
+            chapter.Outline = version.Outline;
+            chapter.Content = version.Content;
+            chapter.Status = version.Status;
+            chapter.PovCharacter = version.PovCharacter;
+            chapter.CharactersInvolvedJson = version.CharactersInvolvedJson;
+            chapter.PlotThreadsJson = version.PlotThreadsJson;
+            chapter.ForeshadowingNotes = version.ForeshadowingNotes;
+            chapter.PayoffNotes = version.PayoffNotes;
+            chapter.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await _db.SaveChangesAsync();
+        return version;
     }
 
     public async Task<IEnumerable<AgentMessage>> GetMessagesAsync(int bookId, int? chapterId = null)
@@ -372,4 +496,58 @@ public class BookRepository : IBookRepository
             await _db.SaveChangesAsync();
         }
     }
+
+    // ── Snapshots ─────────────────────────────────────────────────────────────
+
+    public async Task AddStoryBibleSnapshotAsync(StoryBibleSnapshot snapshot)
+    {
+        snapshot.CreatedAt = DateTime.UtcNow;
+        _db.StoryBibleSnapshots.Add(snapshot);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<IEnumerable<StoryBibleSnapshot>> GetStoryBibleSnapshotsAsync(int bookId) =>
+        await _db.StoryBibleSnapshots.Where(s => s.BookId == bookId).OrderByDescending(s => s.CreatedAt).ToListAsync();
+
+    public async Task<StoryBibleSnapshot?> GetStoryBibleSnapshotAsync(int bookId, int snapshotId) =>
+        await _db.StoryBibleSnapshots.FirstOrDefaultAsync(s => s.BookId == bookId && s.Id == snapshotId);
+
+    public async Task AddCharactersSnapshotAsync(CharactersSnapshot snapshot)
+    {
+        snapshot.CreatedAt = DateTime.UtcNow;
+        _db.CharactersSnapshots.Add(snapshot);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<IEnumerable<CharactersSnapshot>> GetCharactersSnapshotsAsync(int bookId) =>
+        await _db.CharactersSnapshots.Where(s => s.BookId == bookId).OrderByDescending(s => s.CreatedAt).ToListAsync();
+
+    public async Task<CharactersSnapshot?> GetCharactersSnapshotAsync(int bookId, int snapshotId) =>
+        await _db.CharactersSnapshots.FirstOrDefaultAsync(s => s.BookId == bookId && s.Id == snapshotId);
+
+    public async Task AddPlotThreadsSnapshotAsync(PlotThreadsSnapshot snapshot)
+    {
+        snapshot.CreatedAt = DateTime.UtcNow;
+        _db.PlotThreadsSnapshots.Add(snapshot);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<IEnumerable<PlotThreadsSnapshot>> GetPlotThreadsSnapshotsAsync(int bookId) =>
+        await _db.PlotThreadsSnapshots.Where(s => s.BookId == bookId).OrderByDescending(s => s.CreatedAt).ToListAsync();
+
+    public async Task<PlotThreadsSnapshot?> GetPlotThreadsSnapshotAsync(int bookId, int snapshotId) =>
+        await _db.PlotThreadsSnapshots.FirstOrDefaultAsync(s => s.BookId == bookId && s.Id == snapshotId);
+
+    public async Task AddBookSnapshotAsync(BookSnapshot snapshot)
+    {
+        snapshot.CreatedAt = DateTime.UtcNow;
+        _db.BookSnapshots.Add(snapshot);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<IEnumerable<BookSnapshot>> GetBookSnapshotsAsync(int bookId) =>
+        await _db.BookSnapshots.Where(s => s.BookId == bookId).OrderByDescending(s => s.CreatedAt).ToListAsync();
+
+    public async Task<BookSnapshot?> GetBookSnapshotAsync(int bookId, int snapshotId) =>
+        await _db.BookSnapshots.FirstOrDefaultAsync(s => s.BookId == bookId && s.Id == snapshotId);
 }

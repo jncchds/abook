@@ -61,6 +61,19 @@ public class BooksController : ControllerBase
         if (book is null) return NotFound();
         if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
 
+        // Snapshot the current metadata before overwriting
+        await _repo.AddBookSnapshotAsync(new ABook.Core.Models.BookSnapshot
+        {
+            BookId = id,
+            Title = book.Title,
+            Premise = book.Premise,
+            Genre = book.Genre,
+            TargetChapterCount = book.TargetChapterCount,
+            Language = book.Language,
+            HumanAssisted = book.HumanAssisted,
+            Reason = "user-update"
+        });
+
         book.Title = req.Title;
         book.Premise = req.Premise;
         book.Genre = req.Genre;
@@ -216,6 +229,25 @@ public class BooksController : ControllerBase
                 error = ex.Message
             });
         }
+    }
+
+    [HttpGet("{id:int}/history")]
+    public async Task<IActionResult> GetHistory(int id)
+    {
+        var book = await _repo.GetByIdAsync(id);
+        if (book is null) return NotFound();
+        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
+        return Ok(await _repo.GetBookSnapshotsAsync(id));
+    }
+
+    [HttpGet("{id:int}/history/{snapshotId:int}")]
+    public async Task<IActionResult> GetHistorySnapshot(int id, int snapshotId)
+    {
+        var book = await _repo.GetByIdAsync(id);
+        if (book is null) return NotFound();
+        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
+        var snapshot = await _repo.GetBookSnapshotAsync(id, snapshotId);
+        return snapshot is null ? NotFound() : Ok(snapshot);
     }
 }
 

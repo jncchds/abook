@@ -51,19 +51,63 @@ public class PlanningPhasesController : ControllerBase
         switch (phase.ToLowerInvariant())
         {
             case "storybible":
-                await _repo.DeleteStoryBibleAsync(bookId);
-                book.StoryBibleStatus = PlanningPhaseStatus.NotStarted;
-                break;
+                {
+                    var existing = await _repo.GetStoryBibleAsync(bookId);
+                    if (existing is not null)
+                    {
+                        await _repo.AddStoryBibleSnapshotAsync(new ABook.Core.Models.StoryBibleSnapshot
+                        {
+                            BookId = bookId,
+                            SettingDescription = existing.SettingDescription,
+                            TimePeriod = existing.TimePeriod,
+                            Themes = existing.Themes,
+                            ToneAndStyle = existing.ToneAndStyle,
+                            WorldRules = existing.WorldRules,
+                            Notes = existing.Notes,
+                            Reason = "planning-phase-reset"
+                        });
+                    }
+                    await _repo.DeleteStoryBibleAsync(bookId);
+                    book.StoryBibleStatus = PlanningPhaseStatus.NotStarted;
+                    break;
+                }
             case "characters":
-                await _repo.DeleteCharacterCardsAsync(bookId);
-                book.CharactersStatus = PlanningPhaseStatus.NotStarted;
-                break;
+                {
+                    var existing = await _repo.GetCharacterCardsAsync(bookId);
+                    if (existing.Any())
+                    {
+                        var serialized = System.Text.Json.JsonSerializer.Serialize(existing);
+                        await _repo.AddCharactersSnapshotAsync(new ABook.Core.Models.CharactersSnapshot
+                        {
+                            BookId = bookId,
+                            DataJson = serialized,
+                            Reason = "planning-phase-reset"
+                        });
+                    }
+                    await _repo.DeleteCharacterCardsAsync(bookId);
+                    book.CharactersStatus = PlanningPhaseStatus.NotStarted;
+                    break;
+                }
             case "plotthreads":
-                await _repo.DeletePlotThreadsAsync(bookId);
-                book.PlotThreadsStatus = PlanningPhaseStatus.NotStarted;
-                break;
+                {
+                    var existing = await _repo.GetPlotThreadsAsync(bookId);
+                    if (existing.Any())
+                    {
+                        var serialized = System.Text.Json.JsonSerializer.Serialize(existing);
+                        await _repo.AddPlotThreadsSnapshotAsync(new ABook.Core.Models.PlotThreadsSnapshot
+                        {
+                            BookId = bookId,
+                            DataJson = serialized,
+                            Reason = "planning-phase-reset"
+                        });
+                    }
+                    await _repo.DeletePlotThreadsAsync(bookId);
+                    book.PlotThreadsStatus = PlanningPhaseStatus.NotStarted;
+                    break;
+                }
             case "chapters":
-                await _repo.DeleteChaptersAsync(bookId);
+                // Archive chapters instead of hard-delete to preserve history
+                await _repo.ArchiveChaptersAsync(bookId);
                 book.ChaptersStatus = PlanningPhaseStatus.NotStarted;
                 break;
             default:

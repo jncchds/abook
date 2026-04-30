@@ -168,6 +168,8 @@ public class WriterAgent : AgentBase
 
     private async Task IndexChapterAsync(int bookId, Chapter chapter, Kernel kernel, LlmConfiguration config, CancellationToken ct)
     {
+        // DEPRECATED: use the protected base method IndexChapterAsync(int bookId, int chapterId, int chapterVersionId, ...) instead.
+        // Kept for reference until all callers are updated.
         await VectorStore.EnsureCollectionAsync(bookId, ct);
         await VectorStore.DeleteChapterChunksAsync(bookId, chapter.Id, ct);
 

@@ -19,14 +19,26 @@ public class PgvectorVectorStoreService : IVectorStoreService
         => Task.CompletedTask;
 
     public async Task UpsertChunkAsync(int bookId, int chapterId, int chapterNumber, int chunkIndex,
-        string text, ReadOnlyMemory<float> embedding, CancellationToken ct = default)
+        string text, ReadOnlyMemory<float> embedding, CancellationToken ct = default, int? chapterVersionId = null)
     {
         var vector = new Vector(embedding.ToArray());
 
-        var existing = await _context.ChapterEmbeddings
-            .FirstOrDefaultAsync(
-                e => e.BookId == bookId && e.ChapterId == chapterId && e.ChunkIndex == chunkIndex,
-                ct);
+        ChapterEmbedding? existing;
+        if (chapterVersionId.HasValue)
+        {
+            existing = await _context.ChapterEmbeddings
+                .FirstOrDefaultAsync(
+                    e => e.BookId == bookId && e.ChapterVersionId == chapterVersionId && e.ChunkIndex == chunkIndex,
+                    ct);
+        }
+        else
+        {
+            existing = await _context.ChapterEmbeddings
+                .FirstOrDefaultAsync(
+                    e => e.BookId == bookId && e.ChapterId == chapterId && e.ChunkIndex == chunkIndex
+                         && e.ChapterVersionId == null,
+                    ct);
+        }
 
         if (existing is null)
         {
@@ -36,6 +48,7 @@ public class PgvectorVectorStoreService : IVectorStoreService
                 ChapterId = chapterId,
                 ChapterNumber = chapterNumber,
                 ChunkIndex = chunkIndex,
+                ChapterVersionId = chapterVersionId,
                 Text = text,
                 Embedding = vector
             });
@@ -55,14 +68,30 @@ public class PgvectorVectorStoreService : IVectorStoreService
     {
         var queryVector = new Vector(queryEmbedding.ToArray());
 
-        // {0} = ORDER BY query vector, {1} = bookId, {2} = topK, {3} = SELECT score query vector
+        // Only return chunks for:
+        //   - versioned chunks: where the version is active AND the chapter is not archived
+        //   - legacy (unversioned) chunks: where the chapter is not archived
         var rows = await _context.Database.SqlQueryRaw<ChunkRow>(
             """
-            SELECT "ChapterId", "ChapterNumber", "ChunkIndex", "Text",
-                   CAST(1 - ("Embedding" <=> {3}::vector) AS real) AS "Score"
-            FROM "ChapterEmbeddings"
-            WHERE "BookId" = {1}
-            ORDER BY "Embedding" <=> {0}::vector
+            SELECT ce."ChapterId", ce."ChapterNumber", ce."ChunkIndex", ce."Text",
+                   CAST(1 - (ce."Embedding" <=> {3}::vector) AS real) AS "Score"
+            FROM "ChapterEmbeddings" ce
+            WHERE ce."BookId" = {1}
+              AND (
+                (ce."ChapterVersionId" IS NOT NULL AND EXISTS (
+                    SELECT 1 FROM "ChapterVersions" cv
+                    JOIN "Chapters" c ON c."Id" = cv."ChapterId"
+                    WHERE cv."Id" = ce."ChapterVersionId"
+                      AND cv."IsActive" = TRUE
+                      AND c."IsArchived" = FALSE
+                ))
+                OR (ce."ChapterVersionId" IS NULL AND EXISTS (
+                    SELECT 1 FROM "Chapters" c
+                    WHERE c."Id" = ce."ChapterId"
+                      AND c."IsArchived" = FALSE
+                ))
+              )
+            ORDER BY ce."Embedding" <=> {0}::vector
             LIMIT {2}
             """,
             queryVector, bookId, topK, queryVector)
@@ -82,6 +111,13 @@ public class PgvectorVectorStoreService : IVectorStoreService
     {
         await _context.ChapterEmbeddings
             .Where(e => e.BookId == bookId && e.ChapterId == chapterId)
+            .ExecuteDeleteAsync(ct);
+    }
+
+    public async Task DeleteVersionChunksAsync(int bookId, int chapterVersionId, CancellationToken ct = default)
+    {
+        await _context.ChapterEmbeddings
+            .Where(e => e.BookId == bookId && e.ChapterVersionId == chapterVersionId)
             .ExecuteDeleteAsync(ct);
     }
 

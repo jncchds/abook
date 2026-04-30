@@ -61,6 +61,17 @@ public class PlotThreadsController : ControllerBase
         await _repo.DeletePlotThreadAsync(bookId, threadId);
         return NoContent();
     }
+
+    [HttpGet("history")]
+    public async Task<IActionResult> GetHistory(int bookId) =>
+        Ok(await _repo.GetPlotThreadsSnapshotsAsync(bookId));
+
+    [HttpGet("history/{snapshotId:int}")]
+    public async Task<IActionResult> GetSnapshot(int bookId, int snapshotId)
+    {
+        var snapshot = await _repo.GetPlotThreadsSnapshotAsync(bookId, snapshotId);
+        return snapshot is null ? NotFound() : Ok(snapshot);
+    }
 }
 
 public record PlotThreadRequest(

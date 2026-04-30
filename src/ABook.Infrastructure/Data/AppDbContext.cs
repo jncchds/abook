@@ -10,6 +10,7 @@ public class AppDbContext : DbContext
 
     public DbSet<Book> Books => Set<Book>();
     public DbSet<Chapter> Chapters => Set<Chapter>();
+    public DbSet<ChapterVersion> ChapterVersions => Set<ChapterVersion>();
     public DbSet<AgentMessage> AgentMessages => Set<AgentMessage>();
     public DbSet<LlmConfiguration> LlmConfigurations => Set<LlmConfiguration>();
     public DbSet<AppUser> Users => Set<AppUser>();
@@ -20,6 +21,10 @@ public class AppDbContext : DbContext
     public DbSet<AgentRun> AgentRuns => Set<AgentRun>();
     public DbSet<ChapterEmbedding> ChapterEmbeddings => Set<ChapterEmbedding>();
     public DbSet<LlmPreset> LlmPresets => Set<LlmPreset>();
+    public DbSet<StoryBibleSnapshot> StoryBibleSnapshots => Set<StoryBibleSnapshot>();
+    public DbSet<CharactersSnapshot> CharactersSnapshots => Set<CharactersSnapshot>();
+    public DbSet<PlotThreadsSnapshot> PlotThreadsSnapshots => Set<PlotThreadsSnapshot>();
+    public DbSet<BookSnapshot> BookSnapshots => Set<BookSnapshot>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -60,6 +65,7 @@ public class AppDbContext : DbContext
             c.Property(x => x.PlotThreadsJson).HasDefaultValue("[]");
             c.Property(x => x.ForeshadowingNotes).HasDefaultValue(string.Empty);
             c.Property(x => x.PayoffNotes).HasDefaultValue(string.Empty);
+            c.Property(x => x.IsArchived).HasDefaultValue(false);
             c.HasOne(x => x.Book)
              .WithMany(x => x.Chapters)
              .HasForeignKey(x => x.BookId)
@@ -156,15 +162,6 @@ public class AppDbContext : DbContext
              .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<ChapterEmbedding>(e =>
-        {
-            e.HasKey(x => x.Id);
-            e.Property(x => x.Text).IsRequired();
-            e.Property(x => x.Embedding).HasColumnType("vector");
-            e.HasIndex(x => new { x.BookId, x.ChapterId, x.ChunkIndex }).IsUnique();
-            e.HasIndex(x => x.BookId);
-        });
-
         modelBuilder.Entity<LlmPreset>(p =>
         {
             p.HasKey(x => x.Id);
@@ -195,6 +192,71 @@ public class AppDbContext : DbContext
              .OnDelete(DeleteBehavior.SetNull)
              .IsRequired(false);
             r.HasIndex(x => new { x.BookId, x.Status });
+        });
+
+        modelBuilder.Entity<ChapterVersion>(v =>
+        {
+            v.HasKey(x => x.Id);
+            v.Property(x => x.Title).HasMaxLength(500);
+            v.Property(x => x.Status).HasConversion<string>();
+            v.Property(x => x.CreatedBy).HasMaxLength(100);
+            v.Property(x => x.PovCharacter).HasDefaultValue(string.Empty);
+            v.Property(x => x.CharactersInvolvedJson).HasDefaultValue("[]");
+            v.Property(x => x.PlotThreadsJson).HasDefaultValue("[]");
+            v.Property(x => x.ForeshadowingNotes).HasDefaultValue(string.Empty);
+            v.Property(x => x.PayoffNotes).HasDefaultValue(string.Empty);
+            v.Property(x => x.IsActive).HasDefaultValue(false);
+            v.Property(x => x.HasEmbeddings).HasDefaultValue(false);
+            v.HasOne(x => x.Chapter)
+             .WithMany(x => x.Versions)
+             .HasForeignKey(x => x.ChapterId)
+             .OnDelete(DeleteBehavior.Cascade);
+            v.HasIndex(x => new { x.ChapterId, x.VersionNumber }).IsUnique();
+            v.HasIndex(x => new { x.ChapterId, x.IsActive });
+        });
+
+        // Update ChapterEmbedding to include optional FK to ChapterVersion
+        modelBuilder.Entity<ChapterEmbedding>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Text).IsRequired();
+            e.Property(x => x.Embedding).HasColumnType("vector");
+            e.HasIndex(x => new { x.BookId, x.ChapterId, x.ChunkIndex }).IsUnique()
+             .HasFilter("\"ChapterVersionId\" IS NULL");
+            e.HasIndex(x => new { x.BookId, x.ChapterVersionId, x.ChunkIndex }).IsUnique()
+             .HasFilter("\"ChapterVersionId\" IS NOT NULL");
+            e.HasIndex(x => x.BookId);
+        });
+
+        modelBuilder.Entity<StoryBibleSnapshot>(s =>
+        {
+            s.HasKey(x => x.Id);
+            s.Property(x => x.Reason).HasMaxLength(500);
+            s.HasIndex(x => x.BookId);
+        });
+
+        modelBuilder.Entity<CharactersSnapshot>(c =>
+        {
+            c.HasKey(x => x.Id);
+            c.Property(x => x.Reason).HasMaxLength(500);
+            c.HasIndex(x => x.BookId);
+        });
+
+        modelBuilder.Entity<PlotThreadsSnapshot>(p =>
+        {
+            p.HasKey(x => x.Id);
+            p.Property(x => x.Reason).HasMaxLength(500);
+            p.HasIndex(x => x.BookId);
+        });
+
+        modelBuilder.Entity<BookSnapshot>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Title).HasMaxLength(500);
+            b.Property(x => x.Genre).HasMaxLength(100);
+            b.Property(x => x.Language).HasMaxLength(100);
+            b.Property(x => x.Reason).HasMaxLength(500);
+            b.HasIndex(x => x.BookId);
         });
     }
 }

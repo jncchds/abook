@@ -2,6 +2,7 @@
 
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
+using ABook.Infrastructure.VectorStore;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
@@ -410,5 +411,50 @@ public abstract class AgentBase
         var end = raw.LastIndexOf(close);
         if (start >= 0 && end > start) return raw[start..(end + 1)];
         return raw;
+    }
+
+    /// <summary>
+    /// Index a chapter version's content into pgvector for RAG retrieval.
+    /// Chunks the content, generates embeddings, and stores them with the version FK.
+    /// </summary>
+    protected async Task IndexChapterAsync(int bookId, int chapterId, int chapterVersionId, Kernel kernel, LlmConfiguration config, CancellationToken ct)
+    {
+        await VectorStore.EnsureCollectionAsync(bookId, ct);
+        
+        var version = await Repo.GetChapterVersionAsync(chapterId, chapterVersionId);
+        if (version is null || string.IsNullOrEmpty(version.Content)) return;
+
+        var chapter = await Repo.GetChapterAsync(bookId, chapterId);
+        if (chapter is null) return;
+
+        // Delete any existing chunks for this version (clean state)
+        await VectorStore.DeleteVersionChunksAsync(bookId, chapterVersionId, ct);
+
+        // Chunk and embed
+        var chunks = TextChunker.Chunk(version.Content);
+        var embedder = LlmFactory.CreateEmbeddingGeneration(config);
+
+        for (int i = 0; i < chunks.Count; i++)
+        {
+            var embeddings = await embedder.GenerateAsync([chunks[i]], cancellationToken: ct);
+            var embedding = embeddings[0].Vector;
+            await VectorStore.UpsertChunkAsync(bookId, chapterId, chapter.Number, i, chunks[i], embedding, ct, chapterVersionId);
+        }
+
+        int indexPromptTokens = chunks.Sum(c => c.Length) / 4;
+        try { await Notifier.NotifyTokenStatsAsync(bookId, chapterId, AgentRole.Embedder.ToString(), indexPromptTokens, 0, ct); }
+        catch { /* non-fatal */ }
+        try
+        {
+            await Repo.AddTokenUsageAsync(new TokenUsageRecord
+            {
+                BookId = bookId,
+                ChapterId = chapterId,
+                AgentRole = AgentRole.Embedder,
+                PromptTokens = indexPromptTokens,
+                CompletionTokens = 0
+            });
+        }
+        catch { /* non-fatal */ }
     }
 }

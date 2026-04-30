@@ -11,11 +11,22 @@ public interface IBookRepository
     Task UpdateAsync(Book book);
     Task DeleteAsync(int id);
 
-    Task<IEnumerable<Chapter>> GetChaptersAsync(int bookId);
+    Task<IEnumerable<Chapter>> GetChaptersAsync(int bookId, bool includeArchived = false);
     Task<Chapter?> GetChapterAsync(int bookId, int chapterId);
     Task<Chapter> AddChapterAsync(Chapter chapter);
     Task UpdateChapterAsync(Chapter chapter);
     Task DeleteChaptersAsync(int bookId);
+    Task ArchiveChapterAsync(int bookId, int chapterId);
+    Task RestoreChapterAsync(int bookId, int chapterId);
+    Task ArchiveChaptersAsync(int bookId);
+
+    // Chapter versions
+    Task<ChapterVersion> AddChapterVersionAsync(ChapterVersion version);
+    Task UpdateChapterVersionAsync(ChapterVersion version);
+    Task<IEnumerable<ChapterVersion>> GetChapterVersionsAsync(int chapterId);
+    Task<ChapterVersion?> GetChapterVersionAsync(int chapterId, int versionId);
+    /// <summary>Marks versionId as active, deactivates all others for this chapter, and copies version fields back to the Chapter row.</summary>
+    Task<ChapterVersion> ActivateChapterVersionAsync(int bookId, int chapterId, int versionId);
 
     Task<IEnumerable<AgentMessage>> GetMessagesAsync(int bookId, int? chapterId = null);
     Task<AgentMessage?> FindMessageByIdAsync(int messageId);
@@ -65,5 +76,22 @@ public interface IBookRepository
     Task<LlmPreset> CreatePresetAsync(LlmPreset preset);
     Task UpdatePresetAsync(LlmPreset preset);
     Task DeletePresetAsync(int id);
+
+    // Snapshots (append-only history)
+    Task AddStoryBibleSnapshotAsync(StoryBibleSnapshot snapshot);
+    Task<IEnumerable<StoryBibleSnapshot>> GetStoryBibleSnapshotsAsync(int bookId);
+    Task<StoryBibleSnapshot?> GetStoryBibleSnapshotAsync(int bookId, int snapshotId);
+
+    Task AddCharactersSnapshotAsync(CharactersSnapshot snapshot);
+    Task<IEnumerable<CharactersSnapshot>> GetCharactersSnapshotsAsync(int bookId);
+    Task<CharactersSnapshot?> GetCharactersSnapshotAsync(int bookId, int snapshotId);
+
+    Task AddPlotThreadsSnapshotAsync(PlotThreadsSnapshot snapshot);
+    Task<IEnumerable<PlotThreadsSnapshot>> GetPlotThreadsSnapshotsAsync(int bookId);
+    Task<PlotThreadsSnapshot?> GetPlotThreadsSnapshotAsync(int bookId, int snapshotId);
+
+    Task AddBookSnapshotAsync(BookSnapshot snapshot);
+    Task<IEnumerable<BookSnapshot>> GetBookSnapshotsAsync(int bookId);
+    Task<BookSnapshot?> GetBookSnapshotAsync(int bookId, int snapshotId);
 }
 

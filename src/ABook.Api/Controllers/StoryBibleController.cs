@@ -22,6 +22,22 @@ public class StoryBibleController : ControllerBase
     [HttpPut]
     public async Task<IActionResult> Upsert(int bookId, [FromBody] StoryBibleRequest req)
     {
+        // Snapshot the existing bible before overwriting
+        var existing = await _repo.GetStoryBibleAsync(bookId);
+        if (existing is not null)
+        {
+            await _repo.AddStoryBibleSnapshotAsync(new StoryBibleSnapshot
+            {
+                BookId = bookId,
+                SettingDescription = existing.SettingDescription,
+                TimePeriod = existing.TimePeriod,
+                Themes = existing.Themes,
+                ToneAndStyle = existing.ToneAndStyle,
+                WorldRules = existing.WorldRules,
+                Notes = existing.Notes,
+                Reason = "user-update"
+            });
+        }
         var bible = new StoryBible
         {
             BookId = bookId,
@@ -34,6 +50,17 @@ public class StoryBibleController : ControllerBase
         };
         var result = await _repo.UpsertStoryBibleAsync(bible);
         return Ok(result);
+    }
+
+    [HttpGet("history")]
+    public async Task<IActionResult> GetHistory(int bookId) =>
+        Ok(await _repo.GetStoryBibleSnapshotsAsync(bookId));
+
+    [HttpGet("history/{snapshotId:int}")]
+    public async Task<IActionResult> GetSnapshot(int bookId, int snapshotId)
+    {
+        var snapshot = await _repo.GetStoryBibleSnapshotAsync(bookId, snapshotId);
+        return snapshot is null ? NotFound() : Ok(snapshot);
     }
 }
 

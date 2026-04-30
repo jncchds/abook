@@ -67,6 +67,17 @@ public class CharactersController : ControllerBase
         await _repo.DeleteCharacterCardAsync(bookId, cardId);
         return NoContent();
     }
+
+    [HttpGet("history")]
+    public async Task<IActionResult> GetHistory(int bookId) =>
+        Ok(await _repo.GetCharactersSnapshotsAsync(bookId));
+
+    [HttpGet("history/{snapshotId:int}")]
+    public async Task<IActionResult> GetSnapshot(int bookId, int snapshotId)
+    {
+        var snapshot = await _repo.GetCharactersSnapshotAsync(bookId, snapshotId);
+        return snapshot is null ? NotFound() : Ok(snapshot);
+    }
 }
 
 public record CharacterCardRequest(
