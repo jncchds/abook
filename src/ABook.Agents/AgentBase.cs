@@ -347,9 +347,10 @@ public abstract class AgentBase
     /// <para>
     /// Book-level tokens: {TITLE}, {GENRE}, {PREMISE}, {CHAPTER_COUNT}, {LANGUAGE}.
     /// Story-Bible tokens (require <paramref name="bible"/>): {SETTING}, {THEMES}, {TONE}, {WORLD_RULES}.
+    /// Cross-chapter token (require <paramref name="chapterSynopses"/>): {CHAPTER_SYNOPSES}.
     /// </para>
     /// </summary>
-    protected static string InterpolateSystemPrompt(string prompt, Book book, ABook.Core.Models.StoryBible? bible = null)
+    protected static string InterpolateSystemPrompt(string prompt, Book book, ABook.Core.Models.StoryBible? bible = null, string? chapterSynopses = null)
     {
         var result = prompt
             .Replace(PromptPlaceholders.Title, book.Title ?? "")
@@ -366,6 +367,9 @@ public abstract class AgentBase
                 .Replace(PromptPlaceholders.Tone, bible.ToneAndStyle ?? "")
                 .Replace(PromptPlaceholders.WorldRules, bible.WorldRules ?? "");
         }
+
+        if (chapterSynopses is not null)
+            result = result.Replace(PromptPlaceholders.ChapterSynopses, chapterSynopses);
 
         return result;
     }
@@ -394,6 +398,35 @@ public abstract class AgentBase
 
             var tail = paras.TakeLast(paragraphCount);
             return $"[End of Chapter {prev.Number}: {prev.Title}]\n\n" + string.Join("\n\n", tail);
+        }
+        catch { return string.Empty; }
+    }
+
+    /// <summary>
+    /// Returns a compact numbered list of every non-archived chapter that precedes
+    /// <paramref name="currentChapterNumber"/> (or all chapters when it is null), formatted as:
+    /// <c>N. **Title** — Outline</c>.
+    /// Inject this into the Writer/Editor user message so agents can see the full narrative spine
+    /// and avoid re-introducing or restating anything already established.
+    /// Never truncated — full history is always included.
+    /// </summary>
+    protected async Task<string> BuildChapterSynopsesAsync(
+        int bookId, int? currentChapterNumber = null, CancellationToken ct = default)
+    {
+        try
+        {
+            var chapters = await Repo.GetChaptersAsync(bookId);
+            var relevant = chapters
+                .Where(c => !c.IsArchived
+                    && (currentChapterNumber == null || c.Number < currentChapterNumber)
+                    && (!string.IsNullOrWhiteSpace(c.Title) || !string.IsNullOrWhiteSpace(c.Outline)))
+                .OrderBy(c => c.Number)
+                .ToList();
+
+            if (relevant.Count == 0) return string.Empty;
+
+            return string.Join("\n", relevant.Select(c =>
+                $"{c.Number}. **{c.Title}** — {c.Outline}"));
         }
         catch { return string.Empty; }
     }

@@ -35,6 +35,14 @@ public static class PromptPlaceholders
 
     /// <summary>World rules / magic system / internal logic from the Story Bible.</summary>
     public const string WorldRules = "{WORLD_RULES}";
+
+    // ── Cross-chapter context (resolved per-call, not from Book entity) ──────────
+    /// <summary>
+    /// Compact numbered list of all prior chapter synopses (Number · Title — Outline).
+    /// Used by Writer and Editor to avoid re-introducing or restating established content.
+    /// Resolved by agents that pass the value to <c>InterpolateSystemPrompt</c>.
+    /// </summary>
+    public const string ChapterSynopses = "{CHAPTER_SYNOPSES}";
 }
 
 /// <summary>
@@ -113,6 +121,13 @@ public static class DefaultPrompts
         Start immediately with narrative prose (a scene, action, dialogue, or description).
         The character profiles and plot thread notes below are canonical — do not contradict them.
         Honour all foreshadowing and payoff directives exactly as specified.
+
+        ANTI-REPETITION RULES — follow these strictly:
+        - Never re-introduce a character, place, or object that has already appeared in prior chapters as if the reader is meeting it for the first time. Build on established knowledge — the reader remembers.
+        - Never restate an established fact (physical description, backstory detail, world rule, relationship) that was already conveyed in a prior chapter. Refer to it obliquely at most.
+        - Do not echo phrases, metaphors, images, or similes that appear in the prior-chapter passages provided in the context. Seek fresh language every time.
+        - Vary scene-entry beats. If prior chapters opened with a character waking up, an internal monologue, or a specific sensory detail, choose a different approach here.
+        - If a recurring motif or quirk appears in the prior passages, do not repeat it unless it is intentional and narratively significant.
         """;
 
     public static readonly string Editor =
@@ -125,6 +140,16 @@ public static class DefaultPrompts
         make unrequested changes.
         Output the complete corrected chapter in markdown — do NOT include a chapter heading.
         After the prose, add a section headed exactly "## Editorial Notes" listing each specific fix applied.
+
+        CROSS-CHAPTER AWARENESS: The request will include prior-chapter synopses and relevant passages
+        from earlier chapters. Use them to identify and silently fix (as implicit corrections) any of:
+        - Re-introduction of a character, place, or object already established in a prior chapter as if
+          the reader is encountering it for the first time (e.g. restating their full physical description
+          or backstory that was already presented).
+        - Repetition of a physical description, backstory detail, or world fact already conveyed earlier.
+        - Phrases, metaphors, or images that closely echo passages from prior chapters.
+        - Scene-entry beats that mirror how previous chapters opened.
+        Treat each such instance as an implicit fix instruction and note it in the Editorial Notes section.
         Book: {PromptPlaceholders.Title} | Genre: {PromptPlaceholders.Genre}
         IMPORTANT: The entire output (prose and editorial notes) must be written in {PromptPlaceholders.Language}.
         """;
@@ -139,7 +164,15 @@ public static class DefaultPrompts
         IMPORTANT: Do NOT report issues that exist solely between previous chapters — focus only on
         problems introduced by the chapter under review.
         STYLE: Check for passive voice overuse, awkward or repetitive phrasing, POV head-hopping,
-        pacing problems, redundant descriptions, and unclear dialogue attribution.
+        pacing problems, redundant descriptions, and unclear dialogue attribution. Also check for:
+        - Re-introduction of a character, place, or object already established in prior chapters as if
+          the reader is meeting it for the first time (e.g. re-describing their appearance or backstory
+          that was already presented in an earlier chapter shown in the provided context passages).
+        - Repetition of a physical description, backstory fact, or world detail already conveyed in a
+          prior chapter as evidenced by the provided context passages.
+        - Phrases, metaphors, similes, or images that closely echo passages from prior chapters.
+        - Recycled scene-entry beats (e.g. character wakes up, stares in a mirror, looks out a window)
+          that already appeared as an opening beat in a previous chapter.
         Return a JSON object with exactly these fields:
           "hasIssues" (boolean — true if any issues were found in either category),
           "continuityIssues" (array of strings — each a specific problem with a suggested fix; empty array if none),
@@ -158,7 +191,13 @@ public static class DefaultPrompts
         timeline errors, location contradictions, and conflicts with the canonical planning documents
         (character profiles, plot threads, story bible). Reference the documents by name when reporting issues.
         STYLE: Identify overarching style problems: head-hopping across chapters, inconsistent character
-        voice, tonal inconsistencies, and structural pacing issues.
+        voice, tonal inconsistencies, and structural pacing issues. Also identify:
+        - Characters, places, or objects re-introduced across multiple chapters as if new to the reader
+          (repeated physical descriptions or backstory already established in earlier chapters).
+        - Phrases, metaphors, similes, or images that recur across multiple chapters without intentional
+          purpose (echoed language that makes chapters feel alike).
+        - Recycled scene-entry beats that appear as opening moves in more than one chapter (e.g. waking
+          up, looking in a mirror, staring out a window).
         Return a JSON object with exactly these fields:
           "hasIssues" (boolean — true if any issues were found),
           "continuityIssues" (array of strings — each naming the problem, affected chapters, and a suggested fix; empty array if none),

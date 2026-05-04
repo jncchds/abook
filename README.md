@@ -10,7 +10,9 @@ ABook is a self-hosted web application that uses AI agents to collaboratively wr
 - **Real-time streaming** — watch chapters being written token by token via SignalR; Story Bible, Characters, and Plot Threads stream to their respective tabs with live progressive JSON previews
 - **Checker → Editor refinement loop** — every chapter goes through repeated Checker/Editor passes (up to 3 editor rounds) until no issues remain or the loop reaches its safety cap
 - **Token usage statistics** — per-agent prompt and completion token counts displayed in a scrollable collapsible panel and persisted to the database; Clear button to reset
-- **RAG context retrieval** — agents query relevant prior chapters via pgvector embeddings stored in PostgreSQL to stay consistent across long books
+- **RAG context retrieval** — Writer uses 3 targeted queries (characters, locations, plot threads) and Editor uses 4 (same + repeated-phrase detection) against pgvector embeddings to keep chapters consistent and avoid re-introductions
+- **Full synopsis spine** — every prior chapter's title and outline is injected into Writer and Editor user messages so agents can see the narrative shape of the whole book and avoid recycling scene beats, re-describing established characters, or restating established facts
+- **Explicit anti-repetition rules** in default Writer, Editor, and Checker prompts — never re-introduce a known character/place, never restate established facts, vary scene-entry beats, flag echoed phrases
 - **Pluggable LLM backend** — Ollama (default, local), OpenAI (or any OpenAI-compatible API), Google AI Studio, or Anthropic (via OpenAI-compatible proxy); configurable globally, per-user, or per-book
 - **Per-book customization** — language, assisted-generation toggle, and per-phase system prompt overrides (Story Bible, Characters, Plot Threads, Chapter Outlines, Writer, Editor, Checker) with supported template tokens
 - **Inline editing** — edit book metadata, chapter titles/outlines, and add chapters manually without leaving the detail page

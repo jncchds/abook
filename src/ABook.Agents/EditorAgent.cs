@@ -1,5 +1,6 @@
 #pragma warning disable SKEXP0001, SKEXP0010, SKEXP0070
 
+using System.Text.Json;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -33,6 +34,44 @@ public class EditorAgent : AgentBase
 
         var (kernel, config) = await GetKernelAsync(bookId);
 
+        // Cross-chapter context: full synopsis spine + 4 targeted RAG queries
+        var synopsesBlock = await BuildChapterSynopsesAsync(bookId, chapter.Number, ct);
+
+        string charRag = string.Empty, locationRag = string.Empty, threadRag = string.Empty, phrasesRag = string.Empty;
+        if (chapter.Number > 1)
+        {
+            List<string> charNames;
+            try { charNames = JsonSerializer.Deserialize<List<string>>(chapter.CharactersInvolvedJson) ?? []; }
+            catch { charNames = []; }
+            var charQuery = charNames.Count > 0
+                ? $"character appearance description personality {string.Join(' ', charNames)}"
+                : "character appearance description personality backstory";
+
+            var locationQuery = $"location place setting description {chapter.Outline}";
+
+            List<string> threadNames;
+            try { threadNames = JsonSerializer.Deserialize<List<string>>(chapter.PlotThreadsJson) ?? []; }
+            catch { threadNames = []; }
+            var threadQuery = threadNames.Count > 0
+                ? $"plot thread events foreshadowing {string.Join(' ', threadNames)}"
+                : $"plot events sequence foreshadowing {chapter.Outline}";
+
+            var phrasesQuery = "repeated descriptions recurring phrases re-introduction established facts";
+
+            var ragTasks = new[]
+            {
+                GetRagContextAsync(bookId, charQuery,    4, LlmFactory, config, chapter.Id, ct),
+                GetRagContextAsync(bookId, locationQuery, 3, LlmFactory, config, chapter.Id, ct),
+                GetRagContextAsync(bookId, threadQuery,  3, LlmFactory, config, chapter.Id, ct),
+                GetRagContextAsync(bookId, phrasesQuery, 4, LlmFactory, config, chapter.Id, ct),
+            };
+            await Task.WhenAll(ragTasks);
+            charRag     = ragTasks[0].Result;
+            locationRag = ragTasks[1].Result;
+            threadRag   = ragTasks[2].Result;
+            phrasesRag  = ragTasks[3].Result;
+        }
+
         var history = new ChatHistory();
         var bible = await Repo.GetStoryBibleAsync(bookId);
         var systemPrompt = !string.IsNullOrWhiteSpace(book.EditorSystemPrompt)
@@ -42,6 +81,26 @@ public class EditorAgent : AgentBase
 
         // Build fix request from structured checker result and optional human notes
         var sb = new System.Text.StringBuilder();
+
+        // Cross-chapter context at the top so the Editor can catch re-introductions and echoed content
+        if (synopsesBlock.Length > 0)
+        {
+            sb.AppendLine("## Story So Far \u2014 Chapter Synopses");
+            sb.AppendLine(synopsesBlock);
+            sb.AppendLine();
+        }
+        bool hasRagContext = !string.IsNullOrWhiteSpace(charRag) || !string.IsNullOrWhiteSpace(locationRag)
+                          || !string.IsNullOrWhiteSpace(threadRag) || !string.IsNullOrWhiteSpace(phrasesRag);
+        if (hasRagContext)
+        {
+            sb.AppendLine("## Prior Chapter Passages (use to identify re-introductions and repeated content)");
+            if (!string.IsNullOrWhiteSpace(charRag))     { sb.AppendLine("\n### Character Details");                              sb.AppendLine(charRag); }
+            if (!string.IsNullOrWhiteSpace(locationRag)) { sb.AppendLine("\n### Location & Setting Details");                     sb.AppendLine(locationRag); }
+            if (!string.IsNullOrWhiteSpace(threadRag))   { sb.AppendLine("\n### Plot Thread Context");                            sb.AppendLine(threadRag); }
+            if (!string.IsNullOrWhiteSpace(phrasesRag))  { sb.AppendLine("\n### Potentially Repeated Phrases & Descriptions");   sb.AppendLine(phrasesRag); }
+            sb.AppendLine();
+        }
+
         sb.AppendLine($"Please fix Chapter {chapter.Number}: {chapter.Title}");
 
         bool hasCheckerIssues = checkerResult is { HasIssues: true };

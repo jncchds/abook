@@ -36,6 +36,7 @@ public class WriterAgent : AgentBase
         var (kernel, config) = await GetKernelAsync(bookId);
 
         var contextBlock = await BuildWriterContextAsync(bookId, chapter, config!, ct);
+        var synopsesBlock = await BuildChapterSynopsesAsync(bookId, chapter.Number, ct);
         var prevEnding = await GetPreviousChapterEndingAsync(bookId, chapter.Number, paragraphCount: 3);
 
         var history = new ChatHistory();
@@ -52,7 +53,7 @@ public class WriterAgent : AgentBase
         history.AddSystemMessage(systemPrompt);
 
         history.AddUserMessage($"""
-            Write the full content for:
+            {(synopsesBlock.Length > 0 ? $"## Story So Far \u2014 Chapter Synopses\nRefer to this to avoid re-introducing or restating anything already established in prior chapters.\n{synopsesBlock}\n\n" : "")}Write the full content for:
             Chapter {chapter.Number}: {chapter.Title}
             Outline: {chapter.Outline}
             {(chapter.PovCharacter.Length > 0 ? $"Point of view: {chapter.PovCharacter}" : "")}
@@ -152,14 +153,58 @@ public class WriterAgent : AgentBase
             }
         }
 
-        // RAG: semantically relevant passages from prior chapters
+        // RAG: 3 targeted queries for character, location, and plot-thread consistency
         if (chapter.Number > 1)
         {
-            var ragContext = await GetRagContextAsync(bookId, chapter.Outline, 5, LlmFactory, config, chapter.Id, ct);
-            if (!string.IsNullOrWhiteSpace(ragContext))
+            // Query 1: characters involved in this chapter
+            List<string> charNames;
+            try { charNames = JsonSerializer.Deserialize<List<string>>(chapter.CharactersInvolvedJson) ?? []; }
+            catch { charNames = []; }
+            var charQuery = charNames.Count > 0
+                ? $"character appearance description personality {string.Join(' ', charNames)}"
+                : "character appearance description personality backstory";
+
+            // Query 2: locations / setting mentioned in the outline
+            var locationQuery = $"location place setting description {chapter.Outline}";
+
+            // Query 3: plot thread context
+            List<string> threadNames;
+            try { threadNames = JsonSerializer.Deserialize<List<string>>(chapter.PlotThreadsJson) ?? []; }
+            catch { threadNames = []; }
+            var threadQuery = threadNames.Count > 0
+                ? $"plot thread events foreshadowing {string.Join(' ', threadNames)}"
+                : $"plot events sequence foreshadowing {chapter.Outline}";
+
+            var ragTasks = new[]
             {
-                sb.AppendLine("\n## Relevant Passages from Prior Chapters (for consistency)");
-                sb.AppendLine(ragContext);
+                GetRagContextAsync(bookId, charQuery,    4, LlmFactory, config, chapter.Id, ct),
+                GetRagContextAsync(bookId, locationQuery, 3, LlmFactory, config, chapter.Id, ct),
+                GetRagContextAsync(bookId, threadQuery,  3, LlmFactory, config, chapter.Id, ct),
+            };
+            await Task.WhenAll(ragTasks);
+
+            var charRag     = ragTasks[0].Result;
+            var locationRag = ragTasks[1].Result;
+            var threadRag   = ragTasks[2].Result;
+
+            if (!string.IsNullOrWhiteSpace(charRag) || !string.IsNullOrWhiteSpace(locationRag) || !string.IsNullOrWhiteSpace(threadRag))
+            {
+                sb.AppendLine("\n## Prior Chapter Passages (for consistency \u2014 do not re-introduce or restate)");
+                if (!string.IsNullOrWhiteSpace(charRag))
+                {
+                    sb.AppendLine("\n### Character Details from Prior Chapters");
+                    sb.AppendLine(charRag);
+                }
+                if (!string.IsNullOrWhiteSpace(locationRag))
+                {
+                    sb.AppendLine("\n### Location & Setting Details from Prior Chapters");
+                    sb.AppendLine(locationRag);
+                }
+                if (!string.IsNullOrWhiteSpace(threadRag))
+                {
+                    sb.AppendLine("\n### Plot Thread Context from Prior Chapters");
+                    sb.AppendLine(threadRag);
+                }
             }
         }
 
