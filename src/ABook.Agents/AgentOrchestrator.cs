@@ -275,13 +275,9 @@ public class AgentOrchestrator : IAgentOrchestrator
     }
 
     /// <summary>
-    /// Runs the full PreCheck → Write → Checker-Editor loop for one chapter.
-    /// The loop runs Checker then optionally human pause, then Editor if issues found.
-    /// Loops up to <see cref="MaxEditorIterations"/> times until the chapter is clean.
+    /// Runs the fixed sequence for one chapter: PreCheck → Write → Check → Edit (if issues) → Check again → Done.
     /// <paramref name="resumeFromStatus"/> allows ContinueWorkflow to skip the write step.
     /// </summary>
-    private const int MaxEditorIterations = 3;
-
     private async Task ProcessChapterAsync(
         int bookId, Chapter chapter, CancellationToken ct,
         ChapterStatus? resumeFromStatus = null)
@@ -309,24 +305,14 @@ public class AgentOrchestrator : IAgentOrchestrator
             ct.ThrowIfCancellationRequested();
         }
 
-        // Checker-Editor loop (max MaxEditorIterations editor runs)
-        int editorRuns = 0;
-        while (true)
+        // Re-read from DB — resume path may already be Done
+        var freshChapter = await _repo.GetChapterAsync(bookId, chapter.Id) ?? chapter;
+        if (freshChapter.Status != ChapterStatus.Done && !string.IsNullOrEmpty(freshChapter.Content))
         {
-            ct.ThrowIfCancellationRequested();
-
-            // Re-read status from DB — resume path may already be Done
-            var freshChapter = await _repo.GetChapterAsync(bookId, chapter.Id) ?? chapter;
-            if (freshChapter.Status == ChapterStatus.Done) break;
-            // Also skip if content is somehow missing
-            if (string.IsNullOrEmpty(freshChapter.Content)) break;
-
-            // Run Checker
+            // First check
             _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapter.Id);
-            var progressMsg = editorRuns == 0
-                ? $"Checking Chapter {chapter.Number}…"
-                : $"Re-checking Chapter {chapter.Number} (round {editorRuns + 1})…";
-            await _notifier.NotifyWorkflowProgressAsync(bookId, progressMsg, false, ct);
+            await _notifier.NotifyWorkflowProgressAsync(bookId,
+                $"Checking Chapter {chapter.Number}…", false, ct);
             var checkerResult = await _continuity.CheckAsync(bookId, chapter.Id, ct);
             ct.ThrowIfCancellationRequested();
 
@@ -341,37 +327,27 @@ public class AgentOrchestrator : IAgentOrchestrator
 
             bool needsEdit = checkerResult.HasIssues || !string.IsNullOrWhiteSpace(humanPoints);
 
-            if (!needsEdit)
+            if (needsEdit)
+            {
+                // Single edit pass
+                _state.UpdateRunRole(bookId, AgentRole.Editor, chapter.Id);
+                await _notifier.NotifyWorkflowProgressAsync(bookId,
+                    $"Editing Chapter {chapter.Number}…", false, ct);
+                await _editor.EditAsync(bookId, chapter.Id, ct, checkerResult, humanPoints, finalizeStatus: false);
+                ct.ThrowIfCancellationRequested();
+
+                // Final check — informational only, no further editing
+                _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapter.Id);
+                await _notifier.NotifyWorkflowProgressAsync(bookId,
+                    $"Final check for Chapter {chapter.Number}…", false, ct);
+                await _continuity.CheckAsync(bookId, chapter.Id, ct);
+                ct.ThrowIfCancellationRequested();
+            }
+            else
             {
                 await _notifier.NotifyWorkflowProgressAsync(bookId,
                     $"Chapter {chapter.Number} checks passed.", false, ct);
-                break;
             }
-
-            if (editorRuns >= MaxEditorIterations)
-            {
-                await _repo.AddMessageAsync(new AgentMessage
-                {
-                    BookId = bookId,
-                    ChapterId = chapter.Id,
-                    AgentRole = AgentRole.ContinuityChecker,
-                    MessageType = MessageType.SystemNote,
-                    Content = $"ℹ️ Chapter {chapter.Number}: max editor iterations ({MaxEditorIterations}) reached. Proceeding with remaining issues.",
-                    IsResolved = true
-                });
-                await _notifier.NotifyWorkflowProgressAsync(bookId,
-                    $"Chapter {chapter.Number}: max iterations reached, proceeding.", false, ct);
-                break;
-            }
-
-            // Run Editor
-            _state.UpdateRunRole(bookId, AgentRole.Editor, chapter.Id);
-            await _notifier.NotifyWorkflowProgressAsync(bookId,
-                $"Editing Chapter {chapter.Number}…", false, ct);
-            // Don't finalize to Done — loop controls the terminal status
-            await _editor.EditAsync(bookId, chapter.Id, ct, checkerResult, humanPoints, finalizeStatus: false);
-            editorRuns++;
-            ct.ThrowIfCancellationRequested();
         }
 
         // Ensure chapter is marked Done

@@ -293,7 +293,7 @@ export default function BookSettings() {
                 checked={bookForm.humanAssisted}
                 onChange={e => setBookForm(f => ({ ...f, humanAssisted: e.target.checked }))}
               />
-              Human-assisted generation (pause for your input after each planning phase and during the Checker-Editor loop)
+              Human-assisted generation (pause for your input after each planning phase and after the first check)
             </label>
             <details>
               <summary>Custom Agent System Prompts (optional)</summary>
