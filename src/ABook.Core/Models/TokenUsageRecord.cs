@@ -12,6 +12,7 @@ public class TokenUsageRecord
     public string? Endpoint { get; set; }
     public string? ModelName { get; set; }
     public bool Failed { get; set; }
+    public bool IsDeleted { get; set; }
     public DateTime CreatedAt { get; set; }
 
     public Book Book { get; set; } = null!;

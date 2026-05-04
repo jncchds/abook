@@ -21,6 +21,8 @@ public class CharactersSnapshot
     /// <summary>JSON-serialised CharacterCard[].</summary>
     public string DataJson { get; set; } = "[]";
     public string Reason { get; set; } = string.Empty;
+    /// <summary>"phase-reset" when cleared via phase action bar; "edit" when an individual card is updated.</summary>
+    public string Source { get; set; } = "phase-reset";
     public DateTime CreatedAt { get; set; }
 }
 
@@ -31,6 +33,8 @@ public class PlotThreadsSnapshot
     /// <summary>JSON-serialised PlotThread[].</summary>
     public string DataJson { get; set; } = "[]";
     public string Reason { get; set; } = string.Empty;
+    /// <summary>"phase-reset" when cleared via phase action bar; "edit" when an individual thread is updated.</summary>
+    public string Source { get; set; } = "phase-reset";
     public DateTime CreatedAt { get; set; }
 }
 

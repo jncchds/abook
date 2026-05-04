@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useBookContext } from '../../contexts/BookContext'
-import { createCharacter, updateCharacter, deleteCharacter } from '../../api'
-import type { CharacterCard } from '../../api'
+import { createCharacter, updateCharacter, deleteCharacter, getCharactersHistory, getCharactersSnapshot, restoreCharactersSnapshot } from '../../api'
+import type { CharacterCard, CharactersSnapshotMeta } from '../../api'
 import { parseCharactersStream } from '../../utils/streamParsers'
 import PhaseActionBar from '../../components/PhaseActionBar'
 import { useRestoreStream } from '../../hooks/useRestoreStream'
@@ -15,6 +15,11 @@ export default function Characters() {
   const [editingCharId, setEditingCharId] = useState<number | null>(null)
   const [addingChar, setAddingChar] = useState(false)
   const [charForm, setCharForm] = useState<Partial<CharacterCard>>({})
+  const [showHistory, setShowHistory] = useState(false)
+  const [snapshots, setSnapshots] = useState<CharactersSnapshotMeta[]>([])
+  const [previewData, setPreviewData] = useState<{ id: number; cards: CharacterCard[] } | null>(null)
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  const [restoring, setRestoring] = useState(false)
 
   useRestoreStream(book?.id, isRunning, charactersStream, 'CharactersAgent', undefined, setCharactersStream)
 
@@ -22,13 +27,89 @@ export default function Characters() {
 
   const bookId = book.id
 
+  const handleOpenHistory = async () => {
+    setLoadingHistory(true)
+    try {
+      const r = await getCharactersHistory(bookId)
+      setSnapshots(r.data)
+    } finally {
+      setLoadingHistory(false)
+    }
+    setShowHistory(true)
+    setPreviewData(null)
+  }
+
+  const handlePreview = async (snapshotId: number) => {
+    if (previewData?.id === snapshotId) { setPreviewData(null); return }
+    const r = await getCharactersSnapshot(bookId, snapshotId)
+    try {
+      const cards = JSON.parse(r.data.dataJson) as CharacterCard[]
+      setPreviewData({ id: snapshotId, cards })
+    } catch { setPreviewData({ id: snapshotId, cards: [] }) }
+  }
+
+  const handleRestore = async (snapshotId: number) => {
+    if (!confirm('Restore this snapshot? Current characters will be replaced.')) return
+    setRestoring(true)
+    try {
+      const r = await restoreCharactersSnapshot(bookId, snapshotId)
+      setCharacters(r.data)
+      setShowHistory(false)
+    } finally {
+      setRestoring(false)
+    }
+  }
+
+  if (showHistory) {
+    return (
+      <div className="view-content">
+        <div className="history-panel-header">
+          <h3>📜 Characters History</h3>
+          <button className="btn-sm btn-ghost" onClick={() => setShowHistory(false)}>✕ Close</button>
+        </div>
+        {loadingHistory && <p className="empty">Loading…</p>}
+        {!loadingHistory && snapshots.length === 0 && <p className="empty">No snapshots yet.</p>}
+        <div className="history-list">
+          {snapshots.map(s => (
+            <div key={s.id} className={`history-item ${previewData?.id === s.id ? 'history-item-active' : ''}`}>
+              <div className="history-item-meta">
+                <span className="history-source-badge">{s.source}</span>
+                <span className="history-reason">{s.reason || 'snapshot'}</span>
+                <span className="history-date">{new Date(s.createdAt).toLocaleString()}</span>
+              </div>
+              <div className="history-item-actions">
+                <button className="btn-sm btn-ghost" onClick={() => handlePreview(s.id)}>
+                  {previewData?.id === s.id ? 'Hide' : 'Preview'}
+                </button>
+                <button className="btn-sm" disabled={restoring} onClick={() => handleRestore(s.id)}>Restore</button>
+              </div>
+              {previewData?.id === s.id && (
+                <div className="history-preview">
+                  {previewData.cards.map((c, i) => (
+                    <div key={i} className="history-preview-card">
+                      <strong>{c.name}</strong>
+                      <span className={`char-role-badge role-${c.role?.toLowerCase()}`}>{c.role}</span>
+                      {c.physicalDescription && <p><em>Appearance:</em> {c.physicalDescription}</p>}
+                      {c.goalMotivation && <p><em>Goal:</em> {c.goalMotivation}</p>}
+                    </div>
+                  ))}
+                  {previewData.cards.length === 0 && <p className="empty">Empty snapshot.</p>}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="view-content">
       <div className="view-header">
         <h2>Characters ({characters.length})</h2>
         <button className="btn-sm" onClick={() => { setCharForm({}); setAddingChar(true); setEditingCharId(null) }}>+ Add</button>
       </div>
-      <PhaseActionBar phase="characters" onClear={() => setCharacters([])} style={{ marginBottom: '1rem' }} />
+      <PhaseActionBar phase="characters" onClear={() => setCharacters([])} onHistory={handleOpenHistory} style={{ marginBottom: '1rem' }} />
 
       {addingChar && (
         <div className="card" style={{ maxWidth: 560, marginBottom: '1rem' }}>

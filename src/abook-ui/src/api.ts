@@ -295,3 +295,87 @@ export const createPreset = (data: Omit<LlmPreset, 'id' | 'userId' | 'createdAt'
 export const updatePreset = (id: number, data: Omit<LlmPreset, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) =>
   api.put<LlmPreset>(`/presets/${id}`, data)
 export const deletePreset = (id: number) => api.delete(`/presets/${id}`)
+
+// Story Bible history / snapshots
+export interface StoryBibleSnapshotMeta {
+  id: number
+  bookId: number
+  settingDescription: string
+  timePeriod: string
+  themes: string
+  toneAndStyle: string
+  worldRules: string
+  notes: string
+  reason: string
+  createdAt: string
+}
+export const getStoryBibleHistory = (bookId: number) =>
+  api.get<StoryBibleSnapshotMeta[]>(`/books/${bookId}/story-bible/history`)
+export const getStoryBibleSnapshot = (bookId: number, snapshotId: number) =>
+  api.get<StoryBibleSnapshotMeta>(`/books/${bookId}/story-bible/history/${snapshotId}`)
+export const restoreStoryBibleSnapshot = (bookId: number, snapshotId: number) =>
+  api.post<StoryBible>(`/books/${bookId}/story-bible/history/${snapshotId}/restore`)
+
+// Characters history / snapshots (metadata — no DataJson)
+export interface CharactersSnapshotMeta {
+  id: number
+  bookId: number
+  reason: string
+  source: string
+  createdAt: string
+}
+export const getCharactersHistory = (bookId: number) =>
+  api.get<CharactersSnapshotMeta[]>(`/books/${bookId}/characters/history`)
+export const getCharactersSnapshot = (bookId: number, snapshotId: number) =>
+  api.get<{ id: number; bookId: number; dataJson: string; reason: string; source: string; createdAt: string }>(`/books/${bookId}/characters/history/${snapshotId}`)
+export const restoreCharactersSnapshot = (bookId: number, snapshotId: number) =>
+  api.post<CharacterCard[]>(`/books/${bookId}/characters/history/${snapshotId}/restore`)
+
+// Plot Threads history / snapshots (metadata — no DataJson)
+export interface PlotThreadsSnapshotMeta {
+  id: number
+  bookId: number
+  reason: string
+  source: string
+  createdAt: string
+}
+export const getPlotThreadsHistory = (bookId: number) =>
+  api.get<PlotThreadsSnapshotMeta[]>(`/books/${bookId}/plot-threads/history`)
+export const getPlotThreadsSnapshot = (bookId: number, snapshotId: number) =>
+  api.get<{ id: number; bookId: number; dataJson: string; reason: string; source: string; createdAt: string }>(`/books/${bookId}/plot-threads/history/${snapshotId}`)
+export const restorePlotThreadsSnapshot = (bookId: number, snapshotId: number) =>
+  api.post<PlotThread[]>(`/books/${bookId}/plot-threads/history/${snapshotId}/restore`)
+
+// Chapter version history
+export interface ChapterVersionMeta {
+  id: number
+  versionNumber: number
+  createdBy: string
+  isActive: boolean
+  hasEmbeddings: boolean
+  wordCount: number
+  createdAt: string
+}
+export interface ChapterVersionFull {
+  id: number
+  chapterId: number
+  bookId: number
+  versionNumber: number
+  title: string
+  outline: string
+  content: string
+  status: string
+  povCharacter: string
+  foreshadowingNotes: string
+  payoffNotes: string
+  createdBy: string
+  isActive: boolean
+  hasEmbeddings: boolean
+  createdAt: string
+}
+export const getChapterVersions = (bookId: number, chapterId: number) =>
+  api.get<ChapterVersionMeta[]>(`/books/${bookId}/chapters/${chapterId}/versions`)
+export const getChapterVersion = (bookId: number, chapterId: number, versionId: number) =>
+  api.get<ChapterVersionFull>(`/books/${bookId}/chapters/${chapterId}/versions/${versionId}`)
+export const activateChapterVersion = (bookId: number, chapterId: number, versionId: number) =>
+  api.post<{ chapter: Chapter; version: ChapterVersionMeta }>(`/books/${bookId}/chapters/${chapterId}/versions/${versionId}/activate`)

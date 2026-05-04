@@ -393,6 +393,24 @@ label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bot
 /* ======== Planning Phase Actions ======== */
 .phase-actions { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
 .phase-actions-chapters { margin: 0.4rem 0 0.5rem; padding: 0 0.5rem; }
+
+/* ── History panels ──────────────────────────────────────────────────────── */
+.history-panel { padding: 0; }
+.history-panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
+.history-panel-header h3 { margin: 0; font-size: 1rem; }
+.history-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.history-item { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; background: var(--bg); }
+.history-item-active { border-color: var(--accent); }
+.history-item-meta { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.78rem; margin-bottom: 0.35rem; }
+.history-item-actions { display: flex; gap: 0.4rem; margin-bottom: 0.3rem; }
+.history-reason { color: var(--text); font-weight: 600; }
+.history-date { color: var(--text-muted); }
+.history-source-badge { font-size: 0.68rem; font-weight: 600; padding: 0.1rem 0.4rem; border-radius: 10px; background: rgba(99,102,241,0.12); color: #818cf8; }
+.history-preview { margin-top: 0.4rem; border-top: 1px solid var(--border); padding-top: 0.5rem; font-size: 0.82rem; display: flex; flex-direction: column; gap: 0.3rem; }
+.history-preview p { margin: 0; }
+.history-preview-card { padding: 0.3rem 0; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: baseline; }
+.history-preview-card p { width: 100%; margin: 0.15rem 0 0; color: var(--text-muted); }
+.history-preview-content { max-height: 320px; overflow-y: auto; }
 .phase-status-badge { font-size: 0.72rem; font-weight: 600; padding: 0.2rem 0.5rem; border-radius: 12px; white-space: nowrap; }
 .phase-status-badge.phase-complete { background: rgba(34,197,94,0.15); color: #22c55e; }
 .phase-status-badge.phase-not-started { background: rgba(148,163,184,0.12); color: var(--text-muted); }

@@ -45,6 +45,17 @@ public class PlotThreadsController : ControllerBase
     {
         var thread = await _repo.GetPlotThreadAsync(bookId, threadId);
         if (thread is null) return NotFound();
+
+        // Snapshot current state before overwriting
+        var existing = await _repo.GetPlotThreadsAsync(bookId);
+        await _repo.AddPlotThreadsSnapshotAsync(new ABook.Core.Models.PlotThreadsSnapshot
+        {
+            BookId = bookId,
+            DataJson = System.Text.Json.JsonSerializer.Serialize(existing),
+            Reason = $"edit:{thread.Name}",
+            Source = "edit",
+        });
+
         thread.Name = req.Name;
         thread.Description = req.Description;
         thread.Type = req.Type;
@@ -71,6 +82,17 @@ public class PlotThreadsController : ControllerBase
     {
         var snapshot = await _repo.GetPlotThreadsSnapshotAsync(bookId, snapshotId);
         return snapshot is null ? NotFound() : Ok(snapshot);
+    }
+
+    [HttpPost("history/{snapshotId:int}/restore")]
+    public async Task<IActionResult> RestoreSnapshot(int bookId, int snapshotId)
+    {
+        try
+        {
+            var restored = await _repo.RestorePlotThreadsSnapshotAsync(bookId, snapshotId);
+            return Ok(restored);
+        }
+        catch (InvalidOperationException) { return NotFound(); }
     }
 }
 

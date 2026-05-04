@@ -19,7 +19,7 @@ export default function ChatPage() {
       <div className="chat-panel-header">
         <h3>Agent Messages</h3>
         {messages.length > 0 && !isRunning && (
-          <button className="btn-sm btn-ghost" title="Clear all messages" onClick={clearMessagesForBook}>🗑 Clear</button>
+          <button className="btn-sm btn-ghost" title="Archive all messages" onClick={clearMessagesForBook}>🗄 Archive</button>
         )}
       </div>
       <div className="chat-messages">

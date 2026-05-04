@@ -81,14 +81,17 @@ public interface IBookRepository
     Task AddStoryBibleSnapshotAsync(StoryBibleSnapshot snapshot);
     Task<IEnumerable<StoryBibleSnapshot>> GetStoryBibleSnapshotsAsync(int bookId);
     Task<StoryBibleSnapshot?> GetStoryBibleSnapshotAsync(int bookId, int snapshotId);
+    Task<StoryBible> RestoreStoryBibleSnapshotAsync(int bookId, int snapshotId);
 
     Task AddCharactersSnapshotAsync(CharactersSnapshot snapshot);
     Task<IEnumerable<CharactersSnapshot>> GetCharactersSnapshotsAsync(int bookId);
     Task<CharactersSnapshot?> GetCharactersSnapshotAsync(int bookId, int snapshotId);
+    Task<IEnumerable<CharacterCard>> RestoreCharactersSnapshotAsync(int bookId, int snapshotId);
 
     Task AddPlotThreadsSnapshotAsync(PlotThreadsSnapshot snapshot);
     Task<IEnumerable<PlotThreadsSnapshot>> GetPlotThreadsSnapshotsAsync(int bookId);
     Task<PlotThreadsSnapshot?> GetPlotThreadsSnapshotAsync(int bookId, int snapshotId);
+    Task<IEnumerable<PlotThread>> RestorePlotThreadsSnapshotAsync(int bookId, int snapshotId);
 
     Task AddBookSnapshotAsync(BookSnapshot snapshot);
     Task<IEnumerable<BookSnapshot>> GetBookSnapshotsAsync(int bookId);

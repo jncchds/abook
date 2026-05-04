@@ -16,7 +16,7 @@ export default function TokenStatsPage() {
       <div className="view-header">
         <h2>🪙 Token Stats</h2>
         {tokenStats.length > 0 && !isRunning && (
-          <button className="btn-sm btn-danger" onClick={clearTokenUsageForBook}>🗑 Clear</button>
+          <button className="btn-sm btn-danger" onClick={clearTokenUsageForBook}>� Archive</button>
         )}
       </div>
       {tokenStats.length === 0 ? (

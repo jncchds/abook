@@ -10,6 +10,7 @@ public class AgentMessage
     public string Content { get; set; } = string.Empty;
     public bool IsResolved { get; set; }
     public bool IsOptional { get; set; }
+    public bool IsDeleted { get; set; }
     public DateTime CreatedAt { get; set; }
 
     public Book Book { get; set; } = null!;

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useBookContext } from '../../contexts/BookContext'
-import { createPlotThread, updatePlotThread, deletePlotThread } from '../../api'
-import type { PlotThread } from '../../api'
+import { createPlotThread, updatePlotThread, deletePlotThread, getPlotThreadsHistory, getPlotThreadsSnapshot, restorePlotThreadsSnapshot } from '../../api'
+import type { PlotThread, PlotThreadsSnapshotMeta } from '../../api'
 import { parsePlotThreadsStream } from '../../utils/streamParsers'
 import PhaseActionBar from '../../components/PhaseActionBar'
 import { useRestoreStream } from '../../hooks/useRestoreStream'
@@ -15,6 +15,11 @@ export default function PlotThreads() {
   const [editingThreadId, setEditingThreadId] = useState<number | null>(null)
   const [addingThread, setAddingThread] = useState(false)
   const [threadForm, setThreadForm] = useState<Partial<PlotThread>>({})
+  const [showHistory, setShowHistory] = useState(false)
+  const [snapshots, setSnapshots] = useState<PlotThreadsSnapshotMeta[]>([])
+  const [previewData, setPreviewData] = useState<{ id: number; threads: PlotThread[] } | null>(null)
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  const [restoring, setRestoring] = useState(false)
 
   useRestoreStream(book?.id, isRunning, plotThreadsStream, 'PlotThreadsAgent', undefined, setPlotThreadsStream)
 
@@ -22,13 +27,89 @@ export default function PlotThreads() {
 
   const bookId = book.id
 
+  const handleOpenHistory = async () => {
+    setLoadingHistory(true)
+    try {
+      const r = await getPlotThreadsHistory(bookId)
+      setSnapshots(r.data)
+    } finally {
+      setLoadingHistory(false)
+    }
+    setShowHistory(true)
+    setPreviewData(null)
+  }
+
+  const handlePreview = async (snapshotId: number) => {
+    if (previewData?.id === snapshotId) { setPreviewData(null); return }
+    const r = await getPlotThreadsSnapshot(bookId, snapshotId)
+    try {
+      const threads = JSON.parse(r.data.dataJson) as PlotThread[]
+      setPreviewData({ id: snapshotId, threads })
+    } catch { setPreviewData({ id: snapshotId, threads: [] }) }
+  }
+
+  const handleRestore = async (snapshotId: number) => {
+    if (!confirm('Restore this snapshot? Current plot threads will be replaced.')) return
+    setRestoring(true)
+    try {
+      const r = await restorePlotThreadsSnapshot(bookId, snapshotId)
+      setPlotThreads(r.data)
+      setShowHistory(false)
+    } finally {
+      setRestoring(false)
+    }
+  }
+
+  if (showHistory) {
+    return (
+      <div className="view-content">
+        <div className="history-panel-header">
+          <h3>📜 Plot Threads History</h3>
+          <button className="btn-sm btn-ghost" onClick={() => setShowHistory(false)}>✕ Close</button>
+        </div>
+        {loadingHistory && <p className="empty">Loading…</p>}
+        {!loadingHistory && snapshots.length === 0 && <p className="empty">No snapshots yet.</p>}
+        <div className="history-list">
+          {snapshots.map(s => (
+            <div key={s.id} className={`history-item ${previewData?.id === s.id ? 'history-item-active' : ''}`}>
+              <div className="history-item-meta">
+                <span className="history-source-badge">{s.source}</span>
+                <span className="history-reason">{s.reason || 'snapshot'}</span>
+                <span className="history-date">{new Date(s.createdAt).toLocaleString()}</span>
+              </div>
+              <div className="history-item-actions">
+                <button className="btn-sm btn-ghost" onClick={() => handlePreview(s.id)}>
+                  {previewData?.id === s.id ? 'Hide' : 'Preview'}
+                </button>
+                <button className="btn-sm" disabled={restoring} onClick={() => handleRestore(s.id)}>Restore</button>
+              </div>
+              {previewData?.id === s.id && (
+                <div className="history-preview">
+                  {previewData.threads.map((t, i) => (
+                    <div key={i} className="history-preview-card">
+                      <strong>{t.name}</strong>
+                      <span className="thread-type-badge">{t.type}</span>
+                      <span className={`thread-status-badge status-${t.status?.toLowerCase()}`}>{t.status}</span>
+                      {t.description && <p>{t.description}</p>}
+                    </div>
+                  ))}
+                  {previewData.threads.length === 0 && <p className="empty">Empty snapshot.</p>}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="view-content">
       <div className="view-header">
         <h2>Plot Threads ({plotThreads.length})</h2>
         <button className="btn-sm" onClick={() => { setThreadForm({}); setAddingThread(true); setEditingThreadId(null) }}>+ Add</button>
       </div>
-      <PhaseActionBar phase="plotthreads" onClear={() => setPlotThreads([])} style={{ marginBottom: '1rem' }} />
+      <PhaseActionBar phase="plotthreads" onClear={() => setPlotThreads([])} onHistory={handleOpenHistory} style={{ marginBottom: '1rem' }} />
 
       {addingThread && (
         <div className="card" style={{ maxWidth: 560, marginBottom: '1rem' }}>

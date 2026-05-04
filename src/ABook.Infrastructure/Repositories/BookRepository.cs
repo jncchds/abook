@@ -207,7 +207,7 @@ public class BookRepository : IBookRepository
 
     public async Task<IEnumerable<AgentMessage>> GetMessagesAsync(int bookId, int? chapterId = null)
     {
-        var query = _db.AgentMessages.Where(m => m.BookId == bookId);
+        var query = _db.AgentMessages.Where(m => m.BookId == bookId && !m.IsDeleted);
         if (chapterId.HasValue)
             query = query.Where(m => m.ChapterId == chapterId);
         return await query.OrderBy(m => m.CreatedAt).ToListAsync();
@@ -295,22 +295,22 @@ public class BookRepository : IBookRepository
 
     public async Task<IEnumerable<TokenUsageRecord>> GetTokenUsageAsync(int bookId) =>
         await _db.TokenUsageRecords
-            .Where(r => r.BookId == bookId)
+            .Where(r => r.BookId == bookId && !r.IsDeleted)
             .OrderBy(r => r.CreatedAt)
             .ToListAsync();
 
     public async Task DeleteTokenUsageAsync(int bookId)
     {
-        var records = await _db.TokenUsageRecords.Where(r => r.BookId == bookId).ToListAsync();
-        _db.TokenUsageRecords.RemoveRange(records);
-        await _db.SaveChangesAsync();
+        await _db.TokenUsageRecords
+            .Where(r => r.BookId == bookId && !r.IsDeleted)
+            .ExecuteUpdateAsync(s => s.SetProperty(r => r.IsDeleted, true));
     }
 
     public async Task DeleteMessagesAsync(int bookId)
     {
-        var messages = await _db.AgentMessages.Where(m => m.BookId == bookId).ToListAsync();
-        _db.AgentMessages.RemoveRange(messages);
-        await _db.SaveChangesAsync();
+        await _db.AgentMessages
+            .Where(m => m.BookId == bookId && !m.IsDeleted)
+            .ExecuteUpdateAsync(s => s.SetProperty(m => m.IsDeleted, true));
     }
 
     // ── Story Bible ───────────────────────────────────────────────────────────
@@ -512,6 +512,23 @@ public class BookRepository : IBookRepository
     public async Task<StoryBibleSnapshot?> GetStoryBibleSnapshotAsync(int bookId, int snapshotId) =>
         await _db.StoryBibleSnapshots.FirstOrDefaultAsync(s => s.BookId == bookId && s.Id == snapshotId);
 
+    public async Task<StoryBible> RestoreStoryBibleSnapshotAsync(int bookId, int snapshotId)
+    {
+        var snapshot = await _db.StoryBibleSnapshots.FirstOrDefaultAsync(s => s.BookId == bookId && s.Id == snapshotId)
+            ?? throw new InvalidOperationException($"Snapshot {snapshotId} not found.");
+        var bible = new StoryBible
+        {
+            BookId = bookId,
+            SettingDescription = snapshot.SettingDescription,
+            TimePeriod = snapshot.TimePeriod,
+            Themes = snapshot.Themes,
+            ToneAndStyle = snapshot.ToneAndStyle,
+            WorldRules = snapshot.WorldRules,
+            Notes = snapshot.Notes,
+        };
+        return await UpsertStoryBibleAsync(bible);
+    }
+
     public async Task AddCharactersSnapshotAsync(CharactersSnapshot snapshot)
     {
         snapshot.CreatedAt = DateTime.UtcNow;
@@ -525,6 +542,24 @@ public class BookRepository : IBookRepository
     public async Task<CharactersSnapshot?> GetCharactersSnapshotAsync(int bookId, int snapshotId) =>
         await _db.CharactersSnapshots.FirstOrDefaultAsync(s => s.BookId == bookId && s.Id == snapshotId);
 
+    public async Task<IEnumerable<CharacterCard>> RestoreCharactersSnapshotAsync(int bookId, int snapshotId)
+    {
+        var snapshot = await _db.CharactersSnapshots.FirstOrDefaultAsync(s => s.BookId == bookId && s.Id == snapshotId)
+            ?? throw new InvalidOperationException($"Snapshot {snapshotId} not found.");
+        var cards = System.Text.Json.JsonSerializer.Deserialize<List<CharacterCard>>(snapshot.DataJson) ?? [];
+        // Delete current and re-insert
+        await DeleteCharacterCardsAsync(bookId);
+        foreach (var card in cards)
+        {
+            card.Id = 0;
+            card.BookId = bookId;
+            card.CreatedAt = card.UpdatedAt = DateTime.UtcNow;
+            _db.CharacterCards.Add(card);
+        }
+        await _db.SaveChangesAsync();
+        return await GetCharacterCardsAsync(bookId);
+    }
+
     public async Task AddPlotThreadsSnapshotAsync(PlotThreadsSnapshot snapshot)
     {
         snapshot.CreatedAt = DateTime.UtcNow;
@@ -537,6 +572,23 @@ public class BookRepository : IBookRepository
 
     public async Task<PlotThreadsSnapshot?> GetPlotThreadsSnapshotAsync(int bookId, int snapshotId) =>
         await _db.PlotThreadsSnapshots.FirstOrDefaultAsync(s => s.BookId == bookId && s.Id == snapshotId);
+
+    public async Task<IEnumerable<PlotThread>> RestorePlotThreadsSnapshotAsync(int bookId, int snapshotId)
+    {
+        var snapshot = await _db.PlotThreadsSnapshots.FirstOrDefaultAsync(s => s.BookId == bookId && s.Id == snapshotId)
+            ?? throw new InvalidOperationException($"Snapshot {snapshotId} not found.");
+        var threads = System.Text.Json.JsonSerializer.Deserialize<List<PlotThread>>(snapshot.DataJson) ?? [];
+        await DeletePlotThreadsAsync(bookId);
+        foreach (var thread in threads)
+        {
+            thread.Id = 0;
+            thread.BookId = bookId;
+            thread.CreatedAt = thread.UpdatedAt = DateTime.UtcNow;
+            _db.PlotThreads.Add(thread);
+        }
+        await _db.SaveChangesAsync();
+        return await GetPlotThreadsAsync(bookId);
+    }
 
     public async Task AddBookSnapshotAsync(BookSnapshot snapshot)
     {

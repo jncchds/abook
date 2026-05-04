@@ -62,6 +62,17 @@ public class StoryBibleController : ControllerBase
         var snapshot = await _repo.GetStoryBibleSnapshotAsync(bookId, snapshotId);
         return snapshot is null ? NotFound() : Ok(snapshot);
     }
+
+    [HttpPost("history/{snapshotId:int}/restore")]
+    public async Task<IActionResult> RestoreSnapshot(int bookId, int snapshotId)
+    {
+        try
+        {
+            var restored = await _repo.RestoreStoryBibleSnapshotAsync(bookId, snapshotId);
+            return Ok(restored);
+        }
+        catch (InvalidOperationException) { return NotFound(); }
+    }
 }
 
 public record StoryBibleRequest(

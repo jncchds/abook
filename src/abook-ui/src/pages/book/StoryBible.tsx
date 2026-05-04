@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useBookContext } from '../../contexts/BookContext'
-import { updateStoryBible } from '../../api'
-import type { StoryBible } from '../../api'
+import { updateStoryBible, getStoryBibleHistory, restoreStoryBibleSnapshot } from '../../api'
+import type { StoryBible, StoryBibleSnapshotMeta } from '../../api'
 import { parseStoryBibleStream } from '../../utils/streamParsers'
 import PhaseActionBar from '../../components/PhaseActionBar'
 import { useRestoreStream } from '../../hooks/useRestoreStream'
@@ -14,6 +14,11 @@ export default function StoryBiblePage() {
 
   const [editingBible, setEditingBible] = useState(false)
   const [bibleForm, setBibleForm] = useState<Partial<StoryBible>>({})
+  const [showHistory, setShowHistory] = useState(false)
+  const [snapshots, setSnapshots] = useState<StoryBibleSnapshotMeta[]>([])
+  const [previewSnapshot, setPreviewSnapshot] = useState<StoryBibleSnapshotMeta | null>(null)
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  const [restoring, setRestoring] = useState(false)
 
   useRestoreStream(book?.id, isRunning, storyBibleStream, 'StoryBibleAgent', undefined, setStoryBibleStream)
 
@@ -21,9 +26,68 @@ export default function StoryBiblePage() {
 
   const bookId = book.id
 
+  const handleOpenHistory = async () => {
+    setLoadingHistory(true)
+    try {
+      const r = await getStoryBibleHistory(bookId)
+      setSnapshots(r.data)
+    } finally {
+      setLoadingHistory(false)
+    }
+    setShowHistory(true)
+    setPreviewSnapshot(null)
+  }
+
+  const handleRestore = async (snapshotId: number) => {
+    if (!confirm('Restore this snapshot? The current Story Bible will be saved as a new snapshot first.')) return
+    setRestoring(true)
+    try {
+      const r = await restoreStoryBibleSnapshot(bookId, snapshotId)
+      setStoryBible(r.data)
+      setShowHistory(false)
+    } finally {
+      setRestoring(false)
+    }
+  }
+
   return (
     <div className="book-overview">
-      {editingBible ? (
+      {showHistory ? (
+        <div className="history-panel">
+          <div className="history-panel-header">
+            <h3>📜 Story Bible History</h3>
+            <button className="btn-sm btn-ghost" onClick={() => setShowHistory(false)}>✕ Close</button>
+          </div>
+          {loadingHistory && <p className="empty">Loading…</p>}
+          {!loadingHistory && snapshots.length === 0 && <p className="empty">No snapshots yet.</p>}
+          <div className="history-list">
+            {snapshots.map(s => (
+              <div key={s.id} className={`history-item ${previewSnapshot?.id === s.id ? 'history-item-active' : ''}`}>
+                <div className="history-item-meta">
+                  <span className="history-reason">{s.reason || 'snapshot'}</span>
+                  <span className="history-date">{new Date(s.createdAt).toLocaleString()}</span>
+                </div>
+                <div className="history-item-actions">
+                  <button className="btn-sm btn-ghost" onClick={() => setPreviewSnapshot(previewSnapshot?.id === s.id ? null : s)}>
+                    {previewSnapshot?.id === s.id ? 'Hide' : 'Preview'}
+                  </button>
+                  <button className="btn-sm" disabled={restoring} onClick={() => handleRestore(s.id)}>Restore</button>
+                </div>
+                {previewSnapshot?.id === s.id && (
+                  <div className="history-preview">
+                    {s.settingDescription && <p><strong>Setting:</strong> {s.settingDescription}</p>}
+                    {s.timePeriod && <p><strong>Time Period:</strong> {s.timePeriod}</p>}
+                    {s.themes && <p><strong>Themes:</strong> {s.themes}</p>}
+                    {s.toneAndStyle && <p><strong>Tone:</strong> {s.toneAndStyle}</p>}
+                    {s.worldRules && <p><strong>World Rules:</strong> {s.worldRules}</p>}
+                    {s.notes && <p><strong>Notes:</strong> {s.notes}</p>}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : editingBible ? (
         <div className="bible-edit-form">
           <h3>Story Bible</h3>
           {(['settingDescription', 'timePeriod', 'themes', 'toneAndStyle', 'worldRules', 'notes'] as const).map(field => (
@@ -48,7 +112,7 @@ export default function StoryBiblePage() {
             <h3>Story Bible</h3>
             <button className="btn-edit-book" onClick={() => { setBibleForm(storyBible ?? {}); setEditingBible(true) }}>✎ Edit</button>
           </div>
-          <PhaseActionBar phase="storybible" onClear={() => setStoryBible(null)} />
+          <PhaseActionBar phase="storybible" onClear={() => setStoryBible(null)} onHistory={handleOpenHistory} />
           {(() => {
             const preview = storyBibleStream ? parseStoryBibleStream(storyBibleStream) : null
             const data: Partial<StoryBible> = storyBible ?? preview ?? {}

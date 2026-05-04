@@ -48,6 +48,17 @@ public class CharactersController : ControllerBase
     {
         var card = await _repo.GetCharacterCardAsync(bookId, cardId);
         if (card is null) return NotFound();
+
+        // Snapshot current state before overwriting
+        var existing = await _repo.GetCharacterCardsAsync(bookId);
+        await _repo.AddCharactersSnapshotAsync(new ABook.Core.Models.CharactersSnapshot
+        {
+            BookId = bookId,
+            DataJson = System.Text.Json.JsonSerializer.Serialize(existing),
+            Reason = $"edit:{card.Name}",
+            Source = "edit",
+        });
+
         card.Name = req.Name;
         card.Role = req.Role;
         card.PhysicalDescription = req.PhysicalDescription;
@@ -77,6 +88,17 @@ public class CharactersController : ControllerBase
     {
         var snapshot = await _repo.GetCharactersSnapshotAsync(bookId, snapshotId);
         return snapshot is null ? NotFound() : Ok(snapshot);
+    }
+
+    [HttpPost("history/{snapshotId:int}/restore")]
+    public async Task<IActionResult> RestoreSnapshot(int bookId, int snapshotId)
+    {
+        try
+        {
+            var restored = await _repo.RestoreCharactersSnapshotAsync(bookId, snapshotId);
+            return Ok(restored);
+        }
+        catch (InvalidOperationException) { return NotFound(); }
     }
 }
 

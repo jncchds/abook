@@ -77,6 +77,7 @@ public class AppDbContext : DbContext
             m.HasKey(x => x.Id);
             m.Property(x => x.AgentRole).HasConversion<string>();
             m.Property(x => x.MessageType).HasConversion<string>();
+            m.Property(x => x.IsDeleted).HasDefaultValue(false);
             m.HasOne(x => x.Book)
              .WithMany(x => x.AgentMessages)
              .HasForeignKey(x => x.BookId)
@@ -119,6 +120,7 @@ public class AppDbContext : DbContext
         {
             t.HasKey(x => x.Id);
             t.Property(x => x.AgentRole).HasConversion<string>();
+            t.Property(x => x.IsDeleted).HasDefaultValue(false);
             t.HasOne(x => x.Book)
              .WithMany()
              .HasForeignKey(x => x.BookId)
@@ -239,6 +241,7 @@ public class AppDbContext : DbContext
         {
             c.HasKey(x => x.Id);
             c.Property(x => x.Reason).HasMaxLength(500);
+            c.Property(x => x.Source).HasMaxLength(100).HasDefaultValue("phase-reset");
             c.HasIndex(x => x.BookId);
         });
 
@@ -246,6 +249,7 @@ public class AppDbContext : DbContext
         {
             p.HasKey(x => x.Id);
             p.Property(x => x.Reason).HasMaxLength(500);
+            p.Property(x => x.Source).HasMaxLength(100).HasDefaultValue("phase-reset");
             p.HasIndex(x => x.BookId);
         });
 
