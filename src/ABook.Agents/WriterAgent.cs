@@ -66,15 +66,30 @@ public class WriterAgent : AgentBase
         var content = await StreamResponseAsync(kernel, config, history, bookId, chapterId, AgentRole.Writer, ct);
         content = StripLeadingChapterHeading(content, chapter.Number, chapter.Title);
 
-        chapter.Content = content;
-        chapter.Status = ChapterStatus.Review;
-        await Repo.UpdateChapterAsync(chapter);
+        // Save this write as a new version so history is preserved
+        var version = new ChapterVersion
+        {
+            ChapterId = chapterId,
+            BookId = bookId,
+            Title = chapter.Title,
+            Outline = chapter.Outline,
+            Content = content,
+            Status = ChapterStatus.Review,
+            PovCharacter = chapter.PovCharacter,
+            CharactersInvolvedJson = chapter.CharactersInvolvedJson,
+            PlotThreadsJson = chapter.PlotThreadsJson,
+            ForeshadowingNotes = chapter.ForeshadowingNotes,
+            PayoffNotes = chapter.PayoffNotes,
+            CreatedBy = "agent:Writer",
+            HasEmbeddings = false,
+        };
+        var savedVersion = await Repo.AddChapterVersionAsync(version);
 
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Writer, "Done", ct);
 
-        // Index chapter in pgvector for RAG (non-fatal)
-        try { await IndexChapterAsync(bookId, chapter, kernel, config!, ct); }
+        // Index chapter version in pgvector for RAG (non-fatal)
+        try { await IndexChapterAsync(bookId, chapterId, savedVersion.Id, kernel, config!, ct); }
         catch (OperationCanceledException) { throw; }
         catch { /* non-fatal — embeddings unavailable */ }
     }

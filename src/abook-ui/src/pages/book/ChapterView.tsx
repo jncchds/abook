@@ -148,7 +148,7 @@ export default function ChapterView() {
               <button className="btn-edit-chapter" onClick={() => { setChapterEditTitle(chapter.title); setChapterEditOutline(chapter.outline ?? ''); setEditingChapter(true) }} title="Edit chapter title and outline">✎ Edit</button>
             )}
             <button className="btn-sm btn-ghost" onClick={handleOpenHistory} title="View version history">📜 History</button>
-            {chapter.content?.trim() && (
+            {chapter.status !== 'Outlined' && (
               <button className="btn-clear-chapter" disabled={isRunning} onClick={handleClearChapter} title="Clear chapter content and reset status to Outlined">↺ Clear</button>
             )}
           </div>

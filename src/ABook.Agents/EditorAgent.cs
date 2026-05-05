@@ -167,10 +167,28 @@ public class EditorAgent : AgentBase
         }
 
         // Strip any leading chapter heading the LLM may have added (e.g. "# Chapter 1: Title")
-        chapter.Content = StripLeadingChapterHeading(prose, chapter.Number, chapter.Title);
+        var editedContent = StripLeadingChapterHeading(prose, chapter.Number, chapter.Title);
+        var editedStatus = finalizeStatus ? ChapterStatus.Done : ChapterStatus.Review;
 
-        chapter.Status = finalizeStatus ? ChapterStatus.Done : ChapterStatus.Review;
-        await Repo.UpdateChapterAsync(chapter);
+        // Save this edit as a new version so history is preserved
+        var version = new ChapterVersion
+        {
+            ChapterId = chapterId,
+            BookId = bookId,
+            Title = chapter.Title,
+            Outline = chapter.Outline,
+            Content = editedContent,
+            Status = editedStatus,
+            PovCharacter = chapter.PovCharacter,
+            CharactersInvolvedJson = chapter.CharactersInvolvedJson,
+            PlotThreadsJson = chapter.PlotThreadsJson,
+            ForeshadowingNotes = chapter.ForeshadowingNotes,
+            PayoffNotes = chapter.PayoffNotes,
+            CreatedBy = "agent:Editor",
+            HasEmbeddings = false,
+        };
+        await Repo.AddChapterVersionAsync(version);
+
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Done", ct);
     }
