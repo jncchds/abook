@@ -20,7 +20,9 @@ export default function BookSettings() {
   const [models, setModels] = useState<ProviderModel[]>([])
   const [modelsLoading, setModelsLoading] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [bookSaved, setBookSaved] = useState(false)
+  const [bookSaveError, setBookSaveError] = useState('')
   const [defaultPrompts, setDefaultPrompts] = useState<DefaultPrompts | null>(null)
 
   const [presets, setPresets] = useState<LlmPreset[]>([])
@@ -45,7 +47,7 @@ export default function BookSettings() {
         fetchModels(r.data.endpoint ?? '', r.data.provider, r.data.apiKey ?? undefined)
       }
     })
-    getPresets().then(r => setPresets(r.data)).catch(() => {})
+    getPresets().then(r => setPresets(r.data)).catch(err => console.error('Failed to load presets', err))
     getBook(id).then(r => {
       setBook(r.data)
       setBookForm({
@@ -60,34 +62,46 @@ export default function BookSettings() {
         continuityCheckerSystemPrompt: r.data.continuityCheckerSystemPrompt ?? '',
       })
     })
-    getDefaultPrompts(id).then(r => setDefaultPrompts(r.data)).catch(() => {})
+    getDefaultPrompts(id).then(r => setDefaultPrompts(r.data)).catch(err => console.error('Failed to load default prompts', err))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
-    await updateLlmConfig({ ...config, bookId: id })
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    setSaveError('')
+    try {
+      await updateLlmConfig({ ...config, bookId: id })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (err) {
+      setSaveError('Failed to save LLM config. Please try again.')
+      console.error('Failed to save LLM config', err)
+    }
   }
 
   const handleBookSave = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!book) return
-    await updateBook(book.id, {
-      ...book,
-      language: bookForm.language,
-      humanAssisted: bookForm.humanAssisted,
-      storyBibleSystemPrompt: bookForm.storyBibleSystemPrompt || undefined,
-      charactersSystemPrompt: bookForm.charactersSystemPrompt || undefined,
-      plotThreadsSystemPrompt: bookForm.plotThreadsSystemPrompt || undefined,
-      chapterOutlinesSystemPrompt: bookForm.chapterOutlinesSystemPrompt || undefined,
-      writerSystemPrompt: bookForm.writerSystemPrompt || undefined,
-      editorSystemPrompt: bookForm.editorSystemPrompt || undefined,
-      continuityCheckerSystemPrompt: bookForm.continuityCheckerSystemPrompt || undefined,
-    })
-    setBookSaved(true)
-    setTimeout(() => setBookSaved(false), 2000)
+    setBookSaveError('')
+    try {
+      await updateBook(book.id, {
+        ...book,
+        language: bookForm.language,
+        humanAssisted: bookForm.humanAssisted,
+        storyBibleSystemPrompt: bookForm.storyBibleSystemPrompt || undefined,
+        charactersSystemPrompt: bookForm.charactersSystemPrompt || undefined,
+        plotThreadsSystemPrompt: bookForm.plotThreadsSystemPrompt || undefined,
+        chapterOutlinesSystemPrompt: bookForm.chapterOutlinesSystemPrompt || undefined,
+        writerSystemPrompt: bookForm.writerSystemPrompt || undefined,
+        editorSystemPrompt: bookForm.editorSystemPrompt || undefined,
+        continuityCheckerSystemPrompt: bookForm.continuityCheckerSystemPrompt || undefined,
+      })
+      setBookSaved(true)
+      setTimeout(() => setBookSaved(false), 2000)
+    } catch (err) {
+      setBookSaveError('Failed to save book settings. Please try again.')
+      console.error('Failed to save book settings', err)
+    }
   }
 
   const handleSaveAsPreset = async () => {
@@ -239,6 +253,7 @@ export default function BookSettings() {
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '0.25rem' }}>
             <button type="submit">Save LLM Config</button>
             {saved && <span className="saved-msg">✓ Saved</span>}
+            {saveError && <span style={{ color: 'var(--danger, red)', fontSize: '0.85em' }}>{saveError}</span>}
             {!showSaveAsPreset && (
               <button
                 type="button"
@@ -355,6 +370,7 @@ export default function BookSettings() {
             </details>
             <button type="submit">Save Book Settings</button>
             {bookSaved && <span className="saved-msg">✓ Saved</span>}
+            {bookSaveError && <span style={{ color: 'var(--danger, red)', fontSize: '0.85em' }}>{bookSaveError}</span>}
           </form>
         </section>
       )}

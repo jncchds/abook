@@ -141,8 +141,8 @@ export const clearChapterContent = (bookId: number, chapter: Chapter) =>
   })
 
 // Messages
-export const getMessages = (bookId: number, chapterId?: number) =>
-  api.get<AgentMessage[]>(`/books/${bookId}/messages`, { params: { chapterId } })
+export const getMessages = (bookId: number, signal?: AbortSignal, chapterId?: number) =>
+  api.get<AgentMessage[]>(`/books/${bookId}/messages`, { params: { chapterId }, signal })
 export const clearMessages = (bookId: number) =>
   api.delete(`/books/${bookId}/messages`)
 export const postAnswer = (bookId: number, messageId: number, answer: string) =>
@@ -183,8 +183,8 @@ export interface TokenUsageRecord {
   failed?: boolean
   createdAt: string
 }
-export const getTokenUsage = (bookId: number) =>
-  api.get<TokenUsageRecord[]>(`/books/${bookId}/token-usage`)
+export const getTokenUsage = (bookId: number, signal?: AbortSignal) =>
+  api.get<TokenUsageRecord[]>(`/books/${bookId}/token-usage`, { signal })
 export const clearTokenUsage = (bookId: number) =>
   api.delete(`/books/${bookId}/token-usage`)
 
@@ -224,8 +224,8 @@ export interface StoryBible {
   createdAt?: string
   updatedAt?: string
 }
-export const getStoryBible = (bookId: number) =>
-  api.get<StoryBible>(`/books/${bookId}/story-bible`)
+export const getStoryBible = (bookId: number, signal?: AbortSignal) =>
+  api.get<StoryBible>(`/books/${bookId}/story-bible`, { signal })
 export const updateStoryBible = (bookId: number, data: Omit<StoryBible, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
   api.put<StoryBible>(`/books/${bookId}/story-bible`, data)
 
@@ -263,8 +263,8 @@ export interface CharacterCardVersion {
   createdBy: string
   createdAt: string
 }
-export const getCharacters = (bookId: number, includeArchived = false) =>
-  api.get<CharacterCard[]>(`/books/${bookId}/characters${includeArchived ? '?includeArchived=true' : ''}`)
+export const getCharacters = (bookId: number, includeArchived = false, signal?: AbortSignal) =>
+  api.get<CharacterCard[]>(`/books/${bookId}/characters${includeArchived ? '?includeArchived=true' : ''}`, { signal })
 export const createCharacter = (bookId: number, data: Omit<CharacterCard, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
   api.post<CharacterCard>(`/books/${bookId}/characters`, data)
 export const updateCharacter = (bookId: number, cardId: number, data: Omit<CharacterCard, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
@@ -308,8 +308,8 @@ export interface PlotThreadVersion {
   createdBy: string
   createdAt: string
 }
-export const getPlotThreads = (bookId: number, includeArchived = false) =>
-  api.get<PlotThread[]>(`/books/${bookId}/plot-threads${includeArchived ? '?includeArchived=true' : ''}`)
+export const getPlotThreads = (bookId: number, includeArchived = false, signal?: AbortSignal) =>
+  api.get<PlotThread[]>(`/books/${bookId}/plot-threads${includeArchived ? '?includeArchived=true' : ''}`, { signal })
 export const createPlotThread = (bookId: number, data: Omit<PlotThread, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
   api.post<PlotThread>(`/books/${bookId}/plot-threads`, data)
 export const updatePlotThread = (bookId: number, threadId: number, data: Omit<PlotThread, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>

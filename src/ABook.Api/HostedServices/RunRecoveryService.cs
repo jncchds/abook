@@ -97,6 +97,8 @@ public class RunRecoveryService : BackgroundService
 
             // Reset in-memory status so the user can start a new run
             _runState.SetStatus(run.BookId, new AgentRunStatus(run.CurrentRole, "Failed", run.ChapterId));
+            // Clear stale stream buffers so memory from the dead run doesn't persist
+            _runState.ClearStreamBuffers(run.BookId);
 
             try
             {

@@ -208,6 +208,11 @@ public class EditorAgent : AgentBase
         };
         await Repo.AddChapterVersionAsync(version);
 
+        // Re-index the edited content so subsequent RAG queries see the corrected prose
+        try { await IndexChapterAsync(bookId, chapterId, version.Id, kernel, config!, ct); }
+        catch (OperationCanceledException) { throw; }
+        catch { /* non-fatal — embeddings unavailable */ }
+
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Done", ct);
     }

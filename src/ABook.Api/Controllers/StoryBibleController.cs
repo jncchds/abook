@@ -1,16 +1,32 @@
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace ABook.Api.Controllers;
 
 [ApiController]
 [Route("api/books/{bookId:int}/story-bible")]
+[Authorize]
 public class StoryBibleController : ControllerBase
 {
     private readonly IBookRepository _repo;
 
     public StoryBibleController(IBookRepository repo) => _repo = repo;
+
+    private int? CurrentUserId =>
+        User.Identity?.IsAuthenticated == true
+            ? int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!)
+            : (int?)null;
+
+    private async Task<IActionResult?> CheckOwnershipAsync(int bookId)
+    {
+        var book = await _repo.GetByIdAsync(bookId);
+        if (book is null) return NotFound();
+        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
+        return null;
+    }
 
     [HttpGet]
     public async Task<IActionResult> Get(int bookId)
@@ -22,6 +38,9 @@ public class StoryBibleController : ControllerBase
     [HttpPut]
     public async Task<IActionResult> Upsert(int bookId, [FromBody] StoryBibleRequest req)
     {
+        var ownershipError = await CheckOwnershipAsync(bookId);
+        if (ownershipError is not null) return ownershipError;
+
         // Snapshot the existing bible before overwriting
         var existing = await _repo.GetStoryBibleAsync(bookId);
         if (existing is not null)
@@ -66,6 +85,9 @@ public class StoryBibleController : ControllerBase
     [HttpPost("history/{snapshotId:int}/restore")]
     public async Task<IActionResult> RestoreSnapshot(int bookId, int snapshotId)
     {
+        var ownershipError = await CheckOwnershipAsync(bookId);
+        if (ownershipError is not null) return ownershipError;
+
         try
         {
             var restored = await _repo.RestoreStoryBibleSnapshotAsync(bookId, snapshotId);

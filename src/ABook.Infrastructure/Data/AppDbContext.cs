@@ -88,6 +88,8 @@ public class AppDbContext : DbContext
              .WithMany(x => x.AgentMessages)
              .HasForeignKey(x => x.ChapterId)
              .OnDelete(DeleteBehavior.SetNull);
+            m.HasIndex(x => x.BookId);
+            m.HasIndex(x => x.ChapterId);
         });
 
         modelBuilder.Entity<LlmConfiguration>(l =>
@@ -132,6 +134,7 @@ public class AppDbContext : DbContext
              .HasForeignKey(x => x.ChapterId)
              .OnDelete(DeleteBehavior.SetNull)
              .IsRequired(false);
+            t.HasIndex(x => x.BookId);
         });
 
         modelBuilder.Entity<StoryBible>(s =>

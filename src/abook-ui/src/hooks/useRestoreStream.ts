@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { getStreamBuffer } from '../api'
 
 /**
@@ -13,11 +13,14 @@ export function useRestoreStream(
   chapterId: number | undefined,
   onRestore: (content: string) => void,
 ) {
+  // Stable ref so the callback doesn't need to be in the dependency array
+  const onRestoreRef = useRef(onRestore)
+  onRestoreRef.current = onRestore
+
   useEffect(() => {
     if (!bookId || !isRunning || currentBuffer) return
     getStreamBuffer(bookId, agentRole, chapterId)
-      .then(r => { if (r.data.content) onRestore(r.data.content) })
+      .then(r => { if (r.data.content) onRestoreRef.current(r.data.content) })
       .catch(() => {})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookId, chapterId])
+  }, [bookId, chapterId, isRunning, agentRole])  // currentBuffer intentionally omitted (read as gate, not trigger)
 }

@@ -13,9 +13,9 @@ public class BookRepository : IBookRepository
 
     public async Task<IEnumerable<Book>> GetAllAsync(int? userId = null)
     {
-        var query = _db.Books.AsQueryable();
-        if (userId.HasValue)
-            query = query.Where(b => b.UserId == userId || b.UserId == null);
+        if (!userId.HasValue)
+            return Enumerable.Empty<Book>();
+        var query = _db.Books.Where(b => b.UserId == userId || b.UserId == null);
         return await query.OrderByDescending(b => b.UpdatedAt).ToListAsync();
     }
 
@@ -176,32 +176,43 @@ public class BookRepository : IBookRepository
         var version = await _db.ChapterVersions.FirstOrDefaultAsync(v => v.ChapterId == chapterId && v.Id == versionId)
             ?? throw new InvalidOperationException($"Version {versionId} not found for chapter {chapterId}.");
 
-        // Deactivate all versions
-        await _db.ChapterVersions
-            .Where(v => v.ChapterId == chapterId)
-            .ExecuteUpdateAsync(s => s.SetProperty(v => v.IsActive, false));
-
-        // Activate the chosen one
-        version.IsActive = true;
-        _db.ChapterVersions.Update(version);
-
-        // Sync denormalized fields back to Chapter
-        var chapter = await _db.Chapters.FindAsync(chapterId);
-        if (chapter is not null)
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
         {
-            chapter.Title = version.Title;
-            chapter.Outline = version.Outline;
-            chapter.Content = version.Content;
-            chapter.Status = version.Status;
-            chapter.PovCharacter = version.PovCharacter;
-            chapter.CharactersInvolvedJson = version.CharactersInvolvedJson;
-            chapter.PlotThreadsJson = version.PlotThreadsJson;
-            chapter.ForeshadowingNotes = version.ForeshadowingNotes;
-            chapter.PayoffNotes = version.PayoffNotes;
-            chapter.UpdatedAt = DateTime.UtcNow;
+            // Deactivate all versions
+            await _db.ChapterVersions
+                .Where(v => v.ChapterId == chapterId)
+                .ExecuteUpdateAsync(s => s.SetProperty(v => v.IsActive, false));
+
+            // Activate the chosen one
+            version.IsActive = true;
+            _db.ChapterVersions.Update(version);
+
+            // Sync denormalized fields back to Chapter
+            var chapter = await _db.Chapters.FindAsync(chapterId);
+            if (chapter is not null)
+            {
+                chapter.Title = version.Title;
+                chapter.Outline = version.Outline;
+                chapter.Content = version.Content;
+                chapter.Status = version.Status;
+                chapter.PovCharacter = version.PovCharacter;
+                chapter.CharactersInvolvedJson = version.CharactersInvolvedJson;
+                chapter.PlotThreadsJson = version.PlotThreadsJson;
+                chapter.ForeshadowingNotes = version.ForeshadowingNotes;
+                chapter.PayoffNotes = version.PayoffNotes;
+                chapter.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
         }
 
-        await _db.SaveChangesAsync();
         return version;
     }
 

@@ -1,16 +1,32 @@
 ﻿using ABook.Core.Interfaces;
 using ABook.Core.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace ABook.Api.Controllers;
 
 [ApiController]
 [Route("api/books/{bookId:int}/characters")]
+[Authorize]
 public class CharactersController : ControllerBase
 {
     private readonly IBookRepository _repo;
 
     public CharactersController(IBookRepository repo) => _repo = repo;
+
+    private int? CurrentUserId =>
+        User.Identity?.IsAuthenticated == true
+            ? int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!)
+            : (int?)null;
+
+    private async Task<IActionResult?> CheckOwnershipAsync(int bookId)
+    {
+        var book = await _repo.GetByIdAsync(bookId);
+        if (book is null) return NotFound();
+        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
+        return null;
+    }
 
     [HttpGet]
     public async Task<IActionResult> GetAll(int bookId, [FromQuery] bool includeArchived = false) =>
@@ -28,6 +44,9 @@ public class CharactersController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create(int bookId, [FromBody] CharacterCardRequest req)
     {
+        var ownershipError = await CheckOwnershipAsync(bookId);
+        if (ownershipError is not null) return ownershipError;
+
         var card = new CharacterCard
         {
             BookId = bookId,
@@ -63,6 +82,9 @@ public class CharactersController : ControllerBase
     [HttpPut("{cardId:int}")]
     public async Task<IActionResult> Update(int bookId, int cardId, [FromBody] CharacterCardRequest req)
     {
+        var ownershipError = await CheckOwnershipAsync(bookId);
+        if (ownershipError is not null) return ownershipError;
+
         var card = await _repo.GetCharacterCardAsync(bookId, cardId);
         if (card is null) return NotFound();
         await _repo.AddCharacterVersionAsync(new CharacterCardVersion
@@ -96,6 +118,9 @@ public class CharactersController : ControllerBase
     [HttpPost("{cardId:int}/archive")]
     public async Task<IActionResult> Archive(int bookId, int cardId)
     {
+        var ownershipError = await CheckOwnershipAsync(bookId);
+        if (ownershipError is not null) return ownershipError;
+
         var card = await _repo.GetCharacterCardAsync(bookId, cardId);
         if (card is null) return NotFound();
         await _repo.AddCharacterVersionAsync(new CharacterCardVersion
@@ -120,6 +145,9 @@ public class CharactersController : ControllerBase
     [HttpPost("{cardId:int}/unarchive")]
     public async Task<IActionResult> Unarchive(int bookId, int cardId)
     {
+        var ownershipError = await CheckOwnershipAsync(bookId);
+        if (ownershipError is not null) return ownershipError;
+
         var card = await _repo.GetCharacterCardAsync(bookId, cardId);
         if (card is null) return NotFound();
         await _repo.UnarchiveCharacterCardAsync(bookId, cardId);
@@ -129,6 +157,9 @@ public class CharactersController : ControllerBase
     [HttpDelete("{cardId:int}")]
     public async Task<IActionResult> Delete(int bookId, int cardId)
     {
+        var ownershipError = await CheckOwnershipAsync(bookId);
+        if (ownershipError is not null) return ownershipError;
+
         await _repo.DeleteCharacterCardAsync(bookId, cardId);
         return NoContent();
     }
@@ -151,6 +182,9 @@ public class CharactersController : ControllerBase
     [HttpPost("{cardId:int}/history/{versionId:int}/restore")]
     public async Task<IActionResult> RestoreItemVersion(int bookId, int cardId, int versionId)
     {
+        var ownershipError = await CheckOwnershipAsync(bookId);
+        if (ownershipError is not null) return ownershipError;
+
         try { return Ok(await _repo.RestoreCharacterVersionAsync(bookId, cardId, versionId)); }
         catch (InvalidOperationException) { return NotFound(); }
     }
@@ -169,6 +203,9 @@ public class CharactersController : ControllerBase
     [HttpPost("history/{snapshotId:int}/restore")]
     public async Task<IActionResult> RestoreSnapshot(int bookId, int snapshotId)
     {
+        var ownershipError = await CheckOwnershipAsync(bookId);
+        if (ownershipError is not null) return ownershipError;
+
         try { return Ok(await _repo.RestoreCharactersSnapshotAsync(bookId, snapshotId)); }
         catch (InvalidOperationException) { return NotFound(); }
     }

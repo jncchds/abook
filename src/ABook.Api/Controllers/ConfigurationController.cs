@@ -1,5 +1,6 @@
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
@@ -7,6 +8,7 @@ namespace ABook.Api.Controllers;
 
 [ApiController]
 [Route("api/configuration")]
+[Authorize]
 public class ConfigurationController : ControllerBase
 {
     private readonly IBookRepository _repo;

@@ -58,7 +58,8 @@ public class AgentController : ControllerBase
         var blocked = EnsureCanStart(bookId);
         if (blocked is not null) return blocked;
 
-        _ = RunInBackground(bookId, (o, ct) => o.StartWritingAsync(bookId, chapterId, ct));
+        var ct = _runState.CreateRunCts(bookId);
+        _ = RunInBackground(bookId, (o, c) => o.StartWritingAsync(bookId, chapterId, c), ct);
         return Accepted();
     }
 
@@ -68,7 +69,8 @@ public class AgentController : ControllerBase
         var blocked = EnsureCanStart(bookId);
         if (blocked is not null) return blocked;
 
-        _ = RunInBackground(bookId, (o, ct) => o.StartEditingAsync(bookId, chapterId, ct));
+        var ct = _runState.CreateRunCts(bookId);
+        _ = RunInBackground(bookId, (o, c) => o.StartEditingAsync(bookId, chapterId, c), ct);
         return Accepted();
     }
 
@@ -78,7 +80,8 @@ public class AgentController : ControllerBase
         var blocked = EnsureCanStart(bookId);
         if (blocked is not null) return blocked;
 
-        _ = RunInBackground(bookId, (o, ct) => o.StartContinuityCheckAsync(bookId, ct));
+        var ct = _runState.CreateRunCts(bookId);
+        _ = RunInBackground(bookId, (o, c) => o.StartContinuityCheckAsync(bookId, c), ct);
         return Accepted();
     }
 

@@ -19,6 +19,7 @@ export default function PlotThreads() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [addingThread, setAddingThread] = useState(false)
   const [form, setForm] = useState<Partial<PlotThread>>({})
+  const [saving, setSaving] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
 
   const [showHistory, setShowHistory] = useState(false)
@@ -136,11 +137,14 @@ export default function PlotThreads() {
           <label>Status<select value={form.status ?? 'Open'} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>{['Open','Resolved','Abandoned'].map(s => <option key={s}>{s}</option>)}</select></label>
           <label>Introduced Chapter #<input type="number" value={form.introducedChapterNumber ?? ''} onChange={e => setForm(f => ({ ...f, introducedChapterNumber: e.target.value ? Number(e.target.value) : undefined }))} /></label>
           <div className="actions">
-            <button onClick={async () => {
+            <button disabled={saving} onClick={async () => {
               if (!form.name?.trim()) return
-              const r = await createPlotThread(bookId, form as PlotThread)
-              setPlotThreads(prev => [...prev, r.data]); setAddingThread(false); setForm({})
-            }}>Save</button>
+              setSaving(true)
+              try {
+                const r = await createPlotThread(bookId, form as PlotThread)
+                setPlotThreads(prev => [...prev, r.data]); setAddingThread(false); setForm({})
+              } finally { setSaving(false) }
+            }}>{saving ? 'Saving…' : 'Save'}</button>
             <button className="btn-ghost" onClick={() => { setAddingThread(false); setForm({}) }}>Cancel</button>
           </div>
         </div>
@@ -181,11 +185,14 @@ export default function PlotThreads() {
                   <label>Introduced Chapter #<input type="number" value={form.introducedChapterNumber ?? t.introducedChapterNumber ?? ''} onChange={e => setForm(f => ({ ...f, introducedChapterNumber: e.target.value ? Number(e.target.value) : undefined }))} /></label>
                   <label>Resolved Chapter #<input type="number" value={form.resolvedChapterNumber ?? t.resolvedChapterNumber ?? ''} onChange={e => setForm(f => ({ ...f, resolvedChapterNumber: e.target.value ? Number(e.target.value) : undefined }))} /></label>
                   <div className="actions">
-                    <button onClick={async () => {
-                      const r = await updatePlotThread(bookId, t.id, { ...t, ...form } as PlotThread)
-                      setPlotThreads(prev => prev.map(p => p.id === t.id ? r.data : p))
-                      setEditingId(null); setForm({})
-                    }}>Save</button>
+                    <button disabled={saving} onClick={async () => {
+                      setSaving(true)
+                      try {
+                        const r = await updatePlotThread(bookId, t.id, { ...t, ...form } as PlotThread)
+                        setPlotThreads(prev => prev.map(p => p.id === t.id ? r.data : p))
+                        setEditingId(null); setForm({})
+                      } finally { setSaving(false) }
+                    }}>{saving ? 'Saving…' : 'Save'}</button>
                     <button className="btn-ghost" onClick={() => { setEditingId(null); setForm({}) }}>Cancel</button>
                   </div>
                 </div>

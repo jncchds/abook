@@ -11,6 +11,7 @@ export default function GlobalSettings() {
   const [pullModel, setPullModel] = useState('')
   const [pullStatus, setPullStatus] = useState('')
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const abortRef = useRef<AbortController | null>(null)
 
   const [presets, setPresets] = useState<LlmPreset[]>([])
@@ -40,16 +41,22 @@ export default function GlobalSettings() {
         fetchModels(r.data.endpoint ?? '', r.data.provider, r.data.apiKey ?? undefined)
       }
     })
-    getPresets().then(r => setPresets(r.data)).catch(() => {})
-    getApiToken().then(r => setMcpToken(r.data.token)).catch(() => {})
+    getPresets().then(r => setPresets(r.data)).catch(err => console.error('Failed to load presets', err))
+    getApiToken().then(r => setMcpToken(r.data.token)).catch(err => console.error('Failed to load MCP token', err))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
-    await updateLlmConfig(config)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    setSaveError('')
+    try {
+      await updateLlmConfig(config)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (err) {
+      setSaveError('Failed to save LLM config. Please try again.')
+      console.error('Failed to save LLM config', err)
+    }
   }
 
   const handleSaveAsPreset = async () => {
@@ -336,6 +343,7 @@ export default function GlobalSettings() {
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '0.25rem' }}>
             <button type="submit">Save LLM Config</button>
             {saved && <span className="saved-msg">✓ Saved</span>}
+            {saveError && <span style={{ color: 'var(--danger, red)', fontSize: '0.85em' }}>{saveError}</span>}
             {!showSaveAsPreset && (
               <button
                 type="button"

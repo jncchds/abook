@@ -127,13 +127,15 @@ public class AgentOrchestrator : IAgentOrchestrator
             await _notifier.NotifyWorkflowProgressAsync(bookId,
                 $"Planning complete — {chapters.Count} chapter{(chapters.Count == 1 ? "" : "s")} outlined.", false, c);
 
+            // Pre-load all chapters in one query to get current status after planning
+            var chaptersById = (await _repo.GetChaptersAsync(bookId)).ToDictionary(ch => ch.Id);
+
             foreach (var chapterRef in chapters.OrderBy(ch => ch.Number))
             {
                 c.ThrowIfCancellationRequested();
 
-                // Re-fetch from DB to get true current status (not the planning snapshot)
-                var chapter = await _repo.GetChapterAsync(bookId, chapterRef.Id)
-                    ?? throw new InvalidOperationException($"Chapter {chapterRef.Id} not found.");
+                if (!chaptersById.TryGetValue(chapterRef.Id, out var chapter))
+                    throw new InvalidOperationException($"Chapter {chapterRef.Id} not found.");
 
                 if (chapter.Status == ChapterStatus.Done)
                 {
@@ -165,22 +167,16 @@ public class AgentOrchestrator : IAgentOrchestrator
     public Task ContinueWorkflowAsync(int bookId, CancellationToken ct = default) =>
         ExecuteAgentRunAsync(bookId, AgentRole.Writer, null, ct, async c =>
         {
-            var book = await _repo.GetByIdWithDetailsAsync(bookId)
-                ?? throw new InvalidOperationException($"Book {bookId} not found.");
-
-            var allChapters = book.Chapters.OrderBy(ch => ch.Number).ToList();
+            // Pre-load all chapters in one query to get current status
+            var allChapters = (await _repo.GetChaptersAsync(bookId)).OrderBy(ch => ch.Number).ToList();
             if (allChapters.Count == 0)
                 throw new InvalidOperationException("No chapters to continue. Run the planner first.");
 
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Continuing workflow…", false, c);
 
-            foreach (var chapterRef in allChapters)
+            foreach (var chapter in allChapters)
             {
                 c.ThrowIfCancellationRequested();
-
-                // Re-fetch from DB so we see the real current status, not the stale snapshot
-                var chapter = await _repo.GetChapterAsync(bookId, chapterRef.Id)
-                    ?? throw new InvalidOperationException($"Chapter {chapterRef.Id} not found.");
 
                 if (chapter.Status == ChapterStatus.Done)
                 {

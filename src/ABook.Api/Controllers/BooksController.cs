@@ -1,11 +1,13 @@
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ABook.Api.Controllers;
 
 [ApiController]
 [Route("api/books")]
+[Authorize]
 public class BooksController : ControllerBase
 {
     private readonly IBookRepository _repo;

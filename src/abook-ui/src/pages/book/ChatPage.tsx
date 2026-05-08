@@ -5,7 +5,7 @@ import { useBookContext } from '../../contexts/BookContext'
 export default function ChatPage() {
   const {
     messages, pendingQuestion, answerText, setAnswerText,
-    handleAnswer, isRunning, clearMessagesForBook,
+    handleAnswer, isRunning, clearMessagesForBook, submittingAnswer,
   } = useBookContext()
 
   const chatBottomRef = useRef<HTMLDivElement>(null)
@@ -48,9 +48,11 @@ export default function ChatPage() {
             placeholder={pendingQuestion.isOptional ? 'Optional — leave blank to skip…' : 'Type your answer…'}
           />
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button onClick={handleAnswer}>Send Answer</button>
+            <button onClick={handleAnswer} disabled={submittingAnswer}>
+              {submittingAnswer ? 'Sending…' : 'Send Answer'}
+            </button>
             {pendingQuestion.isOptional && (
-              <button className="btn-sm btn-ghost" onClick={() => { setAnswerText(''); handleAnswer() }}>Skip</button>
+              <button className="btn-sm btn-ghost" disabled={submittingAnswer} onClick={() => { setAnswerText(''); handleAnswer() }}>Skip</button>
             )}
           </div>
         </div>

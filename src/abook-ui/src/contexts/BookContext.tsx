@@ -70,6 +70,7 @@ interface BookContextValue {
 
   answerText: string
   setAnswerText: React.Dispatch<React.SetStateAction<string>>
+  submittingAnswer: boolean
 
   refreshBook: () => Promise<void>
   refreshMessages: () => void
@@ -120,6 +121,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   const [workflowLog, setWorkflowLog] = useState<string[]>([])
 
   const [answerText, setAnswerText] = useState('')
+  const [submittingAnswer, setSubmittingAnswer] = useState(false)
 
   const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError } = useBookHub(bookId)
 
@@ -131,11 +133,15 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   }, [bookId])
 
   useEffect(() => {
+    const controller = new AbortController()
+    const signal = controller.signal
+
     refreshBook()
     Promise.all([
-      getMessages(bookId),
+      getMessages(bookId, signal),
       getAgentStatus(bookId).catch(() => ({ data: null as AgentRunStatus | null }))
     ]).then(([msgRes, statusRes]) => {
+      if (signal.aborted) return
       setMessages(msgRes.data)
       if (statusRes.data) setRunStatus(statusRes.data)
       if (statusRes.data?.state === 'WaitingForInput') {
@@ -143,7 +149,8 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         if (q) setPendingQuestion(q)
       }
     }).catch(() => {})
-    getTokenUsage(bookId).then(r => {
+    getTokenUsage(bookId, signal).then(r => {
+      if (signal.aborted) return
       setWorkflowSteps(r.data.filter(rec => rec.stepLabel).map(rec => ({
         id: rec.id,
         step: rec.stepLabel!,
@@ -164,9 +171,11 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
           persisted: true,
         })))
     }).catch(() => {})
-    getStoryBible(bookId).then(r => setStoryBible(r.data)).catch(() => {})
-    getCharacters(bookId, true).then(r => setCharacters(r.data)).catch(() => {})
-    getPlotThreads(bookId, true).then(r => setPlotThreads(r.data)).catch(() => {})
+    getStoryBible(bookId, signal).then(r => { if (!signal.aborted) setStoryBible(r.data) }).catch(() => {})
+    getCharacters(bookId, true, signal).then(r => { if (!signal.aborted) setCharacters(r.data) }).catch(() => {})
+    getPlotThreads(bookId, true, signal).then(r => { if (!signal.aborted) setPlotThreads(r.data) }).catch(() => {})
+
+    return () => { controller.abort() }
   }, [refreshBook, bookId])
 
   const clearStreams = useCallback(() => {
@@ -344,10 +353,16 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   const handleAnswer = async () => {
     if (!pendingQuestion) return
     if (!pendingQuestion.isOptional && !answerText.trim()) return
-    await postAnswer(bookId, pendingQuestion.id, answerText.trim())
-    setAnswerText('')
-    setPendingQuestion(null)
-    refreshMessages()
+    if (submittingAnswer) return
+    setSubmittingAnswer(true)
+    try {
+      await postAnswer(bookId, pendingQuestion.id, answerText.trim())
+      setAnswerText('')
+      setPendingQuestion(null)
+      refreshMessages()
+    } finally {
+      setSubmittingAnswer(false)
+    }
   }
 
   const isPhaseComplete = (phase: string) => {
@@ -381,7 +396,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     plotThreadsStream, setPlotThreadsStream, setStreamBuffer, setStreamingChapterId,
     storyBible, setStoryBible, characters, setCharacters, plotThreads, setPlotThreads,
     tokenStats, setTokenStats, workflowSteps, setWorkflowSteps, workflowLog,
-    answerText, setAnswerText,
+    answerText, setAnswerText, submittingAnswer,
     refreshBook, refreshMessages,
     handleAnswer, handleWriteBook, handlePlanBook, handleStop, handleContinue,
     handleCompletePhase, handleReopenPhase, handleClearPhase, isPhaseComplete,

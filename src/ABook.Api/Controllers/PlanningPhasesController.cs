@@ -1,6 +1,8 @@
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace ABook.Api.Controllers;
 
@@ -14,17 +16,24 @@ namespace ABook.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/books/{bookId:int}/planning-phases")]
+[Authorize]
 public class PlanningPhasesController : ControllerBase
 {
     private readonly IBookRepository _repo;
 
     public PlanningPhasesController(IBookRepository repo) => _repo = repo;
 
+    private int? CurrentUserId =>
+        User.Identity?.IsAuthenticated == true
+            ? int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!)
+            : (int?)null;
+
     [HttpPost("{phase}/complete")]
     public async Task<IActionResult> Complete(int bookId, string phase)
     {
         var book = await _repo.GetByIdAsync(bookId);
         if (book is null) return NotFound();
+        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
         if (!ApplyStatus(book, phase, PlanningPhaseStatus.Complete))
             return BadRequest(new { message = $"Unknown planning phase: {phase}" });
         await _repo.UpdateAsync(book);
@@ -36,6 +45,7 @@ public class PlanningPhasesController : ControllerBase
     {
         var book = await _repo.GetByIdAsync(bookId);
         if (book is null) return NotFound();
+        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
         if (!ApplyStatus(book, phase, PlanningPhaseStatus.NotStarted))
             return BadRequest(new { message = $"Unknown planning phase: {phase}" });
         await _repo.UpdateAsync(book);
@@ -47,6 +57,7 @@ public class PlanningPhasesController : ControllerBase
     {
         var book = await _repo.GetByIdAsync(bookId);
         if (book is null) return NotFound();
+        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
 
         switch (phase.ToLowerInvariant())
         {

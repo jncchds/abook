@@ -19,6 +19,7 @@ export default function Characters() {
   const [editingCharId, setEditingCharId] = useState<number | null>(null)
   const [addingChar, setAddingChar] = useState(false)
   const [charForm, setCharForm] = useState<Partial<CharacterCard>>({})
+  const [saving, setSaving] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
 
   const [showHistory, setShowHistory] = useState(false)
@@ -140,11 +141,14 @@ export default function Characters() {
           <label>Arc<textarea rows={2} value={charForm.arc ?? ''} onChange={e => setCharForm(f => ({ ...f, arc: e.target.value }))} /></label>
           <label>Notes<textarea rows={2} value={charForm.notes ?? ''} onChange={e => setCharForm(f => ({ ...f, notes: e.target.value }))} /></label>
           <div className="actions">
-            <button onClick={async () => {
+            <button disabled={saving} onClick={async () => {
               if (!charForm.name?.trim()) return
-              const r = await createCharacter(bookId, charForm as CharacterCard)
-              setCharacters(prev => [...prev, r.data]); setAddingChar(false); setCharForm({})
-            }}>Save</button>
+              setSaving(true)
+              try {
+                const r = await createCharacter(bookId, charForm as CharacterCard)
+                setCharacters(prev => [...prev, r.data]); setAddingChar(false); setCharForm({})
+              } finally { setSaving(false) }
+            }}>{saving ? 'Saving…' : 'Save'}</button>
             <button className="btn-ghost" onClick={() => { setAddingChar(false); setCharForm({}) }}>Cancel</button>
           </div>
         </div>
@@ -187,11 +191,14 @@ export default function Characters() {
                   <label>Arc<textarea rows={2} value={charForm.arc ?? ch.arc ?? ''} onChange={e => setCharForm(f => ({ ...f, arc: e.target.value }))} /></label>
                   <label>Notes<textarea rows={2} value={charForm.notes ?? ch.notes ?? ''} onChange={e => setCharForm(f => ({ ...f, notes: e.target.value }))} /></label>
                   <div className="actions">
-                    <button onClick={async () => {
-                      const r = await updateCharacter(bookId, ch.id, { ...ch, ...charForm } as CharacterCard)
-                      setCharacters(prev => prev.map(c => c.id === ch.id ? r.data : c))
-                      setEditingCharId(null); setCharForm({})
-                    }}>Save</button>
+                    <button disabled={saving} onClick={async () => {
+                      setSaving(true)
+                      try {
+                        const r = await updateCharacter(bookId, ch.id, { ...ch, ...charForm } as CharacterCard)
+                        setCharacters(prev => prev.map(c => c.id === ch.id ? r.data : c))
+                        setEditingCharId(null); setCharForm({})
+                      } finally { setSaving(false) }
+                    }}>{saving ? 'Saving…' : 'Save'}</button>
                     <button className="btn-ghost" onClick={() => { setEditingCharId(null); setCharForm({}) }}>Cancel</button>
                   </div>
                 </div>
