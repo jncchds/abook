@@ -229,6 +229,21 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         // Refresh book data (phase status dots etc.) but do NOT clear runStatus here.
         // WorkflowProgress(isComplete=true) is the authoritative "run finished" signal.
         refreshBook()
+        // Clear the phase stream immediately and reload the saved data so the
+        // streaming preview disappears and the persisted records appear instead.
+        if (role === 'StoryBibleAgent') {
+          setStoryBibleStream('')
+          getStoryBible(bookId).then(r => setStoryBible(r.data)).catch(() => {})
+        } else if (role === 'CharactersAgent') {
+          setCharactersStream('')
+          getCharacters(bookId, true).then(r => setCharacters(r.data)).catch(() => {})
+        } else if (role === 'PlotThreadsAgent') {
+          setPlotThreadsStream('')
+          getPlotThreads(bookId, true).then(r => setPlotThreads(r.data)).catch(() => {})
+        } else if (role === 'ChaptersAgent') {
+          setPlannerBuffer('')
+          // book.chapters is refreshed by the refreshBook() call above
+        }
       }
     })
     setOnChapterUpdated((_bId, cId) => {

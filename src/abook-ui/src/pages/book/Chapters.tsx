@@ -18,7 +18,8 @@ export default function Chapters() {
     plannerBuffer, setPlannerBuffer, runStatus,
   } = useBookContext()
 
-  useRestoreStream(book?.id, isRunning, plannerBuffer, 'ChaptersAgent', undefined, setPlannerBuffer)
+  useRestoreStream(book?.id, isRunning, plannerBuffer, 'ChaptersAgent', undefined,
+    (content) => setPlannerBuffer(prev => prev.length >= content.length ? prev : content))
 
   const [addingChapter, setAddingChapter] = useState(false)
   const [newTitle, setNewTitle] = useState('')

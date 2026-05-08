@@ -33,7 +33,8 @@ export default function PlotThreads() {
   const [loadingItemHistory, setLoadingItemHistory] = useState(false)
   const [restoringVersion, setRestoringVersion] = useState(false)
 
-  useRestoreStream(book?.id, isRunning, plotThreadsStream, 'PlotThreadsAgent', undefined, setPlotThreadsStream)
+  useRestoreStream(book?.id, isRunning, plotThreadsStream, 'PlotThreadsAgent', undefined,
+    (content) => setPlotThreadsStream(prev => prev.length >= content.length ? prev : content))
 
   if (!book) return null
 

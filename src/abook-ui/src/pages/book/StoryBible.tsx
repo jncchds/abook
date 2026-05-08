@@ -20,7 +20,8 @@ export default function StoryBiblePage() {
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [restoring, setRestoring] = useState(false)
 
-  useRestoreStream(book?.id, isRunning, storyBibleStream, 'StoryBibleAgent', undefined, setStoryBibleStream)
+  useRestoreStream(book?.id, isRunning, storyBibleStream, 'StoryBibleAgent', undefined,
+    (content) => setStoryBibleStream(prev => prev.length >= content.length ? prev : content))
 
   if (!book) return null
 

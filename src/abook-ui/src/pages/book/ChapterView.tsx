@@ -24,7 +24,7 @@ export default function ChapterView() {
 
   // Restore in-progress stream on hard-refresh (must be before early returns)
   useRestoreStream(book?.id, isRunning, streamBuffer, undefined, chapter?.id, (content) => {
-    setStreamBuffer(content)
+    setStreamBuffer(prev => prev.length >= content.length ? prev : content)
     if (chapter) setStreamingChapterId(chapter.id)
   })
 

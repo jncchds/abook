@@ -33,7 +33,8 @@ export default function Characters() {
   const [loadingItemHistory, setLoadingItemHistory] = useState(false)
   const [restoringVersion, setRestoringVersion] = useState(false)
 
-  useRestoreStream(book?.id, isRunning, charactersStream, 'CharactersAgent', undefined, setCharactersStream)
+  useRestoreStream(book?.id, isRunning, charactersStream, 'CharactersAgent', undefined,
+    (content) => setCharactersStream(prev => prev.length >= content.length ? prev : content))
 
   if (!book) return null
 
