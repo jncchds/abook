@@ -29,7 +29,7 @@ public class Book
     public int? UserId { get; set; }
     [JsonIgnore] public AppUser? User { get; set; }
 
-    [JsonIgnore] public ICollection<Chapter> Chapters { get; set; } = new List<Chapter>();
+    public ICollection<Chapter> Chapters { get; set; } = new List<Chapter>();
     [JsonIgnore] public ICollection<AgentMessage> AgentMessages { get; set; } = new List<AgentMessage>();
     [JsonIgnore] public ICollection<LlmConfiguration> LlmConfigurations { get; set; } = new List<LlmConfiguration>();
     [JsonIgnore] public StoryBible? StoryBible { get; set; }

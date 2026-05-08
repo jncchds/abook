@@ -6,7 +6,7 @@ import {
   startPlanning, continuePlanning, completePlanningPhase, reopenPlanningPhase, clearPlanningPhase,
   startWorkflow, continueWorkflow, stopWorkflow,
   getTokenUsage, clearMessages, clearTokenUsage,
-  getStoryBible, getCharacters, getPlotThreads,
+  getStoryBible, getCharacters, getPlotThreads, getChapters, getChapter,
 } from '../api'
 import { useBookHub } from '../hooks/useBookHub'
 
@@ -213,7 +213,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       setMessages(prev => [...prev, m])
       navigate(`/books/${bookId}/chat`)
     })
-    setOnStatus((_bId, role, state) => {
+    setOnStatus((_bId, role, state, cId) => {
       if (state === 'Failed' || state === 'Cancelled') {
         // Whole run aborted — clear everything immediately
         setRunStatus(null)
@@ -226,34 +226,51 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         setRunStatus(prev => ({ role, state, chapterId: prev?.chapterId }))
       } else if (state === 'Done') {
         // An individual agent phase finished but the workflow may still be running.
-        // Refresh book data (phase status dots etc.) but do NOT clear runStatus here.
-        // WorkflowProgress(isComplete=true) is the authoritative "run finished" signal.
-        refreshBook()
-        // Clear the phase stream immediately and reload the saved data so the
-        // streaming preview disappears and the persisted records appear instead.
+        // Do NOT clear runStatus here — WorkflowProgress(isComplete=true) is the
+        // authoritative "run finished" signal.
+        // Clear the phase stream immediately and reload only the part that changed.
         if (role === 'StoryBibleAgent') {
           setStoryBibleStream('')
+          setBook(prev => prev ? { ...prev, storyBibleStatus: 'Complete' } : prev)
           getStoryBible(bookId).then(r => setStoryBible(r.data)).catch(() => {})
         } else if (role === 'CharactersAgent') {
           setCharactersStream('')
+          setBook(prev => prev ? { ...prev, charactersStatus: 'Complete' } : prev)
           getCharacters(bookId, true).then(r => setCharacters(r.data)).catch(() => {})
         } else if (role === 'PlotThreadsAgent') {
           setPlotThreadsStream('')
+          setBook(prev => prev ? { ...prev, plotThreadsStatus: 'Complete' } : prev)
           getPlotThreads(bookId, true).then(r => setPlotThreads(r.data)).catch(() => {})
         } else if (role === 'ChaptersAgent') {
           setPlannerBuffer('')
-          // book.chapters is refreshed by the refreshBook() call above
+          setBook(prev => prev ? { ...prev, chaptersStatus: 'Complete' } : prev)
+          getChapters(bookId).then(r => setBook(prev => prev ? { ...prev, chapters: r.data } : prev))
+        } else {
+          // Writer/Editor/ContinuityChecker Done: patch only the affected chapter.
+          // Fall back to reloading all chapters for full-manuscript continuity check (cId=null).
+          if (cId !== null) {
+            getChapter(bookId, cId)
+              .then(r => setBook(prev => prev
+                ? { ...prev, chapters: prev.chapters?.map(ch => ch.id === cId ? r.data : ch) }
+                : prev
+              ))
+              .catch(() => {})
+          } else {
+            getChapters(bookId).then(r => setBook(prev => prev ? { ...prev, chapters: r.data } : prev))
+          }
         }
       }
     })
     setOnChapterUpdated((_bId, cId) => {
       setStreamBuffer('')
       setStreamingChapterId(null)
-      getBook(bookId).then(r => setBook(r.data))
-      getStoryBible(bookId).then(r => setStoryBible(r.data)).catch(() => {})
-      getCharacters(bookId, true).then(r => setCharacters(r.data)).catch(() => {})
-      getPlotThreads(bookId, true).then(r => setPlotThreads(r.data)).catch(() => {})
-      void cId
+      // Reload only the single chapter whose outline/content changed.
+      getChapter(bookId, cId)
+        .then(r => setBook(prev => prev
+          ? { ...prev, chapters: prev.chapters?.map(ch => ch.id === cId ? r.data : ch) }
+          : prev
+        ))
+        .catch(() => {})
     })
     setOnWorkflowProgress((_bId, step, isComplete) => {
       setWorkflowLog(prev => [...prev, step])
@@ -374,14 +391,23 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     }
   }
 
+  const phaseStatusKey: Record<string, keyof Book> = {
+    storybible: 'storyBibleStatus',
+    characters: 'charactersStatus',
+    plotthreads: 'plotThreadsStatus',
+    chapters: 'chaptersStatus',
+  }
+
   const handleCompletePhase = async (phase: string) => {
     await completePlanningPhase(bookId, phase)
-    await refreshBook()
+    const key = phaseStatusKey[phase]
+    if (key) setBook(prev => prev ? { ...prev, [key]: 'Complete' } : prev)
   }
 
   const handleReopenPhase = async (phase: string) => {
     await reopenPlanningPhase(bookId, phase)
-    await refreshBook()
+    const key = phaseStatusKey[phase]
+    if (key) setBook(prev => prev ? { ...prev, [key]: 'NotStarted' } : prev)
   }
 
   const handleClearPhase = async (phase: string, clearLocal: () => void) => {
@@ -389,7 +415,8 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     if (!confirm(`Clear all ${labels[phase] ?? phase} data? This cannot be undone.`)) return
     await clearPlanningPhase(bookId, phase)
     clearLocal()
-    await refreshBook()
+    const key = phaseStatusKey[phase]
+    if (key) setBook(prev => prev ? { ...prev, [key]: 'NotStarted' } : prev)
   }
 
   const handleAnswer = async () => {

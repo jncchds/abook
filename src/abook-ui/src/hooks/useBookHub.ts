@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 
 type StreamHandler = (bookId: number, chapterId: number | null, agentRole: string, token: string) => void
 type QuestionHandler = (bookId: number, message: unknown) => void
-type StatusHandler = (bookId: number, role: string, state: string) => void
+type StatusHandler = (bookId: number, role: string, state: string, chapterId: number | null) => void
 type ChapterUpdatedHandler = (bookId: number, chapterId: number) => void
 type WorkflowProgressHandler = (bookId: number, step: string, isComplete: boolean) => void
 type TokenStatsHandler = (bookId: number, chapterId: number | null, agentRole: string, promptTokens: number, completionTokens: number) => void
@@ -32,7 +32,7 @@ export function useBookHub(bookId: number | null) {
 
     conn.on('AgentStreaming', (bId, cId, agentRole, token) => onStream.current?.(bId, cId, agentRole, token))
     conn.on('AgentQuestion', (bId, msg) => onQuestion.current?.(bId, msg))
-    conn.on('AgentStatusChanged', (bId, role, state) => onStatus.current?.(bId, role, state))
+    conn.on('AgentStatusChanged', (bId, role, state, cId) => onStatus.current?.(bId, role, state, cId ?? null))
     conn.on('ChapterUpdated', (bId, cId) => onChapterUpdated.current?.(bId, cId))
     conn.on('WorkflowProgress', (bId, step, isComplete) => onWorkflowProgress.current?.(bId, step, isComplete))
     conn.on('TokenStats', (bId, cId, role, prompt, completion) => onTokenStats.current?.(bId, cId, role, prompt, completion))

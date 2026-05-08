@@ -231,7 +231,7 @@ public abstract class AgentBase
 
         StateService.SetPending(bookId, msg.Id, tcs);
         StateService.SetStatus(bookId, new AgentRunStatus(role, "WaitingForInput", chapterId));
-        await Notifier.NotifyStatusChangedAsync(bookId, role, "WaitingForInput", ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, role, "WaitingForInput", chapterId, ct);
 
         // Persist pause so the question survives a process restart
         await StateService.PersistRunPausedAsync(bookId, msg.Id);
@@ -240,7 +240,7 @@ public abstract class AgentBase
 
         StateService.SetStatus(bookId, new AgentRunStatus(role, "Running", chapterId));
         await StateService.PersistRunResumedAsync(bookId);
-        await Notifier.NotifyStatusChangedAsync(bookId, role, "Running", ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, role, "Running", chapterId, ct);
 
         return answer;
     }
@@ -297,7 +297,9 @@ public abstract class AgentBase
                     ChapterId = chapterId,
                     AgentRole = AgentRole.Embedder,
                     PromptTokens = promptTokens,
-                    CompletionTokens = 0
+                    CompletionTokens = 0,
+                    Endpoint = config.Endpoint,
+                    ModelName = config.EmbeddingModelName
                 });
             }
             catch { /* non-fatal */ }
@@ -485,7 +487,9 @@ public abstract class AgentBase
                 ChapterId = chapterId,
                 AgentRole = AgentRole.Embedder,
                 PromptTokens = indexPromptTokens,
-                CompletionTokens = 0
+                CompletionTokens = 0,
+                Endpoint = config.Endpoint,
+                ModelName = config.EmbeddingModelName
             });
         }
         catch { /* non-fatal */ }

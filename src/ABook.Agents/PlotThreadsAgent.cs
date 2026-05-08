@@ -32,7 +32,7 @@ public class PlotThreadsAgent : AgentBase
     {
         var bookId = book.Id;
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 3/4 - Plot Threads...", false, ct);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.PlotThreadsAgent, "Running", ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.PlotThreadsAgent, "Running", ct: ct);
 
         var (kernel, config) = await GetKernelAsync(bookId);
         var history = new ChatHistory();
@@ -118,7 +118,7 @@ public class PlotThreadsAgent : AgentBase
 
         book.PlotThreadsStatus = PlanningPhaseStatus.Complete;
         await Repo.UpdateAsync(book);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.PlotThreadsAgent, "Done", ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.PlotThreadsAgent, "Done", ct: ct);
         await Notifier.NotifyWorkflowProgressAsync(bookId,
             $"Planning: {threads.Count} plot thread{(threads.Count == 1 ? "" : "s")} saved. (complete)", false, ct);
         return threads;

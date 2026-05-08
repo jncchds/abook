@@ -28,7 +28,7 @@ public class CharactersAgent : AgentBase
     {
         var bookId = book.Id;
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 2/4 - Characters...", false, ct);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.CharactersAgent, "Running", ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.CharactersAgent, "Running", ct: ct);
 
         var (kernel, config) = await GetKernelAsync(bookId);
         var history = new ChatHistory();
@@ -112,7 +112,7 @@ public class CharactersAgent : AgentBase
 
         book.CharactersStatus = PlanningPhaseStatus.Complete;
         await Repo.UpdateAsync(book);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.CharactersAgent, "Done", ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.CharactersAgent, "Done", ct: ct);
         await Notifier.NotifyWorkflowProgressAsync(bookId,
             $"Planning: {characters.Count} character{(characters.Count == 1 ? "" : "s")} saved. (complete)", false, ct);
         return characters;

@@ -249,7 +249,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             var cancelledRole = cur?.Role ?? role;
             _state.SetStatus(bookId, new AgentRunStatus(cancelledRole, "Cancelled", cur?.ChapterId));
             await _state.PersistRunFinishedAsync(bookId, AgentRunPersistStatus.Cancelled);
-            await _notifier.NotifyStatusChangedAsync(bookId, cancelledRole, "Cancelled", CancellationToken.None);
+            await _notifier.NotifyStatusChangedAsync(bookId, cancelledRole, "Cancelled", cur?.ChapterId, CancellationToken.None);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow stopped.", true, CancellationToken.None);
             _logger.LogWarning("[Book {BookId}] {Role} stopped by user.", bookId, role);
             throw;
@@ -260,7 +260,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             var failedRole = cur?.Role ?? role;
             _state.SetStatus(bookId, new AgentRunStatus(failedRole, "Failed", cur?.ChapterId));
             await _state.PersistRunFinishedAsync(bookId, AgentRunPersistStatus.Failed);
-            await _notifier.NotifyStatusChangedAsync(bookId, failedRole, "Failed", CancellationToken.None);
+            await _notifier.NotifyStatusChangedAsync(bookId, failedRole, "Failed", cur?.ChapterId, CancellationToken.None);
             await ReportAgentErrorAsync(bookId, failedRole, cur?.ChapterId,
                 $"Request cancelled unexpectedly — possible LLM timeout or connection issue. Detail: {ex.Message}");
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow failed (request cancelled).", true, CancellationToken.None);
@@ -273,7 +273,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             var failedRole = cur?.Role ?? role;
             _state.SetStatus(bookId, new AgentRunStatus(failedRole, "Failed", cur?.ChapterId));
             await _state.PersistRunFinishedAsync(bookId, AgentRunPersistStatus.Failed);
-            await _notifier.NotifyStatusChangedAsync(bookId, failedRole, "Failed", CancellationToken.None);
+            await _notifier.NotifyStatusChangedAsync(bookId, failedRole, "Failed", cur?.ChapterId, CancellationToken.None);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow failed.", true, CancellationToken.None);
             await ReportAgentErrorAsync(bookId, failedRole, cur?.ChapterId, $"{failedRole} failed: {ex.Message}");
             _logger.LogError(ex, "[Book {BookId}] {Role} failed.", bookId, role);
@@ -386,7 +386,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         var book = await _repo.GetByIdWithDetailsAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
 
-        await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, "Running", ct);
+        await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, "Running", ct: ct);
 
         bool isContinuation = skipStoryBible || skipCharacters || skipPlotThreads || skipChapters;
 
@@ -502,7 +502,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             }
         }
 
-        await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, "Done", ct);
+        await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, "Done", ct: ct);
         return chapters;
     }
 

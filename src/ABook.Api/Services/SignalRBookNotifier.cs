@@ -23,8 +23,8 @@ public class SignalRBookNotifier : IBookNotifier
     public Task NotifyQuestionAsync(int bookId, AgentMessage message, CancellationToken ct = default) =>
         _hub.Clients.Group(bookId.ToString()).SendAsync("AgentQuestion", bookId, message, ct);
 
-    public Task NotifyStatusChangedAsync(int bookId, AgentRole role, string state, CancellationToken ct = default) =>
-        _hub.Clients.Group(bookId.ToString()).SendAsync("AgentStatusChanged", bookId, role.ToString(), state, ct);
+    public Task NotifyStatusChangedAsync(int bookId, AgentRole role, string state, int? chapterId = null, CancellationToken ct = default) =>
+        _hub.Clients.Group(bookId.ToString()).SendAsync("AgentStatusChanged", bookId, role.ToString(), state, chapterId, ct);
 
     public Task NotifyChapterUpdatedAsync(int bookId, int chapterId, CancellationToken ct = default) =>
         _hub.Clients.Group(bookId.ToString()).SendAsync("ChapterUpdated", bookId, chapterId, ct);

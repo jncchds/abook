@@ -30,7 +30,7 @@ public class EditorAgent : AgentBase
 
         chapter.Status = ChapterStatus.Editing;
         await Repo.UpdateChapterAsync(chapter);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Running", ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Running", chapterId, ct);
 
         var (kernel, config) = await GetKernelAsync(bookId);
 
@@ -209,6 +209,6 @@ public class EditorAgent : AgentBase
         catch { /* non-fatal — embeddings unavailable */ }
 
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Done", ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Done", chapterId, ct);
     }
 }

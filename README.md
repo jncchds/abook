@@ -1,14 +1,14 @@
 # ABook — Agentic AI Book Writing
 
-ABook is a self-hosted web application that uses AI agents to collaboratively write books. A team of four specialized agents — Planner, Writer, Editor, and Continuity Checker — work together under your direction, streaming their progress in real time and pausing to ask clarifying questions when needed.
+ABook is a self-hosted web application that uses AI agents to collaboratively write books. Seven specialized agents — Story Bible, Characters, Plot Threads, Chapter Outlines, Writer, Editor, and Continuity Checker — work together under your direction, streaming their progress in real time and pausing to ask clarifying questions when needed.
 
 ## Features
 
-- **Four collaborative agents** working through the book pipeline (Plan → Pre-write Check → Write → Continuity Check → Edit)
+- **Seven specialized agents** across two phases: a 4-phase Planner (Story Bible → Characters → Plot Threads → Chapter Outlines) and a 3-agent writing pipeline (Pre-write Check → Write → Check → Edit → final Check) per chapter
 - **Human-assisted generation** — enable a per-book assisted mode that pauses after each planning phase and during chapter checking so you can add optional guidance; optional prompts support **Skip** and pending questions are restored after page refresh
 - **Guided planning Q&A** — agents ask clarifying questions up front before planning begins, then carry your answers through Story Bible, Characters, Plot Threads, and Chapter Outlines
 - **Real-time streaming** — watch chapters being written token by token via SignalR; Story Bible, Characters, and Plot Threads stream to their respective tabs with live progressive JSON previews
-- **Checker → Editor refinement loop** — every chapter goes through repeated Checker/Editor passes (up to 3 editor rounds) until no issues remain or the loop reaches its safety cap
+- **Single Checker → Editor pass** — each chapter is pre-checked for outline contradictions, written, reviewed by the Checker (continuity + style), then edited by the Editor only if issues are found, and finally re-checked in an informational pass; one edit round per chapter
 - **Token usage statistics** — per-agent prompt and completion token counts displayed in a scrollable collapsible panel and persisted to the database; Clear button to reset
 - **RAG context retrieval** — Writer uses 3 targeted queries (characters, locations, plot threads) and Editor uses 4 (same + repeated-phrase detection) against pgvector embeddings to keep chapters consistent and avoid re-introductions
 - **Full synopsis spine** — every prior chapter's title and outline is injected into Writer and Editor user messages so agents can see the narrative shape of the whole book and avoid recycling scene beats, re-describing established characters, or restating established facts
@@ -204,7 +204,7 @@ User creates book (title, premise, genre, target chapters)
          │    before clicking "Continue"
          ▼
   For each chapter:
-  [Continuity Checker]  ── pre-write: auto-fix outline contradictions
+  [Continuity Checker]  ── pre-write: checks outline for contradictions
          │
          ▼
   [Writer Agent]  ── writes full chapter prose
@@ -213,10 +213,10 @@ User creates book (title, premise, genre, target chapters)
     [Checker Agent] ── per-chapter continuity + style review
       │ structured issue report (+ optional author notes in assisted mode)
       ▼
-    [Editor Agent]  ── fixes only the reported issues
-      │ revised chapter + editorial notes
+    [Editor Agent]  ── fixes reported issues (skipped if no issues found)
+      │ revised prose
       ▼
-    [Checker Agent] ── re-checks chapter (loop repeats, max 3 editor rounds)
+    [Checker Agent] ── final informational re-check (no further editing)
       │
       ▼
   [Continuity Checker] ── final full-manuscript pass after all chapters complete

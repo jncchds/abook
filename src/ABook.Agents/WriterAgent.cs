@@ -31,7 +31,7 @@ public class WriterAgent : AgentBase
 
         chapter.Status = ChapterStatus.Writing;
         await Repo.UpdateChapterAsync(chapter);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Writer, "Running", ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Writer, "Running", chapterId, ct);
 
         var (kernel, config) = await GetKernelAsync(bookId);
 
@@ -86,7 +86,7 @@ public class WriterAgent : AgentBase
         var savedVersion = await Repo.AddChapterVersionAsync(version);
 
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Writer, "Done", ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Writer, "Done", chapterId, ct);
 
         // Index chapter version in pgvector for RAG (non-fatal)
         try { await IndexChapterAsync(bookId, chapterId, savedVersion.Id, kernel, config!, ct); }
@@ -249,7 +249,9 @@ public class WriterAgent : AgentBase
                 ChapterId = chapter.Id,
                 AgentRole = AgentRole.Embedder,
                 PromptTokens = indexPromptTokens,
-                CompletionTokens = 0
+                CompletionTokens = 0,
+                Endpoint = config.Endpoint,
+                ModelName = config.EmbeddingModelName
             });
         }
         catch { /* non-fatal */ }

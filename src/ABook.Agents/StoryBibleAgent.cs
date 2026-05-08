@@ -27,7 +27,7 @@ public class StoryBibleAgent : AgentBase
     {
         var bookId = book.Id;
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 1/4 - Story Bible...", false, ct);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.StoryBibleAgent, "Running", ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.StoryBibleAgent, "Running", ct: ct);
 
         var (kernel, config) = await GetKernelAsync(bookId);
         var history = new ChatHistory();
@@ -93,7 +93,7 @@ public class StoryBibleAgent : AgentBase
 
         book.StoryBibleStatus = PlanningPhaseStatus.Complete;
         await Repo.UpdateAsync(book);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.StoryBibleAgent, "Done", ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.StoryBibleAgent, "Done", ct: ct);
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Story Bible saved. (complete)", false, ct);
         return saved;
     }

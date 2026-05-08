@@ -33,7 +33,7 @@ public class ContinuityCheckerAgent : AgentBase
         var chapter = await Repo.GetChapterAsync(bookId, chapterId)
             ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
 
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Running", ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Running", chapterId, ct);
 
         var (kernel, config) = await GetKernelAsync(bookId);
         var establishedFacts = await BuildEstablishedFactsAsync(bookId, chapter);
@@ -66,7 +66,7 @@ public class ContinuityCheckerAgent : AgentBase
 
         if (detectResponse.Trim().StartsWith("No issues found", StringComparison.OrdinalIgnoreCase))
         {
-            await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", ct);
+            await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", chapterId, ct);
             return;
         }
 
@@ -116,7 +116,7 @@ public class ContinuityCheckerAgent : AgentBase
             });
         }
 
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", chapterId, ct);
     }
 
     /// <summary>
@@ -130,14 +130,14 @@ public class ContinuityCheckerAgent : AgentBase
         var book = await Repo.GetByIdWithDetailsAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
 
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Running", ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Running", chapterId, ct);
 
         var (kernel, config) = await GetKernelAsync(bookId);
         var doneChapters = book.Chapters.Where(c => c.Status == ChapterStatus.Done || c.Status == ChapterStatus.Review).ToList();
 
         if (doneChapters.Count == 0)
         {
-            await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", ct);
+            await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", chapterId, ct);
             return new CheckerResult(false, [], "No chapters to review.");
         }
 
@@ -275,7 +275,7 @@ public class ContinuityCheckerAgent : AgentBase
             IsResolved = false
         });
 
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", chapterId, ct);
         return result;
     }
 
