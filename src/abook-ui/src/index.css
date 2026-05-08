@@ -298,8 +298,6 @@ label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bot
 
 /* Sidebar chapter list */
 .sidebar-chapters {
-  overflow-y: auto;
-  max-height: 300px;
   padding: 2px 0;
 }
 .sidebar-ch-item {
@@ -321,10 +319,6 @@ label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bot
 .app-sidebar.collapsed .sidebar-chapters { display: none; }
 
 /* Sidebar book list (Dashboard) */
-.sidebar-book-list {
-  overflow-y: auto;
-  max-height: calc(100vh - 260px);
-}
 .sidebar-book-entry {
   display: flex;
   align-items: flex-start;

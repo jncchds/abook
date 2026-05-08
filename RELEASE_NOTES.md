@@ -1,5 +1,9 @@
 # Release Notes
 
+## v0.1.1 — 2026-05-08
+
+- fix: chapter list and book list in the sidebar now scroll with the panel instead of having their own nested scrollbars
+
 ## v0.1.0 — 2026-05-08
 
 Initial public release.
