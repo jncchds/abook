@@ -30,7 +30,18 @@ export default function Sidebar({ hasPendingQuestion, children, bottomChildren }
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           <span className="s-icon">☰</span>
-          {!collapsed && <span className="s-label">ABook</span>}
+          {!collapsed && (
+            <>
+              <span className="s-label">ABook</span>
+              <a
+                href="https://github.com/jncchds/abook"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="version-pill"
+                onClick={e => e.stopPropagation()}
+              >v{__APP_VERSION__}</a>
+            </>
+          )}
           {hasPendingQuestion && <span className="s-pending-dot" title="Agent waiting for your answer" />}
         </button>
       </div>

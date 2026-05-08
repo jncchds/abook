@@ -4,6 +4,7 @@ WORKDIR /ui
 COPY src/abook-ui/package*.json ./
 RUN npm ci
 COPY src/abook-ui/ ./
+COPY VERSION /VERSION
 # Build to ./dist (override the dev outDir pointing to ASP.NET wwwroot)
 RUN npx vite build --outDir ./dist --emptyOutDir
 

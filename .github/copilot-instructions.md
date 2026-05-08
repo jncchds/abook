@@ -49,3 +49,17 @@ After every change — whether to .NET (C#) or TypeScript/React code — check f
 - **TypeScript**: run `npm run build` (or `npx tsc --noEmit`) inside `src/abook-ui`; resolve all type errors.
 
 Do not leave a codebase in a broken state. If a change introduces errors in files outside the directly edited file, fix those too.
+
+## Versioning
+
+This project uses semantic versioning (`MAJOR.MINOR.PATCH`). The authoritative version lives in the `VERSION` file at the repo root.
+
+**Every commit that changes code or behaviour must:**
+1. Increment the **patch** number in `VERSION` (e.g. `0.1.3` → `0.1.4`).
+2. Add a bullet point describing the change under a new `## v{version} — {date}` heading in `RELEASE_NOTES.md`. Use today's date in `YYYY-MM-DD` format.
+
+**Only when the user explicitly instructs it:**
+- Increment the **minor** number and reset patch to 0 (e.g. `0.1.4` → `0.2.0`) for new features or significant improvements.
+- Increment the **major** number and reset minor+patch to 0 (e.g. `0.2.0` → `1.0.0`) for breaking changes or major milestones.
+
+Do not bump the version or add a release note entry for changes that are not committed (e.g. work-in-progress edits within a single task).
