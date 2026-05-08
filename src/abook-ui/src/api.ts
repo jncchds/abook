@@ -242,17 +242,43 @@ export interface CharacterCard {
   arc: string
   firstAppearanceChapterNumber?: number | null
   notes: string
+  isArchived?: boolean
   createdAt?: string
   updatedAt?: string
 }
-export const getCharacters = (bookId: number) =>
-  api.get<CharacterCard[]>(`/books/${bookId}/characters`)
+export interface CharacterCardVersion {
+  id: number
+  characterCardId: number
+  bookId: number
+  versionNumber: number
+  name: string
+  role: string
+  physicalDescription: string
+  personality: string
+  backstory: string
+  goalMotivation: string
+  arc: string
+  firstAppearanceChapterNumber?: number | null
+  notes: string
+  createdBy: string
+  createdAt: string
+}
+export const getCharacters = (bookId: number, includeArchived = false) =>
+  api.get<CharacterCard[]>(`/books/${bookId}/characters${includeArchived ? '?includeArchived=true' : ''}`)
 export const createCharacter = (bookId: number, data: Omit<CharacterCard, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
   api.post<CharacterCard>(`/books/${bookId}/characters`, data)
 export const updateCharacter = (bookId: number, cardId: number, data: Omit<CharacterCard, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
   api.put<CharacterCard>(`/books/${bookId}/characters/${cardId}`, data)
+export const archiveCharacter = (bookId: number, cardId: number) =>
+  api.post(`/books/${bookId}/characters/${cardId}/archive`)
+export const unarchiveCharacter = (bookId: number, cardId: number) =>
+  api.post<CharacterCard>(`/books/${bookId}/characters/${cardId}/unarchive`)
 export const deleteCharacter = (bookId: number, cardId: number) =>
   api.delete(`/books/${bookId}/characters/${cardId}`)
+export const getCharacterHistory = (bookId: number, cardId: number) =>
+  api.get<CharacterCardVersion[]>(`/books/${bookId}/characters/${cardId}/history`)
+export const restoreCharacterVersion = (bookId: number, cardId: number, versionId: number) =>
+  api.post<CharacterCard>(`/books/${bookId}/characters/${cardId}/history/${versionId}/restore`)
 
 // Plot Threads
 export interface PlotThread {
@@ -264,17 +290,40 @@ export interface PlotThread {
   introducedChapterNumber?: number | null
   resolvedChapterNumber?: number | null
   status: string
+  isArchived?: boolean
   createdAt?: string
   updatedAt?: string
 }
-export const getPlotThreads = (bookId: number) =>
-  api.get<PlotThread[]>(`/books/${bookId}/plot-threads`)
+export interface PlotThreadVersion {
+  id: number
+  plotThreadId: number
+  bookId: number
+  versionNumber: number
+  name: string
+  description: string
+  type: string
+  introducedChapterNumber?: number | null
+  resolvedChapterNumber?: number | null
+  status: string
+  createdBy: string
+  createdAt: string
+}
+export const getPlotThreads = (bookId: number, includeArchived = false) =>
+  api.get<PlotThread[]>(`/books/${bookId}/plot-threads${includeArchived ? '?includeArchived=true' : ''}`)
 export const createPlotThread = (bookId: number, data: Omit<PlotThread, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
   api.post<PlotThread>(`/books/${bookId}/plot-threads`, data)
 export const updatePlotThread = (bookId: number, threadId: number, data: Omit<PlotThread, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
   api.put<PlotThread>(`/books/${bookId}/plot-threads/${threadId}`, data)
+export const archivePlotThread = (bookId: number, threadId: number) =>
+  api.post(`/books/${bookId}/plot-threads/${threadId}/archive`)
+export const unarchivePlotThread = (bookId: number, threadId: number) =>
+  api.post<PlotThread>(`/books/${bookId}/plot-threads/${threadId}/unarchive`)
 export const deletePlotThread = (bookId: number, threadId: number) =>
   api.delete(`/books/${bookId}/plot-threads/${threadId}`)
+export const getPlotThreadHistory = (bookId: number, threadId: number) =>
+  api.get<PlotThreadVersion[]>(`/books/${bookId}/plot-threads/${threadId}/history`)
+export const restorePlotThreadVersion = (bookId: number, threadId: number, versionId: number) =>
+  api.post<PlotThread>(`/books/${bookId}/plot-threads/${threadId}/history/${versionId}/restore`)
 
 // LLM Presets
 export interface LlmPreset {

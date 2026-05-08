@@ -138,7 +138,7 @@ public class ContinuityCheckerAgent : AgentBase
         if (doneChapters.Count == 0)
         {
             await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", ct);
-            return new CheckerResult(false, [], [], "No chapters to review.");
+            return new CheckerResult(false, [], "No chapters to review.");
         }
 
         var currentChapter = chapterId.HasValue
@@ -242,23 +242,25 @@ public class ContinuityCheckerAgent : AgentBase
         }
         history.AddUserMessage(userMessage);
 
-        var responseJson = await StreamResponseAsync(kernel, config, history, bookId, null, AgentRole.ContinuityChecker, ct, jsonMode: true, suspiciousThreshold: 0);
+        // Use non-streaming completion — JSON output must never be streamed to the UI
+        var responseJson = await GetCompletionAsync(kernel, config, history, ct,
+            bookId: bookId, chapterId: null, role: AgentRole.ContinuityChecker, jsonMode: true);
 
         // Parse structured JSON result; gracefully degrade on parse failure
         CheckerResult result;
         try
         {
             var dto = System.Text.Json.JsonSerializer.Deserialize<CheckerResultDto>(responseJson, _jsonOptions);
-            result = new CheckerResult(
-                dto?.HasIssues ?? false,
-                dto?.ContinuityIssues ?? [],
-                dto?.StyleIssues ?? [],
-                dto?.Summary ?? string.Empty);
+            var issues = dto?.Issues?.Select(i => new CheckerIssue(
+                i.Type ?? "continuity",
+                i.Description ?? string.Empty,
+                i.ProposedFix ?? string.Empty)).ToArray() ?? [];
+            result = new CheckerResult(dto?.HasIssues ?? false, issues, dto?.Summary ?? string.Empty);
         }
         catch
         {
             Logger.LogWarning("[Book {BookId}] Checker response was not valid JSON — treating as issues found.", bookId);
-            result = new CheckerResult(true, [], [], responseJson.Trim());
+            result = new CheckerResult(true, [], responseJson.Trim());
         }
 
         // Persist formatted report so it is readable in the chat panel
@@ -282,17 +284,29 @@ public class ContinuityCheckerAgent : AgentBase
         sb.AppendLine(result.HasIssues ? "⚠️ Issues found." : "✅ No issues found.");
         if (!string.IsNullOrWhiteSpace(result.Summary))
             sb.AppendLine($"\n{result.Summary}");
-        if (result.ContinuityIssues.Length > 0)
+
+        var continuityIssues = result.Issues.Where(i => i.Type == "continuity").ToArray();
+        var styleIssues = result.Issues.Where(i => i.Type == "style").ToArray();
+
+        if (continuityIssues.Length > 0)
         {
             sb.AppendLine("\n### Continuity Issues");
-            foreach (var issue in result.ContinuityIssues)
-                sb.AppendLine($"- {issue}");
+            foreach (var issue in continuityIssues)
+            {
+                sb.AppendLine($"- **{issue.Description}**");
+                if (!string.IsNullOrWhiteSpace(issue.ProposedFix))
+                    sb.AppendLine($"  → Fix: {issue.ProposedFix}");
+            }
         }
-        if (result.StyleIssues.Length > 0)
+        if (styleIssues.Length > 0)
         {
             sb.AppendLine("\n### Style Issues");
-            foreach (var issue in result.StyleIssues)
-                sb.AppendLine($"- {issue}");
+            foreach (var issue in styleIssues)
+            {
+                sb.AppendLine($"- **{issue.Description}**");
+                if (!string.IsNullOrWhiteSpace(issue.ProposedFix))
+                    sb.AppendLine($"  → Fix: {issue.ProposedFix}");
+            }
         }
         return sb.ToString().Trim();
     }
@@ -303,11 +317,17 @@ public class ContinuityCheckerAgent : AgentBase
         PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
     };
 
+    private sealed class CheckerIssueDto
+    {
+        public string Type { get; set; } = "continuity";
+        public string Description { get; set; } = string.Empty;
+        public string ProposedFix { get; set; } = string.Empty;
+    }
+
     private sealed class CheckerResultDto
     {
         public bool HasIssues { get; set; }
-        public string[] ContinuityIssues { get; set; } = [];
-        public string[] StyleIssues { get; set; } = [];
+        public CheckerIssueDto[] Issues { get; set; } = [];
         public string Summary { get; set; } = string.Empty;
     }
 

@@ -69,7 +69,24 @@ public class CharactersAgent : AgentBase
 
         await Repo.DeleteCharacterCardsAsync(bookId);
         foreach (var card in characters)
+        {
             await Repo.AddCharacterCardAsync(card);
+            await Repo.AddCharacterVersionAsync(new ABook.Core.Models.CharacterCardVersion
+            {
+                CharacterCardId = card.Id,
+                BookId = bookId,
+                Name = card.Name,
+                Role = card.Role,
+                PhysicalDescription = card.PhysicalDescription,
+                Personality = card.Personality,
+                Backstory = card.Backstory,
+                GoalMotivation = card.GoalMotivation,
+                Arc = card.Arc,
+                FirstAppearanceChapterNumber = card.FirstAppearanceChapterNumber,
+                Notes = card.Notes,
+                CreatedBy = "agent:Characters",
+            });
+        }
         book.CharactersStatus = PlanningPhaseStatus.Complete;
         await Repo.UpdateAsync(book);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.CharactersAgent, "Done", ct);

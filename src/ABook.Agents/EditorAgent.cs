@@ -74,64 +74,83 @@ public class EditorAgent : AgentBase
 
         var history = new ChatHistory();
         var bible = await Repo.GetStoryBibleAsync(bookId);
-        var systemPrompt = !string.IsNullOrWhiteSpace(book.EditorSystemPrompt)
-            ? InterpolateSystemPrompt(book.EditorSystemPrompt, book, bible)
-            : InterpolateSystemPrompt(DefaultPrompts.Editor, book, bible);
+
+        bool hasCheckerIssues = checkerResult is { HasIssues: true, Issues.Length: > 0 };
+
+        string systemPrompt;
+        if (hasCheckerIssues)
+        {
+            // Surgical mode: apply only the checker's specific fixes, no other changes
+            systemPrompt = InterpolateSystemPrompt(DefaultPrompts.EditorSurgical, book, bible);
+        }
+        else
+        {
+            systemPrompt = !string.IsNullOrWhiteSpace(book.EditorSystemPrompt)
+                ? InterpolateSystemPrompt(book.EditorSystemPrompt, book, bible)
+                : InterpolateSystemPrompt(DefaultPrompts.Editor, book, bible);
+        }
         history.AddSystemMessage(systemPrompt);
 
         // Build fix request from structured checker result and optional human notes
         var sb = new System.Text.StringBuilder();
 
-        // Cross-chapter context at the top so the Editor can catch re-introductions and echoed content
-        if (synopsesBlock.Length > 0)
-        {
-            sb.AppendLine("## Story So Far \u2014 Chapter Synopses");
-            sb.AppendLine(synopsesBlock);
-            sb.AppendLine();
-        }
-        bool hasRagContext = !string.IsNullOrWhiteSpace(charRag) || !string.IsNullOrWhiteSpace(locationRag)
-                          || !string.IsNullOrWhiteSpace(threadRag) || !string.IsNullOrWhiteSpace(phrasesRag);
-        if (hasRagContext)
-        {
-            sb.AppendLine("## Prior Chapter Passages (use to identify re-introductions and repeated content)");
-            if (!string.IsNullOrWhiteSpace(charRag))     { sb.AppendLine("\n### Character Details");                              sb.AppendLine(charRag); }
-            if (!string.IsNullOrWhiteSpace(locationRag)) { sb.AppendLine("\n### Location & Setting Details");                     sb.AppendLine(locationRag); }
-            if (!string.IsNullOrWhiteSpace(threadRag))   { sb.AppendLine("\n### Plot Thread Context");                            sb.AppendLine(threadRag); }
-            if (!string.IsNullOrWhiteSpace(phrasesRag))  { sb.AppendLine("\n### Potentially Repeated Phrases & Descriptions");   sb.AppendLine(phrasesRag); }
-            sb.AppendLine();
-        }
-
-        sb.AppendLine($"Please fix Chapter {chapter.Number}: {chapter.Title}");
-
-        bool hasCheckerIssues = checkerResult is { HasIssues: true };
         if (hasCheckerIssues)
         {
-            if (checkerResult!.ContinuityIssues.Length > 0)
+            // Surgical mode: list each fix as a numbered instruction; skip RAG/synopsis cross-chapter context
+            sb.AppendLine($"Apply the following fixes to Chapter {chapter.Number}: {chapter.Title}");
+            sb.AppendLine();
+            int fixNum = 0;
+            foreach (var issue in checkerResult!.Issues)
             {
-                sb.AppendLine("\n**Continuity issues to fix:**");
-                foreach (var issue in checkerResult.ContinuityIssues)
-                    sb.AppendLine($"- {issue}");
+                fixNum++;
+                sb.AppendLine($"{fixNum}. [{issue.Type}] {issue.Description}");
+                sb.AppendLine($"   \u2192 Apply this fix: {issue.ProposedFix}");
+                sb.AppendLine();
             }
-            if (checkerResult.StyleIssues.Length > 0)
+            if (!string.IsNullOrWhiteSpace(humanAttentionPoints))
             {
-                sb.AppendLine("\n**Style issues to fix:**");
-                foreach (var issue in checkerResult.StyleIssues)
-                    sb.AppendLine($"- {issue}");
+                fixNum++;
+                sb.AppendLine($"{fixNum}. [author note] {humanAttentionPoints.Trim()}");
+                sb.AppendLine();
             }
+            sb.AppendLine($"Original chapter content:");
+            sb.AppendLine(chapter.Content);
         }
-
-        if (!string.IsNullOrWhiteSpace(humanAttentionPoints))
+        else
         {
-            sb.AppendLine("\n**Additional attention points from the author:**");
-            sb.AppendLine(humanAttentionPoints.Trim());
-        }
+            // Creative editing mode: include cross-chapter context for anti-repetition checks
+            if (synopsesBlock.Length > 0)
+            {
+                sb.AppendLine("## Story So Far \u2014 Chapter Synopses");
+                sb.AppendLine(synopsesBlock);
+                sb.AppendLine();
+            }
+            bool hasRagContext = !string.IsNullOrWhiteSpace(charRag) || !string.IsNullOrWhiteSpace(locationRag)
+                              || !string.IsNullOrWhiteSpace(threadRag) || !string.IsNullOrWhiteSpace(phrasesRag);
+            if (hasRagContext)
+            {
+                sb.AppendLine("## Prior Chapter Passages (use to identify re-introductions and repeated content)");
+                if (!string.IsNullOrWhiteSpace(charRag))     { sb.AppendLine("\n### Character Details");                              sb.AppendLine(charRag); }
+                if (!string.IsNullOrWhiteSpace(locationRag)) { sb.AppendLine("\n### Location & Setting Details");                     sb.AppendLine(locationRag); }
+                if (!string.IsNullOrWhiteSpace(threadRag))   { sb.AppendLine("\n### Plot Thread Context");                            sb.AppendLine(threadRag); }
+                if (!string.IsNullOrWhiteSpace(phrasesRag))  { sb.AppendLine("\n### Potentially Repeated Phrases & Descriptions");   sb.AppendLine(phrasesRag); }
+                sb.AppendLine();
+            }
 
-        if (!hasCheckerIssues && string.IsNullOrWhiteSpace(humanAttentionPoints))
-        {
-            sb.AppendLine("\nNo specific issues listed — make only minor polish corrections if needed.");
-        }
+            sb.AppendLine($"Please fix Chapter {chapter.Number}: {chapter.Title}");
 
-        sb.AppendLine($"\nOriginal content:\n{chapter.Content}");
+            if (!string.IsNullOrWhiteSpace(humanAttentionPoints))
+            {
+                sb.AppendLine("\n**Additional attention points from the author:**");
+                sb.AppendLine(humanAttentionPoints.Trim());
+            }
+            else
+            {
+                sb.AppendLine("\nNo specific issues listed \u2014 make only minor polish corrections if needed.");
+            }
+
+            sb.AppendLine($"\nOriginal content:\n{chapter.Content}");
+        }
         history.AddUserMessage(sb.ToString());
 
         var edited = await StreamResponseAsync(kernel, config, history, bookId, chapterId, AgentRole.Editor, ct);

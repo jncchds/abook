@@ -50,9 +50,10 @@ public class ChaptersController : ControllerBase
 
         var contentCleared = string.IsNullOrEmpty(req.Content) && !string.IsNullOrEmpty(chapter.Content);
         var contentChanged = req.Content != chapter.Content && !string.IsNullOrEmpty(req.Content);
+        var outlineChanged = req.Title != chapter.Title || req.Outline != chapter.Outline;
 
-        // If content is being updated by the user, save a version snapshot
-        if (contentChanged)
+        // Create a version snapshot if content changed OR if title/outline changed
+        if (contentChanged || (outlineChanged && !contentCleared))
         {
             var version = new ChapterVersion
             {

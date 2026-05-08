@@ -165,8 +165,8 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         })))
     }).catch(() => {})
     getStoryBible(bookId).then(r => setStoryBible(r.data)).catch(() => {})
-    getCharacters(bookId).then(r => setCharacters(r.data)).catch(() => {})
-    getPlotThreads(bookId).then(r => setPlotThreads(r.data)).catch(() => {})
+    getCharacters(bookId, true).then(r => setCharacters(r.data)).catch(() => {})
+    getPlotThreads(bookId, true).then(r => setPlotThreads(r.data)).catch(() => {})
   }, [refreshBook, bookId])
 
   const clearStreams = useCallback(() => {
@@ -212,8 +212,8 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       setStreamingChapterId(null)
       getBook(bookId).then(r => setBook(r.data))
       getStoryBible(bookId).then(r => setStoryBible(r.data)).catch(() => {})
-      getCharacters(bookId).then(r => setCharacters(r.data)).catch(() => {})
-      getPlotThreads(bookId).then(r => setPlotThreads(r.data)).catch(() => {})
+      getCharacters(bookId, true).then(r => setCharacters(r.data)).catch(() => {})
+      getPlotThreads(bookId, true).then(r => setPlotThreads(r.data)).catch(() => {})
       void cId
     })
     setOnWorkflowProgress((_bId, step, isComplete) => {
@@ -230,10 +230,10 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         getStoryBible(bookId).then(r => setStoryBible(r.data)).catch(() => {})
       } else if (step.includes('Phase 3/4')) {
         setCharactersStream('')
-        getCharacters(bookId).then(r => setCharacters(r.data)).catch(() => {})
+        getCharacters(bookId, true).then(r => setCharacters(r.data)).catch(() => {})
       } else if (step.includes('Phase 4/4')) {
         setPlotThreadsStream('')
-        getPlotThreads(bookId).then(r => setPlotThreads(r.data)).catch(() => {})
+        getPlotThreads(bookId, true).then(r => setPlotThreads(r.data)).catch(() => {})
       }
     })
     setOnTokenStats((_bId, cId, role, prompt, completion) => {

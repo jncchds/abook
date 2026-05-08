@@ -78,7 +78,21 @@ public class PlotThreadsAgent : AgentBase
 
         await Repo.DeletePlotThreadsAsync(bookId);
         foreach (var thread in threads)
+        {
             await Repo.AddPlotThreadAsync(thread);
+            await Repo.AddPlotThreadVersionAsync(new ABook.Core.Models.PlotThreadVersion
+            {
+                PlotThreadId = thread.Id,
+                BookId = bookId,
+                Name = thread.Name,
+                Description = thread.Description,
+                Type = thread.Type,
+                IntroducedChapterNumber = thread.IntroducedChapterNumber,
+                ResolvedChapterNumber = thread.ResolvedChapterNumber,
+                Status = thread.Status,
+                CreatedBy = "agent:PlotThreads",
+            });
+        }
         book.PlotThreadsStatus = PlanningPhaseStatus.Complete;
         await Repo.UpdateAsync(book);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.PlotThreadsAgent, "Done", ct);

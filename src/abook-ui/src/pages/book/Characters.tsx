@@ -1,7 +1,11 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { useBookContext } from '../../contexts/BookContext'
-import { createCharacter, updateCharacter, deleteCharacter, getCharactersHistory, getCharactersSnapshot, restoreCharactersSnapshot } from '../../api'
-import type { CharacterCard, CharactersSnapshotMeta } from '../../api'
+import {
+  createCharacter, updateCharacter, archiveCharacter, unarchiveCharacter,
+  getCharacterHistory, restoreCharacterVersion,
+  getCharactersHistory, getCharactersSnapshot, restoreCharactersSnapshot,
+} from '../../api'
+import type { CharacterCard, CharacterCardVersion, CharactersSnapshotMeta } from '../../api'
 import { parseCharactersStream } from '../../utils/streamParsers'
 import PhaseActionBar from '../../components/PhaseActionBar'
 import { useRestoreStream } from '../../hooks/useRestoreStream'
@@ -15,49 +19,64 @@ export default function Characters() {
   const [editingCharId, setEditingCharId] = useState<number | null>(null)
   const [addingChar, setAddingChar] = useState(false)
   const [charForm, setCharForm] = useState<Partial<CharacterCard>>({})
+  const [showArchived, setShowArchived] = useState(false)
+
   const [showHistory, setShowHistory] = useState(false)
   const [snapshots, setSnapshots] = useState<CharactersSnapshotMeta[]>([])
   const [previewData, setPreviewData] = useState<{ id: number; cards: CharacterCard[] } | null>(null)
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [restoring, setRestoring] = useState(false)
 
+  const [itemHistoryCardId, setItemHistoryCardId] = useState<number | null>(null)
+  const [itemVersions, setItemVersions] = useState<CharacterCardVersion[]>([])
+  const [loadingItemHistory, setLoadingItemHistory] = useState(false)
+  const [restoringVersion, setRestoringVersion] = useState(false)
+
   useRestoreStream(book?.id, isRunning, charactersStream, 'CharactersAgent', undefined, setCharactersStream)
 
   if (!book) return null
 
   const bookId = book.id
+  const activeChars = characters.filter(c => !c.isArchived)
+  const archivedChars = characters.filter(c => c.isArchived)
 
   const handleOpenHistory = async () => {
     setLoadingHistory(true)
-    try {
-      const r = await getCharactersHistory(bookId)
-      setSnapshots(r.data)
-    } finally {
-      setLoadingHistory(false)
-    }
-    setShowHistory(true)
-    setPreviewData(null)
+    try { const r = await getCharactersHistory(bookId); setSnapshots(r.data) }
+    finally { setLoadingHistory(false) }
+    setShowHistory(true); setPreviewData(null)
   }
 
   const handlePreview = async (snapshotId: number) => {
     if (previewData?.id === snapshotId) { setPreviewData(null); return }
     const r = await getCharactersSnapshot(bookId, snapshotId)
-    try {
-      const cards = JSON.parse(r.data.dataJson) as CharacterCard[]
-      setPreviewData({ id: snapshotId, cards })
-    } catch { setPreviewData({ id: snapshotId, cards: [] }) }
+    try { setPreviewData({ id: snapshotId, cards: JSON.parse(r.data.dataJson) as CharacterCard[] }) }
+    catch { setPreviewData({ id: snapshotId, cards: [] }) }
   }
 
   const handleRestore = async (snapshotId: number) => {
     if (!confirm('Restore this snapshot? Current characters will be replaced.')) return
     setRestoring(true)
+    try { const r = await restoreCharactersSnapshot(bookId, snapshotId); setCharacters(r.data); setShowHistory(false) }
+    finally { setRestoring(false) }
+  }
+
+  const handleOpenItemHistory = async (cardId: number) => {
+    if (itemHistoryCardId === cardId) { setItemHistoryCardId(null); return }
+    setLoadingItemHistory(true)
+    try { const r = await getCharacterHistory(bookId, cardId); setItemVersions(r.data) }
+    finally { setLoadingItemHistory(false) }
+    setItemHistoryCardId(cardId)
+  }
+
+  const handleRestoreVersion = async (cardId: number, versionId: number) => {
+    if (!confirm('Restore this version?')) return
+    setRestoringVersion(true)
     try {
-      const r = await restoreCharactersSnapshot(bookId, snapshotId)
-      setCharacters(r.data)
-      setShowHistory(false)
-    } finally {
-      setRestoring(false)
-    }
+      const r = await restoreCharacterVersion(bookId, cardId, versionId)
+      setCharacters(prev => prev.map(c => c.id === cardId ? r.data : c))
+      setItemHistoryCardId(null)
+    } finally { setRestoringVersion(false) }
   }
 
   if (showHistory) {
@@ -71,16 +90,14 @@ export default function Characters() {
         {!loadingHistory && snapshots.length === 0 && <p className="empty">No snapshots yet.</p>}
         <div className="history-list">
           {snapshots.map(s => (
-            <div key={s.id} className={`history-item ${previewData?.id === s.id ? 'history-item-active' : ''}`}>
+            <div key={s.id} className={"history-item" + (previewData?.id === s.id ? ' history-item-active' : '')}>
               <div className="history-item-meta">
                 <span className="history-source-badge">{s.source}</span>
                 <span className="history-reason">{s.reason || 'snapshot'}</span>
                 <span className="history-date">{new Date(s.createdAt).toLocaleString()}</span>
               </div>
               <div className="history-item-actions">
-                <button className="btn-sm btn-ghost" onClick={() => handlePreview(s.id)}>
-                  {previewData?.id === s.id ? 'Hide' : 'Preview'}
-                </button>
+                <button className="btn-sm btn-ghost" onClick={() => handlePreview(s.id)}>{previewData?.id === s.id ? 'Hide' : 'Preview'}</button>
                 <button className="btn-sm" disabled={restoring} onClick={() => handleRestore(s.id)}>Restore</button>
               </div>
               {previewData?.id === s.id && (
@@ -88,7 +105,7 @@ export default function Characters() {
                   {previewData.cards.map((c, i) => (
                     <div key={i} className="history-preview-card">
                       <strong>{c.name}</strong>
-                      <span className={`char-role-badge role-${c.role?.toLowerCase()}`}>{c.role}</span>
+                      <span className={"char-role-badge role-" + c.role?.toLowerCase()}>{c.role}</span>
                       {c.physicalDescription && <p><em>Appearance:</em> {c.physicalDescription}</p>}
                       {c.goalMotivation && <p><em>Goal:</em> {c.goalMotivation}</p>}
                     </div>
@@ -106,7 +123,7 @@ export default function Characters() {
   return (
     <div className="view-content">
       <div className="view-header">
-        <h2>Characters ({characters.length})</h2>
+        <h2>Characters ({activeChars.length}{archivedChars.length > 0 ? ' + ' + archivedChars.length + ' archived' : ''})</h2>
         <button className="btn-sm" onClick={() => { setCharForm({}); setAddingChar(true); setEditingCharId(null) }}>+ Add</button>
       </div>
       <PhaseActionBar phase="characters" onClear={() => setCharacters([])} onHistory={handleOpenHistory} style={{ marginBottom: '1rem' }} />
@@ -126,9 +143,7 @@ export default function Characters() {
             <button onClick={async () => {
               if (!charForm.name?.trim()) return
               const r = await createCharacter(bookId, charForm as CharacterCard)
-              setCharacters(prev => [...prev, r.data])
-              setAddingChar(false)
-              setCharForm({})
+              setCharacters(prev => [...prev, r.data]); setAddingChar(false); setCharForm({})
             }}>Save</button>
             <button className="btn-ghost" onClick={() => { setAddingChar(false); setCharForm({}) }}>Cancel</button>
           </div>
@@ -144,12 +159,10 @@ export default function Characters() {
                 <div className="book-list-card-left">
                   <h3>{c.name}</h3>
                   <div className="blc-meta">
-                    {c.role && <span className={`char-role-badge role-${(c.role as string).toLowerCase()}`}>{c.role as string}</span>}
+                    {c.role && <span className={"char-role-badge role-" + (c.role as string).toLowerCase()}>{c.role as string}</span>}
                   </div>
                   {c.physicalDescription && <p className="blc-premise"><em>Appearance:</em> {c.physicalDescription}</p>}
-                  {c.personality && <p className="blc-premise"><em>Personality:</em> {c.personality}</p>}
                   {c.goalMotivation && <p className="blc-premise"><em>Goal:</em> {c.goalMotivation}</p>}
-                  {c.arc && <p className="blc-premise"><em>Arc:</em> {c.arc}</p>}
                 </div>
               </div>
             ))}
@@ -157,10 +170,10 @@ export default function Characters() {
         )
       })()}
 
-      {characters.length === 0 && !addingChar && !charactersStream && <p className="empty">No characters yet. Run the Planner or add manually.</p>}
+      {activeChars.length === 0 && !addingChar && !charactersStream && <p className="empty">No characters yet. Run the Planner or add manually.</p>}
 
       <div className="book-list">
-        {characters.map(ch => (
+        {activeChars.map(ch => (
           <div key={ch.id} className="book-list-card">
             <div className="book-list-card-left">
               {editingCharId === ch.id ? (
@@ -177,8 +190,7 @@ export default function Characters() {
                     <button onClick={async () => {
                       const r = await updateCharacter(bookId, ch.id, { ...ch, ...charForm } as CharacterCard)
                       setCharacters(prev => prev.map(c => c.id === ch.id ? r.data : c))
-                      setEditingCharId(null)
-                      setCharForm({})
+                      setEditingCharId(null); setCharForm({})
                     }}>Save</button>
                     <button className="btn-ghost" onClick={() => { setEditingCharId(null); setCharForm({}) }}>Cancel</button>
                   </div>
@@ -187,28 +199,87 @@ export default function Characters() {
                 <>
                   <h3>{ch.name}</h3>
                   <div className="blc-meta">
-                    <span className={`char-role-badge role-${ch.role?.toLowerCase()}`}>{ch.role}</span>
+                    <span className={"char-role-badge role-" + ch.role?.toLowerCase()}>{ch.role}</span>
                   </div>
                   {ch.physicalDescription && <p className="blc-premise"><em>Appearance:</em> {ch.physicalDescription}</p>}
                   {ch.personality && <p className="blc-premise"><em>Personality:</em> {ch.personality}</p>}
                   {ch.goalMotivation && <p className="blc-premise"><em>Goal:</em> {ch.goalMotivation}</p>}
                   {ch.arc && <p className="blc-premise"><em>Arc:</em> {ch.arc}</p>}
+                  {itemHistoryCardId === ch.id && (
+                    <div className="item-history-panel">
+                      <div className="history-panel-header" style={{ marginTop: '0.75rem' }}>
+                        <strong>📜 Version History</strong>
+                        <button className="btn-sm btn-ghost" onClick={() => setItemHistoryCardId(null)}>✕</button>
+                      </div>
+                      {loadingItemHistory && <p className="empty">Loading…</p>}
+                      {!loadingItemHistory && itemVersions.length === 0 && <p className="empty">No versions yet.</p>}
+                      <div className="history-list">
+                        {itemVersions.map(v => (
+                          <div key={v.id} className="history-item">
+                            <div className="history-item-meta">
+                              <span className="history-source-badge">v{v.versionNumber}</span>
+                              <span className="history-reason">{v.createdBy}</span>
+                              <span className="history-date">{new Date(v.createdAt).toLocaleString()}</span>
+                            </div>
+                            <div className="history-preview-card" style={{ marginTop: '0.25rem' }}>
+                              <strong>{v.name}</strong>
+                              <span className={"char-role-badge role-" + v.role?.toLowerCase()}>{v.role}</span>
+                              {v.goalMotivation && <p><em>Goal:</em> {v.goalMotivation}</p>}
+                            </div>
+                            <div className="history-item-actions">
+                              <button className="btn-sm" disabled={restoringVersion}
+                                onClick={() => handleRestoreVersion(ch.id, v.id)}>↩ Restore</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>
             {editingCharId !== ch.id && (
               <div className="book-list-card-right">
                 <button className="btn-icon" title="Edit" onClick={() => { setCharForm({}); setEditingCharId(ch.id); setAddingChar(false) }}>✎</button>
-                <button className="btn-icon btn-danger" title="Delete" onClick={async () => {
-                  if (!confirm(`Delete character "${ch.name}"?`)) return
-                  await deleteCharacter(bookId, ch.id)
-                  setCharacters(prev => prev.filter(c => c.id !== ch.id))
-                }}>✕</button>
+                <button className="btn-icon" title="Version History" onClick={() => handleOpenItemHistory(ch.id)}>📜</button>
+                <button className="btn-icon" title="Archive" onClick={async () => {
+                  await archiveCharacter(bookId, ch.id)
+                  setCharacters(prev => prev.map(c => c.id === ch.id ? { ...c, isArchived: true } : c))
+                }}>🗄</button>
               </div>
             )}
           </div>
         ))}
       </div>
+
+      {archivedChars.length > 0 && (
+        <div style={{ marginTop: '1.5rem' }}>
+          <button className="btn-sm btn-ghost" onClick={() => setShowArchived(v => !v)}>
+            {showArchived ? '▲ Hide archived' : '▼ Show archived (' + archivedChars.length + ')'}
+          </button>
+          {showArchived && (
+            <div className="book-list" style={{ marginTop: '0.5rem', opacity: 0.6 }}>
+              {archivedChars.map(ch => (
+                <div key={ch.id} className="book-list-card">
+                  <div className="book-list-card-left">
+                    <h3>{ch.name} <span className="history-source-badge">archived</span></h3>
+                    <div className="blc-meta">
+                      <span className={"char-role-badge role-" + ch.role?.toLowerCase()}>{ch.role}</span>
+                    </div>
+                    {ch.goalMotivation && <p className="blc-premise"><em>Goal:</em> {ch.goalMotivation}</p>}
+                  </div>
+                  <div className="book-list-card-right">
+                    <button className="btn-sm" title="Unarchive" onClick={async () => {
+                      const r = await unarchiveCharacter(bookId, ch.id)
+                      setCharacters(prev => prev.map(c => c.id === ch.id ? r.data : c))
+                    }}>♻ Restore</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

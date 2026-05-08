@@ -352,6 +352,9 @@ public class BookRepository : IBookRepository
     // ── Character Cards ───────────────────────────────────────────────────────
 
     public async Task<IEnumerable<CharacterCard>> GetCharacterCardsAsync(int bookId) =>
+        await _db.CharacterCards.Where(c => c.BookId == bookId && !c.IsArchived).OrderBy(c => c.Name).ToListAsync();
+
+    public async Task<IEnumerable<CharacterCard>> GetAllCharacterCardsAsync(int bookId) =>
         await _db.CharacterCards.Where(c => c.BookId == bookId).OrderBy(c => c.Name).ToListAsync();
 
     public async Task<CharacterCard?> GetCharacterCardAsync(int bookId, int cardId) =>
@@ -372,6 +375,28 @@ public class BookRepository : IBookRepository
         await _db.SaveChangesAsync();
     }
 
+    public async Task ArchiveCharacterCardAsync(int bookId, int cardId)
+    {
+        var card = await _db.CharacterCards.FirstOrDefaultAsync(c => c.BookId == bookId && c.Id == cardId);
+        if (card is not null)
+        {
+            card.IsArchived = true;
+            card.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+        }
+    }
+
+    public async Task UnarchiveCharacterCardAsync(int bookId, int cardId)
+    {
+        var card = await _db.CharacterCards.FirstOrDefaultAsync(c => c.BookId == bookId && c.Id == cardId);
+        if (card is not null)
+        {
+            card.IsArchived = false;
+            card.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+        }
+    }
+
     public async Task DeleteCharacterCardAsync(int bookId, int cardId)
     {
         var card = await _db.CharacterCards.FirstOrDefaultAsync(c => c.BookId == bookId && c.Id == cardId);
@@ -389,9 +414,75 @@ public class BookRepository : IBookRepository
         await _db.SaveChangesAsync();
     }
 
+    // ── Character Card Versions ───────────────────────────────────────────────
+
+    public async Task<CharacterCardVersion> AddCharacterVersionAsync(CharacterCardVersion version)
+    {
+        var maxVersion = await _db.CharacterCardVersions
+            .Where(v => v.CharacterCardId == version.CharacterCardId)
+            .MaxAsync(v => (int?)v.VersionNumber) ?? 0;
+        version.VersionNumber = maxVersion + 1;
+        version.CreatedAt = DateTime.UtcNow;
+        _db.CharacterCardVersions.Add(version);
+        await _db.SaveChangesAsync();
+        return version;
+    }
+
+    public async Task<IEnumerable<CharacterCardVersion>> GetCharacterVersionsAsync(int bookId, int cardId) =>
+        await _db.CharacterCardVersions
+            .Where(v => v.BookId == bookId && v.CharacterCardId == cardId)
+            .OrderByDescending(v => v.VersionNumber)
+            .ToListAsync();
+
+    public async Task<CharacterCardVersion?> GetCharacterVersionAsync(int bookId, int cardId, int versionId) =>
+        await _db.CharacterCardVersions.FirstOrDefaultAsync(v => v.BookId == bookId && v.CharacterCardId == cardId && v.Id == versionId);
+
+    public async Task<CharacterCard> RestoreCharacterVersionAsync(int bookId, int cardId, int versionId)
+    {
+        var version = await GetCharacterVersionAsync(bookId, cardId, versionId)
+            ?? throw new InvalidOperationException($"Character version {versionId} not found.");
+        var card = await _db.CharacterCards.FirstOrDefaultAsync(c => c.BookId == bookId && c.Id == cardId)
+            ?? throw new InvalidOperationException($"Character card {cardId} not found.");
+
+        card.Name = version.Name;
+        card.Role = version.Role;
+        card.PhysicalDescription = version.PhysicalDescription;
+        card.Personality = version.Personality;
+        card.Backstory = version.Backstory;
+        card.GoalMotivation = version.GoalMotivation;
+        card.Arc = version.Arc;
+        card.FirstAppearanceChapterNumber = version.FirstAppearanceChapterNumber;
+        card.Notes = version.Notes;
+        card.IsArchived = false;
+        card.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        // Record the restore as a new version
+        await AddCharacterVersionAsync(new CharacterCardVersion
+        {
+            CharacterCardId = cardId,
+            BookId = bookId,
+            Name = card.Name,
+            Role = card.Role,
+            PhysicalDescription = card.PhysicalDescription,
+            Personality = card.Personality,
+            Backstory = card.Backstory,
+            GoalMotivation = card.GoalMotivation,
+            Arc = card.Arc,
+            FirstAppearanceChapterNumber = card.FirstAppearanceChapterNumber,
+            Notes = card.Notes,
+            CreatedBy = $"restore:v{version.VersionNumber}",
+        });
+
+        return card;
+    }
+
     // ── Plot Threads ──────────────────────────────────────────────────────────
 
     public async Task<IEnumerable<PlotThread>> GetPlotThreadsAsync(int bookId) =>
+        await _db.PlotThreads.Where(p => p.BookId == bookId && !p.IsArchived).OrderBy(p => p.IntroducedChapterNumber).ThenBy(p => p.Name).ToListAsync();
+
+    public async Task<IEnumerable<PlotThread>> GetAllPlotThreadsAsync(int bookId) =>
         await _db.PlotThreads.Where(p => p.BookId == bookId).OrderBy(p => p.IntroducedChapterNumber).ThenBy(p => p.Name).ToListAsync();
 
     public async Task<PlotThread?> GetPlotThreadAsync(int bookId, int threadId) =>
@@ -412,6 +503,28 @@ public class BookRepository : IBookRepository
         await _db.SaveChangesAsync();
     }
 
+    public async Task ArchivePlotThreadAsync(int bookId, int threadId)
+    {
+        var thread = await _db.PlotThreads.FirstOrDefaultAsync(p => p.BookId == bookId && p.Id == threadId);
+        if (thread is not null)
+        {
+            thread.IsArchived = true;
+            thread.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+        }
+    }
+
+    public async Task UnarchivePlotThreadAsync(int bookId, int threadId)
+    {
+        var thread = await _db.PlotThreads.FirstOrDefaultAsync(p => p.BookId == bookId && p.Id == threadId);
+        if (thread is not null)
+        {
+            thread.IsArchived = false;
+            thread.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+        }
+    }
+
     public async Task DeletePlotThreadAsync(int bookId, int threadId)
     {
         var thread = await _db.PlotThreads.FirstOrDefaultAsync(p => p.BookId == bookId && p.Id == threadId);
@@ -427,6 +540,63 @@ public class BookRepository : IBookRepository
         var threads = await _db.PlotThreads.Where(p => p.BookId == bookId).ToListAsync();
         _db.PlotThreads.RemoveRange(threads);
         await _db.SaveChangesAsync();
+    }
+
+    // ── Plot Thread Versions ──────────────────────────────────────────────────
+
+    public async Task<PlotThreadVersion> AddPlotThreadVersionAsync(PlotThreadVersion version)
+    {
+        var maxVersion = await _db.PlotThreadVersions
+            .Where(v => v.PlotThreadId == version.PlotThreadId)
+            .MaxAsync(v => (int?)v.VersionNumber) ?? 0;
+        version.VersionNumber = maxVersion + 1;
+        version.CreatedAt = DateTime.UtcNow;
+        _db.PlotThreadVersions.Add(version);
+        await _db.SaveChangesAsync();
+        return version;
+    }
+
+    public async Task<IEnumerable<PlotThreadVersion>> GetPlotThreadVersionsAsync(int bookId, int threadId) =>
+        await _db.PlotThreadVersions
+            .Where(v => v.BookId == bookId && v.PlotThreadId == threadId)
+            .OrderByDescending(v => v.VersionNumber)
+            .ToListAsync();
+
+    public async Task<PlotThreadVersion?> GetPlotThreadVersionAsync(int bookId, int threadId, int versionId) =>
+        await _db.PlotThreadVersions.FirstOrDefaultAsync(v => v.BookId == bookId && v.PlotThreadId == threadId && v.Id == versionId);
+
+    public async Task<PlotThread> RestorePlotThreadVersionAsync(int bookId, int threadId, int versionId)
+    {
+        var version = await GetPlotThreadVersionAsync(bookId, threadId, versionId)
+            ?? throw new InvalidOperationException($"Plot thread version {versionId} not found.");
+        var thread = await _db.PlotThreads.FirstOrDefaultAsync(p => p.BookId == bookId && p.Id == threadId)
+            ?? throw new InvalidOperationException($"Plot thread {threadId} not found.");
+
+        thread.Name = version.Name;
+        thread.Description = version.Description;
+        thread.Type = version.Type;
+        thread.IntroducedChapterNumber = version.IntroducedChapterNumber;
+        thread.ResolvedChapterNumber = version.ResolvedChapterNumber;
+        thread.Status = version.Status;
+        thread.IsArchived = false;
+        thread.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        // Record the restore as a new version
+        await AddPlotThreadVersionAsync(new PlotThreadVersion
+        {
+            PlotThreadId = threadId,
+            BookId = bookId,
+            Name = thread.Name,
+            Description = thread.Description,
+            Type = thread.Type,
+            IntroducedChapterNumber = thread.IntroducedChapterNumber,
+            ResolvedChapterNumber = thread.ResolvedChapterNumber,
+            Status = thread.Status,
+            CreatedBy = $"restore:v{version.VersionNumber}",
+        });
+
+        return thread;
     }
 
     // ── Agent Runs ────────────────────────────────────────────────────────────

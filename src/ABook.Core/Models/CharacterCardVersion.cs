@@ -1,9 +1,17 @@
 namespace ABook.Core.Models;
 
-public class CharacterCard
+/// <summary>
+/// Immutable snapshot of a <see cref="CharacterCard"/> at a specific point in time.
+/// A new version is created on every user edit and on initial agent generation.
+/// </summary>
+public class CharacterCardVersion
 {
     public int Id { get; set; }
+    public int CharacterCardId { get; set; }
     public int BookId { get; set; }
+    public int VersionNumber { get; set; }
+
+    // Snapshot of all CharacterCard fields at this version
     public string Name { get; set; } = string.Empty;
     public CharacterRole Role { get; set; } = CharacterRole.Supporting;
     public string PhysicalDescription { get; set; } = string.Empty;
@@ -13,9 +21,11 @@ public class CharacterCard
     public string Arc { get; set; } = string.Empty;
     public int? FirstAppearanceChapterNumber { get; set; }
     public string Notes { get; set; } = string.Empty;
-    public bool IsArchived { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public DateTime UpdatedAt { get; set; }
 
-    public Book Book { get; set; } = null!;
+    /// <summary>"user", "agent:Characters", "restore"</summary>
+    public string CreatedBy { get; set; } = string.Empty;
+
+    public DateTime CreatedAt { get; set; }
+
+    public CharacterCard CharacterCard { get; set; } = null!;
 }

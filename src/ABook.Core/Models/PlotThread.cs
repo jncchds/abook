@@ -10,6 +10,7 @@ public class PlotThread
     public int? IntroducedChapterNumber { get; set; }
     public int? ResolvedChapterNumber { get; set; }
     public PlotThreadStatus Status { get; set; } = PlotThreadStatus.Active;
+    public bool IsArchived { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

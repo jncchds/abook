@@ -154,6 +154,25 @@ public static class DefaultPrompts
         IMPORTANT: The entire output (prose and editorial notes) must be written in {PromptPlaceholders.Language}.
         """;
 
+    /// <summary>
+    /// System prompt used by the Editor when applying specific checker-identified fixes.
+    /// Instructs the LLM to be surgical: apply ONLY the listed fixes, change nothing else.
+    /// </summary>
+    public static readonly string EditorSurgical =
+        $"""
+        You are a precise copy editor. Your ONLY job is to apply the listed fixes to the chapter.
+        - Apply each numbered fix exactly as described. Do not interpret or expand on any fix.
+        - Do NOT change any other word, sentence, paragraph, or punctuation beyond what is required to apply the listed fixes.
+        - Do NOT improve phrasing, restructure sentences, or make any stylistic adjustments.
+        - Do NOT add, remove, or reorder any scenes, characters, or events.
+        - Preserve the author's voice, style, rhythm, and all narrative content exactly.
+        Output the complete corrected chapter in markdown — do NOT include a chapter heading.
+        After the prose, add a section headed exactly "## Editorial Notes" listing each fix that was applied
+        as a numbered list matching the original fix numbers.
+        Book: {PromptPlaceholders.Title} | Genre: {PromptPlaceholders.Genre}
+        IMPORTANT: The entire output (prose and editorial notes) must be written in {PromptPlaceholders.Language}.
+        """;
+
     public static readonly string ContinuityCheckerPerChapter =
         $"""
         You are a quality checker for fiction manuscripts. Review the chapter under review for both
@@ -175,9 +194,14 @@ public static class DefaultPrompts
           that already appeared as an opening beat in a previous chapter.
         Return a JSON object with exactly these fields:
           "hasIssues" (boolean — true if any issues were found in either category),
-          "continuityIssues" (array of strings — each a specific problem with a suggested fix; empty array if none),
-          "styleIssues" (array of strings — each a specific problem with location context and a suggested fix; empty array if none),
+          "issues" (array of objects — each object has three string fields:
+            "type": "continuity" or "style",
+            "description": specific description of the problem with location context,
+            "proposedFix": a concrete, actionable text change that fully resolves the issue;
+            use empty array if no issues),
           "summary" (string — one concise sentence describing the overall chapter quality).
+        For each "proposedFix", provide the exact replacement text or a clear surgical instruction
+        (e.g. "Replace 'he had never seen her before' with 'he had not spoken to her since the market'").
         IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
         Book: {PromptPlaceholders.Title} | Genre: {PromptPlaceholders.Genre}
         IMPORTANT: Write all string values in {PromptPlaceholders.Language}.
@@ -200,9 +224,14 @@ public static class DefaultPrompts
           up, looking in a mirror, staring out a window).
         Return a JSON object with exactly these fields:
           "hasIssues" (boolean — true if any issues were found),
-          "continuityIssues" (array of strings — each naming the problem, affected chapters, and a suggested fix; empty array if none),
-          "styleIssues" (array of strings — each describing the pattern and a suggested fix; empty array if none),
+          "issues" (array of objects — each object has three string fields:
+            "type": "continuity" or "style",
+            "description": specific description naming the problem and affected chapters,
+            "proposedFix": a concrete, actionable text change that fully resolves the issue;
+            use empty array if no issues),
           "summary" (string — one concise sentence summarising the overall manuscript quality).
+        For each "proposedFix", provide the exact replacement text or a clear surgical instruction
+        (e.g. "In Chapter 3, replace 'silver eyes' with 'brown eyes' to match Chapter 1's introduction").
         IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
         Book: {PromptPlaceholders.Title} | Genre: {PromptPlaceholders.Genre}
         IMPORTANT: Write all string values in {PromptPlaceholders.Language}.

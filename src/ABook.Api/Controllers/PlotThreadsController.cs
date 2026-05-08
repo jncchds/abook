@@ -1,4 +1,4 @@
-using ABook.Core.Interfaces;
+﻿using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.AspNetCore.Mvc;
 
@@ -13,8 +13,10 @@ public class PlotThreadsController : ControllerBase
     public PlotThreadsController(IBookRepository repo) => _repo = repo;
 
     [HttpGet]
-    public async Task<IActionResult> GetAll(int bookId) =>
-        Ok(await _repo.GetPlotThreadsAsync(bookId));
+    public async Task<IActionResult> GetAll(int bookId, [FromQuery] bool includeArchived = false) =>
+        Ok(includeArchived
+            ? await _repo.GetAllPlotThreadsAsync(bookId)
+            : await _repo.GetPlotThreadsAsync(bookId));
 
     [HttpGet("{threadId:int}")]
     public async Task<IActionResult> GetById(int bookId, int threadId)
@@ -37,6 +39,18 @@ public class PlotThreadsController : ControllerBase
             Status = req.Status
         };
         var created = await _repo.AddPlotThreadAsync(thread);
+        await _repo.AddPlotThreadVersionAsync(new PlotThreadVersion
+        {
+            PlotThreadId = created.Id,
+            BookId = bookId,
+            Name = created.Name,
+            Description = created.Description,
+            Type = created.Type,
+            IntroducedChapterNumber = created.IntroducedChapterNumber,
+            ResolvedChapterNumber = created.ResolvedChapterNumber,
+            Status = created.Status,
+            CreatedBy = "user",
+        });
         return CreatedAtAction(nameof(GetById), new { bookId, threadId = created.Id }, created);
     }
 
@@ -45,17 +59,18 @@ public class PlotThreadsController : ControllerBase
     {
         var thread = await _repo.GetPlotThreadAsync(bookId, threadId);
         if (thread is null) return NotFound();
-
-        // Snapshot current state before overwriting
-        var existing = await _repo.GetPlotThreadsAsync(bookId);
-        await _repo.AddPlotThreadsSnapshotAsync(new ABook.Core.Models.PlotThreadsSnapshot
+        await _repo.AddPlotThreadVersionAsync(new PlotThreadVersion
         {
+            PlotThreadId = threadId,
             BookId = bookId,
-            DataJson = System.Text.Json.JsonSerializer.Serialize(existing),
-            Reason = $"edit:{thread.Name}",
-            Source = "edit",
+            Name = req.Name,
+            Description = req.Description,
+            Type = req.Type,
+            IntroducedChapterNumber = req.IntroducedChapterNumber,
+            ResolvedChapterNumber = req.ResolvedChapterNumber,
+            Status = req.Status,
+            CreatedBy = "user",
         });
-
         thread.Name = req.Name;
         thread.Description = req.Description;
         thread.Type = req.Type;
@@ -66,11 +81,63 @@ public class PlotThreadsController : ControllerBase
         return Ok(thread);
     }
 
+    [HttpPost("{threadId:int}/archive")]
+    public async Task<IActionResult> Archive(int bookId, int threadId)
+    {
+        var thread = await _repo.GetPlotThreadAsync(bookId, threadId);
+        if (thread is null) return NotFound();
+        await _repo.AddPlotThreadVersionAsync(new PlotThreadVersion
+        {
+            PlotThreadId = threadId,
+            BookId = bookId,
+            Name = thread.Name,
+            Description = thread.Description,
+            Type = thread.Type,
+            IntroducedChapterNumber = thread.IntroducedChapterNumber,
+            ResolvedChapterNumber = thread.ResolvedChapterNumber,
+            Status = thread.Status,
+            CreatedBy = "archived",
+        });
+        await _repo.ArchivePlotThreadAsync(bookId, threadId);
+        return NoContent();
+    }
+
+    [HttpPost("{threadId:int}/unarchive")]
+    public async Task<IActionResult> Unarchive(int bookId, int threadId)
+    {
+        var thread = await _repo.GetPlotThreadAsync(bookId, threadId);
+        if (thread is null) return NotFound();
+        await _repo.UnarchivePlotThreadAsync(bookId, threadId);
+        return Ok(await _repo.GetPlotThreadAsync(bookId, threadId));
+    }
+
     [HttpDelete("{threadId:int}")]
     public async Task<IActionResult> Delete(int bookId, int threadId)
     {
         await _repo.DeletePlotThreadAsync(bookId, threadId);
         return NoContent();
+    }
+
+    [HttpGet("{threadId:int}/history")]
+    public async Task<IActionResult> GetItemHistory(int bookId, int threadId)
+    {
+        var thread = await _repo.GetPlotThreadAsync(bookId, threadId);
+        if (thread is null) return NotFound();
+        return Ok(await _repo.GetPlotThreadVersionsAsync(bookId, threadId));
+    }
+
+    [HttpGet("{threadId:int}/history/{versionId:int}")]
+    public async Task<IActionResult> GetItemVersion(int bookId, int threadId, int versionId)
+    {
+        var version = await _repo.GetPlotThreadVersionAsync(bookId, threadId, versionId);
+        return version is null ? NotFound() : Ok(version);
+    }
+
+    [HttpPost("{threadId:int}/history/{versionId:int}/restore")]
+    public async Task<IActionResult> RestoreItemVersion(int bookId, int threadId, int versionId)
+    {
+        try { return Ok(await _repo.RestorePlotThreadVersionAsync(bookId, threadId, versionId)); }
+        catch (InvalidOperationException) { return NotFound(); }
     }
 
     [HttpGet("history")]
@@ -87,11 +154,7 @@ public class PlotThreadsController : ControllerBase
     [HttpPost("history/{snapshotId:int}/restore")]
     public async Task<IActionResult> RestoreSnapshot(int bookId, int snapshotId)
     {
-        try
-        {
-            var restored = await _repo.RestorePlotThreadsSnapshotAsync(bookId, snapshotId);
-            return Ok(restored);
-        }
+        try { return Ok(await _repo.RestorePlotThreadsSnapshotAsync(bookId, snapshotId)); }
         catch (InvalidOperationException) { return NotFound(); }
     }
 }

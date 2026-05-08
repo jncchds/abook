@@ -1,4 +1,4 @@
-using ABook.Core.Interfaces;
+﻿using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.AspNetCore.Mvc;
 
@@ -13,8 +13,10 @@ public class CharactersController : ControllerBase
     public CharactersController(IBookRepository repo) => _repo = repo;
 
     [HttpGet]
-    public async Task<IActionResult> GetAll(int bookId) =>
-        Ok(await _repo.GetCharacterCardsAsync(bookId));
+    public async Task<IActionResult> GetAll(int bookId, [FromQuery] bool includeArchived = false) =>
+        Ok(includeArchived
+            ? await _repo.GetAllCharacterCardsAsync(bookId)
+            : await _repo.GetCharacterCardsAsync(bookId));
 
     [HttpGet("{cardId:int}")]
     public async Task<IActionResult> GetById(int bookId, int cardId)
@@ -40,6 +42,21 @@ public class CharactersController : ControllerBase
             Notes = req.Notes
         };
         var created = await _repo.AddCharacterCardAsync(card);
+        await _repo.AddCharacterVersionAsync(new CharacterCardVersion
+        {
+            CharacterCardId = created.Id,
+            BookId = bookId,
+            Name = created.Name,
+            Role = created.Role,
+            PhysicalDescription = created.PhysicalDescription,
+            Personality = created.Personality,
+            Backstory = created.Backstory,
+            GoalMotivation = created.GoalMotivation,
+            Arc = created.Arc,
+            FirstAppearanceChapterNumber = created.FirstAppearanceChapterNumber,
+            Notes = created.Notes,
+            CreatedBy = "user",
+        });
         return CreatedAtAction(nameof(GetById), new { bookId, cardId = created.Id }, created);
     }
 
@@ -48,17 +65,21 @@ public class CharactersController : ControllerBase
     {
         var card = await _repo.GetCharacterCardAsync(bookId, cardId);
         if (card is null) return NotFound();
-
-        // Snapshot current state before overwriting
-        var existing = await _repo.GetCharacterCardsAsync(bookId);
-        await _repo.AddCharactersSnapshotAsync(new ABook.Core.Models.CharactersSnapshot
+        await _repo.AddCharacterVersionAsync(new CharacterCardVersion
         {
+            CharacterCardId = cardId,
             BookId = bookId,
-            DataJson = System.Text.Json.JsonSerializer.Serialize(existing),
-            Reason = $"edit:{card.Name}",
-            Source = "edit",
+            Name = req.Name,
+            Role = req.Role,
+            PhysicalDescription = req.PhysicalDescription,
+            Personality = req.Personality,
+            Backstory = req.Backstory,
+            GoalMotivation = req.GoalMotivation,
+            Arc = req.Arc,
+            FirstAppearanceChapterNumber = req.FirstAppearanceChapterNumber,
+            Notes = req.Notes,
+            CreatedBy = "user",
         });
-
         card.Name = req.Name;
         card.Role = req.Role;
         card.PhysicalDescription = req.PhysicalDescription;
@@ -72,11 +93,66 @@ public class CharactersController : ControllerBase
         return Ok(card);
     }
 
+    [HttpPost("{cardId:int}/archive")]
+    public async Task<IActionResult> Archive(int bookId, int cardId)
+    {
+        var card = await _repo.GetCharacterCardAsync(bookId, cardId);
+        if (card is null) return NotFound();
+        await _repo.AddCharacterVersionAsync(new CharacterCardVersion
+        {
+            CharacterCardId = cardId,
+            BookId = bookId,
+            Name = card.Name,
+            Role = card.Role,
+            PhysicalDescription = card.PhysicalDescription,
+            Personality = card.Personality,
+            Backstory = card.Backstory,
+            GoalMotivation = card.GoalMotivation,
+            Arc = card.Arc,
+            FirstAppearanceChapterNumber = card.FirstAppearanceChapterNumber,
+            Notes = card.Notes,
+            CreatedBy = "archived",
+        });
+        await _repo.ArchiveCharacterCardAsync(bookId, cardId);
+        return NoContent();
+    }
+
+    [HttpPost("{cardId:int}/unarchive")]
+    public async Task<IActionResult> Unarchive(int bookId, int cardId)
+    {
+        var card = await _repo.GetCharacterCardAsync(bookId, cardId);
+        if (card is null) return NotFound();
+        await _repo.UnarchiveCharacterCardAsync(bookId, cardId);
+        return Ok(await _repo.GetCharacterCardAsync(bookId, cardId));
+    }
+
     [HttpDelete("{cardId:int}")]
     public async Task<IActionResult> Delete(int bookId, int cardId)
     {
         await _repo.DeleteCharacterCardAsync(bookId, cardId);
         return NoContent();
+    }
+
+    [HttpGet("{cardId:int}/history")]
+    public async Task<IActionResult> GetItemHistory(int bookId, int cardId)
+    {
+        var card = await _repo.GetCharacterCardAsync(bookId, cardId);
+        if (card is null) return NotFound();
+        return Ok(await _repo.GetCharacterVersionsAsync(bookId, cardId));
+    }
+
+    [HttpGet("{cardId:int}/history/{versionId:int}")]
+    public async Task<IActionResult> GetItemVersion(int bookId, int cardId, int versionId)
+    {
+        var version = await _repo.GetCharacterVersionAsync(bookId, cardId, versionId);
+        return version is null ? NotFound() : Ok(version);
+    }
+
+    [HttpPost("{cardId:int}/history/{versionId:int}/restore")]
+    public async Task<IActionResult> RestoreItemVersion(int bookId, int cardId, int versionId)
+    {
+        try { return Ok(await _repo.RestoreCharacterVersionAsync(bookId, cardId, versionId)); }
+        catch (InvalidOperationException) { return NotFound(); }
     }
 
     [HttpGet("history")]
@@ -93,11 +169,7 @@ public class CharactersController : ControllerBase
     [HttpPost("history/{snapshotId:int}/restore")]
     public async Task<IActionResult> RestoreSnapshot(int bookId, int snapshotId)
     {
-        try
-        {
-            var restored = await _repo.RestoreCharactersSnapshotAsync(bookId, snapshotId);
-            return Ok(restored);
-        }
+        try { return Ok(await _repo.RestoreCharactersSnapshotAsync(bookId, snapshotId)); }
         catch (InvalidOperationException) { return NotFound(); }
     }
 }

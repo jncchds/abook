@@ -25,6 +25,8 @@ public class AppDbContext : DbContext
     public DbSet<CharactersSnapshot> CharactersSnapshots => Set<CharactersSnapshot>();
     public DbSet<PlotThreadsSnapshot> PlotThreadsSnapshots => Set<PlotThreadsSnapshot>();
     public DbSet<BookSnapshot> BookSnapshots => Set<BookSnapshot>();
+    public DbSet<CharacterCardVersion> CharacterCardVersions => Set<CharacterCardVersion>();
+    public DbSet<PlotThreadVersion> PlotThreadVersions => Set<PlotThreadVersion>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -146,10 +148,24 @@ public class AppDbContext : DbContext
             c.HasKey(x => x.Id);
             c.Property(x => x.Name).IsRequired().HasMaxLength(200);
             c.Property(x => x.Role).HasConversion<string>();
+            c.Property(x => x.IsArchived).HasDefaultValue(false);
             c.HasOne(x => x.Book)
              .WithMany(x => x.CharacterCards)
              .HasForeignKey(x => x.BookId)
              .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CharacterCardVersion>(v =>
+        {
+            v.HasKey(x => x.Id);
+            v.Property(x => x.Name).IsRequired().HasMaxLength(200);
+            v.Property(x => x.Role).HasConversion<string>();
+            v.Property(x => x.CreatedBy).HasMaxLength(100);
+            v.HasOne(x => x.CharacterCard)
+             .WithMany()
+             .HasForeignKey(x => x.CharacterCardId)
+             .OnDelete(DeleteBehavior.Cascade);
+            v.HasIndex(x => new { x.CharacterCardId, x.VersionNumber }).IsUnique();
         });
 
         modelBuilder.Entity<PlotThread>(p =>
@@ -158,10 +174,25 @@ public class AppDbContext : DbContext
             p.Property(x => x.Name).IsRequired().HasMaxLength(300);
             p.Property(x => x.Type).HasConversion<string>();
             p.Property(x => x.Status).HasConversion<string>();
+            p.Property(x => x.IsArchived).HasDefaultValue(false);
             p.HasOne(x => x.Book)
              .WithMany(x => x.PlotThreads)
              .HasForeignKey(x => x.BookId)
              .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PlotThreadVersion>(v =>
+        {
+            v.HasKey(x => x.Id);
+            v.Property(x => x.Name).IsRequired().HasMaxLength(300);
+            v.Property(x => x.Type).HasConversion<string>();
+            v.Property(x => x.Status).HasConversion<string>();
+            v.Property(x => x.CreatedBy).HasMaxLength(100);
+            v.HasOne(x => x.PlotThread)
+             .WithMany()
+             .HasForeignKey(x => x.PlotThreadId)
+             .OnDelete(DeleteBehavior.Cascade);
+            v.HasIndex(x => new { x.PlotThreadId, x.VersionNumber }).IsUnique();
         });
 
         modelBuilder.Entity<LlmPreset>(p =>

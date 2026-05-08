@@ -49,19 +49,37 @@ public interface IBookRepository
 
     // Character Cards
     Task<IEnumerable<CharacterCard>> GetCharacterCardsAsync(int bookId);
+    Task<IEnumerable<CharacterCard>> GetAllCharacterCardsAsync(int bookId);
     Task<CharacterCard?> GetCharacterCardAsync(int bookId, int cardId);
     Task<CharacterCard> AddCharacterCardAsync(CharacterCard card);
     Task UpdateCharacterCardAsync(CharacterCard card);
+    Task ArchiveCharacterCardAsync(int bookId, int cardId);
+    Task UnarchiveCharacterCardAsync(int bookId, int cardId);
     Task DeleteCharacterCardAsync(int bookId, int cardId);
     Task DeleteCharacterCardsAsync(int bookId);
 
+    // Character Card versions
+    Task<CharacterCardVersion> AddCharacterVersionAsync(CharacterCardVersion version);
+    Task<IEnumerable<CharacterCardVersion>> GetCharacterVersionsAsync(int bookId, int cardId);
+    Task<CharacterCardVersion?> GetCharacterVersionAsync(int bookId, int cardId, int versionId);
+    Task<CharacterCard> RestoreCharacterVersionAsync(int bookId, int cardId, int versionId);
+
     // Plot Threads
     Task<IEnumerable<PlotThread>> GetPlotThreadsAsync(int bookId);
+    Task<IEnumerable<PlotThread>> GetAllPlotThreadsAsync(int bookId);
     Task<PlotThread?> GetPlotThreadAsync(int bookId, int threadId);
     Task<PlotThread> AddPlotThreadAsync(PlotThread thread);
     Task UpdatePlotThreadAsync(PlotThread thread);
+    Task ArchivePlotThreadAsync(int bookId, int threadId);
+    Task UnarchivePlotThreadAsync(int bookId, int threadId);
     Task DeletePlotThreadAsync(int bookId, int threadId);
     Task DeletePlotThreadsAsync(int bookId);
+
+    // Plot Thread versions
+    Task<PlotThreadVersion> AddPlotThreadVersionAsync(PlotThreadVersion version);
+    Task<IEnumerable<PlotThreadVersion>> GetPlotThreadVersionsAsync(int bookId, int threadId);
+    Task<PlotThreadVersion?> GetPlotThreadVersionAsync(int bookId, int threadId, int versionId);
+    Task<PlotThread> RestorePlotThreadVersionAsync(int bookId, int threadId, int versionId);
 
     // Agent Runs (durable run state for restart resilience)
     Task<AgentRun> CreateRunAsync(AgentRun run);
