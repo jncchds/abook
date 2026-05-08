@@ -143,10 +143,15 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     ]).then(([msgRes, statusRes]) => {
       if (signal.aborted) return
       setMessages(msgRes.data)
-      if (statusRes.data) setRunStatus(statusRes.data)
-      if (statusRes.data?.state === 'WaitingForInput') {
-        const q = [...msgRes.data].reverse().find(m => m.messageType === 'Question' && !m.isResolved)
-        if (q) setPendingQuestion(q)
+      // Only restore active states — terminal states (Done/Failed/Cancelled) from a
+      // previous run should not show the spinner or block the action buttons on reload.
+      const status = statusRes.data
+      if (status && (status.state === 'Running' || status.state === 'WaitingForInput')) {
+        setRunStatus(status)
+        if (status.state === 'WaitingForInput') {
+          const q = [...msgRes.data].reverse().find(m => m.messageType === 'Question' && !m.isResolved)
+          if (q) setPendingQuestion(q)
+        }
       }
     }).catch(() => {})
     getTokenUsage(bookId, signal).then(r => {
@@ -209,11 +214,21 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       navigate(`/books/${bookId}/chat`)
     })
     setOnStatus((_bId, role, state) => {
-      setRunStatus(state === 'Done' || state === 'Failed' || state === 'Cancelled' ? null : { role, state, chapterId: undefined })
-      if (state === 'Done' || state === 'Failed' || state === 'Cancelled') {
+      if (state === 'Failed' || state === 'Cancelled') {
+        // Whole run aborted — clear everything immediately
+        setRunStatus(null)
         clearStreams()
         refreshBook()
         refreshMessages()
+      } else if (state === 'Running' || state === 'WaitingForInput') {
+        // Transition to a new agent step — update role/state but keep the run active.
+        // Preserve chapterId that was set on page load via the status API.
+        setRunStatus(prev => ({ role, state, chapterId: prev?.chapterId }))
+      } else if (state === 'Done') {
+        // An individual agent phase finished but the workflow may still be running.
+        // Refresh book data (phase status dots etc.) but do NOT clear runStatus here.
+        // WorkflowProgress(isComplete=true) is the authoritative "run finished" signal.
+        refreshBook()
       }
     })
     setOnChapterUpdated((_bId, cId) => {

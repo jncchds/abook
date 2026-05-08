@@ -151,7 +151,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, null);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Running final continuity check…", false, c);
             await _continuity.CheckAsync(bookId, ct: c);
-            await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow complete!", true, c);
+            // Terminal WorkflowProgress(isComplete=true) is emitted by ExecuteAgentRunAsync after this body returns.
         });
 
     public Task StopWorkflowAsync(int bookId)
@@ -192,7 +192,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, null);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Running continuity check…", false, c);
             await _continuity.CheckAsync(bookId, ct: c);
-            await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow complete!", true, c);
+            // Terminal WorkflowProgress(isComplete=true) is emitted by ExecuteAgentRunAsync after this body returns.
         });
 
     // ── Private helpers ─────────────────────────────────────────────────────────
@@ -230,6 +230,17 @@ public class AgentOrchestrator : IAgentOrchestrator
             await body(ct);
             _state.SetStatus(bookId, new AgentRunStatus(role, "Done", chapterId));
             await _state.PersistRunFinishedAsync(bookId, AgentRunPersistStatus.Completed);
+            // Emit the unambiguous "run is fully done" terminal signal so the UI can reliably
+            // clear the running state regardless of which intermediate "Done" events were fired.
+            var completionMsg = runType switch
+            {
+                "write"      => "Writing complete.",
+                "edit"       => "Editing complete.",
+                "continuity" => "Continuity check complete.",
+                "plan"       => "Planning complete.",
+                _            => "Workflow complete!",
+            };
+            await _notifier.NotifyWorkflowProgressAsync(bookId, completionMsg, true, CancellationToken.None);
             _logger.LogInformation("[Book {BookId}] {Role} finished.", bookId, role);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
