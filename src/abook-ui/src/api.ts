@@ -40,6 +40,7 @@ export interface Chapter {
   plotThreadsJson: string
   foreshadowingNotes: string
   payoffNotes: string
+  isArchived?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -139,6 +140,10 @@ export const clearChapterContent = (bookId: number, chapter: Chapter) =>
     content: '',
     status: 'Outlined',
   })
+export const archiveChapter = (bookId: number, chapterId: number) =>
+  api.post(`/books/${bookId}/chapters/${chapterId}/archive`)
+export const restoreChapter = (bookId: number, chapterId: number) =>
+  api.post<Chapter>(`/books/${bookId}/chapters/${chapterId}/restore`)
 
 // Messages
 export const getMessages = (bookId: number, signal?: AbortSignal, chapterId?: number) =>

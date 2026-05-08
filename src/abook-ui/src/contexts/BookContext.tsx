@@ -259,9 +259,21 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       setWorkflowLog(prev => [...prev, step])
       setWorkflowSteps(prev => [...prev, { id: Date.now(), step, time: new Date().toLocaleTimeString() }])
       if (isComplete) {
-        setRunStatus(null)
-        clearStreams()
-        refreshBook()
+        // Clear all live-streaming data immediately except plannerBuffer.
+        // plannerBuffer is kept until refreshBook resolves so the chapter
+        // streaming preview stays visible while persisted data loads from the
+        // server — preventing a flash of the "No chapters yet" empty state.
+        setStreamBuffer('')
+        setStreamingChapterId(null)
+        setStoryBibleStream('')
+        setCharactersStream('')
+        setPlotThreadsStream('')
+        // After DB data arrives, clear the planning preview and unblock the UI.
+        // The .catch branch ensures runStatus is always cleared even on network errors.
+        refreshBook().then(
+          () => { setPlannerBuffer(''); setRunStatus(null) },
+          () => { setPlannerBuffer(''); setRunStatus(null) }
+        )
         refreshMessages()
       }
       if (step.includes('Phase 2/4')) {

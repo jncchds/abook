@@ -190,17 +190,12 @@ public class WriterAgent : AgentBase
                 ? $"plot thread events foreshadowing {string.Join(' ', threadNames)}"
                 : $"plot events sequence foreshadowing {chapter.Outline}";
 
-            var ragTasks = new[]
-            {
-                GetRagContextAsync(bookId, charQuery,    4, LlmFactory, config, chapter.Id, ct),
-                GetRagContextAsync(bookId, locationQuery, 3, LlmFactory, config, chapter.Id, ct),
-                GetRagContextAsync(bookId, threadQuery,  3, LlmFactory, config, chapter.Id, ct),
-            };
-            await Task.WhenAll(ragTasks);
-
-            var charRag     = ragTasks[0].Result;
-            var locationRag = ragTasks[1].Result;
-            var threadRag   = ragTasks[2].Result;
+            // Sequential — GetRagContextAsync touches the shared scoped BookRepository
+            // (AddTokenUsageAsync → SaveChangesAsync), so concurrent calls corrupt the EF
+            // Core identity map. VectorStore.SearchAsync is safe (owns its own DbContext).
+            var charRag     = await GetRagContextAsync(bookId, charQuery,     4, LlmFactory, config, chapter.Id, ct);
+            var locationRag = await GetRagContextAsync(bookId, locationQuery, 3, LlmFactory, config, chapter.Id, ct);
+            var threadRag   = await GetRagContextAsync(bookId, threadQuery,   3, LlmFactory, config, chapter.Id, ct);
 
             if (!string.IsNullOrWhiteSpace(charRag) || !string.IsNullOrWhiteSpace(locationRag) || !string.IsNullOrWhiteSpace(threadRag))
             {

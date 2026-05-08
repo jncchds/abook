@@ -71,6 +71,31 @@ public class BookRepository : IBookRepository
         return chapter;
     }
 
+    public async Task ReplaceChaptersAsync(int bookId, IEnumerable<Chapter> chapters)
+    {
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            var existing = await _db.Chapters.Where(c => c.BookId == bookId).ToListAsync();
+            _db.Chapters.RemoveRange(existing);
+
+            var now = DateTime.UtcNow;
+            foreach (var ch in chapters)
+            {
+                ch.CreatedAt = ch.UpdatedAt = now;
+                _db.Chapters.Add(ch);
+            }
+
+            await _db.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+    }
+
     public async Task UpdateChapterAsync(Chapter chapter)
     {
         chapter.UpdatedAt = DateTime.UtcNow;

@@ -14,6 +14,8 @@ public interface IBookRepository
     Task<IEnumerable<Chapter>> GetChaptersAsync(int bookId, bool includeArchived = false);
     Task<Chapter?> GetChapterAsync(int bookId, int chapterId);
     Task<Chapter> AddChapterAsync(Chapter chapter);
+    /// <summary>Delete all chapters for the book then add the new set in a single transaction.</summary>
+    Task ReplaceChaptersAsync(int bookId, IEnumerable<Chapter> chapters);
     Task UpdateChapterAsync(Chapter chapter);
     Task DeleteChaptersAsync(int bookId);
     Task ArchiveChapterAsync(int bookId, int chapterId);

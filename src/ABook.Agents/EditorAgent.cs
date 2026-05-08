@@ -58,18 +58,13 @@ public class EditorAgent : AgentBase
 
             var phrasesQuery = "repeated descriptions recurring phrases re-introduction established facts";
 
-            var ragTasks = new[]
-            {
-                GetRagContextAsync(bookId, charQuery,    4, LlmFactory, config, chapter.Id, ct),
-                GetRagContextAsync(bookId, locationQuery, 3, LlmFactory, config, chapter.Id, ct),
-                GetRagContextAsync(bookId, threadQuery,  3, LlmFactory, config, chapter.Id, ct),
-                GetRagContextAsync(bookId, phrasesQuery, 4, LlmFactory, config, chapter.Id, ct),
-            };
-            await Task.WhenAll(ragTasks);
-            charRag     = ragTasks[0].Result;
-            locationRag = ragTasks[1].Result;
-            threadRag   = ragTasks[2].Result;
-            phrasesRag  = ragTasks[3].Result;
+            // Sequential — GetRagContextAsync touches the shared scoped BookRepository
+            // (AddTokenUsageAsync → SaveChangesAsync), so concurrent calls corrupt the EF
+            // Core identity map. VectorStore.SearchAsync is safe (owns its own DbContext).
+            charRag     = await GetRagContextAsync(bookId, charQuery,     4, LlmFactory, config, chapter.Id, ct);
+            locationRag = await GetRagContextAsync(bookId, locationQuery, 3, LlmFactory, config, chapter.Id, ct);
+            threadRag   = await GetRagContextAsync(bookId, threadQuery,   3, LlmFactory, config, chapter.Id, ct);
+            phrasesRag  = await GetRagContextAsync(bookId, phrasesQuery,  4, LlmFactory, config, chapter.Id, ct);
         }
 
         var history = new ChatHistory();

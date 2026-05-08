@@ -58,7 +58,7 @@ function BookSidebar() {
       hasPendingQuestion={!!pendingQuestion}
       bottomChildren={
         <>
-          {(book.chapters ?? []).some(c => c.content?.trim()) && (
+          {(book.chapters ?? []).some(c => !c.isArchived && c.content?.trim()) && (
             <div className="sidebar-split-wrap" ref={exportMenuRef}>
               <button className="sidebar-btn sidebar-split-main" title="Download Book as HTML" onClick={() => { window.location.href = `/api/books/${id}/export?format=html` }}>
                 <span className="s-icon">⬇</span>
@@ -132,7 +132,7 @@ function BookSidebar() {
         dot={isPhaseComplete('chapters')}
       />
       <div className="sidebar-chapters hide-when-collapsed">
-        {(book.chapters ?? []).map(c => (
+        {(book.chapters ?? []).filter(c => !c.isArchived).map(c => (
           <div
             key={c.id}
             className={`sidebar-ch-item${startsAt(`chapters/${c.id}`) ? ' active' : ''}`}

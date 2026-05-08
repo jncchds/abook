@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace ABook.Core.Models;
 
 public class ChapterVersion
@@ -22,5 +24,5 @@ public class ChapterVersion
     public bool HasEmbeddings { get; set; }
     public DateTime CreatedAt { get; set; }
 
-    public Chapter Chapter { get; set; } = null!;
+    [JsonIgnore] public Chapter Chapter { get; set; } = null!;
 }

@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useBookContext } from '../../contexts/BookContext'
-import { createChapter } from '../../api'
+import { createChapter, archiveChapter, restoreChapter, getChapterVersions, getChapterVersion } from '../../api'
+import type { ChapterVersionMeta, ChapterVersionFull } from '../../api'
 import { parsePlanningStream } from '../../utils/streamParsers'
 import { chapterStatusColor } from '../../utils/chapterStatus'
 import PhaseActionBar from '../../components/PhaseActionBar'
@@ -24,15 +25,24 @@ export default function Chapters() {
   const [addingChapter, setAddingChapter] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [newOutline, setNewOutline] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
+
+  // Per-chapter version history state (for archived section)
+  const [itemHistoryChapterId, setItemHistoryChapterId] = useState<number | null>(null)
+  const [itemVersions, setItemVersions] = useState<ChapterVersionMeta[]>([])
+  const [loadingItemHistory, setLoadingItemHistory] = useState(false)
+  const [itemPreviewVersion, setItemPreviewVersion] = useState<ChapterVersionFull | null>(null)
 
   if (!book) return null
 
   const chapters = book.chapters ?? []
+  const activeChapters = chapters.filter(c => !c.isArchived)
+  const archivedChapters = chapters.filter(c => c.isArchived)
   const planningChapters = parsePlanningStream(plannerBuffer)
 
   const handleAddChapter = async () => {
     if (!newTitle.trim()) return
-    const nextNumber = chapters.length + 1
+    const nextNumber = activeChapters.length + 1
     const r = await createChapter(id, { number: nextNumber, title: newTitle.trim(), outline: newOutline.trim() })
     setBook(prev => prev ? { ...prev, chapters: [...(prev.chapters ?? []), r.data] } : prev)
     setNewTitle('')
@@ -41,10 +51,41 @@ export default function Chapters() {
     navigate(`/books/${id}/chapters/${r.data.id}`)
   }
 
+  const handleArchive = async (chapterId: number) => {
+    await archiveChapter(id, chapterId)
+    setBook(prev => prev ? {
+      ...prev,
+      chapters: (prev.chapters ?? []).map(c => c.id === chapterId ? { ...c, isArchived: true } : c)
+    } : prev)
+  }
+
+  const handleRestore = async (chapterId: number) => {
+    const r = await restoreChapter(id, chapterId)
+    setBook(prev => prev ? {
+      ...prev,
+      chapters: (prev.chapters ?? []).map(c => c.id === chapterId ? r.data : c)
+    } : prev)
+  }
+
+  const handleOpenItemHistory = async (chapterId: number) => {
+    if (itemHistoryChapterId === chapterId) { setItemHistoryChapterId(null); return }
+    setLoadingItemHistory(true)
+    try { const r = await getChapterVersions(id, chapterId); setItemVersions(r.data) }
+    finally { setLoadingItemHistory(false) }
+    setItemHistoryChapterId(chapterId)
+    setItemPreviewVersion(null)
+  }
+
+  const handleItemPreview = async (chapterId: number, versionId: number) => {
+    if (itemPreviewVersion?.id === versionId) { setItemPreviewVersion(null); return }
+    const r = await getChapterVersion(id, chapterId, versionId)
+    setItemPreviewVersion(r.data)
+  }
+
   return (
     <div className="view-content">
       <div className="view-header">
-        <h2>📚 Chapters ({chapters.length})</h2>
+        <h2>📚 Chapters ({activeChapters.length}{archivedChapters.length > 0 ? ' + ' + archivedChapters.length + ' archived' : ''})</h2>
       </div>
 
       {/* Phase action bar */}
@@ -75,11 +116,11 @@ export default function Chapters() {
       )}
 
       {/* Chapter cards */}
-      {chapters.length === 0 && runStatus?.role !== 'ChaptersAgent' ? (
+      {activeChapters.length === 0 && runStatus?.role !== 'ChaptersAgent' ? (
         <p className="empty">No chapters yet. Use <strong>Plan Book</strong> to generate outlines, or add one manually below.</p>
       ) : (
         <div className="book-list">
-          {chapters.map(c => (
+          {activeChapters.map(c => (
             <div key={c.id} className="book-list-card">
               <div className="book-list-card-left">
                 <h3
@@ -108,13 +149,79 @@ export default function Chapters() {
                     <em>Payoff:</em> {c.payoffNotes}
                   </p>
                 )}
-
               </div>
               <div className="book-list-card-right">
                 <button onClick={() => navigate(`/books/${id}/chapters/${c.id}`)}>Open →</button>
+                {!isRunning && (
+                  <button className="btn-icon" title="Archive chapter" onClick={() => handleArchive(c.id)}>🗄</button>
+                )}
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Archived chapters */}
+      {archivedChapters.length > 0 && (
+        <div style={{ marginTop: '1.5rem' }}>
+          <button className="btn-sm btn-ghost" onClick={() => setShowArchived(v => !v)}>
+            {showArchived ? '▲ Hide archived' : '▼ Show archived (' + archivedChapters.length + ')'}
+          </button>
+          {showArchived && (
+            <div className="book-list" style={{ marginTop: '0.5rem', opacity: 0.75 }}>
+              {archivedChapters.map(c => (
+                <div key={c.id} className="book-list-card">
+                  <div className="book-list-card-left">
+                    <h3>{c.number}. {c.title || 'Untitled'} <span className="history-source-badge">archived</span></h3>
+                    <div className="blc-meta">
+                      <span className="status" style={{ background: chapterStatusColor(c.status), color: '#fff', borderRadius: 4, padding: '1px 7px', fontSize: '0.75rem' }}>{c.status}</span>
+                    </div>
+                    {c.outline && <p className="blc-premise">{c.outline}</p>}
+                    {itemHistoryChapterId === c.id && (
+                      <div className="item-history-panel">
+                        <div className="history-panel-header" style={{ marginTop: '0.75rem' }}>
+                          <strong>📜 Version History</strong>
+                          <button className="btn-sm btn-ghost" onClick={() => { setItemHistoryChapterId(null); setItemPreviewVersion(null) }}>✕</button>
+                        </div>
+                        {loadingItemHistory && <p className="empty">Loading…</p>}
+                        {!loadingItemHistory && itemVersions.length === 0 && <p className="empty">No versions yet.</p>}
+                        <div className="history-list">
+                          {itemVersions.map(v => (
+                            <div key={v.id} className="history-item">
+                              <div className="history-item-meta">
+                                <span className="history-source-badge">{v.isActive ? 'active' : `v${v.versionNumber}`}</span>
+                                <span className="history-reason">{v.createdBy}</span>
+                                <span className="history-date">{new Date(v.createdAt).toLocaleString()}</span>
+                                <span className="history-date">{v.wordCount.toLocaleString()} words</span>
+                              </div>
+                              <div className="history-item-actions">
+                                <button className="btn-sm btn-ghost" onClick={() => handleItemPreview(c.id, v.id)}>
+                                  {itemPreviewVersion?.id === v.id ? 'Hide' : 'Preview'}
+                                </button>
+                              </div>
+                              {itemPreviewVersion?.id === v.id && (
+                                <div className="history-preview" style={{ marginTop: '0.5rem' }}>
+                                  <p><strong>{itemPreviewVersion.title}</strong></p>
+                                  {itemPreviewVersion.outline && <p><em>{itemPreviewVersion.outline}</em></p>}
+                                  <p style={{ whiteSpace: 'pre-wrap', fontSize: '0.85rem' }}>
+                                    {itemPreviewVersion.content?.slice(0, 500)}{(itemPreviewVersion.content?.length ?? 0) > 500 ? '…' : ''}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="book-list-card-right">
+                    <button className="btn-sm btn-ghost" title="Version History" onClick={() => handleOpenItemHistory(c.id)}>📜</button>
+                    <button className="btn-sm" title="Restore chapter" onClick={() => handleRestore(c.id)}>♻ Restore</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

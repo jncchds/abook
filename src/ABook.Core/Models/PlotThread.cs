@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace ABook.Core.Models;
 
 public class PlotThread
@@ -14,5 +16,5 @@ public class PlotThread
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
-    public Book Book { get; set; } = null!;
+    [JsonIgnore] public Book Book { get; set; } = null!;
 }

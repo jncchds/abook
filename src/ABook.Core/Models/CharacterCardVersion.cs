@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace ABook.Core.Models;
 
 /// <summary>
@@ -27,5 +29,5 @@ public class CharacterCardVersion
 
     public DateTime CreatedAt { get; set; }
 
-    public CharacterCard CharacterCard { get; set; } = null!;
+    [JsonIgnore] public CharacterCard CharacterCard { get; set; } = null!;
 }

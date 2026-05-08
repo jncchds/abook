@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace ABook.Core.Models;
 
 public class StoryBible
@@ -13,5 +15,5 @@ public class StoryBible
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
-    public Book Book { get; set; } = null!;
+    [JsonIgnore] public Book Book { get; set; } = null!;
 }

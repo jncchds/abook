@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace ABook.Core.Models;
 
 public class LlmConfiguration
@@ -11,6 +13,6 @@ public class LlmConfiguration
     public string? ApiKey { get; set; }
     public string? EmbeddingModelName { get; set; }
 
-    public Book? Book { get; set; }
-    public AppUser? User { get; set; }
+    [JsonIgnore] public Book? Book { get; set; }
+    [JsonIgnore] public AppUser? User { get; set; }
 }

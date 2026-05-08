@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace ABook.Core.Models;
 
 public class Chapter
@@ -18,7 +20,7 @@ public class Chapter
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
-    public Book Book { get; set; } = null!;
-    public ICollection<AgentMessage> AgentMessages { get; set; } = new List<AgentMessage>();
-    public ICollection<ChapterVersion> Versions { get; set; } = new List<ChapterVersion>();
+    [JsonIgnore] public Book Book { get; set; } = null!;
+    [JsonIgnore] public ICollection<AgentMessage> AgentMessages { get; set; } = new List<AgentMessage>();
+    [JsonIgnore] public ICollection<ChapterVersion> Versions { get; set; } = new List<ChapterVersion>();
 }

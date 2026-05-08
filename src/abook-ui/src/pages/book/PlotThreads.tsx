@@ -270,8 +270,40 @@ export default function PlotThreads() {
                       <span className={"thread-status-" + t.status?.toLowerCase()}>{t.status}</span>
                     </div>
                     {t.description && <p className="blc-premise">{t.description}</p>}
+                    {itemHistoryId === t.id && (
+                      <div className="item-history-panel">
+                        <div className="history-panel-header" style={{ marginTop: '0.75rem' }}>
+                          <strong>📜 Version History</strong>
+                          <button className="btn-sm btn-ghost" onClick={() => setItemHistoryId(null)}>✕</button>
+                        </div>
+                        {loadingItemHistory && <p className="empty">Loading…</p>}
+                        {!loadingItemHistory && itemVersions.length === 0 && <p className="empty">No versions yet.</p>}
+                        <div className="history-list">
+                          {itemVersions.map(v => (
+                            <div key={v.id} className="history-item">
+                              <div className="history-item-meta">
+                                <span className="history-source-badge">v{v.versionNumber}</span>
+                                <span className="history-reason">{v.createdBy}</span>
+                                <span className="history-date">{new Date(v.createdAt).toLocaleString()}</span>
+                              </div>
+                              <div className="history-preview-card" style={{ marginTop: '0.25rem' }}>
+                                <strong>{v.name}</strong>
+                                <span className="thread-type-badge">{v.type}</span>
+                                <span className={"thread-status-" + v.status?.toLowerCase()}>{v.status}</span>
+                                {v.description && <p>{v.description}</p>}
+                              </div>
+                              <div className="history-item-actions">
+                                <button className="btn-sm" disabled={restoringVersion}
+                                  onClick={() => handleRestoreVersion(t.id, v.id)}>↩ Restore</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="book-list-card-right">
+                    <button className="btn-icon" title="Version History" onClick={() => handleOpenItemHistory(t.id)}>📜</button>
                     <button className="btn-sm" title="Unarchive" onClick={async () => {
                       const r = await unarchivePlotThread(bookId, t.id)
                       setPlotThreads(prev => prev.map(p => p.id === t.id ? r.data : p))

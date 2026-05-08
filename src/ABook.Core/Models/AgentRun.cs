@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace ABook.Core.Models;
 
 /// <summary>
@@ -42,6 +44,6 @@ public class AgentRun
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
-    public Book Book { get; set; } = null!;
-    public AgentMessage? PendingMessage { get; set; }
+    [JsonIgnore] public Book Book { get; set; } = null!;
+    [JsonIgnore] public AgentMessage? PendingMessage { get; set; }
 }

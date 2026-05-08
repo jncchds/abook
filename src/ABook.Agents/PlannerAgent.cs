@@ -84,10 +84,9 @@ public class PlannerAgent : AgentBase
         if (chapters.Count == 0)
             Logger.LogWarning("[Book {BookId}] PlannerAgent parsed zero chapters.", bookId);
 
-        // Clear existing chapters *after* successful parse so a failed re-plan does not wipe the book
-        await Repo.DeleteChaptersAsync(bookId);
-        foreach (var chapter in chapters)
-            await Repo.AddChapterAsync(chapter);
+        // Clear existing chapters *after* successful parse so a failed re-plan does not wipe the book.
+        // All chapters are deleted and re-inserted in a single transaction to avoid partial state.
+        await Repo.ReplaceChaptersAsync(bookId, chapters);
         book.ChaptersStatus = PlanningPhaseStatus.Complete;
         await Repo.UpdateAsync(book);
         await Notifier.NotifyWorkflowProgressAsync(bookId,

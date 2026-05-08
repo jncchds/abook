@@ -1,14 +1,15 @@
 import { useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { useBookContext } from '../../contexts/BookContext'
-import { updateChapter, clearChapterContent, getChapterVersions, getChapterVersion, activateChapterVersion } from '../../api'
+import { updateChapter, clearChapterContent, archiveChapter, restoreChapter, getChapterVersions, getChapterVersion, activateChapterVersion } from '../../api'
 import type { ChapterVersionMeta, ChapterVersionFull } from '../../api'
 import { chapterStatusColor } from '../../utils/chapterStatus'
 import { useRestoreStream } from '../../hooks/useRestoreStream'
 
 export default function ChapterView() {
   const { chapterId } = useParams<{ chapterId: string }>()
+  const navigate = useNavigate()
   const { book, setBook, streamBuffer, streamingChapterId, isRunning, setStreamBuffer, setStreamingChapterId } = useBookContext()
 
   const [editingChapter, setEditingChapter] = useState(false)
@@ -88,6 +89,24 @@ export default function ChapterView() {
     }
   }
 
+  const handleArchive = async () => {
+    if (!confirm(`Archive Chapter ${chapter.number}: "${chapter.title}"? It can be restored from the Chapters page.`)) return
+    await archiveChapter(bookId, chapter.id)
+    setBook(prev => prev ? {
+      ...prev,
+      chapters: (prev.chapters ?? []).map(c => c.id === chapter.id ? { ...c, isArchived: true } : c)
+    } : prev)
+    navigate(`/books/${bookId}/chapters`)
+  }
+
+  const handleRestoreChapter = async () => {
+    const r = await restoreChapter(bookId, chapter.id)
+    setBook(prev => prev ? {
+      ...prev,
+      chapters: (prev.chapters ?? []).map(c => c.id === chapter.id ? r.data : c)
+    } : prev)
+  }
+
   if (showHistory) {
     return (
       <div className="chapter-view">
@@ -144,12 +163,19 @@ export default function ChapterView() {
           <div className="chapter-header">
             <h2>Chapter {chapter.number}: {chapter.title}</h2>
             <span className="ch-status-badge" style={{ background: statusColor(chapter.status) }}>{chapter.status}</span>
-            {!isRunning && (
+            {chapter.isArchived && <span className="history-source-badge" style={{ marginLeft: '0.5rem' }}>archived</span>}
+            {!isRunning && !chapter.isArchived && (
               <button className="btn-edit-chapter" onClick={() => { setChapterEditTitle(chapter.title); setChapterEditOutline(chapter.outline ?? ''); setEditingChapter(true) }} title="Edit chapter title and outline">✎ Edit</button>
             )}
             <button className="btn-sm btn-ghost" onClick={handleOpenHistory} title="View version history">📜 History</button>
-            {chapter.status !== 'Outlined' && (
+            {!chapter.isArchived && chapter.status !== 'Outlined' && (
               <button className="btn-clear-chapter" disabled={isRunning} onClick={handleClearChapter} title="Clear chapter content and reset status to Outlined">↺ Clear</button>
+            )}
+            {!isRunning && !chapter.isArchived && (
+              <button className="btn-sm btn-ghost" onClick={handleArchive} title="Archive this chapter">🗄</button>
+            )}
+            {chapter.isArchived && (
+              <button className="btn-sm" onClick={handleRestoreChapter} title="Restore this chapter">♻ Restore</button>
             )}
           </div>
           {chapter.outline && (

@@ -24,7 +24,9 @@ builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, relo
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? "Host=localhost;Port=5432;Database=abook;Username=abook;Password=abook";
 
-builder.Services.AddDbContext<AppDbContext>(options =>
+// AddDbContextFactory registers IDbContextFactory<AppDbContext> (Singleton) and also
+// AppDbContext as a Scoped service, so repositories that inject it directly still work.
+builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseNpgsql(connectionString, o => o.UseVector()));
 
 // ── Vector store (pgvector via PostgreSQL) ────────────────────────────────────

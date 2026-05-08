@@ -275,8 +275,39 @@ export default function Characters() {
                       <span className={"char-role-badge role-" + ch.role?.toLowerCase()}>{ch.role}</span>
                     </div>
                     {ch.goalMotivation && <p className="blc-premise"><em>Goal:</em> {ch.goalMotivation}</p>}
+                    {itemHistoryCardId === ch.id && (
+                      <div className="item-history-panel">
+                        <div className="history-panel-header" style={{ marginTop: '0.75rem' }}>
+                          <strong>📜 Version History</strong>
+                          <button className="btn-sm btn-ghost" onClick={() => setItemHistoryCardId(null)}>✕</button>
+                        </div>
+                        {loadingItemHistory && <p className="empty">Loading…</p>}
+                        {!loadingItemHistory && itemVersions.length === 0 && <p className="empty">No versions yet.</p>}
+                        <div className="history-list">
+                          {itemVersions.map(v => (
+                            <div key={v.id} className="history-item">
+                              <div className="history-item-meta">
+                                <span className="history-source-badge">v{v.versionNumber}</span>
+                                <span className="history-reason">{v.createdBy}</span>
+                                <span className="history-date">{new Date(v.createdAt).toLocaleString()}</span>
+                              </div>
+                              <div className="history-preview-card" style={{ marginTop: '0.25rem' }}>
+                                <strong>{v.name}</strong>
+                                <span className={"char-role-badge role-" + v.role?.toLowerCase()}>{v.role}</span>
+                                {v.goalMotivation && <p><em>Goal:</em> {v.goalMotivation}</p>}
+                              </div>
+                              <div className="history-item-actions">
+                                <button className="btn-sm" disabled={restoringVersion}
+                                  onClick={() => handleRestoreVersion(ch.id, v.id)}>↩ Restore</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="book-list-card-right">
+                    <button className="btn-icon" title="Version History" onClick={() => handleOpenItemHistory(ch.id)}>📜</button>
                     <button className="btn-sm" title="Unarchive" onClick={async () => {
                       const r = await unarchiveCharacter(bookId, ch.id)
                       setCharacters(prev => prev.map(c => c.id === ch.id ? r.data : c))

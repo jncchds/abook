@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace ABook.Core.Models;
 
 public class AgentMessage
@@ -13,6 +15,6 @@ public class AgentMessage
     public bool IsDeleted { get; set; }
     public DateTime CreatedAt { get; set; }
 
-    public Book Book { get; set; } = null!;
-    public Chapter? Chapter { get; set; }
+    [JsonIgnore] public Book Book { get; set; } = null!;
+    [JsonIgnore] public Chapter? Chapter { get; set; }
 }
