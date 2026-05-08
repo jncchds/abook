@@ -67,6 +67,19 @@ public class CharactersAgent : AgentBase
             throw;
         }
 
+        // Snapshot existing characters before deleting so they are preserved in history
+        var existingCards = await Repo.GetCharacterCardsAsync(bookId);
+        if (existingCards.Any())
+        {
+            await Repo.AddCharactersSnapshotAsync(new ABook.Core.Models.CharactersSnapshot
+            {
+                BookId = bookId,
+                DataJson = System.Text.Json.JsonSerializer.Serialize(existingCards),
+                Reason = "agent-overwrite",
+                Source = "agent-overwrite"
+            });
+        }
+
         await Repo.DeleteCharacterCardsAsync(bookId);
         foreach (var card in characters)
         {
@@ -87,6 +100,16 @@ public class CharactersAgent : AgentBase
                 CreatedBy = "agent:Characters",
             });
         }
+
+        // Save the newly generated characters as a snapshot so they appear in history immediately
+        await Repo.AddCharactersSnapshotAsync(new ABook.Core.Models.CharactersSnapshot
+        {
+            BookId = bookId,
+            DataJson = System.Text.Json.JsonSerializer.Serialize(characters),
+            Reason = "agent-generated",
+            Source = "agent-generated"
+        });
+
         book.CharactersStatus = PlanningPhaseStatus.Complete;
         await Repo.UpdateAsync(book);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.CharactersAgent, "Done", ct);

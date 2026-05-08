@@ -76,6 +76,19 @@ public class PlotThreadsAgent : AgentBase
             throw;
         }
 
+        // Snapshot existing plot threads before deleting so they are preserved in history
+        var existingThreads = await Repo.GetPlotThreadsAsync(bookId);
+        if (existingThreads.Any())
+        {
+            await Repo.AddPlotThreadsSnapshotAsync(new ABook.Core.Models.PlotThreadsSnapshot
+            {
+                BookId = bookId,
+                DataJson = System.Text.Json.JsonSerializer.Serialize(existingThreads),
+                Reason = "agent-overwrite",
+                Source = "agent-overwrite"
+            });
+        }
+
         await Repo.DeletePlotThreadsAsync(bookId);
         foreach (var thread in threads)
         {
@@ -93,6 +106,16 @@ public class PlotThreadsAgent : AgentBase
                 CreatedBy = "agent:PlotThreads",
             });
         }
+
+        // Save the newly generated plot threads as a snapshot so they appear in history immediately
+        await Repo.AddPlotThreadsSnapshotAsync(new ABook.Core.Models.PlotThreadsSnapshot
+        {
+            BookId = bookId,
+            DataJson = System.Text.Json.JsonSerializer.Serialize(threads),
+            Reason = "agent-generated",
+            Source = "agent-generated"
+        });
+
         book.PlotThreadsStatus = PlanningPhaseStatus.Complete;
         await Repo.UpdateAsync(book);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.PlotThreadsAgent, "Done", ct);

@@ -250,7 +250,8 @@ public class ContinuityCheckerAgent : AgentBase
         CheckerResult result;
         try
         {
-            var dto = System.Text.Json.JsonSerializer.Deserialize<CheckerResultDto>(responseJson, _jsonOptions);
+            var json = ExtractJson(responseJson, '{', '}');
+            var dto = System.Text.Json.JsonSerializer.Deserialize<CheckerResultDto>(json, _jsonOptions);
             var issues = dto?.Issues?.Select(i => new CheckerIssue(
                 i.Type ?? "continuity",
                 i.Description ?? string.Empty,
@@ -260,7 +261,7 @@ public class ContinuityCheckerAgent : AgentBase
         catch
         {
             Logger.LogWarning("[Book {BookId}] Checker response was not valid JSON — treating as issues found.", bookId);
-            result = new CheckerResult(true, [], responseJson.Trim());
+            result = new CheckerResult(true, [], $"(Could not parse checker output — raw response below)\n\n{responseJson.Trim()}");
         }
 
         // Persist formatted report so it is readable in the chat panel

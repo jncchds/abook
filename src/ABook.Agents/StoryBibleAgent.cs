@@ -59,12 +59,43 @@ public class StoryBibleAgent : AgentBase
             throw;
         }
 
-        await Repo.UpsertStoryBibleAsync(bible);
+        // Snapshot the existing bible before overwriting so its content is preserved in history
+        var existingBible = await Repo.GetStoryBibleAsync(bookId);
+        if (existingBible is not null)
+        {
+            await Repo.AddStoryBibleSnapshotAsync(new StoryBibleSnapshot
+            {
+                BookId = bookId,
+                SettingDescription = existingBible.SettingDescription,
+                TimePeriod = existingBible.TimePeriod,
+                Themes = existingBible.Themes,
+                ToneAndStyle = existingBible.ToneAndStyle,
+                WorldRules = existingBible.WorldRules,
+                Notes = existingBible.Notes,
+                Reason = "agent-overwrite"
+            });
+        }
+
+        var saved = await Repo.UpsertStoryBibleAsync(bible);
+
+        // Save the newly generated content as a snapshot so it appears in history immediately
+        await Repo.AddStoryBibleSnapshotAsync(new StoryBibleSnapshot
+        {
+            BookId = bookId,
+            SettingDescription = saved.SettingDescription,
+            TimePeriod = saved.TimePeriod,
+            Themes = saved.Themes,
+            ToneAndStyle = saved.ToneAndStyle,
+            WorldRules = saved.WorldRules,
+            Notes = saved.Notes,
+            Reason = "agent-generated"
+        });
+
         book.StoryBibleStatus = PlanningPhaseStatus.Complete;
         await Repo.UpdateAsync(book);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.StoryBibleAgent, "Done", ct);
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Story Bible saved. (complete)", false, ct);
-        return bible;
+        return saved;
     }
 
     private static StoryBible Parse(int bookId, string raw)
