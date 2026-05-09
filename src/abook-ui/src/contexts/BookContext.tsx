@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Book, AgentMessage, AgentRunStatus, StoryBible, CharacterCard, PlotThread } from '../api'
 import {
@@ -9,6 +9,7 @@ import {
   getStoryBible, getCharacters, getPlotThreads, getChapters, getChapter,
 } from '../api'
 import { useBookHub } from '../hooks/useBookHub'
+import { useNotifications } from '../hooks/useNotifications'
 
 export interface TokenStat {
   id: number
@@ -124,6 +125,9 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   const [submittingAnswer, setSubmittingAnswer] = useState(false)
 
   const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError } = useBookHub(bookId)
+  const { notify } = useNotifications()
+  const notifyRef = useRef(notify)
+  useEffect(() => { notifyRef.current = notify })
 
   const refreshBook = useCallback(() =>
     getBook(bookId).then(r => setBook(r.data)), [bookId])
@@ -212,6 +216,11 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       setPendingQuestion(m)
       setMessages(prev => [...prev, m])
       navigate(`/books/${bookId}/chat`)
+      notifyRef.current('ABook — Input needed', {
+        body: m.content,
+        tag: `question-${bookId}`,
+        onClick: () => navigate(`/books/${bookId}/chat`),
+      })
     })
     setOnStatus((_bId, role, state, cId) => {
       if (state === 'Failed' || state === 'Cancelled') {
@@ -276,6 +285,11 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       setWorkflowLog(prev => [...prev, step])
       setWorkflowSteps(prev => [...prev, { id: Date.now(), step, time: new Date().toLocaleTimeString() }])
       if (isComplete) {
+        notifyRef.current('ABook — Workflow complete', {
+          body: step,
+          tag: `complete-${bookId}`,
+          onClick: () => navigate(`/books/${bookId}/chat`),
+        })
         // Clear all live-streaming data immediately except plannerBuffer.
         // plannerBuffer is kept until refreshBook resolves so the chapter
         // streaming preview stays visible while persisted data loads from the
@@ -332,9 +346,14 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         }])
       })
     })
-    setOnAgentError(() => {
+    setOnAgentError((_bId, _role, errorMessage) => {
       refreshMessages()
       navigate(`/books/${bookId}/chat`)
+      notifyRef.current('ABook — Agent error', {
+        body: errorMessage,
+        tag: `error-${bookId}`,
+        onClick: () => navigate(`/books/${bookId}/chat`),
+      })
     })
   }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, refreshBook, refreshMessages, clearStreams, bookId, navigate])
 

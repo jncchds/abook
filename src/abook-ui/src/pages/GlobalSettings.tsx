@@ -3,9 +3,11 @@ import { Link } from 'react-router-dom'
 import type { LlmConfig, LlmPreset, ProviderModel } from '../api'
 import { getLlmConfig, updateLlmConfig, getModels, getPresets, createPreset, updatePreset, getApiToken, regenerateApiToken } from '../api'
 import { PROVIDERS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, PROXY_REQUIRED_PROVIDERS, INITIAL_LLM_CONFIG } from '../config/providers'
+import { useNotifications } from '../hooks/useNotifications'
 
 export default function GlobalSettings() {
   const [config, setConfig] = useState<LlmConfig>({ ...INITIAL_LLM_CONFIG })
+  const { supported: notifSupported, permission, enabled: notifEnabled, setEnabled: setNotifEnabled } = useNotifications()
   const [models, setModels] = useState<ProviderModel[]>([])
   const [modelsLoading, setModelsLoading] = useState(false)
   const [pullModel, setPullModel] = useState('')
@@ -396,6 +398,32 @@ export default function GlobalSettings() {
           </div>
         </section>
       )}
+
+      {/* Browser Notifications */}
+      <section className="settings-section">
+        <h2>Browser Notifications</h2>
+        <div className="card">
+          {!notifSupported ? (
+            <p className="muted">Browser notifications are not supported in this browser.</p>
+          ) : (
+            <>
+              <label className="toggle-row">
+                <span>Notify when agent needs input or workflow completes</span>
+                <input
+                  type="checkbox"
+                  checked={notifEnabled}
+                  onChange={e => setNotifEnabled(e.target.checked)}
+                />
+              </label>
+              <p className="muted" style={{ marginTop: '0.5rem' }}>
+                {permission === 'granted' && 'Permission granted. Notifications fire only when the tab is in the background.'}
+                {permission === 'denied' && 'Permission denied. Enable notifications for this site in your browser settings.'}
+                {permission === 'default' && 'Enabling will prompt for permission.'}
+              </p>
+            </>
+          )}
+        </div>
+      </section>
     </>
   )
 }

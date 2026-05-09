@@ -16,6 +16,7 @@ import ChatPage from './pages/book/ChatPage'
 import TokenStatsPage from './pages/book/TokenStatsPage'
 import BookSettings from './pages/book/BookSettings'
 import { AuthProvider, useAuth } from './hooks/useAuth'
+import PwaUpdatePrompt from './components/PwaUpdatePrompt'
 
 function ProtectedRoutes() {
   const { user, loading } = useAuth()
@@ -50,6 +51,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <PwaUpdatePrompt />
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/*" element={<ProtectedRoutes />} />
