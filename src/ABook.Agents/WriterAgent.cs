@@ -221,39 +221,8 @@ public class WriterAgent : AgentBase
         return sb.ToString();
     }
 
-    private async Task IndexChapterAsync(int bookId, Chapter chapter, Kernel kernel, LlmConfiguration config, CancellationToken ct)
-    {
-        // DEPRECATED: use the protected base method IndexChapterAsync(int bookId, int chapterId, int chapterVersionId, ...) instead.
-        // Kept for reference until all callers are updated.
-        await VectorStore.EnsureCollectionAsync(bookId, ct);
-        await VectorStore.DeleteChapterChunksAsync(bookId, chapter.Id, ct);
+    // NOTE: IndexChapterAsync has been moved to AgentBase.IndexChapterAsync (version-aware).
+    // The WriterAgent now calls the base method via IndexChapterAsync(bookId, chapterId, versionId, ...).
+    // This class no longer has its own IndexChapterAsync.
 
-        var chunks = TextChunker.Chunk(chapter.Content);
-        var embedder = LlmFactory.CreateEmbeddingGeneration(config);
-
-        for (int i = 0; i < chunks.Count; i++)
-        {
-            var embeddings = await embedder.GenerateAsync([chunks[i]], cancellationToken: ct);
-            var embedding = embeddings[0].Vector;
-            await VectorStore.UpsertChunkAsync(bookId, chapter.Id, chapter.Number, i, chunks[i], embedding, ct);
-        }
-
-        int indexPromptTokens = chunks.Sum(c => c.Length) / 4;
-        try { await Notifier.NotifyTokenStatsAsync(bookId, chapter.Id, AgentRole.Embedder.ToString(), indexPromptTokens, 0, ct); }
-        catch { /* non-fatal */ }
-        try
-        {
-            await Repo.AddTokenUsageAsync(new TokenUsageRecord
-            {
-                BookId = bookId,
-                ChapterId = chapter.Id,
-                AgentRole = AgentRole.Embedder,
-                PromptTokens = indexPromptTokens,
-                CompletionTokens = 0,
-                Endpoint = config.Endpoint,
-                ModelName = config.EmbeddingModelName
-            });
-        }
-        catch { /* non-fatal */ }
-    }
 }

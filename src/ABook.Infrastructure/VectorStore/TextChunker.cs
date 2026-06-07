@@ -1,9 +1,16 @@
 namespace ABook.Infrastructure.VectorStore;
 
+/// <summary>Text chunking utilities for pgvector embedding storage.</summary>
 public static class TextChunker
 {
+    /// <summary>Default chunk size in words (~500 tokens).</summary>
+    public const int DefaultChunkSize = 400;
+
+    /// <summary>Default overlap between consecutive chunks in words.</summary>
+    public const int DefaultOverlap = 50;
+
     /// <summary>Splits text into overlapping chunks of approximately <paramref name="chunkSize"/> words.</summary>
-    public static IReadOnlyList<string> Chunk(string text, int chunkSize = 400, int overlap = 50)
+    public static IReadOnlyList<string> Chunk(string text, int chunkSize = DefaultChunkSize, int overlap = DefaultOverlap)
     {
         if (string.IsNullOrWhiteSpace(text)) return [];
 

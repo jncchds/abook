@@ -11,6 +11,11 @@ namespace ABook.Agents;
 /// Keeps fast in-memory state for active runs and persists key lifecycle events
 /// (start, pause, resume, finish) to the database so runs can be recovered after
 /// a process restart.
+/// <para>
+/// <b>Scaling limitation:</b> This service is process-local (in-memory). It will not work
+/// correctly with horizontal scaling (multiple app instances / Kubernetes pods). For production
+/// multi-instance deployments, replace with a distributed state backend (e.g., Redis).
+/// </para>
 /// </summary>
 public class AgentRunStateService
 {

@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.1.9 — 2026-06-07
+
+- fix: add StoryBible include in GetByIdWithDetailsAsync (was returning null for StoryBible)
+- fix: add silent-skip logging for already-Done chapters in ProcessChapterAsync
+- fix: remove HasData seed from LlmConfiguration in AppDbContext (handled by Program.cs UpsertLlmConfigAsync)
+- fix: add AsSplitQuery to GetByIdWithDetailsAsync to avoid Cartesian explosion
+- fix: add appsettings.Local.example.json to .gitignore
+- fix: remove deprecated IndexChapterAsync from WriterAgent
+- fix: extract DefaultChunkSize and DefaultOverlap constants in TextChunker
+- fix: add explicit HasMany mappings for Book entity in AppDbContext
+- docs: document API key plaintext limitation, singleton scaling limitation, approximate token counting, MEAI migration path, OpenTelemetry TODO
+
 ## v0.1.8 — 2026-05-09
 
 - feat: PWA support — app is now installable (add to home screen / desktop); service worker precaches static assets and serves offline fallback; `sw.js` and `manifest.webmanifest` generated into `wwwroot/` at build time

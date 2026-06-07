@@ -50,6 +50,9 @@ public class AppDbContext : DbContext
             b.Property(x => x.Genre).HasMaxLength(100);
             b.Property(x => x.Status).HasConversion<string>();
             b.Property(x => x.Language).HasMaxLength(100).HasDefaultValue("English");
+            b.HasMany(x => x.Chapters).WithOne(x => x.Book).HasForeignKey(x => x.BookId).OnDelete(DeleteBehavior.Cascade);
+            b.HasMany(x => x.AgentMessages).WithOne(x => x.Book).HasForeignKey(x => x.BookId).OnDelete(DeleteBehavior.Cascade);
+            b.HasMany(x => x.LlmConfigurations).WithOne(x => x.Book).HasForeignKey(x => x.BookId).OnDelete(DeleteBehavior.Cascade);
             b.HasOne(x => x.User)
              .WithMany(x => x.Books)
              .HasForeignKey(x => x.UserId)
@@ -108,16 +111,6 @@ public class AppDbContext : DbContext
              .HasForeignKey(x => x.UserId)
              .OnDelete(DeleteBehavior.SetNull)
              .IsRequired(false);
-
-            l.HasData(new LlmConfiguration
-            {
-                Id = 1,
-                BookId = null,
-                Provider = LlmProvider.Ollama,
-                ModelName = "llama3",
-                Endpoint = "http://host.docker.internal:11434",
-                EmbeddingModelName = "nomic-embed-text"
-            });
         });
 
         modelBuilder.Entity<TokenUsageRecord>(t =>

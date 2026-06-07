@@ -168,4 +168,8 @@ app.MapMcp("/mcp")
 app.MapFallbackToFile("index.html");
 
 app.Logger.LogInformation("ABook API starting.");
+
+// TODO: Add OpenTelemetry tracing for agent runs, LLM calls, and RAG queries
+// to enable production monitoring and cost tracking.
+
 app.Run();

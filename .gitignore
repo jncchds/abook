@@ -42,6 +42,7 @@ ScaffoldingReadMe.txt
 # Local developer overrides (contain machine-specific or secret config)
 docker-compose.override.yml
 appsettings.Local.json
+appsettings.Local.example.json
 *~
 CodeCoverage/
 

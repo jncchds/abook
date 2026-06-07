@@ -318,6 +318,7 @@ public class ContinuityCheckerAgent : AgentBase
         PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
     };
 
+    /// <summary>DTO for deserializing the ContinuityChecker JSON response.</summary>
     private sealed class CheckerIssueDto
     {
         public string Type { get; set; } = "continuity";
@@ -325,6 +326,7 @@ public class ContinuityCheckerAgent : AgentBase
         public string ProposedFix { get; set; } = string.Empty;
     }
 
+    /// <summary>DTO for deserializing the ContinuityChecker JSON response.</summary>
     private sealed class CheckerResultDto
     {
         public bool HasIssues { get; set; }

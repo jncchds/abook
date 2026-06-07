@@ -10,6 +10,10 @@ public class LlmConfiguration
     public LlmProvider Provider { get; set; } = LlmProvider.Ollama;
     public string ModelName { get; set; } = "llama3";
     public string Endpoint { get; set; } = "http://localhost:11434";
+    /// <summary>
+    /// API key for the LLM provider. Stored in plaintext — consider implementing
+    /// EF Core value converter encryption for production use (TODO).
+    /// </summary>
     public string? ApiKey { get; set; }
     public string? EmbeddingModelName { get; set; }
 
