@@ -356,6 +356,12 @@ public class AgentOrchestrator : IAgentOrchestrator
                     $"Chapter {chapter.Number} checks passed.", false, ct);
             }
         }
+        else if (freshChapter.Status == ChapterStatus.Done)
+        {
+            // Chapter was already completed (e.g. from a previous partial run or manual intervention).
+            // Skip silently — the orchestrator will handle subsequent chapters.
+            _logger.LogDebug("[Book {BookId}] Skipping Chapter {ChapterNumber} — already Done.", bookId, chapter.Number);
+        }
 
         // Ensure chapter is marked Done
         var finalChapter = await _repo.GetChapterAsync(bookId, chapter.Id);

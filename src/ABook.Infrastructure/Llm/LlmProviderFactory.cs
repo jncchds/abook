@@ -7,6 +7,15 @@ using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ABook.Infrastructure.Llm;
 
+/// <summary>
+/// Factory that creates Semantic Kernel services (chat completion, embeddings) based on
+/// the configured LLM provider. Uses a strategy pattern for provider-specific implementation.
+/// <para>
+/// <b>Future migration:</b> Consider migrating to Microsoft.Extensions.AI abstraction layer
+/// (https://aka.ms/MLNET-MEAI) to reduce direct dependency on Semantic Kernel and make it
+/// easier to add new providers without SK-specific connectors.
+/// </para>
+/// </summary>
 public class LlmProviderFactory : ILlmProviderFactory
 {
     // TODO: delete AzureOpenAI — never implemented

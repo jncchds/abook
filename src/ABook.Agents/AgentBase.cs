@@ -51,6 +51,9 @@ public abstract class AgentBase
     /// Non-streaming LLM call. Used for short question-gathering queries that don't need token-by-token
     /// streaming to the UI. When <paramref name="bookId"/> and <paramref name="role"/> are provided,
     /// token usage is persisted to the DB and emitted via SignalR.
+    /// <para><b>Note:</b> Token counts are approximate (text.Length / 4). They work reasonably
+    /// for English text but may be off by 2-3x for non-English text, code, or short words.
+    /// For accurate counts, consider using a real tokenizer (e.g., tiktoken port).</para>
     /// </summary>
     protected async Task<string> GetCompletionAsync(
         Kernel kernel, LlmConfiguration config, ChatHistory history, CancellationToken ct,

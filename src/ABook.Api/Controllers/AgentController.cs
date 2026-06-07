@@ -133,6 +133,12 @@ public class AgentController : ControllerBase
         return Ok(new { content });
     }
 
+    /// <summary>
+    /// Runs an orchestrator action in the background. The CancellationToken is created
+    /// by <see cref="AgentRunStateService.CreateRunCts"/> and stored in-memory keyed by bookId.
+    /// When <see cref="StopWorkflow"/> calls <see cref="AgentRunStateService.CancelRun"/>,
+    /// the CTS is cancelled which propagates to this <paramref name="ct"/>.
+    /// </summary>
     private async Task RunInBackground(int bookId, Func<IAgentOrchestrator, CancellationToken, Task> action, CancellationToken ct = default)
     {
         using var scope = _scopeFactory.CreateScope();

@@ -12,6 +12,12 @@ public enum MessageType { Content, Question, Answer, SystemNote, Feedback }
 
 public enum LlmProvider { Ollama, OpenAI, AzureOpenAI, Anthropic, LMStudio, GoogleAIStudio }
 
+/// <summary>
+/// AzureOpenAI (int=3) is reserved for future implementation. The enum value is kept
+/// to avoid breaking existing DB rows; the factory throws NotSupportedException if invoked.
+/// Users should use OpenAI provider with a custom endpoint until Azure OpenAI is implemented.
+/// </summary>
+
 public enum CharacterRole { Protagonist, Antagonist, Supporting, Minor }
 
 public enum PlotThreadType { MainPlot, Subplot, CharacterArc, Mystery, Foreshadowing, WorldBuilding, ThematicThread }

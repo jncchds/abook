@@ -5,6 +5,17 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ABook.Infrastructure.Repositories;
 
+/// <summary>
+/// Repository for all book-related data access. Each public method creates its own short-lived
+/// <see cref="AppDbContext"/> via the injected factory where needed.
+/// <para>
+/// <b>Known limitations:</b>
+/// <list type="bullet">
+/// <item><description>Token usage records are flushed per-LLM-call (one SaveChanges each). For
+/// high-throughput scenarios, consider batching.</description></item>
+/// </list>
+/// </para>
+/// </summary>
 public class BookRepository : IBookRepository
 {
     private readonly AppDbContext _db;
@@ -22,10 +33,16 @@ public class BookRepository : IBookRepository
     public async Task<Book?> GetByIdAsync(int id) =>
         await _db.Books.FindAsync(id);
 
+    /// <summary>
+    /// Loads a book with its chapters, LLM config, and Story Bible.
+    /// Uses AsSplitQuery to avoid the Cartesian explosion when a book has many chapters.
+    /// </summary>
     public async Task<Book?> GetByIdWithDetailsAsync(int id) =>
         await _db.Books
+            .Include(b => b.StoryBible)
             .Include(b => b.Chapters.OrderBy(c => c.Number))
             .Include(b => b.LlmConfigurations)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(b => b.Id == id);
 
     public async Task<Book> AddAsync(Book book)
@@ -71,6 +88,11 @@ public class BookRepository : IBookRepository
         return chapter;
     }
 
+    /// <summary>
+    /// Atomically replaces all chapters for a book inside a single transaction.
+    /// Concurrency is guarded at the orchestrator level by AgentRunStateService.TryStartRun,
+    /// which prevents a second run for the same book from starting while one is in progress.
+    /// </summary>
     public async Task ReplaceChaptersAsync(int bookId, IEnumerable<Chapter> chapters)
     {
         await using var tx = await _db.Database.BeginTransactionAsync();
