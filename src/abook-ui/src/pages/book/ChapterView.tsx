@@ -10,7 +10,7 @@ import { useRestoreStream } from '../../hooks/useRestoreStream'
 export default function ChapterView() {
   const { chapterId } = useParams<{ chapterId: string }>()
   const navigate = useNavigate()
-  const { book, setBook, streamBuffer, streamingChapterId, isRunning, setStreamBuffer, setStreamingChapterId } = useBookContext()
+  const { book, setBook, streamBuffer, streamingChapterId, isRunning, runStatus, setStreamBuffer, setStreamingChapterId } = useBookContext()
 
   const [editingChapter, setEditingChapter] = useState(false)
   const [chapterEditTitle, setChapterEditTitle] = useState('')
@@ -22,9 +22,11 @@ export default function ChapterView() {
   const [activating, setActivating] = useState(false)
 
   const chapter = book?.chapters?.find(c => c.id === Number(chapterId))
+  // Pass the active role so the stream buffer can be located by agentRole on hard-refresh
+  const activeRole = runStatus?.chapterId === chapter?.id ? runStatus?.role : undefined
 
   // Restore in-progress stream on hard-refresh (must be before early returns)
-  useRestoreStream(book?.id, isRunning, streamBuffer, undefined, chapter?.id, (content) => {
+  useRestoreStream(book?.id, isRunning, streamBuffer, activeRole, chapter?.id, (content) => {
     setStreamBuffer(prev => prev.length >= content.length ? prev : content)
     if (chapter) setStreamingChapterId(chapter.id)
   })

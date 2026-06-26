@@ -316,38 +316,31 @@ public class AgentOrchestrator : IAgentOrchestrator
         var freshChapter = await _repo.GetChapterAsync(bookId, chapter.Id) ?? chapter;
         if (freshChapter.Status != ChapterStatus.Done && !string.IsNullOrEmpty(freshChapter.Content))
         {
-            // First check
-            _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapter.Id);
-            await _notifier.NotifyWorkflowProgressAsync(bookId,
-                $"Checking Chapter {chapter.Number}…", false, ct);
-            var checkerResult = await _continuity.CheckAsync(bookId, chapter.Id, ct);
-            ct.ThrowIfCancellationRequested();
-
-            // Optional human pause (assisted mode only)
+            // Optional human pause BEFORE checker — author guidance is fed into patch generation
             string humanPoints = string.Empty;
             if (book.HumanAssisted)
             {
                 humanPoints = (await _questions.AskSingleOptionalAsync(
                     bookId, chapter.Id, AgentRole.ContinuityChecker,
-                    "Want anything to add?", ct)).Trim();
+                    "Chapter written. Any guidance before the quality check?", ct)).Trim();
+                ct.ThrowIfCancellationRequested();
             }
 
-            bool needsEdit = checkerResult.HasIssues || !string.IsNullOrWhiteSpace(humanPoints);
+            // Quality check — produces verbatim patches; incorporates human notes
+            _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapter.Id);
+            await _notifier.NotifyWorkflowProgressAsync(bookId,
+                $"Checking Chapter {chapter.Number}…", false, ct);
+            var checkerResult = await _continuity.CheckAsync(bookId, chapter.Id, ct,
+                humanPoints.Length > 0 ? humanPoints : null);
+            ct.ThrowIfCancellationRequested();
 
-            if (needsEdit)
+            if (checkerResult.HasIssues)
             {
-                // Single edit pass
+                // Apply patches mechanically (no LLM streaming call needed)
                 _state.UpdateRunRole(bookId, AgentRole.Editor, chapter.Id);
                 await _notifier.NotifyWorkflowProgressAsync(bookId,
-                    $"Editing Chapter {chapter.Number}…", false, ct);
-                await _editor.EditAsync(bookId, chapter.Id, ct, checkerResult, humanPoints, finalizeStatus: false);
-                ct.ThrowIfCancellationRequested();
-
-                // Final check — informational only, no further editing
-                _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapter.Id);
-                await _notifier.NotifyWorkflowProgressAsync(bookId,
-                    $"Final check for Chapter {chapter.Number}…", false, ct);
-                await _continuity.CheckAsync(bookId, chapter.Id, ct);
+                    $"Applying fixes to Chapter {chapter.Number}…", false, ct);
+                await _editor.EditAsync(bookId, chapter.Id, ct, checkerResult, finalizeStatus: false);
                 ct.ThrowIfCancellationRequested();
             }
             else
@@ -355,6 +348,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                 await _notifier.NotifyWorkflowProgressAsync(bookId,
                     $"Chapter {chapter.Number} checks passed.", false, ct);
             }
+            // No final check — patches are deterministic; any failures reported in the chat panel
         }
         else if (freshChapter.Status == ChapterStatus.Done)
         {
@@ -403,7 +397,10 @@ public class AgentOrchestrator : IAgentOrchestrator
 
         if (!isContinuation)
         {
+            var ancestorRef = await _repo.BuildAncestorPlanningReferenceAsync(bookId, ct);
             var bkCtx = $"Title: {book.Title}\nGenre: {book.Genre}\nPremise: {book.Premise}\nTarget chapters: {book.TargetChapterCount}";
+            if (!string.IsNullOrEmpty(ancestorRef))
+                bkCtx += $"\n\n{ancestorRef}";
             var questions = await _questions.GatherQuestionsAsync(bookId, bkCtx, book.Language, ct);
             if (questions.Count > 0)
                 await _questions.AskQuestionsAsync(bookId, questions, qaContext, ct);

@@ -62,7 +62,7 @@ public class ContinuityCheckerAgent : AgentBase
             Are there any contradictions between this outline and the established facts above?
             """);
 
-        var detectResponse = await StreamResponseAsync(kernel, config, detectHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct, suspiciousThreshold: 0);
+        var detectResponse = await GetCompletionAsync(kernel, config, detectHistory, ct, bookId, chapterId, AgentRole.ContinuityChecker);
 
         if (detectResponse.Trim().StartsWith("No issues found", StringComparison.OrdinalIgnoreCase))
         {
@@ -93,7 +93,7 @@ public class ContinuityCheckerAgent : AgentBase
             Rewrite the outline to resolve all contradictions above.
             """);
 
-        var fixedOutline = await StreamResponseAsync(kernel, config, fixHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct);
+        var fixedOutline = await GetCompletionAsync(kernel, config, fixHistory, ct, bookId, chapterId, AgentRole.ContinuityChecker);
 
         if (!string.IsNullOrWhiteSpace(fixedOutline))
         {
@@ -125,7 +125,7 @@ public class ContinuityCheckerAgent : AgentBase
     /// Returns a structured <see cref="CheckerResult"/> so the Editor can fix precise issues.
     /// The result is also saved as a formatted SystemNote for the chat panel.
     /// </summary>
-    public async Task<CheckerResult> CheckAsync(int bookId, int? chapterId = null, CancellationToken ct = default)
+    public async Task<CheckerResult> CheckAsync(int bookId, int? chapterId = null, CancellationToken ct = default, string? humanNotes = null)
     {
         var book = await Repo.GetByIdWithDetailsAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
@@ -207,6 +207,11 @@ public class ContinuityCheckerAgent : AgentBase
             contextSections.AppendLine(ragContext);
         }
 
+        // Append author guidance as extra instructions when provided
+        var humanNotesSection = !string.IsNullOrWhiteSpace(humanNotes)
+            ? $"\n\n## Author Guidance (generate additional patches to address these notes)\n{humanNotes.Trim()}"
+            : string.Empty;
+
         string userMessage;
         if (currentChapter != null)
         {
@@ -228,7 +233,7 @@ public class ContinuityCheckerAgent : AgentBase
                 {prevSynopsis}
 
                 ## Chapter Under Review
-                {currentExcerpt}
+                {currentExcerpt}{humanNotesSection}
                 """;
         }
         else
@@ -237,7 +242,7 @@ public class ContinuityCheckerAgent : AgentBase
                 Review these chapters for continuity and style issues.
                 {contextSections}
                 ## Chapter Summaries
-                {synopsis}
+                {synopsis}{humanNotesSection}
                 """;
         }
         history.AddUserMessage(userMessage);
@@ -255,7 +260,9 @@ public class ContinuityCheckerAgent : AgentBase
             var issues = dto?.Issues?.Select(i => new CheckerIssue(
                 i.Type ?? "continuity",
                 i.Description ?? string.Empty,
-                i.ProposedFix ?? string.Empty)).ToArray() ?? [];
+                i.ProposedFix ?? string.Empty,
+                i.OriginalText ?? string.Empty,
+                i.ReplacementText ?? string.Empty)).ToArray() ?? [];
             result = new CheckerResult(dto?.HasIssues ?? false, issues, dto?.Summary ?? string.Empty);
         }
         catch
@@ -324,6 +331,8 @@ public class ContinuityCheckerAgent : AgentBase
         public string Type { get; set; } = "continuity";
         public string Description { get; set; } = string.Empty;
         public string ProposedFix { get; set; } = string.Empty;
+        public string OriginalText { get; set; } = string.Empty;
+        public string ReplacementText { get; set; } = string.Empty;
     }
 
     /// <summary>DTO for deserializing the ContinuityChecker JSON response.</summary>

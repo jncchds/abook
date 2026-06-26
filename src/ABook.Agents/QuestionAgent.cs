@@ -41,6 +41,12 @@ public class QuestionAgent : AgentBase
             IMPORTANT: Ask all questions in {language}.
             Keep the number of questions to an absolute minimum — only ask when truly necessary.
             If everything is clear from the premise, respond with exactly: None.
+
+            If the premise includes "Continuation context from previous books":
+            - Do NOT re-ask worldbuilding questions already established by the prior book.
+            - Focus on continuation decisions only: e.g. where this book picks up after the prior book's
+              ending, what happened to key characters between books, or what this book's unique focus is.
+            - Treat all facts from the prior book as established — only ask about genuine ambiguities.
             """);
         history.AddUserMessage(bookContext);
 

@@ -105,8 +105,10 @@ public abstract class AgentBase
 
     /// <summary>Streams LLM tokens to the book's SignalR group and accumulates the full response.</summary>
     /// <param name="suspiciousThreshold">Minimum response length before a 'suspiciously short' warning is emitted. Pass 0 to suppress.</param>
+    /// <param name="stopStreamingAt">Optional regex. Once matched against the accumulated buffer, further tokens are still accumulated but no longer forwarded to the SignalR stream. Use to prevent notes/metadata sections from appearing in the chapter view.</param>
     protected async Task<string> StreamResponseAsync(
-        Kernel kernel, LlmConfiguration config, ChatHistory history, int bookId, int? chapterId, AgentRole role, CancellationToken ct, bool jsonMode = false, int suspiciousThreshold = 50)
+        Kernel kernel, LlmConfiguration config, ChatHistory history, int bookId, int? chapterId, AgentRole role, CancellationToken ct, bool jsonMode = false, int suspiciousThreshold = 50,
+        System.Text.RegularExpressions.Regex? stopStreamingAt = null)
     {
         var chat = kernel.GetRequiredService<IChatCompletionService>();
         var settings = LlmFactory.CreateExecutionSettings(config, 0.8f, jsonMode);
@@ -129,12 +131,19 @@ public abstract class AgentBase
 
         try
         {
+            bool stopStreaming = false;
             await foreach (var chunk in chat.GetStreamingChatMessageContentsAsync(history, settings, kernel, ct))
             {
                 if (chunk.Content is { Length: > 0 } token)
                 {
                     sb.Append(token);
-                    await Notifier.StreamTokenAsync(bookId, chapterId, role, token, ct);
+                    if (!stopStreaming)
+                    {
+                        if (stopStreamingAt is not null && stopStreamingAt.IsMatch(sb.ToString()))
+                            stopStreaming = true;
+                        else
+                            await Notifier.StreamTokenAsync(bookId, chapterId, role, token, ct);
+                    }
                 }
             }
         }

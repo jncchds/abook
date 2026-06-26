@@ -115,10 +115,10 @@ export default function Chapters() {
         </div>
       )}
 
-      {/* Chapter cards */}
+      {/* Chapter cards — hidden while ChaptersAgent is actively streaming to avoid duplication */}
       {activeChapters.length === 0 && runStatus?.role !== 'ChaptersAgent' ? (
         <p className="empty">No chapters yet. Use <strong>Plan Book</strong> to generate outlines, or add one manually below.</p>
-      ) : (
+      ) : !(plannerBuffer && runStatus?.role === 'ChaptersAgent') && (
         <div className="book-list">
           {activeChapters.map(c => (
             <div key={c.id} className="book-list-card">

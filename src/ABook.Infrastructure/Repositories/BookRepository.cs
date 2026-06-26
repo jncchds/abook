@@ -93,9 +93,15 @@ public class BookRepository : IBookRepository
             .GroupBy(p => p.BookId)
             .ToDictionaryAsync(g => g.Key, g => g.OrderBy(x => x.IntroducedChapterNumber).ThenBy(x => x.Name).ToList(), ct);
 
+        var chaptersByBook = await _db.Chapters
+            .Where(c => ancestorIds.Contains(c.BookId) && !c.IsArchived)
+            .GroupBy(c => c.BookId)
+            .ToDictionaryAsync(g => g.Key, g => g.OrderBy(x => x.Number).ToList(), ct);
+
         var sb = new StringBuilder();
         sb.AppendLine("Continuation context from previous books (reference only — do not copy verbatim):");
 
+        bool isDirectParent = true; // first ancestor in chain is the direct parent
         foreach (var ancestorId in ancestorIds)
         {
             if (!books.TryGetValue(ancestorId, out var ancestor)) continue;
@@ -120,7 +126,11 @@ public class BookRepository : IBookRepository
                 sb.AppendLine("- Key Characters:");
                 foreach (var c in cards.Take(12))
                 {
-                    sb.AppendLine($"  - {c.Name} ({c.Role}): {c.GoalMotivation}");
+                    sb.Append($"  - {c.Name} ({c.Role})");
+                    if (!string.IsNullOrWhiteSpace(c.GoalMotivation)) sb.Append($": {c.GoalMotivation}");
+                    if (!string.IsNullOrWhiteSpace(c.Personality)) sb.Append($" | Personality: {c.Personality}");
+                    if (!string.IsNullOrWhiteSpace(c.Arc)) sb.Append($" | Arc: {c.Arc}");
+                    sb.AppendLine();
                 }
             }
 
@@ -132,6 +142,20 @@ public class BookRepository : IBookRepository
                     sb.AppendLine($"  - {t.Name} ({t.Type}, {t.Status}): {t.Description}");
                 }
             }
+
+            if (chaptersByBook.TryGetValue(ancestorId, out var chapters) && chapters.Count > 0)
+            {
+                sb.AppendLine("- Chapter Synopses:");
+                // Direct parent: all chapters; grandparent+: last 5 (token budget)
+                var chapsToShow = isDirectParent ? chapters : chapters.TakeLast(5).ToList();
+                foreach (var ch in chapsToShow)
+                {
+                    if (!string.IsNullOrWhiteSpace(ch.Outline))
+                        sb.AppendLine($"  - Ch.{ch.Number} \"{ch.Title}\": {ch.Outline}");
+                }
+            }
+
+            isDirectParent = false;
         }
 
         return sb.ToString().Trim();

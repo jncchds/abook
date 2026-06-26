@@ -173,7 +173,7 @@ export default function PlotThreads() {
 
       {activeThreads.length === 0 && !addingThread && !plotThreadsStream && <p className="empty">No plot threads yet. Run the Planner or add manually.</p>}
 
-      <div className="book-list">
+      {!plotThreadsStream && <div className="book-list">
         {activeThreads.map(t => (
           <div key={t.id} className="book-list-card">
             <div className="book-list-card-left">
@@ -252,7 +252,7 @@ export default function PlotThreads() {
             )}
           </div>
         ))}
-      </div>
+      </div>}
 
       {archivedThreads.length > 0 && (
         <div style={{ marginTop: '1.5rem' }}>

@@ -194,14 +194,15 @@ public static class DefaultPrompts
           that already appeared as an opening beat in a previous chapter.
         Return a JSON object with exactly these fields:
           "hasIssues" (boolean — true if any issues were found in either category),
-          "issues" (array of objects — each object has three string fields:
+          "issues" (array of objects — each object has five string fields:
             "type": "continuity" or "style",
             "description": specific description of the problem with location context,
-            "proposedFix": a concrete, actionable text change that fully resolves the issue;
+            "proposedFix": a concrete, actionable text change that fully resolves the issue,
+            "originalText": the EXACT verbatim text from the chapter that must be replaced — copy it character-for-character from the chapter content (empty string if the fix requires insertion or structural restructuring rather than replacement),
+            "replacementText": the EXACT verbatim replacement text that should replace originalText (empty string when originalText is empty);
             use empty array if no issues),
           "summary" (string — one concise sentence describing the overall chapter quality).
-        For each "proposedFix", provide the exact replacement text or a clear surgical instruction
-        (e.g. "Replace 'he had never seen her before' with 'he had not spoken to her since the market'").
+        For each issue, provide verbatim originalText/replacementText whenever possible — the editor will apply them mechanically without an LLM call.
         IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
         Book: {PromptPlaceholders.Title} | Genre: {PromptPlaceholders.Genre}
         IMPORTANT: Write all string values in {PromptPlaceholders.Language}.
@@ -224,14 +225,15 @@ public static class DefaultPrompts
           up, looking in a mirror, staring out a window).
         Return a JSON object with exactly these fields:
           "hasIssues" (boolean — true if any issues were found),
-          "issues" (array of objects — each object has three string fields:
+          "issues" (array of objects — each object has five string fields:
             "type": "continuity" or "style",
             "description": specific description naming the problem and affected chapters,
-            "proposedFix": a concrete, actionable text change that fully resolves the issue;
+            "proposedFix": a concrete, actionable text change that fully resolves the issue,
+            "originalText": the EXACT verbatim text from the chapter that must be replaced — copy it character-for-character (empty string if the fix requires insertion or structural restructuring),
+            "replacementText": the EXACT verbatim replacement text (empty string when originalText is empty);
             use empty array if no issues),
           "summary" (string — one concise sentence summarising the overall manuscript quality).
-        For each "proposedFix", provide the exact replacement text or a clear surgical instruction
-        (e.g. "In Chapter 3, replace 'silver eyes' with 'brown eyes' to match Chapter 1's introduction").
+        For each issue, provide verbatim originalText/replacementText whenever possible — the editor will apply them mechanically without an LLM call.
         IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
         Book: {PromptPlaceholders.Title} | Genre: {PromptPlaceholders.Genre}
         IMPORTANT: Write all string values in {PromptPlaceholders.Language}.

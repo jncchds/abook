@@ -11,6 +11,12 @@ namespace ABook.Agents;
 
 public class EditorAgent : AgentBase
 {
+    // Matches the editorial-notes heading the LLM appends after chapter prose.
+    // Used to stop streaming those notes into the chapter view.
+    private static readonly System.Text.RegularExpressions.Regex _notesHeadingRegex =
+        new(@"^##\s+(editorial notes?|editor'?s? notes?|feedback|changes made|notes?|revisions?)\s*$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Multiline);
+
     public EditorAgent(
         IBookRepository repo,
         ILlmProviderFactory llmFactory,
@@ -72,93 +78,142 @@ public class EditorAgent : AgentBase
 
         bool hasCheckerIssues = checkerResult is { HasIssues: true, Issues.Length: > 0 };
 
-        string systemPrompt;
         if (hasCheckerIssues)
         {
-            // Surgical mode: apply only the checker's specific fixes, no other changes
-            systemPrompt = InterpolateSystemPrompt(DefaultPrompts.EditorSurgical, book, bible);
-        }
-        else
-        {
-            systemPrompt = !string.IsNullOrWhiteSpace(book.EditorSystemPrompt)
-                ? InterpolateSystemPrompt(book.EditorSystemPrompt, book, bible)
-                : InterpolateSystemPrompt(DefaultPrompts.Editor, book, bible);
-        }
-        history.AddSystemMessage(systemPrompt);
+            // ── MECHANICAL PATCH PATH ──────────────────────────────────────────────────
+            // Apply verbatim patches from checker; no LLM call needed.
+            var content = chapter.Content ?? string.Empty;
+            var applied = new List<string>();
+            var skipped = new List<string>();
 
-        // Build fix request from structured checker result and optional human notes
-        var sb = new System.Text.StringBuilder();
-
-        if (hasCheckerIssues)
-        {
-            // Surgical mode: list each fix as a numbered instruction; skip RAG/synopsis cross-chapter context
-            sb.AppendLine($"Apply the following fixes to Chapter {chapter.Number}: {chapter.Title}");
-            sb.AppendLine();
-            int fixNum = 0;
             foreach (var issue in checkerResult!.Issues)
             {
-                fixNum++;
-                sb.AppendLine($"{fixNum}. [{issue.Type}] {issue.Description}");
-                sb.AppendLine($"   \u2192 Apply this fix: {issue.ProposedFix}");
-                sb.AppendLine();
+                if (string.IsNullOrEmpty(issue.OriginalText))
+                {
+                    skipped.Add($"- [{issue.Type}] {issue.Description} (no verbatim patch — manual review needed)");
+                    continue;
+                }
+
+                // Exact-match first; case-insensitive fallback for minor capitalisation drift
+                var idx = content.IndexOf(issue.OriginalText, StringComparison.Ordinal);
+                if (idx < 0) idx = content.IndexOf(issue.OriginalText, StringComparison.OrdinalIgnoreCase);
+
+                if (idx >= 0)
+                {
+                    content = content.Remove(idx, issue.OriginalText.Length)
+                                     .Insert(idx, issue.ReplacementText ?? string.Empty);
+                    applied.Add($"- [{issue.Type}] {issue.Description}");
+                }
+                else
+                {
+                    skipped.Add($"- [{issue.Type}] {issue.Description} (could not locate passage — manual review needed)");
+                }
             }
-            if (!string.IsNullOrWhiteSpace(humanAttentionPoints))
+
+            var patchedContent = StripLeadingChapterHeading(content, chapter.Number, chapter.Title);
+            var patchedStatus = finalizeStatus ? ChapterStatus.Done : ChapterStatus.Review;
+
+            // Feedback message summarising what was applied / skipped
+            var feedbackSb = new System.Text.StringBuilder();
+            feedbackSb.AppendLine("## Editorial Notes");
+            if (applied.Count > 0)
             {
-                fixNum++;
-                sb.AppendLine($"{fixNum}. [author note] {humanAttentionPoints.Trim()}");
-                sb.AppendLine();
+                feedbackSb.AppendLine($"\n**Applied {applied.Count} patch(es):**");
+                foreach (var a in applied) feedbackSb.AppendLine(a);
             }
-            sb.AppendLine($"Original chapter content:");
-            sb.AppendLine(chapter.Content);
+            if (skipped.Count > 0)
+            {
+                feedbackSb.AppendLine($"\n⚠️ **Could not apply {skipped.Count} fix(es) — manual review recommended:**");
+                foreach (var s in skipped) feedbackSb.AppendLine(s);
+            }
+            await Repo.AddMessageAsync(new AgentMessage
+            {
+                BookId = bookId,
+                ChapterId = chapterId,
+                AgentRole = AgentRole.Editor,
+                MessageType = MessageType.Feedback,
+                Content = feedbackSb.ToString(),
+                IsResolved = true
+            });
+
+            var patchVersion = new ChapterVersion
+            {
+                ChapterId = chapterId,
+                BookId = bookId,
+                Title = chapter.Title,
+                Outline = chapter.Outline,
+                Content = patchedContent,
+                Status = patchedStatus,
+                PovCharacter = chapter.PovCharacter,
+                CharactersInvolvedJson = chapter.CharactersInvolvedJson,
+                PlotThreadsJson = chapter.PlotThreadsJson,
+                ForeshadowingNotes = chapter.ForeshadowingNotes,
+                PayoffNotes = chapter.PayoffNotes,
+                CreatedBy = "agent:Editor",
+                HasEmbeddings = false,
+            };
+            await Repo.AddChapterVersionAsync(patchVersion);
+
+            try { await IndexChapterAsync(bookId, chapterId, patchVersion.Id, kernel, config!, ct); }
+            catch (OperationCanceledException) { throw; }
+            catch { /* non-fatal — embeddings unavailable */ }
+
+            await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
+            await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Done", chapterId, ct);
+            return;
+        }
+
+        // ── CREATIVE LLM PATH ─────────────────────────────────────────────────────────
+        // Used for manual edits (MCP tools, standalone Edit button) when no checker patches are available.
+
+        string systemPrompt;
+        systemPrompt = !string.IsNullOrWhiteSpace(book.EditorSystemPrompt)
+            ? InterpolateSystemPrompt(book.EditorSystemPrompt, book, bible)
+            : InterpolateSystemPrompt(DefaultPrompts.Editor, book, bible);
+        history.AddSystemMessage(systemPrompt);
+
+        // Build cross-chapter context for anti-repetition checks
+        var sb = new System.Text.StringBuilder();
+
+        if (synopsesBlock.Length > 0)
+        {
+            sb.AppendLine("## Story So Far \u2014 Chapter Synopses");
+            sb.AppendLine(synopsesBlock);
+            sb.AppendLine();
+        }
+        bool hasRagContext = !string.IsNullOrWhiteSpace(charRag) || !string.IsNullOrWhiteSpace(locationRag)
+                          || !string.IsNullOrWhiteSpace(threadRag) || !string.IsNullOrWhiteSpace(phrasesRag);
+        if (hasRagContext)
+        {
+            sb.AppendLine("## Prior Chapter Passages (use to identify re-introductions and repeated content)");
+            if (!string.IsNullOrWhiteSpace(charRag))     { sb.AppendLine("\n### Character Details");                              sb.AppendLine(charRag); }
+            if (!string.IsNullOrWhiteSpace(locationRag)) { sb.AppendLine("\n### Location & Setting Details");                     sb.AppendLine(locationRag); }
+            if (!string.IsNullOrWhiteSpace(threadRag))   { sb.AppendLine("\n### Plot Thread Context");                            sb.AppendLine(threadRag); }
+            if (!string.IsNullOrWhiteSpace(phrasesRag))  { sb.AppendLine("\n### Potentially Repeated Phrases & Descriptions");   sb.AppendLine(phrasesRag); }
+            sb.AppendLine();
+        }
+
+        sb.AppendLine($"Please fix Chapter {chapter.Number}: {chapter.Title}");
+
+        if (!string.IsNullOrWhiteSpace(humanAttentionPoints))
+        {
+            sb.AppendLine("\n**Additional attention points from the author:**");
+            sb.AppendLine(humanAttentionPoints.Trim());
         }
         else
         {
-            // Creative editing mode: include cross-chapter context for anti-repetition checks
-            if (synopsesBlock.Length > 0)
-            {
-                sb.AppendLine("## Story So Far \u2014 Chapter Synopses");
-                sb.AppendLine(synopsesBlock);
-                sb.AppendLine();
-            }
-            bool hasRagContext = !string.IsNullOrWhiteSpace(charRag) || !string.IsNullOrWhiteSpace(locationRag)
-                              || !string.IsNullOrWhiteSpace(threadRag) || !string.IsNullOrWhiteSpace(phrasesRag);
-            if (hasRagContext)
-            {
-                sb.AppendLine("## Prior Chapter Passages (use to identify re-introductions and repeated content)");
-                if (!string.IsNullOrWhiteSpace(charRag))     { sb.AppendLine("\n### Character Details");                              sb.AppendLine(charRag); }
-                if (!string.IsNullOrWhiteSpace(locationRag)) { sb.AppendLine("\n### Location & Setting Details");                     sb.AppendLine(locationRag); }
-                if (!string.IsNullOrWhiteSpace(threadRag))   { sb.AppendLine("\n### Plot Thread Context");                            sb.AppendLine(threadRag); }
-                if (!string.IsNullOrWhiteSpace(phrasesRag))  { sb.AppendLine("\n### Potentially Repeated Phrases & Descriptions");   sb.AppendLine(phrasesRag); }
-                sb.AppendLine();
-            }
-
-            sb.AppendLine($"Please fix Chapter {chapter.Number}: {chapter.Title}");
-
-            if (!string.IsNullOrWhiteSpace(humanAttentionPoints))
-            {
-                sb.AppendLine("\n**Additional attention points from the author:**");
-                sb.AppendLine(humanAttentionPoints.Trim());
-            }
-            else
-            {
-                sb.AppendLine("\nNo specific issues listed \u2014 make only minor polish corrections if needed.");
-            }
-
-            sb.AppendLine($"\nOriginal content:\n{chapter.Content}");
+            sb.AppendLine("\nNo specific issues listed \u2014 make only minor polish corrections if needed.");
         }
+
+        sb.AppendLine($"\nOriginal content:\n{chapter.Content}");
         history.AddUserMessage(sb.ToString());
 
-        var edited = await StreamResponseAsync(kernel, config, history, bookId, chapterId, AgentRole.Editor, ct);
+        // Stream prose only; stop forwarding tokens to SignalR once editorial-notes heading appears
+        var edited = await StreamResponseAsync(kernel, config, history, bookId, chapterId, AgentRole.Editor, ct,
+            stopStreamingAt: _notesHeadingRegex);
 
         // Split off the editorial notes section.
-        // We search for the LAST occurrence of any level-2 heading that looks like notes/feedback
-        // (e.g. "## Editorial Notes", "## Editor's Notes", "## Feedback", "## Changes Made").
-        // If not found, the whole response is saved as prose.
-        var notesMatch = System.Text.RegularExpressions.Regex.Match(
-            edited,
-            @"^##\s+(editorial notes?|editor'?s? notes?|feedback|changes made|notes?|revisions?)\s*$",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
-            System.Text.RegularExpressions.RegexOptions.Multiline);
+        var notesMatch = _notesHeadingRegex.Match(edited);
 
         string prose;
         if (notesMatch.Success)

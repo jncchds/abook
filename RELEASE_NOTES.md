@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.11 — 2026-06-27
+
+- fix: continuation books — planning agents now receive full prior-book context (chapter synopses + richer character personality/arc fields in `BuildAncestorPlanningReferenceAsync`); QuestionAgent upfront Q&A skips already-established world-building for continuations
+- fix: checker → mechanical patch apply — `ContinuityCheckerAgent` prompts now produce verbatim `originalText`/`replacementText` per issue; `EditorAgent` applies patches mechanically via `string.IndexOf` (no LLM call when checker issues exist); human notes collected before checker and fed to it; no redundant Final Check pass
+- fix: agent messages no longer bleed into chapter content — `PreWriteCheckAndFixAsync` uses `GetCompletionAsync` (non-streaming) to avoid emitting tokens to the chapter view; `StreamResponseAsync` gains optional `stopStreamingAt` regex to halt streaming before editorial-notes sections
+- fix: duplicate content in Characters/PlotThreads/Chapters pages — persisted lists are hidden while the corresponding planning stream is active (`{!charactersStream && ...}`, `{!plotThreadsStream && ...}`, `!(plannerBuffer && runStatus?.role === 'ChaptersAgent')`)
+- fix: stream buffer not restored after hard-refresh in `ChapterView` — `useRestoreStream` now receives the active `agentRole` computed from `runStatus`; `AgentRunStateService.GetStreamBufferContent` with `agentRole=null` scans all buffers to find a non-empty one for the given book+chapter
+
 ## v0.1.10 — 2026-06-26
 
 - feat: add book continuation lineage (`Books.BaseBookId`, `Books.SettingsCopiedAt`) with self-FK migration `AddBookBaseLineage`

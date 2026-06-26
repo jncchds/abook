@@ -191,8 +191,14 @@ public class AgentRunStateService
     /// <summary>Returns the accumulated content for a specific streaming call, or null if not found.</summary>
     public string? GetStreamBufferContent(int bookId, int? chapterId, string? agentRole)
     {
-        if (agentRole is null) return null;
-        return _streamBuffers.TryGetValue((bookId, chapterId, agentRole), out var sb) ? sb.ToString() : null;
+        if (agentRole is not null)
+            return _streamBuffers.TryGetValue((bookId, chapterId, agentRole), out var sb) ? sb.ToString() : null;
+
+        // No role specified — return the first non-empty buffer for this book+chapter combination
+        foreach (var kvp in _streamBuffers)
+            if (kvp.Key.BookId == bookId && kvp.Key.ChapterId == chapterId && kvp.Value.Length > 0)
+                return kvp.Value.ToString();
+        return null;
     }
 
     /// <summary>Removes all stream buffers for a book. Call when the run reaches a terminal state.</summary>

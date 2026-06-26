@@ -177,7 +177,7 @@ export default function Characters() {
 
       {activeChars.length === 0 && !addingChar && !charactersStream && <p className="empty">No characters yet. Run the Planner or add manually.</p>}
 
-      <div className="book-list">
+      {!charactersStream && <div className="book-list">
         {activeChars.map(ch => (
           <div key={ch.id} className="book-list-card">
             <div className="book-list-card-left">
@@ -258,7 +258,7 @@ export default function Characters() {
             )}
           </div>
         ))}
-      </div>
+      </div>}
 
       {archivedChars.length > 0 && (
         <div style={{ marginTop: '1.5rem' }}>
