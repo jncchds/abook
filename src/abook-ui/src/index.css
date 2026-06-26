@@ -380,6 +380,7 @@ label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bot
 .book-list-card .blc-genre { font-size: 0.78rem; padding: 0.15rem 0.5rem; background: rgba(99,102,241,0.12); color: var(--accent); border-radius: 4px; }
 .book-list-card .blc-lang { font-size: 0.78rem; padding: 0.15rem 0.5rem; background: rgba(148,163,184,0.1); color: var(--text-muted); border-radius: 4px; }
 .book-list-card .blc-premise { font-size: 0.875rem; color: var(--text-muted); line-height: 1.6; margin-top: 0.35rem; }
+.book-list-card .blc-lineage { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.4rem; }
 .book-list-card-right { display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem; flex-shrink: 0; }
 .blc-chapters { font-size: 0.8rem; color: var(--text-muted); white-space: nowrap; }
 
@@ -464,6 +465,7 @@ label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bot
 .book-overview { max-width: 720px; }
 .book-overview h2 { font-size: 1.6rem; margin-bottom: 1rem; }
 .book-overview p { margin-bottom: 0.5rem; line-height: 1.7; }
+.book-lineage-note { font-size: 0.88rem; color: var(--text-muted); margin-bottom: 0.6rem; }
 
 /* ── Chat panel ── */
 .chat-panel { background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
@@ -528,6 +530,7 @@ label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bot
 .settings-form { display: flex; flex-direction: column; gap: 0; }
 .saved-msg { color: var(--success); font-size: 0.85rem; margin-top: 0.5rem; }
 .hint { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.75rem; }
+.lineage-hint { font-size: 0.84rem; color: var(--text-muted); margin-bottom: 0.6rem; }
 .prompt-placeholders { background: var(--bg-secondary, #f5f5f5); border-radius: 4px; padding: 0.5rem 0.75rem; margin-bottom: 0.75rem; line-height: 1.7; }
 .prompt-placeholders code { background: var(--bg-code, #e8e8e8); border-radius: 3px; padding: 0 4px; font-size: 0.82rem; color: var(--accent); }
 details summary { cursor: pointer; color: var(--accent); font-size: 0.875rem; margin-bottom: 0.75rem; }

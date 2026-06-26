@@ -58,6 +58,11 @@ public class AppDbContext : DbContext
              .HasForeignKey(x => x.UserId)
              .OnDelete(DeleteBehavior.SetNull)
              .IsRequired(false);
+              b.HasOne(x => x.BaseBook)
+               .WithMany(x => x.DerivedBooks)
+               .HasForeignKey(x => x.BaseBookId)
+               .OnDelete(DeleteBehavior.SetNull)
+               .IsRequired(false);
         });
 
         modelBuilder.Entity<Chapter>(c =>

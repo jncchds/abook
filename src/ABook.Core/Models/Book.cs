@@ -23,11 +23,15 @@ public class Book
     public PlanningPhaseStatus CharactersStatus { get; set; } = PlanningPhaseStatus.NotStarted;
     public PlanningPhaseStatus PlotThreadsStatus { get; set; } = PlanningPhaseStatus.NotStarted;
     public PlanningPhaseStatus ChaptersStatus { get; set; } = PlanningPhaseStatus.NotStarted;
+    public int? BaseBookId { get; set; }
+    public DateTime? SettingsCopiedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
     public int? UserId { get; set; }
     [JsonIgnore] public AppUser? User { get; set; }
+    [JsonIgnore] public Book? BaseBook { get; set; }
+    [JsonIgnore] public ICollection<Book> DerivedBooks { get; set; } = new List<Book>();
 
     public ICollection<Chapter> Chapters { get; set; } = new List<Chapter>();
     [JsonIgnore] public ICollection<AgentMessage> AgentMessages { get; set; } = new List<AgentMessage>();

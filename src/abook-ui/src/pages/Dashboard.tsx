@@ -6,6 +6,7 @@ import { createBook, deleteBook, getBooks } from '../api'
 export default function Dashboard() {
   const [books, setBooks] = useState<Book[]>([])
   const [form, setForm] = useState({ title: '', premise: '', genre: '', targetChapterCount: 10, language: 'English', humanAssisted: false })
+  const [baseBookId, setBaseBookId] = useState<number | undefined>(undefined)
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const showForm = searchParams.get('new') === '1'
@@ -16,7 +17,7 @@ export default function Dashboard() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
-    const { data } = await createBook(form)
+    const { data } = await createBook({ ...form, baseBookId })
     navigate(`/books/${data.id}`)
   }
 
@@ -33,6 +34,19 @@ export default function Dashboard() {
       <h2>New Book</h2>
       <label>Title<input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} required autoFocus /></label>
       <label>Genre<input value={form.genre} onChange={e => setForm(f => ({ ...f, genre: e.target.value }))} /></label>
+      <label>
+        Base book (optional)
+        <select
+          value={baseBookId ?? ''}
+          onChange={e => setBaseBookId(e.target.value ? Number(e.target.value) : undefined)}
+        >
+          <option value="">— None —</option>
+          {books.map(b => (
+            <option key={b.id} value={b.id}>{b.title}</option>
+          ))}
+        </select>
+        <span className="hint">Copies settings (language, human-assisted mode, prompts, target chapters) and book-scoped LLM config.</span>
+      </label>
       <label>Language<input value={form.language} onChange={e => setForm(f => ({ ...f, language: e.target.value }))} placeholder="English" /></label>
       <label>Target chapters<input type="number" min={1} max={100} value={form.targetChapterCount} onChange={e => setForm(f => ({ ...f, targetChapterCount: +e.target.value }))} /></label>
       <label>Premise<textarea rows={4} value={form.premise} onChange={e => setForm(f => ({ ...f, premise: e.target.value }))} required /></label>
@@ -57,6 +71,9 @@ export default function Dashboard() {
               <span className={statusClass(b.status)}>{b.status}</span>
             </div>
             {b.premise && <p className="blc-premise">{b.premise}</p>}
+            {b.baseBookId && (
+              <p className="blc-lineage">↪ Based on: {books.find(x => x.id === b.baseBookId)?.title ?? `Book #${b.baseBookId}`}</p>
+            )}
           </div>
           <div className="book-list-card-right">
             <span className="blc-chapters">{b.targetChapterCount} chapters</span>

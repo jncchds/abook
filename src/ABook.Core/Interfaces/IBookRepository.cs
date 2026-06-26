@@ -7,6 +7,8 @@ public interface IBookRepository
     Task<IEnumerable<Book>> GetAllAsync(int? userId = null);
     Task<Book?> GetByIdAsync(int id);
     Task<Book?> GetByIdWithDetailsAsync(int id);
+    Task<IReadOnlyList<int>> GetAncestryBookIdsAsync(int bookId, CancellationToken ct = default);
+    Task<string> BuildAncestorPlanningReferenceAsync(int bookId, CancellationToken ct = default);
     Task<Book> AddAsync(Book book);
     Task UpdateAsync(Book book);
     Task DeleteAsync(int id);

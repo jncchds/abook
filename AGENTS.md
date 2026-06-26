@@ -23,7 +23,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 
 ## Data Model
 
-- **Book**: Id, Title, Premise, Genre, TargetChapterCount, Status (Draft/InProgress/Complete), Language, StoryBibleSystemPrompt, CharactersSystemPrompt, PlotThreadsSystemPrompt, ChapterOutlinesSystemPrompt, WriterSystemPrompt, EditorSystemPrompt, ContinuityCheckerSystemPrompt, **HumanAssisted** (bool, default false), UserId (FK → AppUser), CreatedAt, UpdatedAt
+- **Book**: Id, Title, Premise, Genre, TargetChapterCount, Status (Draft/InProgress/Complete), Language, StoryBibleSystemPrompt, CharactersSystemPrompt, PlotThreadsSystemPrompt, ChapterOutlinesSystemPrompt, WriterSystemPrompt, EditorSystemPrompt, ContinuityCheckerSystemPrompt, **HumanAssisted** (bool, default false), **BaseBookId** (nullable self-FK → Book), **SettingsCopiedAt** (nullable UTC timestamp), UserId (FK → AppUser), CreatedAt, UpdatedAt
 - **Chapter**: Id, BookId, Number, Title, Outline, Content (markdown), Status (Outlined/Writing/Review/Editing/Done), CreatedAt, UpdatedAt
 - **AgentMessage**: Id, BookId, ChapterId (nullable), AgentRole, MessageType (Content/Question/Answer/SystemNote/Feedback), Content, IsResolved, **IsOptional** (bool, default false), CreatedAt
 - **LlmConfiguration**: Id, BookId (nullable, FK → Book), **UserId (nullable, FK → AppUser)**, Provider (Ollama/OpenAI/Azure/Anthropic), ModelName, Endpoint, ApiKey (nullable), EmbeddingModelName (nullable)
@@ -197,6 +197,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - `src/ABook.Infrastructure/VectorStore/PgvectorVectorStoreService.cs` — pgvector implementation of IVectorStoreService; scoped service using AppDbContext
 - `src/ABook.Infrastructure/VectorStore/ChapterEmbedding.cs` — EF Core entity for pgvector embeddings storage
 - `src/ABook.Infrastructure/Migrations/` — EF Core migrations (`InitialCreate`, `AddLanguageAndUsers`, `AddUserLlmConfig`, `AddTokenUsageRecord`, `AddPlanningArtifacts`, `AddPlanningPhaseStatus`, `AddPlanningPhasePrompts`, `AddChapterEmbeddings`, `AddAgentRuns`, `AddLlmPresets`, `AddApiToken`, `AddAssistedGeneration`)
+- `src/ABook.Infrastructure/Migrations/20260626111642_AddBookBaseLineage.cs` — adds `Books.BaseBookId` (self-FK, `SetNull`) + `Books.SettingsCopiedAt`
 - `src/ABook.Agents/AgentBase.cs` — Base class for all agents
 - `src/ABook.Agents/CheckerResult.cs` — Structured checker output (continuity issues, style issues, summary)
 - `src/ABook.Agents/AgentPrompts.cs` — `PromptPlaceholders` constants + `DefaultPrompts` static class (all 7 agent default prompts)
@@ -271,6 +272,10 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **Ollama model management** — `OllamaController` proxies Ollama's `/api/tags` and streams pull progress via SSE
 - **Markdown only** for book output — no DOCX/PDF export (can be added later)
 - **pgvector for vector storage** — embeddings stored directly in PostgreSQL via the `vector` column type; no separate Docker service needed; `Pgvector.EntityFrameworkCore 0.*` package; dimension-free `vector` type to support any embedding model
+- **Book continuation lineage**: `Books.BaseBookId` stores direct parent; parent-of-parent traversal is resolved at query time (cycle-guarded) so chains like A → B → C are supported without a closure table
+- **Create-from-base behavior** (`POST /api/books` with `baseBookId`): copies language, human-assisted flag, target chapter count, all 7 system prompts, and book-scoped LLM config from base book to the new book; source ownership enforced
+- **Ancestry-aware RAG retrieval**: `IVectorStoreService.SearchAsync` accepts `scopeBookIds`; `PgvectorVectorStoreService` filters `ChapterEmbeddings` via `BookId = ANY(array)` so descendant books can retrieve chunks from all ancestors
+- **Ancestor planning context**: StoryBible/Characters/PlotThreads/ChapterOutlines generation injects a compact reference block built from ancestor books’ Story Bible + active Characters + active Plot Threads (`IBookRepository.BuildAncestorPlanningReferenceAsync`)
 - **`IVectorStoreService` registered as Scoped** — `PgvectorVectorStoreService` injects `AppDbContext` directly; simpler than singleton+factory pattern used with Qdrant
 - **`UseVector()` on EF options builder** — `options.UseNpgsql(cs, o => o.UseVector())` in `Program.cs` with `using Pgvector.EntityFrameworkCore;`; requires `Pgvector.EntityFrameworkCore` referenced directly in both `ABook.Infrastructure` and `ABook.Api`
 - **`pgvector/pgvector:pg16` Docker image** — replaces `postgres:16-alpine`; identical behaviour but with the pgvector extension pre-installed; only one service in compose (Qdrant removed)

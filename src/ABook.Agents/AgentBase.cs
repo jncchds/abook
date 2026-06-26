@@ -307,7 +307,8 @@ public abstract class AgentBase
             }
             catch { /* non-fatal */ }
 
-            var chunks = await VectorStore.SearchAsync(bookId, embedding, topK);
+            var ancestryIds = await Repo.GetAncestryBookIdsAsync(bookId, ct);
+            var chunks = await VectorStore.SearchAsync(bookId, embedding, topK, ancestryIds, ct);
             return string.Join("\n\n---\n\n", chunks.Select(c => $"[Chapter {c.ChapterNumber}]\n{c.Text}"));
         }
         catch (OperationCanceledException) { throw; }

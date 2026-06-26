@@ -31,6 +31,7 @@ public class StoryBibleAgent : AgentBase
 
         var (kernel, config) = await GetKernelAsync(bookId);
         var history = new ChatHistory();
+        var ancestorReference = await Repo.BuildAncestorPlanningReferenceAsync(bookId, ct);
 
         var systemPrompt = !string.IsNullOrWhiteSpace(book.StoryBibleSystemPrompt)
             ? InterpolateSystemPrompt(book.StoryBibleSystemPrompt, book)
@@ -43,6 +44,7 @@ public class StoryBibleAgent : AgentBase
             Premise: {book.Premise}
             Target chapter count: {book.TargetChapterCount}
             {(qaContext.Length > 0 ? $"\nAuthor guidance:\n{qaContext}" : "")}
+            {(ancestorReference.Length > 0 ? $"\n{ancestorReference}" : "")}
 
             Create the Story Bible for this book.
             """);

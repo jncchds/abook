@@ -32,6 +32,7 @@ public class CharactersAgent : AgentBase
 
         var (kernel, config) = await GetKernelAsync(bookId);
         var history = new ChatHistory();
+        var ancestorReference = await Repo.BuildAncestorPlanningReferenceAsync(bookId, ct);
 
         var systemPrompt = !string.IsNullOrWhiteSpace(book.CharactersSystemPrompt)
             ? InterpolateSystemPrompt(book.CharactersSystemPrompt, book, bible)
@@ -51,6 +52,7 @@ public class CharactersAgent : AgentBase
             Tone & style: {bible.ToneAndStyle}
             World rules: {bible.WorldRules}
             {(qaContext.Length > 0 ? $"\nAuthor guidance so far:\n{qaContext}" : "")}
+            {(ancestorReference.Length > 0 ? $"\n{ancestorReference}" : "")}
 
             Create detailed character profiles for this book.
             """);

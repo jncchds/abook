@@ -36,6 +36,7 @@ public class PlannerAgent : AgentBase
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 4/4 - Chapter Outlines...", false, ct);
 
         var (kernel, config) = await GetKernelAsync(bookId);
+        var ancestorReference = await Repo.BuildAncestorPlanningReferenceAsync(bookId, ct);
 
         var charSumForChapters = string.Join("\n", characters.Select(c =>
             $"- {c.Name} ({c.Role}): {c.GoalMotivation}. Arc: {c.Arc}"));
@@ -66,6 +67,7 @@ public class PlannerAgent : AgentBase
             Plot Threads:
             {threadSummary}
             {(qaContext.Length > 0 ? $"\nAuthor guidance:\n{qaContext}" : "")}
+            {(ancestorReference.Length > 0 ? $"\n{ancestorReference}" : "")}
 
             Create {book.TargetChapterCount} detailed chapter outlines for this book.
             """);

@@ -70,10 +70,23 @@ public class PgvectorVectorStoreService : IVectorStoreService
     }
 
     public async Task<IEnumerable<ChunkResult>> SearchAsync(
-        int bookId, ReadOnlyMemory<float> queryEmbedding, int topK = 5, CancellationToken ct = default)
+        int bookId,
+        ReadOnlyMemory<float> queryEmbedding,
+        int topK = 5,
+        IReadOnlyCollection<int>? scopeBookIds = null,
+        CancellationToken ct = default)
     {
         await using var context = await _factory.CreateDbContextAsync(ct);
         var queryVector = new Vector(queryEmbedding.ToArray());
+        var effectiveBookIds = (scopeBookIds is { Count: > 0 }
+            ? scopeBookIds.Append(bookId)
+            : [bookId])
+            .Where(id => id > 0)
+            .Distinct()
+            .ToArray();
+
+        if (effectiveBookIds.Length == 0)
+            return [];
 
         // Only return chunks for:
         //   - versioned chunks: where the version is active AND the chapter is not archived
@@ -83,7 +96,7 @@ public class PgvectorVectorStoreService : IVectorStoreService
             SELECT ce."ChapterId", ce."ChapterNumber", ce."ChunkIndex", ce."Text",
                    CAST(1 - (ce."Embedding" <=> {3}::vector) AS real) AS "Score"
             FROM "ChapterEmbeddings" ce
-            WHERE ce."BookId" = {1}
+            WHERE ce."BookId" = ANY({1})
               AND (
                 (ce."ChapterVersionId" IS NOT NULL AND EXISTS (
                     SELECT 1 FROM "ChapterVersions" cv
@@ -101,7 +114,7 @@ public class PgvectorVectorStoreService : IVectorStoreService
             ORDER BY ce."Embedding" <=> {0}::vector
             LIMIT {2}
             """,
-            queryVector, bookId, topK, queryVector)
+            queryVector, effectiveBookIds, topK, queryVector)
             .ToListAsync(ct);
 
         return rows.Select(r => new ChunkResult(r.ChapterId, r.ChapterNumber, r.ChunkIndex, r.Text, r.Score));

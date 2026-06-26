@@ -4,6 +4,8 @@ const api = axios.create({ baseURL: '/api', withCredentials: true })
 
 export interface Book {
   id: number
+  baseBookId?: number | null
+  settingsCopiedAt?: string | null
   title: string
   premise: string
   genre: string
@@ -25,6 +27,16 @@ export interface Book {
   createdAt: string
   updatedAt: string
   chapters?: Chapter[]
+}
+
+export interface CreateBookRequest {
+  title: string
+  premise: string
+  genre: string
+  targetChapterCount: number
+  language?: string
+  humanAssisted?: boolean
+  baseBookId?: number
 }
 
 export interface Chapter {
@@ -108,7 +120,7 @@ export const changeRole = (userId: number, isAdmin: boolean) =>
 // Books
 export const getBooks = () => api.get<Book[]>('/books')
 export const getBook = (id: number) => api.get<Book>(`/books/${id}`)
-export const createBook = (data: Omit<Book, 'id' | 'status' | 'createdAt' | 'updatedAt' | 'chapters'>) =>
+export const createBook = (data: CreateBookRequest) =>
   api.post<Book>('/books', data)
 export const updateBook = (id: number, data: Partial<Book>) => api.put<Book>(`/books/${id}`, data)
 export const deleteBook = (id: number) => api.delete(`/books/${id}`)

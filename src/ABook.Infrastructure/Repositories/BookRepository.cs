@@ -2,6 +2,7 @@ using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using ABook.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using System.Text;
 
 namespace ABook.Infrastructure.Repositories;
 
@@ -44,6 +45,97 @@ public class BookRepository : IBookRepository
             .Include(b => b.LlmConfigurations)
             .AsSplitQuery()
             .FirstOrDefaultAsync(b => b.Id == id);
+
+    public async Task<IReadOnlyList<int>> GetAncestryBookIdsAsync(int bookId, CancellationToken ct = default)
+    {
+        var chain = new List<int>();
+        var seen = new HashSet<int>();
+
+        int? cursor = bookId;
+        const int maxDepth = 50;
+
+        while (cursor.HasValue && chain.Count < maxDepth)
+        {
+            var id = cursor.Value;
+            if (!seen.Add(id)) break; // cycle guard
+            chain.Add(id);
+
+            cursor = await _db.Books
+                .Where(b => b.Id == id)
+                .Select(b => b.BaseBookId)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        return chain;
+    }
+
+    public async Task<string> BuildAncestorPlanningReferenceAsync(int bookId, CancellationToken ct = default)
+    {
+        var chain = await GetAncestryBookIdsAsync(bookId, ct);
+        var ancestorIds = chain.Skip(1).ToArray();
+        if (ancestorIds.Length == 0) return string.Empty;
+
+        var books = await _db.Books
+            .Where(b => ancestorIds.Contains(b.Id))
+            .ToDictionaryAsync(b => b.Id, ct);
+
+        var bibles = await _db.StoryBibles
+            .Where(s => ancestorIds.Contains(s.BookId))
+            .ToDictionaryAsync(s => s.BookId, ct);
+
+        var charactersByBook = await _db.CharacterCards
+            .Where(c => ancestorIds.Contains(c.BookId) && !c.IsArchived)
+            .GroupBy(c => c.BookId)
+            .ToDictionaryAsync(g => g.Key, g => g.OrderBy(x => x.Name).ToList(), ct);
+
+        var threadsByBook = await _db.PlotThreads
+            .Where(p => ancestorIds.Contains(p.BookId) && !p.IsArchived)
+            .GroupBy(p => p.BookId)
+            .ToDictionaryAsync(g => g.Key, g => g.OrderBy(x => x.IntroducedChapterNumber).ThenBy(x => x.Name).ToList(), ct);
+
+        var sb = new StringBuilder();
+        sb.AppendLine("Continuation context from previous books (reference only — do not copy verbatim):");
+
+        foreach (var ancestorId in ancestorIds)
+        {
+            if (!books.TryGetValue(ancestorId, out var ancestor)) continue;
+
+            sb.AppendLine();
+            sb.AppendLine($"### Prior Book: {ancestor.Title} (Id: {ancestor.Id})");
+            sb.AppendLine($"- Genre: {ancestor.Genre}");
+            sb.AppendLine($"- Premise: {ancestor.Premise}");
+
+            if (bibles.TryGetValue(ancestorId, out var bible))
+            {
+                sb.AppendLine("- Story Bible:");
+                if (!string.IsNullOrWhiteSpace(bible.SettingDescription)) sb.AppendLine($"  - Setting: {bible.SettingDescription}");
+                if (!string.IsNullOrWhiteSpace(bible.TimePeriod)) sb.AppendLine($"  - Time Period: {bible.TimePeriod}");
+                if (!string.IsNullOrWhiteSpace(bible.Themes)) sb.AppendLine($"  - Themes: {bible.Themes}");
+                if (!string.IsNullOrWhiteSpace(bible.ToneAndStyle)) sb.AppendLine($"  - Tone & Style: {bible.ToneAndStyle}");
+                if (!string.IsNullOrWhiteSpace(bible.WorldRules)) sb.AppendLine($"  - World Rules: {bible.WorldRules}");
+            }
+
+            if (charactersByBook.TryGetValue(ancestorId, out var cards) && cards.Count > 0)
+            {
+                sb.AppendLine("- Key Characters:");
+                foreach (var c in cards.Take(12))
+                {
+                    sb.AppendLine($"  - {c.Name} ({c.Role}): {c.GoalMotivation}");
+                }
+            }
+
+            if (threadsByBook.TryGetValue(ancestorId, out var threads) && threads.Count > 0)
+            {
+                sb.AppendLine("- Plot Threads:");
+                foreach (var t in threads.Take(12))
+                {
+                    sb.AppendLine($"  - {t.Name} ({t.Type}, {t.Status}): {t.Description}");
+                }
+            }
+        }
+
+        return sb.ToString().Trim();
+    }
 
     public async Task<Book> AddAsync(Book book)
     {

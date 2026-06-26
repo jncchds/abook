@@ -293,6 +293,12 @@ export default function BookSettings() {
       {book && (
         <section className="settings-section">
           <h2>Agent Prompts &amp; Language</h2>
+          {book.baseBookId && (
+            <p className="lineage-hint">
+              ↪ This book is based on book #{book.baseBookId}
+              {book.settingsCopiedAt ? ` (settings copied ${new Date(book.settingsCopiedAt).toLocaleString()})` : ''}
+            </p>
+          )}
           <form className="card settings-form" onSubmit={handleBookSave}>
             <label>
               Language

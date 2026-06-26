@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.10 — 2026-06-26
+
+- feat: add book continuation lineage (`Books.BaseBookId`, `Books.SettingsCopiedAt`) with self-FK migration `AddBookBaseLineage`
+- feat: extend `POST /api/books` with optional `baseBookId`; creating from a base book now copies language, human-assisted mode, target chapter count, all 7 system prompts, and book-scoped LLM configuration
+- feat: make RAG ancestry-aware — vector search now supports scoped book IDs, and descendant books query embeddings across full ancestor chains (parent, grandparent, etc.)
+- feat: inject ancestor Story Bible / Characters / Plot Threads as reference context into planning generation (Story Bible, Characters, Plot Threads, Chapter Outlines)
+- feat: add UI support for continuation creation and lineage display in Dashboard, Overview, and Book Settings
+
 ## v0.1.9 — 2026-06-07
 
 - fix: add StoryBible include in GetByIdWithDetailsAsync (was returning null for StoryBible)

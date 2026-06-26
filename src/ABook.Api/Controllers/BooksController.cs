@@ -42,17 +42,58 @@ public class BooksController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateBookRequest req)
     {
+        Book? baseBook = null;
+        if (req.BaseBookId is int baseBookId)
+        {
+            baseBook = await _repo.GetByIdWithDetailsAsync(baseBookId);
+            if (baseBook is null) return NotFound($"Base book {baseBookId} not found.");
+            if (baseBook.UserId is not null && baseBook.UserId != CurrentUserId) return Forbid();
+        }
+
         var book = new Book
         {
             Title = req.Title,
             Premise = req.Premise,
             Genre = req.Genre,
-            TargetChapterCount = req.TargetChapterCount,
-            Language = req.Language ?? "English",
-            HumanAssisted = req.HumanAssisted,
+            TargetChapterCount = baseBook?.TargetChapterCount ?? req.TargetChapterCount,
+            Language = baseBook?.Language ?? req.Language ?? "English",
+            HumanAssisted = baseBook?.HumanAssisted ?? req.HumanAssisted,
             UserId = CurrentUserId
         };
+
+        if (baseBook is not null)
+        {
+            book.BaseBookId = baseBook.Id;
+            book.SettingsCopiedAt = DateTime.UtcNow;
+            book.StoryBibleSystemPrompt = baseBook.StoryBibleSystemPrompt;
+            book.CharactersSystemPrompt = baseBook.CharactersSystemPrompt;
+            book.PlotThreadsSystemPrompt = baseBook.PlotThreadsSystemPrompt;
+            book.ChapterOutlinesSystemPrompt = baseBook.ChapterOutlinesSystemPrompt;
+            book.WriterSystemPrompt = baseBook.WriterSystemPrompt;
+            book.EditorSystemPrompt = baseBook.EditorSystemPrompt;
+            book.ContinuityCheckerSystemPrompt = baseBook.ContinuityCheckerSystemPrompt;
+        }
+
         var created = await _repo.AddAsync(book);
+
+        if (baseBook is not null)
+        {
+            var sourceConfig = await _repo.GetLlmConfigAsync(baseBook.Id, baseBook.UserId);
+            if (sourceConfig is not null && sourceConfig.BookId == baseBook.Id)
+            {
+                await _repo.UpsertLlmConfigAsync(new LlmConfiguration
+                {
+                    BookId = created.Id,
+                    UserId = created.UserId,
+                    Provider = sourceConfig.Provider,
+                    ModelName = sourceConfig.ModelName,
+                    Endpoint = sourceConfig.Endpoint,
+                    ApiKey = sourceConfig.ApiKey,
+                    EmbeddingModelName = sourceConfig.EmbeddingModelName
+                });
+            }
+        }
+
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
     }
 
@@ -198,7 +239,8 @@ public class BooksController : ControllerBase
             var embedder = _llmFactory.CreateEmbeddingGeneration(config);
             var embeddings = await embedder.GenerateAsync([query]);
             var embedding = embeddings[0].Vector;
-            var chunks = (await _vectorStore.SearchAsync(id, embedding, topK)).ToList();
+            var ancestryIds = await _repo.GetAncestryBookIdsAsync(id);
+            var chunks = (await _vectorStore.SearchAsync(id, embedding, topK, ancestryIds)).ToList();
 
             return Ok(new
             {
@@ -259,7 +301,8 @@ public record CreateBookRequest(
     string Genre,
     int TargetChapterCount,
     string? Language = "English",
-    bool HumanAssisted = false);
+    bool HumanAssisted = false,
+    int? BaseBookId = null);
 
 public record UpdateBookRequest(
     string Title,

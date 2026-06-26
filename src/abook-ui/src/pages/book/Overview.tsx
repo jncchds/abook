@@ -53,6 +53,12 @@ export default function Overview() {
               <button className="btn-edit-book" onClick={() => { setBookEditTitle(book.title); setBookEditPremise(book.premise); setBookEditGenre(book.genre); setBookEditTargetChapters(book.targetChapterCount); setBookEditHumanAssisted(book.humanAssisted ?? false); setEditingBook(true) }} title="Edit book details">✎ Edit</button>
             )}
           </div>
+          {book.baseBookId && (
+            <p className="book-lineage-note">
+              ↪ Based on book #{book.baseBookId}
+              {book.settingsCopiedAt ? ` · settings copied ${new Date(book.settingsCopiedAt).toLocaleString()}` : ''}
+            </p>
+          )}
           <p><strong>Premise:</strong> {book.premise}</p>
           <p><strong>Genre:</strong> {book.genre} · <strong>Language:</strong> {book.language} · <strong>Target chapters:</strong> {book.targetChapterCount}{book.humanAssisted ? ' · 🤝 Human-assisted' : ''}</p>
           <div className="phase-actions" style={{ marginTop: '1rem' }}>

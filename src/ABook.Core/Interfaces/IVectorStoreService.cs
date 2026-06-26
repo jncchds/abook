@@ -4,7 +4,7 @@ public interface IVectorStoreService
 {
     Task EnsureCollectionAsync(int bookId, CancellationToken ct = default);
     Task UpsertChunkAsync(int bookId, int chapterId, int chapterNumber, int chunkIndex, string text, ReadOnlyMemory<float> embedding, CancellationToken ct = default, int? chapterVersionId = null);
-    Task<IEnumerable<ChunkResult>> SearchAsync(int bookId, ReadOnlyMemory<float> queryEmbedding, int topK = 5, CancellationToken ct = default);
+    Task<IEnumerable<ChunkResult>> SearchAsync(int bookId, ReadOnlyMemory<float> queryEmbedding, int topK = 5, IReadOnlyCollection<int>? scopeBookIds = null, CancellationToken ct = default);
     Task<int> CountChunksAsync(int bookId, CancellationToken ct = default);
     Task DeleteChapterChunksAsync(int bookId, int chapterId, CancellationToken ct = default);
     Task DeleteVersionChunksAsync(int bookId, int chapterVersionId, CancellationToken ct = default);

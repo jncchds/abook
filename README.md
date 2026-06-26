@@ -11,6 +11,9 @@ ABook is a self-hosted web application that uses AI agents to collaboratively wr
 - **Single Checker → Editor pass** — each chapter is pre-checked for outline contradictions, written, reviewed by the Checker (continuity + style), then edited by the Editor only if issues are found, and finally re-checked in an informational pass; one edit round per chapter
 - **Token usage statistics** — per-agent prompt and completion token counts displayed in a scrollable collapsible panel and persisted to the database; Clear button to reset
 - **RAG context retrieval** — Writer uses 3 targeted queries (characters, locations, plot threads) and Editor uses 4 (same + repeated-phrase detection) against pgvector embeddings to keep chapters consistent and avoid re-introductions
+- **Book continuation mode** — create a new book based on a previous one; the new book copies key settings (language, human-assisted mode, target chapter count, all system prompts, and book-scoped LLM config)
+- **Ancestry-aware memory retrieval** — RAG queries for a continued book include the full base-book chain (parent, grandparent, etc.), so sequels keep awareness of earlier events
+- **Ancestor-aware planning references** — when generating a new Story Bible / Characters / Plot Threads / Chapter Outlines for a continued book, prior books’ artifacts are injected as reference context
 - **Full synopsis spine** — every prior chapter's title and outline is injected into Writer and Editor user messages so agents can see the narrative shape of the whole book and avoid recycling scene beats, re-describing established characters, or restating established facts
 - **Explicit anti-repetition rules** in default Writer, Editor, and Checker prompts — never re-introduce a known character/place, never restate established facts, vary scene-entry beats, flag echoed phrases
 - **Pluggable LLM backend** — Ollama (default, local), OpenAI (or any OpenAI-compatible API), Google AI Studio, or Anthropic (via OpenAI-compatible proxy); configurable globally, per-user, or per-book
@@ -187,6 +190,8 @@ Configurations can be set globally, per-user, or per-book. The lookup order is: 
 ```
 User creates book (title, premise, genre, target chapters)
          │
+         ├─ optional: choose a base book (settings copied once at creation)
+         │
          ▼
   ┌─────────────────────────────────────────────────────┐
   │  [Planner Agent] — 4-phase planning pipeline        │
@@ -194,6 +199,8 @@ User creates book (title, premise, genre, target chapters)
   │   Phase 2: Character Cards (roles, arcs, goals)     │
   │   Phase 3: Plot Threads (subplots, themes, arcs)    │
   │   Phase 4: Chapter Outlines (title + synopsis each) │
+  │   Prior books in the continuation chain are included │
+  │   as reference context for planning                 │
   │   ─ asks clarifying questions up front, then        │
   │     optionally pauses after each phase in           │
   │     Human-assisted mode                             │
@@ -237,6 +244,8 @@ In **Human-assisted generation** mode, the app also pauses:
 - after each completed planning phase to collect optional author notes
 - after each Checker pass so you can add extra attention points before the Editor runs
 - with support for **Ctrl+Enter** to submit answers quickly in the chat panel
+
+For books created from a base book, chapter-level RAG retrieval also includes embeddings from all ancestor books in the base chain.
 
 ## Development
 

@@ -36,6 +36,7 @@ public class PlotThreadsAgent : AgentBase
 
         var (kernel, config) = await GetKernelAsync(bookId);
         var history = new ChatHistory();
+        var ancestorReference = await Repo.BuildAncestorPlanningReferenceAsync(bookId, ct);
 
         var characterSummary = string.Join("\n", characters.Select(c =>
             $"- {c.Name} ({c.Role}): {c.GoalMotivation}. Arc: {c.Arc}"));
@@ -60,6 +61,7 @@ public class PlotThreadsAgent : AgentBase
             Characters:
             {characterSummary}
             {(qaContext.Length > 0 ? $"\nAuthor guidance so far:\n{qaContext}" : "")}
+            {(ancestorReference.Length > 0 ? $"\n{ancestorReference}" : "")}
 
             Create the plot thread map for this book.
             """);
