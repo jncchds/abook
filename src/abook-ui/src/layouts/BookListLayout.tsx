@@ -30,6 +30,7 @@ export default function BookListLayout() {
         {user?.isAdmin && <SidebarBtn icon="👥" label="Users" active={location.pathname === '/admin/users'} onClick={() => navigate('/admin/users')} />}
         <SidebarBtn icon="🔑" label="Presets" active={location.pathname === '/presets'} onClick={() => navigate('/presets')} />
         <SidebarBtn icon="⚙" label="Settings" active={location.pathname === '/settings'} onClick={() => navigate('/settings')} />
+        <SidebarBtn icon="📚" label="Library" active={location.pathname.startsWith('/library')} onClick={() => navigate('/library')} />
         <SidebarDivider />
         <SidebarSection title="Books" hideWhenCollapsed />
         <div className="sidebar-book-list">

@@ -946,4 +946,71 @@ public class BookRepository : IBookRepository
 
     public async Task<BookSnapshot?> GetBookSnapshotAsync(int bookId, int snapshotId) =>
         await _db.BookSnapshots.FirstOrDefaultAsync(s => s.BookId == bookId && s.Id == snapshotId);
+
+    // ── Public library ───────────────────────────────────────────────────────
+
+    public async Task<(List<ABook.Core.Interfaces.PublicBookItemDto> Items, int TotalCount)> GetPublicBooksAsync(ABook.Core.Interfaces.PublicBookFilter filter)
+    {
+        var query = _db.Books
+            .Include(b => b.User)
+            .Include(b => b.Chapters)
+            .AsQueryable();
+
+        // In non-public mode restrict to a specific user's books
+        if (filter.UserId.HasValue)
+            query = query.Where(b => b.UserId == filter.UserId.Value || b.UserId == null);
+
+        // Only show books that have at least one written (non-archived, non-empty) chapter
+        query = query.Where(b => b.Chapters.Any(c => !c.IsArchived && c.Content != null && c.Content != ""));
+
+        // Author filter (case-insensitive partial match against DisplayName or Username)
+        if (!string.IsNullOrWhiteSpace(filter.Author))
+            query = query.Where(b => b.User != null &&
+                (EF.Functions.ILike(b.User.DisplayName ?? b.User.Username, $"%{filter.Author}%")));
+
+        // Genre filter (case-insensitive; genre field is comma-separated so a partial match suffices)
+        if (!string.IsNullOrWhiteSpace(filter.Genre))
+            query = query.Where(b => EF.Functions.ILike(b.Genre, $"%{filter.Genre}%"));
+
+        var totalCount = await query.CountAsync();
+
+        // Project, apply chapter-count filter, then paginate
+        var projected = query.Select(b => new
+        {
+            Book = b,
+            WrittenCount = b.Chapters.Count(c => !c.IsArchived && c.Content != null && c.Content != ""),
+            AuthorDisplay = b.User != null ? (b.User.DisplayName ?? b.User.Username) : "Unknown"
+        });
+
+        if (filter.ChapterCount.HasValue)
+            projected = projected.Where(x => x.WrittenCount == filter.ChapterCount.Value);
+
+        var totalCountFiltered = filter.ChapterCount.HasValue ? await projected.CountAsync() : totalCount;
+
+        var items = await projected
+            .OrderByDescending(x => x.Book.UpdatedAt)
+            .Skip((filter.Page - 1) * filter.PageSize)
+            .Take(filter.PageSize)
+            .ToListAsync();
+
+        var dtos = items.Select(x => new ABook.Core.Interfaces.PublicBookItemDto(
+            x.Book.Id, x.Book.Title, x.Book.Genre, x.Book.TargetChapterCount,
+            x.WrittenCount, x.Book.Status.ToString(), x.Book.Language,
+            x.AuthorDisplay, x.Book.CreatedAt, x.Book.UpdatedAt)).ToList();
+
+        return (dtos, totalCountFiltered);
+    }
+
+    public async Task<IEnumerable<string>> GetAllGenreStringsAsync(int? userId)
+    {
+        var query = _db.Books.AsQueryable();
+        if (userId.HasValue)
+            query = query.Where(b => b.UserId == userId.Value || b.UserId == null);
+        var genres = await query
+            .Where(b => b.Genre != null && b.Genre != "")
+            .Select(b => b.Genre)
+            .ToListAsync();
+        return genres;
+    }
 }
+

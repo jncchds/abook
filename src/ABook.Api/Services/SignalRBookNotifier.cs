@@ -55,4 +55,7 @@ public class SignalRBookNotifier : IBookNotifier
 
     public Task NotifyAgentErrorAsync(int bookId, string agentRole, string errorMessage, CancellationToken ct = default) =>
         _hub.Clients.Group(bookId.ToString()).SendAsync("AgentError", bookId, agentRole, errorMessage, ct);
+
+    public Task NotifyMessagesUpdatedAsync(int bookId, CancellationToken ct = default) =>
+        _hub.Clients.Group(bookId.ToString()).SendAsync("MessagesUpdated", bookId, ct);
 }

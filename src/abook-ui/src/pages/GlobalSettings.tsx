@@ -1,11 +1,13 @@
 import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import type { LlmConfig, LlmPreset, ProviderModel } from '../api'
-import { getLlmConfig, updateLlmConfig, getModels, getPresets, createPreset, updatePreset, getApiToken, regenerateApiToken } from '../api'
+import { getLlmConfig, updateLlmConfig, getModels, getPresets, createPreset, updatePreset, getApiToken, regenerateApiToken, updateProfile } from '../api'
 import { PROVIDERS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, PROXY_REQUIRED_PROVIDERS, INITIAL_LLM_CONFIG } from '../config/providers'
 import { useNotifications } from '../hooks/useNotifications'
+import { useAuth } from '../hooks/useAuth'
 
 export default function GlobalSettings() {
+  const { user, setUser } = useAuth()
   const [config, setConfig] = useState<LlmConfig>({ ...INITIAL_LLM_CONFIG })
   const { supported: notifSupported, permission, enabled: notifEnabled, setEnabled: setNotifEnabled } = useNotifications()
   const [models, setModels] = useState<ProviderModel[]>([])
@@ -13,6 +15,14 @@ export default function GlobalSettings() {
   const [pullModel, setPullModel] = useState('')
   const [pullStatus, setPullStatus] = useState('')
   const [saved, setSaved] = useState(false)
+
+  const [displayName, setDisplayName] = useState('')
+  const [profileSaved, setProfileSaved] = useState(false)
+  const [profileError, setProfileError] = useState('')
+
+  useEffect(() => {
+    setDisplayName(user?.displayName ?? user?.username ?? '')
+  }, [user])
   const [saveError, setSaveError] = useState('')
   const abortRef = useRef<AbortController | null>(null)
 
@@ -150,9 +160,44 @@ export default function GlobalSettings() {
 
   const fetchedModelNames = models.map(m => m.name)
 
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setProfileError('')
+    try {
+      const r = await updateProfile(displayName)
+      setUser(prev => prev ? { ...prev, displayName: r.data.displayName } : prev)
+      setProfileSaved(true)
+      setTimeout(() => setProfileSaved(false), 2000)
+    } catch {
+      setProfileError('Failed to save profile. Please try again.')
+    }
+  }
+
   return (
     <>
       <h1>Settings</h1>
+
+      {/* Profile */}
+      <section className="settings-section">
+        <h2>Profile</h2>
+        <form className="card settings-form" onSubmit={handleSaveProfile}>
+          <label>
+            Display name
+            <input
+              value={displayName}
+              onChange={e => setDisplayName(e.target.value)}
+              maxLength={100}
+              placeholder={user?.username ?? ''}
+            />
+            <span className="hint">Shown publicly as author name. Leave blank to use your login.</span>
+          </label>
+          <div className="actions">
+            <button type="submit">Save Profile</button>
+            {profileSaved && <span style={{ color: 'var(--success)', fontSize: '0.85rem' }}>Saved!</span>}
+            {profileError && <span style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{profileError}</span>}
+          </div>
+        </form>
+      </section>
 
       {/* MCP Access */}
       <section className="settings-section">

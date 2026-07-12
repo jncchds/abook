@@ -8,6 +8,7 @@ type ChapterUpdatedHandler = (bookId: number, chapterId: number) => void
 type WorkflowProgressHandler = (bookId: number, step: string, isComplete: boolean) => void
 type TokenStatsHandler = (bookId: number, chapterId: number | null, agentRole: string, promptTokens: number, completionTokens: number) => void
 type AgentErrorHandler = (bookId: number, agentRole: string, errorMessage: string) => void
+type MessagesUpdatedHandler = (bookId: number) => void
 
 export function useBookHub(bookId: number | null) {
   const connRef = useRef<HubConnection | null>(null)
@@ -20,6 +21,7 @@ export function useBookHub(bookId: number | null) {
   const onWorkflowProgress = useRef<WorkflowProgressHandler | null>(null)
   const onTokenStats = useRef<TokenStatsHandler | null>(null)
   const onAgentError = useRef<AgentErrorHandler | null>(null)
+  const onMessagesUpdated = useRef<MessagesUpdatedHandler | null>(null)
 
   useEffect(() => {
     if (!bookId) return
@@ -37,6 +39,7 @@ export function useBookHub(bookId: number | null) {
     conn.on('WorkflowProgress', (bId, step, isComplete) => onWorkflowProgress.current?.(bId, step, isComplete))
     conn.on('TokenStats', (bId, cId, role, prompt, completion) => onTokenStats.current?.(bId, cId, role, prompt, completion))
     conn.on('AgentError', (bId, role, msg) => onAgentError.current?.(bId, role, msg))
+    conn.on('MessagesUpdated', (bId) => onMessagesUpdated.current?.(bId))
 
     conn.start()
       .then(() => {
@@ -63,5 +66,6 @@ export function useBookHub(bookId: number | null) {
     setOnWorkflowProgress: (fn: WorkflowProgressHandler) => { onWorkflowProgress.current = fn },
     setOnTokenStats: (fn: TokenStatsHandler) => { onTokenStats.current = fn },
     setOnAgentError: (fn: AgentErrorHandler) => { onAgentError.current = fn },
+    setOnMessagesUpdated: (fn: MessagesUpdatedHandler) => { onMessagesUpdated.current = fn },
   }
 }

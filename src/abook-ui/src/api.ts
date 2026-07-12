@@ -93,6 +93,7 @@ export interface ProviderModel {
 export interface AppUser {
   id: number
   username: string
+  displayName?: string
   isAdmin: boolean
   createdAt?: string
 }
@@ -445,3 +446,73 @@ export const getChapterVersion = (bookId: number, chapterId: number, versionId: 
   api.get<ChapterVersionFull>(`/books/${bookId}/chapters/${chapterId}/versions/${versionId}`)
 export const activateChapterVersion = (bookId: number, chapterId: number, versionId: number) =>
   api.post<{ chapter: Chapter; version: ChapterVersionMeta }>(`/books/${bookId}/chapters/${chapterId}/versions/${versionId}/activate`)
+
+// Profile
+export const updateProfile = (displayName: string) =>
+  api.patch<{ displayName: string }>('/auth/profile', { displayName })
+
+// Public library
+export interface PublicBookItem {
+  id: number
+  title: string
+  genre: string
+  targetChapterCount: number
+  writtenChapterCount: number
+  status: string
+  language: string
+  authorDisplayName: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PublicBooksResponse {
+  items: PublicBookItem[]
+  totalCount: number
+  page: number
+  pageSize: number
+  totalPages: number
+}
+
+export interface PublicChapter {
+  id: number
+  number: number
+  title: string
+  outline: string
+  content: string
+  status: string
+}
+
+export interface PublicBookDetail {
+  id: number
+  title: string
+  genre: string
+  language: string
+  premise: string
+  status: string
+  targetChapterCount: number
+  writtenChapterCount: number
+  createdAt: string
+  updatedAt: string
+  chapters: PublicChapter[]
+}
+
+export const getPublicConfig = () =>
+  api.get<{ isPublicMode: boolean }>('/public/config')
+
+export const getPublicGenres = () =>
+  api.get<string[]>('/public/genres')
+
+export interface PublicBooksParams {
+  page?: number
+  pageSize?: number
+  author?: string
+  genre?: string
+  chapterCount?: number
+}
+
+export const getPublicBooks = (params: PublicBooksParams = {}) =>
+  api.get<PublicBooksResponse>('/public/books', { params })
+
+export const getPublicBook = (id: number) =>
+  api.get<PublicBookDetail>(`/public/books/${id}`)
+

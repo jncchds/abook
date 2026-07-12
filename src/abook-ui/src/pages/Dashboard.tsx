@@ -33,7 +33,9 @@ export default function Dashboard() {
     <form className="card" style={{ maxWidth: 560 }} onSubmit={handleCreate}>
       <h2>New Book</h2>
       <label>Title<input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} required autoFocus /></label>
-      <label>Genre<input value={form.genre} onChange={e => setForm(f => ({ ...f, genre: e.target.value }))} /></label>
+      <label>Genre<input value={form.genre} onChange={e => setForm(f => ({ ...f, genre: e.target.value }))} placeholder="Fantasy, Adventure" />
+        <span className="hint">Comma-separated list of genres</span>
+      </label>
       <label>
         Base book (optional)
         <select

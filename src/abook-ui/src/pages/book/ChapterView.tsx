@@ -109,6 +109,11 @@ export default function ChapterView() {
     } : prev)
   }
 
+  const sortedChapters = (book.chapters ?? []).filter(c => !c.isArchived).sort((a, b) => a.number - b.number)
+  const currentIdx = sortedChapters.findIndex(c => c.id === chapter.id)
+  const prevChapter = currentIdx > 0 ? sortedChapters[currentIdx - 1] : null
+  const nextChapter = currentIdx < sortedChapters.length - 1 ? sortedChapters[currentIdx + 1] : null
+
   if (showHistory) {
     return (
       <div className="chapter-view">
@@ -198,6 +203,18 @@ export default function ChapterView() {
             ) : (
               <p className="empty">Waiting to be written by the agents…</p>
             )}
+          </div>
+          <div className="chapter-prev-next">
+            {prevChapter ? (
+              <button className="btn-ghost" onClick={() => navigate(`/books/${bookId}/chapters/${prevChapter.id}`)}>
+                ← Ch {prevChapter.number}: {prevChapter.title}
+              </button>
+            ) : <span />}
+            {nextChapter ? (
+              <button className="btn-ghost" onClick={() => navigate(`/books/${bookId}/chapters/${nextChapter.id}`)}>
+                Ch {nextChapter.number}: {nextChapter.title} →
+              </button>
+            ) : <span />}
           </div>
         </>
       )}

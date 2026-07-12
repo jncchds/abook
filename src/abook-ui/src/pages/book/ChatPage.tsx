@@ -23,17 +23,25 @@ export default function ChatPage() {
         )}
       </div>
       <div className="chat-messages">
-        {messages.map(m => (
-          <div key={m.id} className={`chat-msg msg-${m.messageType.toLowerCase()}`}>
-            <span className="msg-role">{m.agentRole}</span>
-            <span className="msg-type">[{m.messageType}]</span>
-            <div className="msg-content">
-              {m.messageType === 'SystemNote' || m.messageType === 'Feedback'
-                ? <ReactMarkdown>{m.content}</ReactMarkdown>
-                : m.content}
-            </div>
-          </div>
-        ))}
+        {messages.map(m => {
+          const preview = m.content.replace(/\*\*|__|~~|`|\n+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120)
+          const isLong = m.content.length > 200
+          const isMarkdown = m.messageType === 'SystemNote' || m.messageType === 'Feedback'
+          return (
+            <details key={m.id} className={`chat-msg msg-${m.messageType.toLowerCase()}`} open={!isLong}>
+              <summary className="chat-msg-summary">
+                <span className="msg-role">{m.agentRole}</span>
+                <span className="msg-type">[{m.messageType}]</span>
+                {isLong && <span className="msg-preview">{preview}{m.content.length > 120 ? '…' : ''}</span>}
+              </summary>
+              <div className="msg-content">
+                {isMarkdown
+                  ? <ReactMarkdown>{m.content}</ReactMarkdown>
+                  : m.content}
+              </div>
+            </details>
+          )
+        })}
         <div ref={chatBottomRef} />
       </div>
       {pendingQuestion && (

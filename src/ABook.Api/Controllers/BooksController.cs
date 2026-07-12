@@ -26,6 +26,9 @@ public class BooksController : ControllerBase
             ? int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value)
             : (int?)null;
 
+    private static string NormalizeGenre(string g) =>
+        string.Join(", ", g.Split(',').Select(x => x.Trim()).Where(x => x.Length > 0));
+
     [HttpGet]
     public async Task<IActionResult> GetAll() =>
         Ok(await _repo.GetAllAsync(CurrentUserId));
@@ -54,7 +57,7 @@ public class BooksController : ControllerBase
         {
             Title = req.Title,
             Premise = req.Premise,
-            Genre = req.Genre,
+            Genre = NormalizeGenre(req.Genre),
             TargetChapterCount = baseBook?.TargetChapterCount ?? req.TargetChapterCount,
             Language = baseBook?.Language ?? req.Language ?? "English",
             HumanAssisted = baseBook?.HumanAssisted ?? req.HumanAssisted,
@@ -119,7 +122,7 @@ public class BooksController : ControllerBase
 
         book.Title = req.Title;
         book.Premise = req.Premise;
-        book.Genre = req.Genre;
+        book.Genre = NormalizeGenre(req.Genre);
         book.TargetChapterCount = req.TargetChapterCount;
         book.Status = req.Status;
         book.Language = req.Language ?? book.Language;

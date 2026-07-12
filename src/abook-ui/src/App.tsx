@@ -15,6 +15,8 @@ import Chapters from './pages/book/Chapters'
 import ChatPage from './pages/book/ChatPage'
 import TokenStatsPage from './pages/book/TokenStatsPage'
 import BookSettings from './pages/book/BookSettings'
+import Library from './pages/Library'
+import PublicBookReader from './pages/PublicBookReader'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import PwaUpdatePrompt from './components/PwaUpdatePrompt'
 
@@ -54,6 +56,8 @@ export default function App() {
         <PwaUpdatePrompt />
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/library" element={<Library />} />
+          <Route path="/library/:bookId" element={<PublicBookReader />} />
           <Route path="/*" element={<ProtectedRoutes />} />
         </Routes>
       </AuthProvider>

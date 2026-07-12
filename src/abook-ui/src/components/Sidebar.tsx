@@ -40,6 +40,7 @@ export default function Sidebar({ hasPendingQuestion, children, bottomChildren }
                 className="version-pill"
                 onClick={e => e.stopPropagation()}
               >v{__APP_VERSION__}</a>
+              <span className="beta-badge">ALPHA</span>
             </>
           )}
           {hasPendingQuestion && <span className="s-pending-dot" title="Agent waiting for your answer" />}

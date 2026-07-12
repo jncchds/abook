@@ -118,5 +118,12 @@ public interface IBookRepository
     Task AddBookSnapshotAsync(BookSnapshot snapshot);
     Task<IEnumerable<BookSnapshot>> GetBookSnapshotsAsync(int bookId);
     Task<BookSnapshot?> GetBookSnapshotAsync(int bookId, int snapshotId);
+
+    // Public library
+    Task<(List<PublicBookItemDto> Items, int TotalCount)> GetPublicBooksAsync(PublicBookFilter filter);
+    Task<IEnumerable<string>> GetAllGenreStringsAsync(int? userId);
 }
+
+public record PublicBookFilter(int Page, int PageSize, string? Author, string? Genre, int? ChapterCount, int? UserId);
+public record PublicBookItemDto(int Id, string Title, string Genre, int TargetChapterCount, int WrittenChapterCount, string Status, string Language, string AuthorDisplayName, DateTime CreatedAt, DateTime UpdatedAt);
 

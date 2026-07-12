@@ -78,16 +78,34 @@ public class AuthController : ControllerBase
     }
 
     [HttpGet("me")]
-    public IActionResult Me()
+    public async Task<IActionResult> Me()
     {
         if (User.Identity?.IsAuthenticated != true)
             return Unauthorized();
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var user = await _users.GetByIdAsync(userId);
+        if (user is null) return Unauthorized();
         return Ok(new
         {
-            id = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!),
-            username = User.FindFirstValue(ClaimTypes.Name),
+            id = userId,
+            username = user.Username,
+            displayName = user.DisplayName ?? user.Username,
             isAdmin = User.IsInRole("Admin")
         });
+    }
+
+    [HttpPatch("profile")]
+    [Authorize]
+    public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequest req)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var user = await _users.GetByIdAsync(userId);
+        if (user is null) return Unauthorized();
+        var name = req.DisplayName?.Trim();
+        if (name?.Length > 100) return BadRequest(new { message = "Display name must be 100 characters or less." });
+        user.DisplayName = string.IsNullOrEmpty(name) ? null : name;
+        await _users.UpdateAsync(user);
+        return Ok(new { displayName = user.DisplayName ?? user.Username });
     }
 
     private async Task SignInAsync(AppUser user)
@@ -125,7 +143,8 @@ public class AuthController : ControllerBase
         return Ok(new { token = newToken });
     }
 
-    private static object UserDto(AppUser u) => new { u.Id, u.Username, u.IsAdmin };
+    private static object UserDto(AppUser u) => new { u.Id, u.Username, DisplayName = u.DisplayName ?? u.Username, u.IsAdmin };
 }
 
 public record AuthRequest(string Username, string Password);
+public record UpdateProfileRequest(string? DisplayName);

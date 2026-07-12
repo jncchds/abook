@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.1.12 — 2026-07-12
+
+- feat: LLM thinking/reasoning content is now captured and saved as an agent message — supports `<think>…</think>` / `<thinking>…</thinking>` tags (DeepSeek-R1, Qwen3, etc.) and vendor metadata keys (`ReasoningContent`, `Thinking`, etc.) in both streaming and non-streaming calls; saved as a `SystemNote` with a 💭 prefix; UI refreshes via a new `MessagesUpdated` SignalR event
+- feat: agent message cards in the chat panel are now collapsible `<details>` elements — long messages (>200 chars) are collapsed by default showing a plain-text content preview; a chevron rotates to indicate open/closed state
+
+- feat: public mode — new `PublicMode` config flag (`appsettings.json` / env var) toggles anonymous access to a public library; `PublicController` (`/api/public/*`) exposes config, genre list, paginated/filterable book list, single book detail, and HTML/FB2/EPUB export, all without cookie auth when enabled
+- feat: public Library page (`/library`) — paginated list of books filterable by author display name, genre, and exact written-chapter count; shows a login prompt for unauthenticated users when public mode is off; shows the current user's own books when logged in and public mode is off
+- feat: public Book Reader page (`/library/:bookId`) — left-hand chapter navigation panel, prev/next buttons, and HTML/FB2/EPUB download buttons backed by the public export endpoint
+- feat: user display names — `AppUser.DisplayName` (nullable, migration `AddDisplayName`) lets a user set a public-facing author name via a new "Profile" section at the top of Global Settings; falls back to the login username everywhere it's shown (author byline in Library, export bylines)
+- feat: prev/next chapter navigation added to the private `ChapterView` page (mirrors the reader page behaviour)
+- feat: genre is now treated as a comma-separated list — `BooksController` normalizes (trims each item, rejoins with `, `) on create/update; Dashboard genre field shows a "Fantasy, Adventure" placeholder + hint; Library page offers a genre dropdown populated from `/api/public/genres`
+- feat: BETA badge — small red uppercase badge next to the version pill in the sidebar
+- refactor: extracted all HTML/FB2/EPUB/metadata export generation out of `ExportController` into a new scoped `BookExportService`; `ExportController` is now a thin authenticated wrapper and `PublicController` reuses the same service for anonymous exports
+- fix: `UserDto` now returns `displayName` (falling back to `username`) so login/register responses are consistent with `GET /api/auth/me`; previously login/register returned no `displayName`, causing `user.displayName` to be undefined until the next page reload
+
 ## v0.1.11 — 2026-06-27
 
 - fix: continuation books — planning agents now receive full prior-book context (chapter synopses + richer character personality/arc fields in `BuildAncestorPlanningReferenceAsync`); QuestionAgent upfront Q&A skips already-established world-building for continuations

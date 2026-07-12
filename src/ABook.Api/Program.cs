@@ -92,7 +92,10 @@ builder.Services.AddMcpServer()
     .WithTools<BookMcpTools>()
     .WithTools<ContentMcpTools>()
     .WithTools<AgentMcpTools>();
-
+// ── Public mode ───────────────────────────────────────────────────────────────
+var isPublicMode = builder.Configuration.GetValue<bool>("PublicMode");
+builder.Services.AddSingleton(new ABook.Api.Services.PublicModeOptions(isPublicMode));
+builder.Services.AddScoped<ABook.Api.Services.BookExportService>();
 // ── API ───────────────────────────────────────────────────────────────────────
 builder.Services.AddControllers()
     .AddJsonOptions(o =>
@@ -102,13 +105,6 @@ builder.Services.AddControllers()
         o.JsonSerializerOptions.Converters.Add(
             new System.Text.Json.Serialization.JsonStringEnumConverter());
     });
-
-// ── CORS (dev: allow Vite dev server) ─────────────────────────────────────────
-builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
-    p.WithOrigins("http://localhost:5173")
-     .AllowAnyHeader()
-     .AllowAnyMethod()
-     .AllowCredentials()));
 
 var app = builder.Build();
 
@@ -150,7 +146,6 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseDefaultFiles();

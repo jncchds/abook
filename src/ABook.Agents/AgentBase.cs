@@ -75,6 +75,31 @@ public abstract class AgentBase
         var result = await chat.GetChatMessageContentAsync(history, settings, kernel, ct);
         var text = result.Content ?? string.Empty;
 
+        // Extract <think> blocks and vendor metadata thinking from the completion result.
+        var metaThinking = new System.Text.StringBuilder();
+        if (result.Metadata is not null)
+        {
+            foreach (var key in new[] { "ReasoningContent", "Thinking", "thinking_content", "reasoning_content" })
+            {
+                if (result.Metadata.TryGetValue(key, out var thinkVal) && thinkVal is string ts && ts.Length > 0)
+                {
+                    metaThinking.Append(ts);
+                    break;
+                }
+            }
+        }
+        var (inlineThinking, cleanedText) = ExtractThinkingTags(text);
+        var fullThinking = MergeThinking(metaThinking.ToString(), inlineThinking);
+        if (!string.IsNullOrWhiteSpace(fullThinking))
+        {
+            text = cleanedText;
+            if (bookId.HasValue && role.HasValue)
+            {
+                try { await SaveThinkingAsync(bookId.Value, chapterId, role.Value, fullThinking, ct); }
+                catch { /* non-fatal */ }
+            }
+        }
+
         if (DebugLoggingEnabled)
             Logger.LogInformation("=== LLM Completion Response ===\n{Response}\n=== End Response ===", text);
 
@@ -129,11 +154,27 @@ public abstract class AgentBase
             Logger.LogInformation("{LlmRequest}", req.ToString());
         }
 
+        var thinkingSb = new System.Text.StringBuilder();
+
         try
         {
             bool stopStreaming = false;
             await foreach (var chunk in chat.GetStreamingChatMessageContentsAsync(history, settings, kernel, ct))
             {
+                // Accumulate vendor-specific thinking/reasoning content from chunk metadata.
+                // Different providers use different keys; we check the most common ones.
+                if (chunk.Metadata is not null)
+                {
+                    foreach (var key in new[] { "ReasoningContent", "Thinking", "thinking_content", "reasoning_content" })
+                    {
+                        if (chunk.Metadata.TryGetValue(key, out var thinkVal) && thinkVal is string ts && ts.Length > 0)
+                        {
+                            thinkingSb.Append(ts);
+                            break;
+                        }
+                    }
+                }
+
                 if (chunk.Content is { Length: > 0 } token)
                 {
                     sb.Append(token);
@@ -172,6 +213,20 @@ public abstract class AgentBase
         }
 
         var result = sb.ToString();
+
+        // Extract <think>…</think> / <thinking>…</thinking> blocks (e.g. DeepSeek-R1, Qwen3).
+        var (inlineThinking, cleanedResult) = ExtractThinkingTags(result);
+        // Merge with any thinking already gathered from chunk metadata.
+        var fullThinking = MergeThinking(thinkingSb.ToString(), inlineThinking);
+        if (!string.IsNullOrWhiteSpace(fullThinking))
+        {
+            result = cleanedResult;
+            sb.Clear();
+            sb.Append(result);
+            try { await SaveThinkingAsync(bookId, chapterId, role, fullThinking, ct); }
+            catch { /* non-fatal */ }
+        }
+
         if (DebugLoggingEnabled)
             Logger.LogInformation("=== LLM Response [{Role}] Book={BookId} Chapter={ChapterId} ===\n{Response}\n=== End Response ===",
                 role, bookId, chapterId, result);
@@ -507,4 +562,54 @@ public abstract class AgentBase
         }
         catch { /* non-fatal */ }
     }
+
+    // ── Thinking / Reasoning helpers ────────────────────────────────────────────
+
+    private static readonly System.Text.RegularExpressions.Regex ThinkTagRegex =
+        new(@"<think(?:ing)?>(.*?)</think(?:ing)?>",
+            System.Text.RegularExpressions.RegexOptions.Singleline |
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Extracts all <c>&lt;think&gt;…&lt;/think&gt;</c> (and <c>&lt;thinking&gt;…&lt;/thinking&gt;</c>)
+    /// blocks from <paramref name="text"/>. Returns the combined thinking content and the cleaned text
+    /// with the blocks removed.
+    /// </summary>
+    private static (string thinking, string cleaned) ExtractThinkingTags(string text)
+    {
+        var matches = ThinkTagRegex.Matches(text);
+        if (matches.Count == 0) return (string.Empty, text);
+
+        var thinking = string.Join("\n\n", matches.Select(m => m.Groups[1].Value.Trim()));
+        var cleaned = ThinkTagRegex.Replace(text, string.Empty).Trim();
+        return (thinking, cleaned);
+    }
+
+    private static string MergeThinking(string metaThinking, string inlineThinking)
+    {
+        if (string.IsNullOrWhiteSpace(metaThinking)) return inlineThinking;
+        if (string.IsNullOrWhiteSpace(inlineThinking)) return metaThinking;
+        return metaThinking + "\n\n" + inlineThinking;
+    }
+
+    /// <summary>
+    /// Persists extracted LLM thinking/reasoning as an agent message so users can inspect it,
+    /// then emits a <c>MessagesUpdated</c> SignalR event so the chat panel refreshes.
+    /// </summary>
+    private async Task SaveThinkingAsync(int bookId, int? chapterId, AgentRole role, string thinking, CancellationToken ct)
+    {
+        await Repo.AddMessageAsync(new AgentMessage
+        {
+            BookId = bookId,
+            ChapterId = chapterId,
+            AgentRole = role,
+            MessageType = MessageType.SystemNote,
+            Content = $"💭 **Thinking:**\n\n{thinking}",
+            IsResolved = true
+        });
+        try { await Notifier.NotifyMessagesUpdatedAsync(bookId, ct); }
+        catch { /* non-fatal */ }
+    }
 }
+

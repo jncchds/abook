@@ -1,11 +1,11 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode, type Dispatch, type SetStateAction } from 'react'
 import type { AppUser } from '../api'
 import { authMe } from '../api'
 
 interface AuthCtx {
   user: AppUser | null
   loading: boolean
-  setUser: (u: AppUser | null) => void
+  setUser: Dispatch<SetStateAction<AppUser | null>>
 }
 
 const AuthContext = createContext<AuthCtx>({ user: null, loading: true, setUser: () => {} })

@@ -124,7 +124,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   const [answerText, setAnswerText] = useState('')
   const [submittingAnswer, setSubmittingAnswer] = useState(false)
 
-  const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError } = useBookHub(bookId)
+  const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated } = useBookHub(bookId)
   const { notify } = useNotifications()
   const notifyRef = useRef(notify)
   useEffect(() => { notifyRef.current = notify })
@@ -355,7 +355,10 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         onClick: () => navigate(`/books/${bookId}/chat`),
       })
     })
-  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, refreshBook, refreshMessages, clearStreams, bookId, navigate])
+    setOnMessagesUpdated(() => {
+      refreshMessages()
+    })
+  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, refreshBook, refreshMessages, clearStreams, bookId, navigate])
 
   const isRunning = runStatus?.state === 'Running' || runStatus?.state === 'WaitingForInput'
 

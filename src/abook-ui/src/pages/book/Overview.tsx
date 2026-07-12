@@ -33,7 +33,9 @@ export default function Overview() {
       {editingBook ? (
         <div className="book-edit-form">
           <label>Title<input value={bookEditTitle} onChange={e => setBookEditTitle(e.target.value)} /></label>
-          <label>Genre<input value={bookEditGenre} onChange={e => setBookEditGenre(e.target.value)} /></label>
+          <label>Genre<input value={bookEditGenre} onChange={e => setBookEditGenre(e.target.value)} placeholder="Fantasy, Adventure" />
+            <span className="hint">Comma-separated list of genres</span>
+          </label>
           <label>Target chapters<input type="number" min={1} value={bookEditTargetChapters} onChange={e => setBookEditTargetChapters(+e.target.value)} /></label>
           <label>Premise / Plot<textarea rows={6} value={bookEditPremise} onChange={e => setBookEditPremise(e.target.value)} /></label>
           <label style={{ flexDirection: 'row', gap: '0.5rem', alignItems: 'center' }}>
