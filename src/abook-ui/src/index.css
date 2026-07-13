@@ -863,16 +863,8 @@ button:disabled:hover { background: var(--accent); }
 .btn-back-overview:hover { color: var(--accent); border-color: var(--accent); }
 
 /* ======== Public Library page ======== */
-.library-page { min-height: 100vh; background: var(--bg); color: var(--text); }
-.library-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 1rem 2rem; border-bottom: 1px solid var(--border); background: var(--surface);
-}
-.library-header-left { display: flex; align-items: center; gap: 1rem; }
-.library-title { font-size: 1.2rem; font-weight: 700; }
-.library-back-link { font-size: 0.85rem; color: var(--text-muted); text-decoration: none; }
-.library-back-link:hover { color: var(--accent); }
-.library-body { max-width: 960px; margin: 0 auto; padding: 1.5rem 2rem; }
+.library-content { padding: 1.5rem 2rem; max-width: 960px; }
+.library-page-title { font-size: 1.3rem; font-weight: 700; margin: 0 0 1.25rem; }
 .library-filters {
   display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;
   padding: 1rem 1.25rem; margin-bottom: 1.25rem;
@@ -892,36 +884,19 @@ button:disabled:hover { background: var(--accent); }
   padding: 4rem 2rem; text-align: center; color: var(--text-muted);
 }
 
+/* ======== Circular chapter number badge in library sidebar ======== */
+.lib-ch-circle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.5rem; height: 1.5rem; border-radius: 50%;
+  background: rgba(99,102,241,0.15); color: var(--accent);
+  font-size: 0.72rem; font-weight: 700; line-height: 1;
+  flex-shrink: 0;
+}
+.sidebar-btn.active .lib-ch-circle {
+  background: rgba(99,102,241,0.35);
+}
+
 /* ======== Public Book Reader page ======== */
-.reader-page { min-height: 100vh; background: var(--bg); color: var(--text); }
-.reader-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0.85rem 1.5rem; border-bottom: 1px solid var(--border); background: var(--surface);
-  flex-wrap: wrap; gap: 0.5rem;
-}
-.reader-header-left { display: flex; align-items: center; gap: 0.5rem; }
-.reader-back { font-size: 0.85rem; color: var(--text-muted); text-decoration: none; }
-.reader-back:hover { color: var(--accent); }
-.reader-breadcrumb { font-size: 0.85rem; color: var(--text-muted); }
-.reader-downloads { display: flex; align-items: center; }
-.reader-body { display: grid; grid-template-columns: 260px 1fr; min-height: calc(100vh - 60px); }
-.reader-nav {
-  border-right: 1px solid var(--border); background: var(--surface);
-  padding: 1rem; overflow-y: auto;
-}
-.reader-book-info { margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
-.reader-book-title { display: block; font-weight: 700; font-size: 1rem; margin-bottom: 0.25rem; }
-.reader-book-genre { font-size: 0.78rem; color: var(--text-muted); }
-.reader-chapter-list { display: flex; flex-direction: column; gap: 0.15rem; }
-.reader-ch-btn {
-  display: flex; gap: 0.4rem; align-items: baseline; text-align: left;
-  background: none; border: none; border-radius: 6px; padding: 0.45rem 0.5rem;
-  color: var(--text-muted); cursor: pointer; font-size: 0.83rem; width: 100%;
-}
-.reader-ch-btn:hover { background: rgba(99,102,241,0.1); color: var(--text); }
-.reader-ch-btn.active { background: rgba(99,102,241,0.15); color: var(--accent); font-weight: 600; }
-.reader-ch-num { color: var(--text-muted); flex-shrink: 0; }
-.reader-ch-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reader-content { padding: 1.5rem 2.5rem; max-width: 800px; }
 .reader-chapter-nav {
   display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
@@ -930,9 +905,7 @@ button:disabled:hover { background: var(--accent); }
 .reader-chapter-nav button { font-size: 0.85rem; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 @media (max-width: 767px) {
-  .reader-body { grid-template-columns: 1fr; }
-  .reader-nav { border-right: none; border-bottom: 1px solid var(--border); max-height: 220px; }
   .reader-content { padding: 1.25rem; }
-  .library-body { padding: 1rem; }
+  .library-content { padding: 1rem; }
   .library-filters { flex-direction: column; align-items: stretch; }
 }

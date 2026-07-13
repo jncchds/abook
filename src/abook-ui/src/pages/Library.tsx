@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { getPublicConfig, getPublicGenres, getPublicBooks } from '../api'
 import type { PublicBookItem } from '../api'
 import { useAuth } from '../hooks/useAuth'
@@ -69,122 +69,96 @@ export default function Library() {
     setAppliedFilters({ author: '', genre: '', chapterCount: '' })
   }
 
-  if (isPublicMode === null) return <div className="library-page"><p className="empty">Loading…</p></div>
+  if (isPublicMode === null) return <p className="empty">Loading…</p>
 
-  // Non-public mode: unauthenticated users see login prompt
   if (!isPublicMode && !user) {
     return (
-      <div className="library-page">
-        <header className="library-header">
-          <span className="library-title">ABook Library</span>
-        </header>
-        <div className="library-login-prompt">
-          <p>Log in to browse your books.</p>
-          <button className="btn" onClick={() => navigate('/login')}>Log In</button>
-        </div>
+      <div className="library-login-prompt">
+        <p>Log in to browse books.</p>
+        <button className="btn" onClick={() => navigate('/login')}>Log In</button>
       </div>
     )
   }
 
   return (
-    <div className="library-page">
-      <header className="library-header">
-        <div className="library-header-left">
-          <span className="library-title">ABook Library</span>
-          {user && (
-            <Link to="/" className="library-back-link">← My Books</Link>
-          )}
+    <div className="library-content">
+      <h2 className="library-page-title">Library</h2>
+
+      <form className="library-filters card" onSubmit={handleApplyFilters}>
+        <label>
+          Author
+          <input
+            value={authorFilter}
+            onChange={e => setAuthorFilter(e.target.value)}
+            placeholder="Search by author…"
+          />
+        </label>
+        <label>
+          Genre
+          <select value={genreFilter} onChange={e => setGenreFilter(e.target.value)}>
+            <option value="">All genres</option>
+            {genres.map(g => (
+              <option key={g} value={g}>{g}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Chapter count
+          <input
+            type="number"
+            min={1}
+            value={chapterCountFilter}
+            onChange={e => setChapterCountFilter(e.target.value)}
+            placeholder="Exact count…"
+            style={{ width: '8rem' }}
+          />
+        </label>
+        <div className="actions" style={{ alignSelf: 'flex-end' }}>
+          <button type="submit" className="btn">Search</button>
+          <button type="button" className="btn-ghost" onClick={handleClearFilters}>Clear</button>
         </div>
-      </header>
+      </form>
 
-      <div className="library-body">
-        {/* Filter bar */}
-        <form className="library-filters card" onSubmit={handleApplyFilters}>
-          <label>
-            Author
-            <input
-              value={authorFilter}
-              onChange={e => setAuthorFilter(e.target.value)}
-              placeholder="Search by author…"
-            />
-          </label>
-          <label>
-            Genre
-            <select value={genreFilter} onChange={e => setGenreFilter(e.target.value)}>
-              <option value="">All genres</option>
-              {genres.map(g => (
-                <option key={g} value={g}>{g}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Chapter count
-            <input
-              type="number"
-              min={1}
-              value={chapterCountFilter}
-              onChange={e => setChapterCountFilter(e.target.value)}
-              placeholder="Exact count…"
-              style={{ width: '8rem' }}
-            />
-          </label>
-          <div className="actions" style={{ alignSelf: 'flex-end' }}>
-            <button type="submit" className="btn">Search</button>
-            <button type="button" className="btn-ghost" onClick={handleClearFilters}>Clear</button>
-          </div>
-        </form>
-
-        {/* Results */}
-        {loading ? (
-          <p className="empty">Loading…</p>
-        ) : books.length === 0 ? (
-          <p className="empty">No books found.</p>
-        ) : (
-          <>
-            <p className="library-count">{totalCount} book{totalCount !== 1 ? 's' : ''} found</p>
-            <div className="book-list">
-              {books.map(b => (
-                <div key={b.id} className="book-list-card" onClick={() => navigate(`/library/${b.id}`)} style={{ cursor: 'pointer' }}>
-                  <div className="book-list-card-left">
-                    <h3>{b.title}</h3>
-                    <div className="blc-meta">
-                      {b.genre && b.genre.split(',').map(g => g.trim()).filter(Boolean).map(g => (
-                        <span key={g} className="blc-genre">{g}</span>
-                      ))}
-                      {b.language && <span className="blc-lang">{b.language}</span>}
-                      <span className={`status status-${b.status.toLowerCase()}`}>{b.status}</span>
-                    </div>
-                    <div className="blc-meta" style={{ marginTop: '0.25rem' }}>
-                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>by {b.authorDisplayName}</span>
-                    </div>
+      {loading ? (
+        <p className="empty">Loading…</p>
+      ) : books.length === 0 ? (
+        <p className="empty">No books found.</p>
+      ) : (
+        <>
+          <p className="library-count">{totalCount} book{totalCount !== 1 ? 's' : ''} found</p>
+          <div className="book-list">
+            {books.map(b => (
+              <div key={b.id} className="book-list-card" onClick={() => navigate(`/library/${b.id}`)} style={{ cursor: 'pointer' }}>
+                <div className="book-list-card-left">
+                  <h3>{b.title}</h3>
+                  <div className="blc-meta">
+                    {b.genre && b.genre.split(',').map(g => g.trim()).filter(Boolean).map(g => (
+                      <span key={g} className="blc-genre">{g}</span>
+                    ))}
+                    {b.language && <span className="blc-lang">{b.language}</span>}
+                    <span className={`status status-${b.status.toLowerCase()}`}>{b.status}</span>
                   </div>
-                  <div className="book-list-card-right">
-                    <span className="blc-chapters">{b.writtenChapterCount} chapters written</span>
-                    <button className="btn" onClick={e => { e.stopPropagation(); navigate(`/library/${b.id}`) }}>Read →</button>
+                  <div className="blc-meta" style={{ marginTop: '0.25rem' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>by {b.authorDisplayName}</span>
                   </div>
                 </div>
-              ))}
-            </div>
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="library-pagination">
-                <button
-                  className="btn-ghost"
-                  disabled={page <= 1}
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                >← Prev</button>
-                <span>Page {page} of {totalPages}</span>
-                <button
-                  className="btn-ghost"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                >Next →</button>
+                <div className="book-list-card-right">
+                  <span className="blc-chapters">{b.writtenChapterCount} chapters written</span>
+                  <button className="btn" onClick={e => { e.stopPropagation(); navigate(`/library/${b.id}`) }}>Read →</button>
+                </div>
               </div>
-            )}
-          </>
-        )}
-      </div>
+            ))}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="library-pagination">
+              <button className="btn-ghost" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>← Prev</button>
+              <span>Page {page} of {totalPages}</span>
+              <button className="btn-ghost" disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next →</button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }

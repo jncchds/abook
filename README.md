@@ -26,7 +26,7 @@ ABook is a self-hosted web application that uses AI agents to collaboratively wr
 - **Global concurrency limit** — cap simultaneous agent runs across all books/users with `AgentSettings__MaxConcurrentRuns` (changes apply after app restart)
 - **Clear buttons** — clear agent messages or token stats for a book without deleting any content
 - **Multiple export formats** — download the finished book as **HTML** (6 colour themes, adjustable font size), **EPUB**, or **FB2**; or download a **Metadata document** (book info, chapter outlines, Story Bible, Characters, Plot Threads, agent messages, token statistics) as themed HTML
-- **Fully containerized** — single `docker-compose up` starts everything
+- **Public Library** — browse and read published books without logging in (when public mode is enabled); each chapter has its own URL (`/library/:bookId/chapters/:chapterId`) for bookmarking and sharing; the Library uses the same sidebar layout as the rest of the app with download buttons (HTML / FB2 / EPUB) in the sidebar; chapter numbers appear as circular accent-colored badges in the sidebar; unauthenticated users land on the Library page by default
 - **MCP server** — built-in Model Context Protocol server at `/mcp`; any MCP-compatible client (Claude Desktop, VS Code Copilot) can read and write book content and trigger agents using a per-user API token generated in Settings
 
 ## Architecture

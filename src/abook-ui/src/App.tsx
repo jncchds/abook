@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import BookListLayout from './layouts/BookListLayout'
 import BookLayout from './layouts/BookLayout'
+import LibraryLayout from './layouts/LibraryLayout'
 import Dashboard from './pages/Dashboard'
 import GlobalSettings from './pages/GlobalSettings'
 import Login from './pages/Login'
@@ -16,14 +17,14 @@ import ChatPage from './pages/book/ChatPage'
 import TokenStatsPage from './pages/book/TokenStatsPage'
 import BookSettings from './pages/book/BookSettings'
 import Library from './pages/Library'
-import PublicBookReader from './pages/PublicBookReader'
+import PublicBookReader, { PublicBookIndex } from './pages/PublicBookReader'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import PwaUpdatePrompt from './components/PwaUpdatePrompt'
 
 function ProtectedRoutes() {
   const { user, loading } = useAuth()
   if (loading) return <div className="loading">Loading…</div>
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) return <Navigate to="/library" replace />
   return (
     <Routes>
       <Route element={<BookListLayout />}>
@@ -56,8 +57,11 @@ export default function App() {
         <PwaUpdatePrompt />
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/library" element={<Library />} />
-          <Route path="/library/:bookId" element={<PublicBookReader />} />
+          <Route path="/library" element={<LibraryLayout />}>
+            <Route index element={<Library />} />
+            <Route path=":bookId" element={<PublicBookIndex />} />
+            <Route path=":bookId/chapters/:chapterId" element={<PublicBookReader />} />
+          </Route>
           <Route path="/*" element={<ProtectedRoutes />} />
         </Routes>
       </AuthProvider>

@@ -1,5 +1,9 @@
 # Release Notes
 
+## v0.1.13 — 2026-07-13
+
+- feat: Library redesigned with full sidebar layout (same style as rest of app); download buttons moved to sidebar; chapter list in sidebar uses circular number badges; each chapter is a separate route (`/library/:bookId/chapters/:chapterId`); navigating to `/library/:bookId` auto-redirects to the first chapter; unauthenticated users are now redirected to `/library` instead of `/login`
+
 ## v0.1.12 — 2026-07-12
 
 - feat: LLM thinking/reasoning content is now captured and saved as an agent message — supports `<think>…</think>` / `<thinking>…</thinking>` tags (DeepSeek-R1, Qwen3, etc.) and vendor metadata keys (`ReasoningContent`, `Thinking`, etc.) in both streaming and non-streaming calls; saved as a `SystemNote` with a 💭 prefix; UI refreshes via a new `MessagesUpdated` SignalR event
