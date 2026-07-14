@@ -44,10 +44,10 @@ public class GoogleAIStudioProviderStrategy : ILlmProviderStrategy
                 OpenAIProviderHelpers.CreateOpenAIClient(OpenAICompatEndpoint, config.ApiKey));
     }
 
-    public PromptExecutionSettings CreateExecutionSettings(float temperature, bool jsonMode = false) =>
+    public PromptExecutionSettings CreateExecutionSettings(float temperature, string? jsonSchema = null) =>
         new GeminiPromptExecutionSettings
         {
             Temperature = (double?)temperature,
-            ResponseMimeType = jsonMode ? "application/json" : null,
+            ResponseMimeType = !string.IsNullOrWhiteSpace(jsonSchema) ? "application/json" : null,
         };
 }

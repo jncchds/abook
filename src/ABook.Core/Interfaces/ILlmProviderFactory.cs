@@ -12,7 +12,8 @@ public interface ILlmProviderFactory
     Kernel CreateKernel(LlmConfiguration config);
     /// <summary>
     /// Creates provider-specific <see cref="PromptExecutionSettings"/> with the correct JSON output
-    /// format parameter for the given provider when <paramref name="jsonMode"/> is <c>true</c>.
+    /// format parameter when a JSON schema is provided. When <paramref name="jsonSchema"/> is null,
+    /// no response format constraint is applied.
     /// </summary>
-    PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, float temperature, bool jsonMode = false);
+    PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, float temperature, string? jsonSchema = null);
 }

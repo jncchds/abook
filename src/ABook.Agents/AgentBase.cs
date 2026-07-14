@@ -57,10 +57,10 @@ public abstract class AgentBase
     /// </summary>
     protected async Task<string> GetCompletionAsync(
         Kernel kernel, LlmConfiguration config, ChatHistory history, CancellationToken ct,
-        int? bookId = null, int? chapterId = null, AgentRole? role = null, bool jsonMode = false)
+        int? bookId = null, int? chapterId = null, AgentRole? role = null, string? jsonSchema = null)
     {
         var chat = kernel.GetRequiredService<IChatCompletionService>();
-        var settings = LlmFactory.CreateExecutionSettings(config, 0.7f, jsonMode);
+        var settings = LlmFactory.CreateExecutionSettings(config, 0.7f, jsonSchema);
 
         if (DebugLoggingEnabled)
         {
@@ -132,11 +132,11 @@ public abstract class AgentBase
     /// <param name="suspiciousThreshold">Minimum response length before a 'suspiciously short' warning is emitted. Pass 0 to suppress.</param>
     /// <param name="stopStreamingAt">Optional regex. Once matched against the accumulated buffer, further tokens are still accumulated but no longer forwarded to the SignalR stream. Use to prevent notes/metadata sections from appearing in the chapter view.</param>
     protected async Task<string> StreamResponseAsync(
-        Kernel kernel, LlmConfiguration config, ChatHistory history, int bookId, int? chapterId, AgentRole role, CancellationToken ct, bool jsonMode = false, int suspiciousThreshold = 50,
-        System.Text.RegularExpressions.Regex? stopStreamingAt = null)
+        Kernel kernel, LlmConfiguration config, ChatHistory history, int bookId, int? chapterId, AgentRole role, CancellationToken ct, int suspiciousThreshold = 50,
+        System.Text.RegularExpressions.Regex? stopStreamingAt = null, string? jsonSchema = null)
     {
         var chat = kernel.GetRequiredService<IChatCompletionService>();
-        var settings = LlmFactory.CreateExecutionSettings(config, 0.8f, jsonMode);
+        var settings = LlmFactory.CreateExecutionSettings(config, 0.8f, jsonSchema);
         // Reuse the singleton buffer so the HTTP endpoint can serve accumulated content on hard-refresh.
         // Clear any stale content from a previous run with the same key before starting.
         var sb = StateService.GetOrCreateStreamBuffer(bookId, chapterId, role.ToString());

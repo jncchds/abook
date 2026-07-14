@@ -72,7 +72,7 @@ public class PlannerAgent : AgentBase
             Create {book.TargetChapterCount} detailed chapter outlines for this book.
             """);
 
-        var chapterRaw = await StreamResponseAsync(kernel, config, chapterHistory, bookId, null, AgentRole.ChaptersAgent, ct, jsonMode: true);
+        var chapterRaw = await StreamResponseAsync(kernel, config, chapterHistory, bookId, null, AgentRole.ChaptersAgent, ct, jsonSchema: JsonSchemas.ChapterOutlines);
 
         List<Chapter> chapters;
         try { chapters = ParseChapterOutlines(bookId, chapterRaw); }
@@ -101,6 +101,8 @@ public class PlannerAgent : AgentBase
     private static List<Chapter> ParseChapterOutlines(int bookId, string raw)
     {
         var json = ExtractJson(raw, '[', ']');
+        if (string.IsNullOrWhiteSpace(json))
+            throw new FormatException("Chapter outlines response contained no JSON data.");
         using var doc = System.Text.Json.JsonDocument.Parse(json);
         var chapters = new List<Chapter>();
         foreach (var el in doc.RootElement.EnumerateArray())

@@ -10,7 +10,7 @@ public enum AgentRole { Planner, Writer, Editor, ContinuityChecker, Embedder, St
 
 public enum MessageType { Content, Question, Answer, SystemNote, Feedback }
 
-public enum LlmProvider { Ollama, OpenAI, AzureOpenAI, Anthropic, LMStudio, GoogleAIStudio }
+public enum LlmProvider { Ollama, OpenAI, AzureOpenAI, GoogleAIStudio }
 
 /// <summary>
 /// AzureOpenAI (int=3) is reserved for future implementation. The enum value is kept

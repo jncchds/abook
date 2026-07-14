@@ -66,7 +66,7 @@ public class PlotThreadsAgent : AgentBase
             Create the plot thread map for this book.
             """);
 
-        var raw = await StreamResponseAsync(kernel, config, history, bookId, null, AgentRole.PlotThreadsAgent, ct, jsonMode: true);
+        var raw = await StreamResponseAsync(kernel, config, history, bookId, null, AgentRole.PlotThreadsAgent, ct, jsonSchema: JsonSchemas.PlotThreads);
 
         List<PlotThread> threads;
         try { threads = Parse(bookId, raw); }
@@ -129,6 +129,8 @@ public class PlotThreadsAgent : AgentBase
     private static List<PlotThread> Parse(int bookId, string raw)
     {
         var json = ExtractJson(raw, '[', ']');
+        if (string.IsNullOrWhiteSpace(json))
+            throw new FormatException("Plot threads response contained no JSON data.");
         using var doc = System.Text.Json.JsonDocument.Parse(json);
         var threads = new List<PlotThread>();
         foreach (var el in doc.RootElement.EnumerateArray())

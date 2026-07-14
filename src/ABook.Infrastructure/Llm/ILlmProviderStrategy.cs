@@ -13,7 +13,7 @@ public interface ILlmProviderStrategy
     void ConfigureKernelBuilder(IKernelBuilder builder, LlmConfiguration config);
     /// <summary>
     /// Creates provider-specific execution settings with the appropriate JSON output format parameter
-    /// when <paramref name="jsonMode"/> is <c>true</c>.
+    /// when a schema is provided. When <paramref name="jsonSchema"/> is null, no response format constraint is applied.
     /// </summary>
-    PromptExecutionSettings CreateExecutionSettings(float temperature, bool jsonMode = false);
+    PromptExecutionSettings CreateExecutionSettings(float temperature, string? jsonSchema = null);
 }

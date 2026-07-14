@@ -24,7 +24,6 @@ public class LlmProviderFactory : ILlmProviderFactory
         {
             new OllamaProviderStrategy(),
             new OpenAIProviderStrategy(),
-            new AnthropicProviderStrategy(),
             new GoogleAIStudioProviderStrategy(),
         }.ToDictionary(s => s.Provider);
 
@@ -46,6 +45,6 @@ public class LlmProviderFactory : ILlmProviderFactory
         return builder.Build();
     }
 
-    public PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, float temperature, bool jsonMode = false) =>
-        GetStrategy(config.Provider).CreateExecutionSettings(temperature, jsonMode);
+    public PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, float temperature, string? jsonSchema = null) =>
+        GetStrategy(config.Provider).CreateExecutionSettings(temperature, jsonSchema);
 }

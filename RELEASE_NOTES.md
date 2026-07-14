@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.14 — 2026-07-14
+
+- feat: structured JSON output via typed schemas — planning agents (Story Bible, Characters, Plot Threads, Chapter Outlines) and Continuity Checker now use `CreateJsonSchemaFormat` with precise JSON schemas instead of generic `jsonMode: true`; prevents LLM type mismatches (e.g. object vs array)
+- feat: empty-response guard on planning agent parsers — StoryBibleAgent, CharactersAgent, PlotThreadsAgent, PlannerAgent (chapter outlines) now throw a clear `FormatException` when the LLM returns no JSON data at all
+- break: removed Anthropic provider — `AnthropicProviderStrategy.cs` deleted; `LlmProvider.Anthropic` removed from enum. Users who previously relied on Anthropic can achieve similar functionality by using OpenAI provider with an OpenAI-compatible proxy endpoint (e.g. LiteLLM)
+- fix: improved OpenAI API key validation in provider strategies — clearer error messages when no endpoint is set and no API key is provided
+
 ## v0.1.13 — 2026-07-13
 
 - feat: Library redesigned with full sidebar layout (same style as rest of app); download buttons moved to sidebar; chapter list in sidebar uses circular number badges; each chapter is a separate route (`/library/:bookId/chapters/:chapterId`); navigating to `/library/:bookId` auto-redirects to the first chapter; unauthenticated users are now redirected to `/library` instead of `/login`

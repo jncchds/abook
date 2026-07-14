@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import type { LlmConfig, LlmPreset, ProviderModel, Book, DefaultPrompts } from '../../api'
 import { getLlmConfig, updateLlmConfig, updateBook, getBook, getModels, getDefaultPrompts, getPresets, createPreset, updatePreset } from '../../api'
-import { PROVIDERS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, PROXY_REQUIRED_PROVIDERS, INITIAL_LLM_CONFIG } from '../../config/providers'
+import { PROVIDERS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, INITIAL_LLM_CONFIG } from '../../config/providers'
 
 export default function BookSettings() {
   const { bookId } = useParams<{ bookId: string }>()
@@ -215,13 +215,7 @@ export default function BookSettings() {
                 disabled={modelsLoading}
               >{modelsLoading ? '…' : '↺ Refresh'}</button>
             </div>
-            {PROXY_REQUIRED_PROVIDERS.has(config.provider) && (
-              <span className="hint">
-                Anthropic's API is not OpenAI-compatible. Point this endpoint at an OpenAI-compatible proxy
-                (e.g. <a href="https://docs.litellm.ai" target="_blank" rel="noreferrer">LiteLLM</a> at{' '}
-                <code>http://localhost:4000</code>).
-              </span>
-            )}
+
             {API_KEY_REQUIRED_PROVIDERS.has(config.provider) && (
               <span className="hint">
                 Enter your API key below, then click ↺ Refresh to load the model list.{' '}

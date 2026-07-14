@@ -17,19 +17,19 @@ public class OpenAIProviderStrategy : ILlmProviderStrategy
     public IChatCompletionService CreateChatCompletion(LlmConfiguration config)
     {
         var openAiEndpoint = string.IsNullOrWhiteSpace(config.Endpoint) ? null : new Uri(config.Endpoint);
-        if (openAiEndpoint == null)
-            return new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIChatCompletionService(
-                config.ModelName, config.ApiKey ?? throw new InvalidOperationException("OpenAI requires an API key."));
+        if (openAiEndpoint == null && string.IsNullOrWhiteSpace(config.ApiKey))
+            throw new InvalidOperationException("OpenAI API key is required when no custom endpoint is set.");
         return new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIChatCompletionService(
-            config.ModelName, openAiEndpoint, config.ApiKey);
+            config.ModelName, openAiEndpoint!, config.ApiKey);
     }
 
     public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGeneration(LlmConfiguration config)
     {
         var embeddingModel = config.EmbeddingModelName ?? config.ModelName;
+        if (string.IsNullOrWhiteSpace(config.Endpoint) && string.IsNullOrWhiteSpace(config.ApiKey))
+            throw new InvalidOperationException("OpenAI API key is required when no custom endpoint is set.");
         if (string.IsNullOrWhiteSpace(config.Endpoint))
-            return new OpenAIClient(new ApiKeyCredential(
-                    config.ApiKey ?? throw new InvalidOperationException("OpenAI requires an API key.")))
+            return new OpenAIClient(new ApiKeyCredential(config.ApiKey ?? ""))
                 .GetEmbeddingClient(embeddingModel)
                 .AsIEmbeddingGenerator();
         return OpenAIProviderHelpers.CreateOpenAIClient(config.Endpoint, config.ApiKey)
@@ -40,9 +40,7 @@ public class OpenAIProviderStrategy : ILlmProviderStrategy
     public void ConfigureKernelBuilder(IKernelBuilder builder, LlmConfiguration config)
     {
         var openAiEndpoint = string.IsNullOrWhiteSpace(config.Endpoint) ? null : new Uri(config.Endpoint);
-        var apiKey = config.ApiKey ?? (openAiEndpoint == null
-            ? throw new InvalidOperationException("OpenAI requires an API key.")
-            : null);
+        var apiKey = openAiEndpoint != null ? config.ApiKey : (config.ApiKey ?? throw new InvalidOperationException("OpenAI API key is required when no custom endpoint is set."));
         if (openAiEndpoint == null)
         {
             builder.AddOpenAIChatCompletion(config.ModelName, apiKey!);
@@ -58,10 +56,12 @@ public class OpenAIProviderStrategy : ILlmProviderStrategy
         }
     }
 
-    public PromptExecutionSettings CreateExecutionSettings(float temperature, bool jsonMode = false) =>
+    public PromptExecutionSettings CreateExecutionSettings(float temperature, string? jsonSchema = null) =>
         new OpenAIPromptExecutionSettings
         {
             Temperature = (double?)temperature,
-            ResponseFormat = jsonMode ? OpenAI.Chat.ChatResponseFormat.CreateJsonObjectFormat() : null,
+            ResponseFormat = !string.IsNullOrWhiteSpace(jsonSchema)
+                ? OpenAI.Chat.ChatResponseFormat.CreateJsonSchemaFormat("structured_output", BinaryData.FromString(jsonSchema!))
+                : null,
         };
 }

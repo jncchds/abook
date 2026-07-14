@@ -249,7 +249,7 @@ public class ContinuityCheckerAgent : AgentBase
 
         // Use non-streaming completion — JSON output must never be streamed to the UI
         var responseJson = await GetCompletionAsync(kernel, config, history, ct,
-            bookId: bookId, chapterId: null, role: AgentRole.ContinuityChecker, jsonMode: true);
+            bookId: bookId, chapterId: null, role: AgentRole.ContinuityChecker, jsonSchema: CheckerResultDto.JsonSchema);
 
         // Parse structured JSON result; gracefully degrade on parse failure
         CheckerResult result;
@@ -341,6 +341,33 @@ public class ContinuityCheckerAgent : AgentBase
         public bool HasIssues { get; set; }
         public CheckerIssueDto[] Issues { get; set; } = [];
         public string Summary { get; set; } = string.Empty;
+
+        public static readonly string JsonSchema = """
+            {
+              "type": "object",
+              "properties": {
+                "hasIssues": { "type": "boolean" },
+                "issues": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "type": { "type": "string" },
+                      "description": { "type": "string" },
+                      "proposedFix": { "type": "string" },
+                      "originalText": { "type": "string" },
+                      "replacementText": { "type": "string" }
+                    },
+                    "required": ["type", "description", "proposedFix"],
+                    "additionalProperties": false
+                  }
+                },
+                "summary": { "type": "string" }
+              },
+              "required": ["hasIssues", "issues", "summary"],
+              "additionalProperties": false
+            }
+            """;
     }
 
 

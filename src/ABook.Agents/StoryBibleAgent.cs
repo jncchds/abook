@@ -49,7 +49,7 @@ public class StoryBibleAgent : AgentBase
             Create the Story Bible for this book.
             """);
 
-        var raw = await StreamResponseAsync(kernel, config, history, bookId, null, AgentRole.StoryBibleAgent, ct, jsonMode: true);
+        var raw = await StreamResponseAsync(kernel, config, history, bookId, null, AgentRole.StoryBibleAgent, ct, jsonSchema: JsonSchemas.StoryBible);
 
         StoryBible bible;
         try { bible = Parse(bookId, raw); }
@@ -103,6 +103,8 @@ public class StoryBibleAgent : AgentBase
     private static StoryBible Parse(int bookId, string raw)
     {
         var json = ExtractJson(raw, '{', '}');
+        if (string.IsNullOrWhiteSpace(json))
+            throw new FormatException("Story Bible response contained no JSON data.");
         using var doc = System.Text.Json.JsonDocument.Parse(json);
         var r = doc.RootElement;
         string Get(string key) => r.TryGetProperty(key, out var v) ? v.GetString() ?? "" : "";

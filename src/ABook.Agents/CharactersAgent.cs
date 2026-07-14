@@ -57,7 +57,7 @@ public class CharactersAgent : AgentBase
             Create detailed character profiles for this book.
             """);
 
-        var raw = await StreamResponseAsync(kernel, config, history, bookId, null, AgentRole.CharactersAgent, ct, jsonMode: true);
+        var raw = await StreamResponseAsync(kernel, config, history, bookId, null, AgentRole.CharactersAgent, ct, jsonSchema: JsonSchemas.Characters);
 
         List<CharacterCard> characters;
         try { characters = Parse(bookId, raw); }
@@ -123,6 +123,8 @@ public class CharactersAgent : AgentBase
     private static List<CharacterCard> Parse(int bookId, string raw)
     {
         var json = ExtractJson(raw, '[', ']');
+        if (string.IsNullOrWhiteSpace(json))
+            throw new FormatException("Character cards response contained no JSON data.");
         using var doc = System.Text.Json.JsonDocument.Parse(json);
         var cards = new List<CharacterCard>();
         foreach (var el in doc.RootElement.EnumerateArray())
