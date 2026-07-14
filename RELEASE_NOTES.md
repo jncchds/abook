@@ -4,6 +4,7 @@
 
 - refactor: eliminated all non-streaming LLM calls across the agent engine — `GetCompletionAsync` (AgentBase) removed entirely; QuestionAgent, ContinuityChecker.PreWriteCheckAndFixAsync, and ContinuityChecker.CheckAsync now use `StreamResponseAsync` exclusively. All 4 prior call sites replaced with streaming; JSON parsing still works on the fully-accumulated response after streaming completes
 - feat: upfront Q&A preview — QuestionAgent posts a single overview message listing ALL upcoming clarifying questions before presenting them one-by-one, so the user is prepared to what's coming (planner role, question type); individual questions still appear via AskUserAndWaitAsync for answer/skip per item
+- refactor: cleaned up reasoning/thinking content extraction in `AgentBase.StreamResponseAsync` — removed per-chunk array allocation (`new[] { ... }`) inside the streaming loop; consolidated metadata key check to single canonical key `ReasoningContent` with short-circuit evaluation; simplified merge comment for clarity. No functional change, same behavior as prior v0.1.15 release.
 
 ## v0.1.14 — 2026-07-14
 

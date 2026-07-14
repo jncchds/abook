@@ -76,6 +76,8 @@ public abstract class AgentBase
         }
 
         var thinkingSb = new System.Text.StringBuilder();
+        // Provider-specific metadata keys that carry reasoning/thinking tokens. Checked once per provider.
+        const string ReasoningMetaKey = "ReasoningContent";
 
         try
         {
@@ -83,17 +85,11 @@ public abstract class AgentBase
             await foreach (var chunk in chat.GetStreamingChatMessageContentsAsync(history, settings, kernel, ct))
             {
                 // Accumulate vendor-specific thinking/reasoning content from chunk metadata.
-                // Different providers use different keys; we check the most common ones.
-                if (chunk.Metadata is not null)
+                if (chunk.Metadata is not null &&
+                    chunk.Metadata.TryGetValue(ReasoningMetaKey, out var thinkVal) &&
+                    thinkVal is string ts && ts.Length > 0)
                 {
-                    foreach (var key in new[] { "ReasoningContent", "Thinking", "thinking_content", "reasoning_content" })
-                    {
-                        if (chunk.Metadata.TryGetValue(key, out var thinkVal) && thinkVal is string ts && ts.Length > 0)
-                        {
-                            thinkingSb.Append(ts);
-                            break;
-                        }
-                    }
+                    thinkingSb.Append(ts);
                 }
 
                 if (chunk.Content is { Length: > 0 } token)
@@ -137,7 +133,7 @@ public abstract class AgentBase
 
         // Extract <think>…</think> / <thinking>…</thinking> blocks (e.g. DeepSeek-R1, Qwen3).
         var (inlineThinking, cleanedResult) = ExtractThinkingTags(result);
-        // Merge with any thinking already gathered from chunk metadata.
+        // Merge metadata-gathered thinking with tag-extracted thinking.
         var fullThinking = MergeThinking(thinkingSb.ToString(), inlineThinking);
         if (!string.IsNullOrWhiteSpace(fullThinking))
         {
