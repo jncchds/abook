@@ -51,7 +51,7 @@ public class QuestionAgent : AgentBase
         history.AddUserMessage(bookContext);
 
         string response;
-        try { response = await GetCompletionAsync(kernel, config, history, ct, bookId, null, AgentRole.Planner); }
+        try { response = await StreamResponseAsync(kernel, config, history, bookId, (int?)null, AgentRole.Planner, ct); }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
@@ -77,9 +77,32 @@ public class QuestionAgent : AgentBase
     /// Presents each question to the author one at a time via <see cref="AskUserAndWaitAsync"/>
     /// and appends Q&amp;A pairs to the shared context string builder.
     /// </summary>
+    /// <summary>
+    /// Posts a single preview message listing all upcoming questions, then presents each
+    /// one to the author individually via <see cref="AskUserAndWaitAsync"/> and appends Q&amp;A pairs
+    /// to the shared context string builder.
+    /// </summary>
     public async Task AskQuestionsAsync(
         int bookId, List<string> questions, StringBuilder qaContext, CancellationToken ct)
     {
+        // Post a single overview message so the user knows what's coming
+        await Repo.AddMessageAsync(new AgentMessage
+        {
+            BookId = bookId,
+            ChapterId = null,
+            AgentRole = AgentRole.Planner,
+            MessageType = MessageType.Question,
+            Content = $"The planner has {questions.Count} question(s) to clarify the plan:\n\n{string.Join("\n", questions.Select((q, i) => ($"{i + 1}. {q}")))}",
+            IsResolved = false
+        });
+        await Notifier.NotifyQuestionAsync(bookId,
+            new AgentMessage {
+                BookId = bookId, ChapterId = null, AgentRole = AgentRole.Planner,
+                MessageType = MessageType.Question,
+                Content = $"The planner has {questions.Count} question(s) to clarify the plan.\n\n{string.Join("\n", questions.Select((q, i) => ($"{i + 1}. {q}")))}",
+                IsResolved = false
+            }, ct);
+
         foreach (var question in questions)
         {
             var answer = await AskUserAndWaitAsync(bookId, null, AgentRole.Planner, question, ct);

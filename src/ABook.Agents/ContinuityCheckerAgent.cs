@@ -62,7 +62,7 @@ public class ContinuityCheckerAgent : AgentBase
             Are there any contradictions between this outline and the established facts above?
             """);
 
-        var detectResponse = await GetCompletionAsync(kernel, config, detectHistory, ct, bookId, chapterId, AgentRole.ContinuityChecker);
+        var detectResponse = await StreamResponseAsync(kernel, config, detectHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct);
 
         if (detectResponse.Trim().StartsWith("No issues found", StringComparison.OrdinalIgnoreCase))
         {
@@ -93,7 +93,7 @@ public class ContinuityCheckerAgent : AgentBase
             Rewrite the outline to resolve all contradictions above.
             """);
 
-        var fixedOutline = await GetCompletionAsync(kernel, config, fixHistory, ct, bookId, chapterId, AgentRole.ContinuityChecker);
+        var fixedOutline = await StreamResponseAsync(kernel, config, fixHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct);
 
         if (!string.IsNullOrWhiteSpace(fixedOutline))
         {
@@ -247,9 +247,8 @@ public class ContinuityCheckerAgent : AgentBase
         }
         history.AddUserMessage(userMessage);
 
-        // Use non-streaming completion — JSON output must never be streamed to the UI
-        var responseJson = await GetCompletionAsync(kernel, config, history, ct,
-            bookId: bookId, chapterId: null, role: AgentRole.ContinuityChecker, jsonSchema: CheckerResultDto.JsonSchema);
+        var responseJson = await StreamResponseAsync(kernel, config, history, bookId, (int?)null, AgentRole.ContinuityChecker, ct,
+            jsonSchema: CheckerResultDto.JsonSchema);
 
         // Parse structured JSON result; gracefully degrade on parse failure
         CheckerResult result;

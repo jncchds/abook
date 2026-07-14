@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.1.15 — 2026-07-14
+
+- refactor: eliminated all non-streaming LLM calls across the agent engine — `GetCompletionAsync` (AgentBase) removed entirely; QuestionAgent, ContinuityChecker.PreWriteCheckAndFixAsync, and ContinuityChecker.CheckAsync now use `StreamResponseAsync` exclusively. All 4 prior call sites replaced with streaming; JSON parsing still works on the fully-accumulated response after streaming completes
+- feat: upfront Q&A preview — QuestionAgent posts a single overview message listing ALL upcoming clarifying questions before presenting them one-by-one, so the user is prepared to what's coming (planner role, question type); individual questions still appear via AskUserAndWaitAsync for answer/skip per item
+
 ## v0.1.14 — 2026-07-14
 
 - feat: structured JSON output via typed schemas — planning agents (Story Bible, Characters, Plot Threads, Chapter Outlines) and Continuity Checker now use `CreateJsonSchemaFormat` with precise JSON schemas instead of generic `jsonMode: true`; prevents LLM type mismatches (e.g. object vs array)
