@@ -247,9 +247,18 @@ public abstract class AgentBase
                 IsResolved = true
             });
         }
-        catch { /* non-fatal */ }
-        try { await Notifier.NotifyAgentErrorAsync(bookId, role.ToString(), message, ct); }
-        catch { /* non-fatal */ }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[Book {BookId}] Failed to persist error SystemNote for {Role}.", bookId, role);
+        }
+        try
+        {
+            await Notifier.NotifyAgentErrorAsync(bookId, role.ToString(), message, ct);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[Book {BookId}] Failed to notify AgentError via SignalR for {Role}.", bookId, role);
+        }
     }
 
     /// <summary>Retrieve relevant context chunks from pgvector for RAG. Returns empty on failure or when no embedding model is configured.

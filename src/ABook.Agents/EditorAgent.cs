@@ -156,7 +156,10 @@ public class EditorAgent : AgentBase
 
             try { await IndexChapterAsync(bookId, chapterId, patchVersion.Id, kernel, config!, ct); }
             catch (OperationCanceledException) { throw; }
-            catch { /* non-fatal — embeddings unavailable */ }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "[Book {BookId}] Failed to index edited chapter version for embeddings.", bookId);
+            }
 
             await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
             await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Done", chapterId, ct);

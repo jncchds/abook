@@ -88,10 +88,13 @@ public class WriterAgent : AgentBase
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Writer, "Done", chapterId, ct);
 
-        // Index chapter version in pgvector for RAG (non-fatal)
+        // Index chapter version in pgvector for RAG
         try { await IndexChapterAsync(bookId, chapterId, savedVersion.Id, kernel, config!, ct); }
         catch (OperationCanceledException) { throw; }
-        catch { /* non-fatal — embeddings unavailable */ }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "[Book {BookId}] Failed to index chapter version for embeddings.", bookId);
+        }
     }
 
     /// <summary>

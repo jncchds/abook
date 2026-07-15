@@ -2,6 +2,7 @@ using ABook.Agents;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace ABook.Api.Controllers;
 
@@ -11,11 +12,16 @@ public class AgentController : ControllerBase
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly AgentRunStateService _runState;
+    private readonly ILogger<AgentController> _logger;
 
-    public AgentController(IServiceScopeFactory scopeFactory, AgentRunStateService runState)
+    public AgentController(
+        IServiceScopeFactory scopeFactory,
+        AgentRunStateService runState,
+        ILogger<AgentController> logger)
     {
         _scopeFactory = scopeFactory;
         _runState = runState;
+        _logger = logger;
     }
 
     private IActionResult? EnsureCanStart(int bookId)
@@ -153,11 +159,19 @@ public class AgentController : ControllerBase
         }
         catch (Exception ex)
         {
-            // Ensure state isn't stuck on Running
+            // The orchestrator's ExecuteAgentRunAsync should have handled status + persistence.
+            // If we reach here, something in that error path itself threw — log it and force a
+            // terminal in-memory status so the book isn't left stuck on "Running" forever.
+            _logger.LogError(ex,
+                "[Book {BookId}] Agent run failed outside orchestrator error handler — forcing terminal state.",
+                bookId);
             var current = _runState.GetStatus(bookId);
             if (current is { State: "Running" or "WaitingForInput" })
+            {
                 _runState.SetStatus(bookId, new AgentRunStatus(current.Role, "Failed", current.ChapterId));
-            _ = ex;
+                _runState.ClearStreamBuffers(bookId);
+                _runState.TryRemoveRunId(bookId, out _);
+            }
         }
     }
 }

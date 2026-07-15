@@ -2,7 +2,6 @@
 using ABook.Core.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Security.Claims;
 
 namespace ABook.Api.Controllers;
 
@@ -14,19 +13,6 @@ public class PlotThreadsController : ControllerBase
     private readonly IBookRepository _repo;
 
     public PlotThreadsController(IBookRepository repo) => _repo = repo;
-
-    private int? CurrentUserId =>
-        User.Identity?.IsAuthenticated == true
-            ? int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!)
-            : (int?)null;
-
-    private async Task<IActionResult?> CheckOwnershipAsync(int bookId)
-    {
-        var book = await _repo.GetByIdAsync(bookId);
-        if (book is null) return NotFound();
-        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
-        return null;
-    }
 
     [HttpGet]
     public async Task<IActionResult> GetAll(int bookId, [FromQuery] bool includeArchived = false) =>
@@ -44,7 +30,7 @@ public class PlotThreadsController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create(int bookId, [FromBody] PlotThreadRequest req)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         var thread = new PlotThread
@@ -76,7 +62,7 @@ public class PlotThreadsController : ControllerBase
     [HttpPut("{threadId:int}")]
     public async Task<IActionResult> Update(int bookId, int threadId, [FromBody] PlotThreadRequest req)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         var thread = await _repo.GetPlotThreadAsync(bookId, threadId);
@@ -106,7 +92,7 @@ public class PlotThreadsController : ControllerBase
     [HttpPost("{threadId:int}/archive")]
     public async Task<IActionResult> Archive(int bookId, int threadId)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         var thread = await _repo.GetPlotThreadAsync(bookId, threadId);
@@ -130,7 +116,7 @@ public class PlotThreadsController : ControllerBase
     [HttpPost("{threadId:int}/unarchive")]
     public async Task<IActionResult> Unarchive(int bookId, int threadId)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         var thread = await _repo.GetPlotThreadAsync(bookId, threadId);
@@ -142,7 +128,7 @@ public class PlotThreadsController : ControllerBase
     [HttpDelete("{threadId:int}")]
     public async Task<IActionResult> Delete(int bookId, int threadId)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         await _repo.DeletePlotThreadAsync(bookId, threadId);
@@ -167,7 +153,7 @@ public class PlotThreadsController : ControllerBase
     [HttpPost("{threadId:int}/history/{versionId:int}/restore")]
     public async Task<IActionResult> RestoreItemVersion(int bookId, int threadId, int versionId)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         try { return Ok(await _repo.RestorePlotThreadVersionAsync(bookId, threadId, versionId)); }
@@ -188,7 +174,7 @@ public class PlotThreadsController : ControllerBase
     [HttpPost("history/{snapshotId:int}/restore")]
     public async Task<IActionResult> RestoreSnapshot(int bookId, int snapshotId)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         try { return Ok(await _repo.RestorePlotThreadsSnapshotAsync(bookId, snapshotId)); }

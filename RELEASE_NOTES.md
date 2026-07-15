@@ -1,5 +1,18 @@
 # Release Notes
 
+## v0.1.16 — 2026-07-15
+
+- fix: agent run crash recovery — `AgentController.RunInBackground` no longer silently drops exceptions (`_ = ex;` removed); unexpected errors now log at Error level and force a terminal in-memory status so the book stops appearing stuck on "Running" forever; added `TryRemoveRunId` to `AgentRunStateService` for cleanup
+- fix: Ollama pull SSE endpoint — cancelled pulls now emit a Debug-level log (`Ollama pull cancelled by client`) instead of silently swallowing, making "pull appears to hang" issues debuggable
+- fix: error surfacing reliability — `ReportErrorAsync` (AgentBase) and `ReportAgentErrorAsync` (AgentOrchestrator) both now log at Error level when DB persistence or SignalR notification fails; previously these nested try/catches swallowed everything silently so an agent could fail without the user ever knowing
+- fix: chapter skip visibility — `ProcessChapterAsync` promotes "already Done" skip from LogDebug to LogInformation so it appears in production logs and operators can trace workflow execution
+- fix: answer submission diagnostics — `ResumeWithAnswerAsync` now logs Warning-level messages when a submitted answer is silently dropped (null messageId or already-resolved message); previously these race conditions were invisible to debugging
+- fix: embedding index failure logging — `WriterAgent.IndexChapterAsync` and `EditorAgent.IndexChapterAsync` now log at Warning level with exception details instead of `{ /* non-fatal */ }`; RAG degradation is now visible in logs
+- security: vector search error no longer leaks raw exception message to client — returns generic `"Vector search unavailable."` instead; internal errors logged server-side at Error level
+- refactor: extracted duplicated `CheckOwnershipAsync` (~20 lines × 5 controllers) into shared static `ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo)` in new `Controllers/ControllerExtensions.cs`; removed the private method from StoryBibleController, CharactersController, ChaptersController, and PlotThreadsController
+- refactor: extracted 4× repeated human-assisted pause block in `RunPlanningPipelineAsync` into private `ApplyHumanAssistedNoteAsync(...)` helper; also simplified by removing redundant `qaStr` variable in favour of direct `qaContext.ToString()` calls
+- fix: null chapter fallback logging — `ProcessChapterAsync` now emits a Warning when `GetChapterAsync` returns null and falls back to cached data, making stale-state bugs detectable
+
 ## v0.1.15 — 2026-07-14
 
 - refactor: eliminated all non-streaming LLM calls across the agent engine — `GetCompletionAsync` (AgentBase) removed entirely; QuestionAgent, ContinuityChecker.PreWriteCheckAndFixAsync, and ContinuityChecker.CheckAsync now use `StreamResponseAsync` exclusively. All 4 prior call sites replaced with streaming; JSON parsing still works on the fully-accumulated response after streaming completes

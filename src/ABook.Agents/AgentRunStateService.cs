@@ -269,4 +269,16 @@ public class AgentRunStateService
     /// <summary>Returns the TCS task for a rehydrated waiting run, so the recovery service can await it.</summary>
     public Task<string>? GetPendingTask(int bookId) =>
         _pending.TryGetValue(bookId, out var p) ? p.Tcs.Task : null;
+
+    /// <summary>Removes and returns the cached persisted run Id for a book. Returns null if none cached.</summary>
+    public bool TryRemoveRunId(int bookId, out Guid? runId)
+    {
+        if (_runIds.TryRemove(bookId, out var id))
+        {
+            runId = id;
+            return true;
+        }
+        runId = null;
+        return false;
+    }
 }

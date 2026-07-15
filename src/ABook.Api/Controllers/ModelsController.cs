@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using System.Text;
 using System.Text.Json;
 
@@ -10,11 +11,13 @@ public class ModelsController : ControllerBase
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _config;
+    private readonly ILogger<ModelsController> _logger;
 
-    public ModelsController(IHttpClientFactory httpClientFactory, IConfiguration config)
+    public ModelsController(IHttpClientFactory httpClientFactory, IConfiguration config, ILogger<ModelsController> logger)
     {
         _httpClientFactory = httpClientFactory;
         _config = config;
+        _logger = logger;
     }
 
     private string OllamaEndpoint =>
@@ -126,7 +129,10 @@ public class ModelsController : ControllerBase
                 await Response.Body.FlushAsync(HttpContext.RequestAborted);
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            _logger.LogDebug("Ollama pull cancelled by client.");
+        }
     }
 }
 

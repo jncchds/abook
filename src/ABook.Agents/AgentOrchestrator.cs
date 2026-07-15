@@ -313,7 +313,12 @@ public class AgentOrchestrator : IAgentOrchestrator
         }
 
         // Re-read from DB — resume path may already be Done
-        var freshChapter = await _repo.GetChapterAsync(bookId, chapter.Id) ?? chapter;
+        var freshChapter = await _repo.GetChapterAsync(bookId, chapter.Id);
+        if (freshChapter is null)
+        {
+            _logger.LogWarning("[Book {BookId}] Chapter {ChapterId} not found in DB after write/check phase — using cached version.", bookId, chapter.Id);
+            freshChapter = chapter;
+        }
         if (freshChapter.Status != ChapterStatus.Done && !string.IsNullOrEmpty(freshChapter.Content))
         {
             // Optional human pause BEFORE checker — author guidance is fed into patch generation
@@ -353,8 +358,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         else if (freshChapter.Status == ChapterStatus.Done)
         {
             // Chapter was already completed (e.g. from a previous partial run or manual intervention).
-            // Skip silently — the orchestrator will handle subsequent chapters.
-            _logger.LogDebug("[Book {BookId}] Skipping Chapter {ChapterNumber} — already Done.", bookId, chapter.Number);
+            _logger.LogInformation("[Book {BookId}] Skipping Chapter {ChapterNumber} — already Done.", bookId, chapter.Number);
         }
 
         // Ensure chapter is marked Done
@@ -406,7 +410,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                 await _questions.AskQuestionsAsync(bookId, questions, qaContext, ct);
         }
 
-        var qaStr = qaContext.ToString();
+
 
         // Phase 1: Story Bible
         StoryBible bible;
@@ -418,19 +422,11 @@ public class AgentOrchestrator : IAgentOrchestrator
         }
         else
         {
-            bible = await _storyBibleAgent.RunAsync(book, qaStr, ct);
+            bible = await _storyBibleAgent.RunAsync(book, qaContext.ToString(), ct);
 
-            if (book.HumanAssisted)
-            {
-                var note = (await _questions.AskSingleOptionalAsync(
-                    bookId, null, AgentRole.StoryBibleAgent,
-                    "Story Bible is complete. Want anything to add before moving to Characters?", ct)).Trim();
-                if (!string.IsNullOrEmpty(note))
-                {
-                    qaContext.AppendLine($"\n[User note after Story Bible]: {note}");
-                    qaStr = qaContext.ToString();
-                }
-            }
+            await ApplyHumanAssistedNoteAsync(bookId, book, AgentRole.StoryBibleAgent,
+                "Story Bible is complete. Want anything to add before moving to Characters?",
+                "Story Bible", qaContext, ct);
         }
 
         // Phase 2: Character Cards
@@ -442,19 +438,11 @@ public class AgentOrchestrator : IAgentOrchestrator
         }
         else
         {
-            characters = await _charactersAgent.RunAsync(book, bible, qaStr, ct);
+            characters = await _charactersAgent.RunAsync(book, bible, qaContext.ToString(), ct);
 
-            if (book.HumanAssisted)
-            {
-                var note = (await _questions.AskSingleOptionalAsync(
-                    bookId, null, AgentRole.CharactersAgent,
-                    "Characters are complete. Want anything to add before moving to Plot Threads?", ct)).Trim();
-                if (!string.IsNullOrEmpty(note))
-                {
-                    qaContext.AppendLine($"\n[User note after Characters]: {note}");
-                    qaStr = qaContext.ToString();
-                }
-            }
+            await ApplyHumanAssistedNoteAsync(bookId, book, AgentRole.CharactersAgent,
+                "Characters are complete. Want anything to add before moving to Plot Threads?",
+                "Characters", qaContext, ct);
         }
 
         // Phase 3: Plot Threads
@@ -466,19 +454,11 @@ public class AgentOrchestrator : IAgentOrchestrator
         }
         else
         {
-            threads = await _plotThreadsAgent.RunAsync(book, bible, characters, qaStr, ct);
+            threads = await _plotThreadsAgent.RunAsync(book, bible, characters, qaContext.ToString(), ct);
 
-            if (book.HumanAssisted)
-            {
-                var note = (await _questions.AskSingleOptionalAsync(
-                    bookId, null, AgentRole.PlotThreadsAgent,
-                    "Plot Threads are complete. Want anything to add before generating Chapter Outlines?", ct)).Trim();
-                if (!string.IsNullOrEmpty(note))
-                {
-                    qaContext.AppendLine($"\n[User note after Plot Threads]: {note}");
-                    qaStr = qaContext.ToString();
-                }
-            }
+            await ApplyHumanAssistedNoteAsync(bookId, book, AgentRole.PlotThreadsAgent,
+                "Plot Threads are complete. Want anything to add before generating Chapter Outlines?",
+                "Plot Threads", qaContext, ct);
         }
 
         // Phase 4: Chapter Outlines
@@ -490,23 +470,33 @@ public class AgentOrchestrator : IAgentOrchestrator
         }
         else
         {
-            chapters = await _planner.RunAsync(book, bible, characters, threads, qaStr, ct);
+            chapters = await _planner.RunAsync(book, bible, characters, threads, qaContext.ToString(), ct);
 
-            if (book.HumanAssisted)
-            {
-                var note = (await _questions.AskSingleOptionalAsync(
-                    bookId, null, AgentRole.Planner,
-                    "Chapter Outlines are complete. Any final notes before writing begins?", ct)).Trim();
-                if (!string.IsNullOrEmpty(note))
-                {
-                    qaContext.AppendLine($"\n[User note after Chapter Outlines]: {note}");
-                    // qaStr only used downstream if StartWorkflowAsync passes it; currently unused after this point
-                }
-            }
+            await ApplyHumanAssistedNoteAsync(bookId, book, AgentRole.Planner,
+                "Chapter Outlines are complete. Any final notes before writing begins?",
+                "Chapter Outlines", qaContext, ct);
         }
 
         await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, "Done", ct: ct);
         return chapters;
+    }
+
+    /// <summary>
+    /// Prompts the user for optional feedback after a planning phase completes (when HumanAssisted is true).
+    /// Appends non-empty responses to the Q&amp;A context passed by reference.
+    /// </summary>
+    private async Task ApplyHumanAssistedNoteAsync(
+        int bookId, Book book, AgentRole role, string question,
+        string label, System.Text.StringBuilder qaContext, CancellationToken ct)
+    {
+        if (!book.HumanAssisted) return;
+
+        var note = (await _questions.AskSingleOptionalAsync(
+            bookId, null, role, question, ct)).Trim();
+        if (!string.IsNullOrEmpty(note))
+        {
+            qaContext.AppendLine($"\n[User note after {label}]: {note}");
+        }
     }
 
     /// <summary>
@@ -526,18 +516,36 @@ public class AgentOrchestrator : IAgentOrchestrator
                 IsResolved = true
             });
         }
-        catch { /* non-fatal */ }
-        try { await _notifier.NotifyAgentErrorAsync(bookId, role.ToString(), message, CancellationToken.None); }
-        catch { /* non-fatal */ }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Book {BookId}] Failed to persist error SystemNote for {Role}.", bookId, role);
+        }
+        try
+        {
+            await _notifier.NotifyAgentErrorAsync(bookId, role.ToString(), message, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Book {BookId}] Failed to notify AgentError via SignalR for {Role}.", bookId, role);
+        }
     }
 
     public async Task ResumeWithAnswerAsync(int messageId, string answer, CancellationToken ct = default)
     {
         var message = await _repo.FindMessageByIdAsync(messageId);
-        if (message is null) return;
+        if (message is null)
+        {
+            _logger.LogWarning("[Book ?] ResumeWithAnswerAsync: no message found for messageId={MessageId}. Answer silently dropped.", messageId);
+            return;
+        }
 
         // Idempotency: if already resolved, do nothing
-        if (message.IsResolved) return;
+        if (message.IsResolved)
+        {
+            _logger.LogWarning("[Book {BookId}] ResumeWithAnswerAsync: message {MessageId} already resolved. Answer silently dropped.",
+                message.BookId, messageId);
+            return;
+        }
 
         // Mark message resolved in DB
         message.IsResolved = true;

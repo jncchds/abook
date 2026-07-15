@@ -15,19 +15,6 @@ public class StoryBibleController : ControllerBase
 
     public StoryBibleController(IBookRepository repo) => _repo = repo;
 
-    private int? CurrentUserId =>
-        User.Identity?.IsAuthenticated == true
-            ? int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!)
-            : (int?)null;
-
-    private async Task<IActionResult?> CheckOwnershipAsync(int bookId)
-    {
-        var book = await _repo.GetByIdAsync(bookId);
-        if (book is null) return NotFound();
-        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
-        return null;
-    }
-
     [HttpGet]
     public async Task<IActionResult> Get(int bookId)
     {
@@ -38,7 +25,7 @@ public class StoryBibleController : ControllerBase
     [HttpPut]
     public async Task<IActionResult> Upsert(int bookId, [FromBody] StoryBibleRequest req)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         // Snapshot the existing bible before overwriting
@@ -85,7 +72,7 @@ public class StoryBibleController : ControllerBase
     [HttpPost("history/{snapshotId:int}/restore")]
     public async Task<IActionResult> RestoreSnapshot(int bookId, int snapshotId)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         try

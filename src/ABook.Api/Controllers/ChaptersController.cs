@@ -2,7 +2,6 @@ using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Security.Claims;
 
 namespace ABook.Api.Controllers;
 
@@ -20,19 +19,6 @@ public class ChaptersController : ControllerBase
         _vectorStore = vectorStore;
     }
 
-    private int? CurrentUserId =>
-        User.Identity?.IsAuthenticated == true
-            ? int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!)
-            : (int?)null;
-
-    private async Task<IActionResult?> CheckOwnershipAsync(int bookId)
-    {
-        var book = await _repo.GetByIdAsync(bookId);
-        if (book is null) return NotFound();
-        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
-        return null;
-    }
-
     [HttpGet]
     public async Task<IActionResult> GetAll(int bookId, [FromQuery] bool includeArchived = false) =>
         Ok(await _repo.GetChaptersAsync(bookId, includeArchived));
@@ -47,7 +33,7 @@ public class ChaptersController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create(int bookId, [FromBody] CreateChapterRequest req)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         var chapter = new Chapter
@@ -64,7 +50,7 @@ public class ChaptersController : ControllerBase
     [HttpPut("{chapterId:int}")]
     public async Task<IActionResult> Update(int bookId, int chapterId, [FromBody] UpdateChapterRequest req)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         var chapter = await _repo.GetChapterAsync(bookId, chapterId);
@@ -114,7 +100,7 @@ public class ChaptersController : ControllerBase
     [HttpPost("{chapterId:int}/archive")]
     public async Task<IActionResult> Archive(int bookId, int chapterId)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         var chapter = await _repo.GetChapterAsync(bookId, chapterId);
@@ -128,7 +114,7 @@ public class ChaptersController : ControllerBase
     [HttpPost("{chapterId:int}/restore")]
     public async Task<IActionResult> Restore(int bookId, int chapterId)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         var chapter = await _repo.GetChapterAsync(bookId, chapterId);
@@ -169,7 +155,7 @@ public class ChaptersController : ControllerBase
     [HttpPost("{chapterId:int}/versions/{versionId:int}/activate")]
     public async Task<IActionResult> ActivateVersion(int bookId, int chapterId, int versionId)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         var chapter = await _repo.GetChapterAsync(bookId, chapterId);

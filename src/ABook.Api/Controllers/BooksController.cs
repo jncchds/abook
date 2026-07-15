@@ -2,6 +2,7 @@ using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace ABook.Api.Controllers;
 
@@ -13,12 +14,18 @@ public class BooksController : ControllerBase
     private readonly IBookRepository _repo;
     private readonly IVectorStoreService _vectorStore;
     private readonly ILlmProviderFactory _llmFactory;
+    private readonly ILogger<BooksController> _logger;
 
-    public BooksController(IBookRepository repo, IVectorStoreService vectorStore, ILlmProviderFactory llmFactory)
+    public BooksController(
+        IBookRepository repo,
+        IVectorStoreService vectorStore,
+        ILlmProviderFactory llmFactory,
+        ILogger<BooksController> logger)
     {
         _repo = repo;
         _vectorStore = vectorStore;
         _llmFactory = llmFactory;
+        _logger = logger;
     }
 
     private int? CurrentUserId =>
@@ -265,6 +272,7 @@ public class BooksController : ControllerBase
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "[Book {BookId}] Vector search failed.", id);
             return Ok(new
             {
                 embeddingModelConfigured,
@@ -273,7 +281,7 @@ public class BooksController : ControllerBase
                 indexedChunkCount,
                 query,
                 results = Array.Empty<object>(),
-                error = ex.Message
+                error = "Vector search unavailable."
             });
         }
     }

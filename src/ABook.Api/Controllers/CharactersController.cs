@@ -44,7 +44,7 @@ public class CharactersController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create(int bookId, [FromBody] CharacterCardRequest req)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         var card = new CharacterCard
@@ -82,7 +82,7 @@ public class CharactersController : ControllerBase
     [HttpPut("{cardId:int}")]
     public async Task<IActionResult> Update(int bookId, int cardId, [FromBody] CharacterCardRequest req)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         var card = await _repo.GetCharacterCardAsync(bookId, cardId);
@@ -118,7 +118,7 @@ public class CharactersController : ControllerBase
     [HttpPost("{cardId:int}/archive")]
     public async Task<IActionResult> Archive(int bookId, int cardId)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         var card = await _repo.GetCharacterCardAsync(bookId, cardId);
@@ -145,7 +145,7 @@ public class CharactersController : ControllerBase
     [HttpPost("{cardId:int}/unarchive")]
     public async Task<IActionResult> Unarchive(int bookId, int cardId)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         var card = await _repo.GetCharacterCardAsync(bookId, cardId);
@@ -157,7 +157,7 @@ public class CharactersController : ControllerBase
     [HttpDelete("{cardId:int}")]
     public async Task<IActionResult> Delete(int bookId, int cardId)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         await _repo.DeleteCharacterCardAsync(bookId, cardId);
@@ -182,7 +182,7 @@ public class CharactersController : ControllerBase
     [HttpPost("{cardId:int}/history/{versionId:int}/restore")]
     public async Task<IActionResult> RestoreItemVersion(int bookId, int cardId, int versionId)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         try { return Ok(await _repo.RestoreCharacterVersionAsync(bookId, cardId, versionId)); }
@@ -203,7 +203,7 @@ public class CharactersController : ControllerBase
     [HttpPost("history/{snapshotId:int}/restore")]
     public async Task<IActionResult> RestoreSnapshot(int bookId, int snapshotId)
     {
-        var ownershipError = await CheckOwnershipAsync(bookId);
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
 
         try { return Ok(await _repo.RestoreCharactersSnapshotAsync(bookId, snapshotId)); }
