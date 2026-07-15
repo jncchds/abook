@@ -18,7 +18,6 @@ namespace ABook.Infrastructure.Llm;
 /// </summary>
 public class LlmProviderFactory : ILlmProviderFactory
 {
-    // TODO: delete AzureOpenAI — never implemented
     private static readonly Dictionary<LlmProvider, ILlmProviderStrategy> Strategies =
         new ILlmProviderStrategy[]
         {

@@ -11,11 +11,10 @@ using System.Text.Json.Serialization;
 namespace ABook.Api.Mcp;
 
 /// <summary>MCP tools for managing books, messages, and agent status.</summary>
-public class BookMcpTools
+public class BookMcpTools : McpToolBase
 {
     private readonly IBookRepository _repo;
     private readonly AgentRunStateService _runState;
-    private readonly IHttpContextAccessor _http;
 
     private static readonly JsonSerializerOptions _json = new()
     {
@@ -25,23 +24,13 @@ public class BookMcpTools
     };
 
     public BookMcpTools(IBookRepository repo, AgentRunStateService runState, IHttpContextAccessor http)
+        : base(http)
     {
         _repo = repo;
         _runState = runState;
-        _http = http;
     }
 
-    private int CurrentUserId() =>
-        int.Parse(_http.HttpContext!.User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
-    private async Task<Book> GetOwnedBookAsync(int bookId)
-    {
-        var userId = CurrentUserId();
-        var book = await _repo.GetByIdAsync(bookId);
-        if (book is null || book.UserId != userId)
-            throw new McpException($"Book {bookId} not found.");
-        return book;
-    }
 
     // ── Books ─────────────────────────────────────────────────────────────────
 
@@ -69,7 +58,7 @@ public class BookMcpTools
     public async Task<string> GetBook(
         [Description("The numeric ID of the book.")] int bookId)
     {
-        var book = await GetOwnedBookAsync(bookId);
+        var book = await GetOwnedBookAsync(bookId, _repo);
         return JsonSerializer.Serialize(new
         {
             book.Id, book.Title, book.Genre, book.Premise, book.Language,
@@ -115,7 +104,7 @@ public class BookMcpTools
         [Description("New target chapter count (leave null to keep existing).")] int? targetChapterCount = null,
         [Description("New language (leave null to keep existing).")] string? language = null)
     {
-        var book = await GetOwnedBookAsync(bookId);
+        var book = await GetOwnedBookAsync(bookId, _repo);
         if (title != null) book.Title = title;
         if (premise != null) book.Premise = premise;
         if (genre != null) book.Genre = genre;
@@ -131,7 +120,7 @@ public class BookMcpTools
     public async Task<string> DeleteBook(
         [Description("The numeric ID of the book to delete.")] int bookId)
     {
-        await GetOwnedBookAsync(bookId);
+        await GetOwnedBookAsync(bookId, _repo);
         await _repo.DeleteAsync(bookId);
         return JsonSerializer.Serialize(new { deleted = true, bookId }, _json);
     }
@@ -144,7 +133,7 @@ public class BookMcpTools
         [Description("The book ID to get messages for.")] int bookId,
         [Description("Optional chapter ID to filter messages to a specific chapter.")] int? chapterId = null)
     {
-        await GetOwnedBookAsync(bookId);
+        await GetOwnedBookAsync(bookId, _repo);
         var messages = await _repo.GetMessagesAsync(bookId, chapterId);
         var result = messages.Select(m => new
         {
@@ -181,7 +170,7 @@ public class BookMcpTools
     public async Task<string> GetTokenUsage(
         [Description("The book ID to get token usage for.")] int bookId)
     {
-        await GetOwnedBookAsync(bookId);
+        await GetOwnedBookAsync(bookId, _repo);
         var records = await _repo.GetTokenUsageAsync(bookId);
         var result = records.Select(r => new
         {

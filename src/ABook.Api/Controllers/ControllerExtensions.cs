@@ -26,4 +26,21 @@ public static class ControllerExtensions
         if (book.UserId is not null && book.UserId != currentUserId) return controller.Forbid();
         return null;
     }
+
+    /// <summary>
+    /// Same as <see cref="RequireBookOwnershipAsync"/>, but also returns the loaded <see cref="ABook.Core.Models.Book"/>
+    /// so the caller doesn't need to re-fetch it for further processing.
+    /// </summary>
+    public static async Task<(IActionResult? Error, ABook.Core.Models.Book? Book)> RequireBookOwnershipAndLoadAsync(
+        this ControllerBase controller, int bookId, IBookRepository repo)
+    {
+        var currentUserId = controller.User.Identity?.IsAuthenticated == true
+            ? int.Parse(controller.User.FindFirstValue(ClaimTypes.NameIdentifier)!)
+            : (int?)null;
+
+        var book = await repo.GetByIdAsync(bookId);
+        if (book is null) return (controller.NotFound(), null);
+        if (book.UserId is not null && book.UserId != currentUserId) return (controller.Forbid(), null);
+        return (null, book);
+    }
 }

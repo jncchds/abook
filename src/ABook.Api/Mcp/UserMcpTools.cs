@@ -11,13 +11,12 @@ using System.Text.Json.Serialization;
 namespace ABook.Api.Mcp;
 
 /// <summary>MCP tools for user-level operations: profile, LLM configuration, presets, and book generation.</summary>
-public class UserMcpTools
+public class UserMcpTools : McpToolBase
 {
     private readonly IBookRepository _repo;
     private readonly IUserRepository _users;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly AgentRunStateService _runState;
-    private readonly IHttpContextAccessor _http;
 
     private static readonly JsonSerializerOptions _json = new()
     {
@@ -32,16 +31,15 @@ public class UserMcpTools
         IServiceScopeFactory scopeFactory,
         AgentRunStateService runState,
         IHttpContextAccessor http)
+        : base(http)
     {
         _repo = repo;
         _users = users;
         _scopeFactory = scopeFactory;
         _runState = runState;
-        _http = http;
     }
 
-    private int CurrentUserId() =>
-        int.Parse(_http.HttpContext!.User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
 
     // ── User profile ─────────────────────────────────────────────────────────
 
@@ -88,16 +86,16 @@ public class UserMcpTools
     }
 
     [McpServerTool(Name = "set_llm_config")]
-    [Description("Set or update the user-level default LLM configuration. This applies to all books that do not have a per-book LLM override. Valid providers: Ollama, OpenAI, AzureOpenAI, GoogleAIStudio.")]
+    [Description("Set or update the user-level default LLM configuration. This applies to all books that do not have a per-book LLM override. Valid providers: Ollama, OpenAI, GoogleAIStudio.")]
     public async Task<string> SetLlmConfig(
-        [Description("LLM provider name. Valid values: Ollama, OpenAI, AzureOpenAI, GoogleAIStudio.")] string provider,
+        [Description("LLM provider name. Valid values: Ollama, OpenAI, GoogleAIStudio.")] string provider,
         [Description("Model name to use (e.g. llama3, gpt-4o, gemini-2.0-flash).")] string modelName,
         [Description("API endpoint URL. Required for Ollama; optional for OpenAI-compatible providers.")] string endpoint = "",
         [Description("API key. Required for OpenAI and GoogleAIStudio.")] string? apiKey = null,
         [Description("Embedding model name (e.g. nomic-embed-text, text-embedding-3-small). Leave null to use the generation model.")] string? embeddingModelName = null)
     {
         if (!Enum.TryParse<LlmProvider>(provider, ignoreCase: true, out var providerEnum))
-            throw new McpException($"Unknown provider '{provider}'. Valid values: Ollama, OpenAI, AzureOpenAI, GoogleAIStudio.");
+            throw new McpException($"Unknown provider '{provider}'. Valid values: Ollama, OpenAI, GoogleAIStudio.");
 
         var userId = CurrentUserId();
         var existing = await _repo.GetLlmConfigAsync(null, userId);

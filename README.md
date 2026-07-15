@@ -121,7 +121,7 @@ volumes:
 |---|---|---|
 | `ConnectionStrings__DefaultConnection` | — | PostgreSQL connection string |
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` disables Swagger |
-| `LlmDefaults__Provider` | `Ollama` | Default LLM provider (`Ollama`, `OpenAI`, `AzureOpenAI`, `GoogleAIStudio`) |
+| `LlmDefaults__Provider` | `Ollama` | Default LLM provider (`Ollama`, `OpenAI`, `GoogleAIStudio`) |
 | `LlmDefaults__ModelName` | `llama3` | Default model name |
 | `LlmDefaults__Endpoint` | `http://host.docker.internal:11434` | Default LLM endpoint |
 | `LlmDefaults__ApiKey` | — | API key for the default LLM provider (required for OpenAI / GoogleAIStudio; optional for Ollama) |

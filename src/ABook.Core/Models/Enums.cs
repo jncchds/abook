@@ -10,13 +10,7 @@ public enum AgentRole { Planner, Writer, Editor, ContinuityChecker, Embedder, St
 
 public enum MessageType { Content, Question, Answer, SystemNote, Feedback }
 
-public enum LlmProvider { Ollama, OpenAI, AzureOpenAI, GoogleAIStudio }
-
-/// <summary>
-/// AzureOpenAI (int=3) is reserved for future implementation. The enum value is kept
-/// to avoid breaking existing DB rows; the factory throws NotSupportedException if invoked.
-/// Users should use OpenAI provider with a custom endpoint until Azure OpenAI is implemented.
-/// </summary>
+public enum LlmProvider { Ollama, OpenAI, GoogleAIStudio }
 
 public enum CharacterRole { Protagonist, Antagonist, Supporting, Minor }
 

@@ -10,10 +10,9 @@ using System.Text.Json.Serialization;
 namespace ABook.Api.Mcp;
 
 /// <summary>MCP tools for managing book content: story bible, characters, plot threads, and chapters.</summary>
-public class ContentMcpTools
+public class ContentMcpTools : McpToolBase
 {
     private readonly IBookRepository _repo;
-    private readonly IHttpContextAccessor _http;
 
     private static readonly JsonSerializerOptions _json = new()
     {
@@ -23,22 +22,12 @@ public class ContentMcpTools
     };
 
     public ContentMcpTools(IBookRepository repo, IHttpContextAccessor http)
+        : base(http)
     {
         _repo = repo;
-        _http = http;
     }
 
-    private int CurrentUserId() =>
-        int.Parse(_http.HttpContext!.User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
-    private async Task<Book> GetOwnedBookAsync(int bookId)
-    {
-        var userId = CurrentUserId();
-        var book = await _repo.GetByIdAsync(bookId);
-        if (book is null || book.UserId != userId)
-            throw new McpException($"Book {bookId} not found.");
-        return book;
-    }
 
     // ── Story Bible ───────────────────────────────────────────────────────────
 
@@ -47,7 +36,7 @@ public class ContentMcpTools
     public async Task<string> GetStoryBible(
         [Description("The book ID.")] int bookId)
     {
-        await GetOwnedBookAsync(bookId);
+        await GetOwnedBookAsync(bookId, _repo);
         var bible = await _repo.GetStoryBibleAsync(bookId);
         if (bible is null)
             return JsonSerializer.Serialize(new { exists = false }, _json);
@@ -71,7 +60,7 @@ public class ContentMcpTools
         [Description("Rules and constraints of the story's world (e.g. magic system rules).")] string? worldRules = null,
         [Description("Additional notes for the story bible.")] string? notes = null)
     {
-        await GetOwnedBookAsync(bookId);
+        await GetOwnedBookAsync(bookId, _repo);
         var bible = await _repo.GetStoryBibleAsync(bookId) ?? new StoryBible { BookId = bookId };
         if (settingDescription != null) bible.SettingDescription = settingDescription;
         if (timePeriod != null) bible.TimePeriod = timePeriod;
@@ -94,7 +83,7 @@ public class ContentMcpTools
     public async Task<string> ListCharacters(
         [Description("The book ID.")] int bookId)
     {
-        await GetOwnedBookAsync(bookId);
+        await GetOwnedBookAsync(bookId, _repo);
         var chars = await _repo.GetCharacterCardsAsync(bookId);
         var result = chars.Select(c => new
         {
@@ -120,7 +109,7 @@ public class ContentMcpTools
         [Description("Chapter number where the character first appears.")] int? firstAppearanceChapterNumber = null,
         [Description("Additional notes.")] string? notes = null)
     {
-        await GetOwnedBookAsync(bookId);
+        await GetOwnedBookAsync(bookId, _repo);
         if (!Enum.TryParse<CharacterRole>(role, ignoreCase: true, out var roleEnum))
             throw new McpException($"Invalid role '{role}'. Valid values: Protagonist, Antagonist, Supporting, Minor.");
         var card = await _repo.AddCharacterCardAsync(new CharacterCard
@@ -151,7 +140,7 @@ public class ContentMcpTools
         [Description("New character arc.")] string? arc = null,
         [Description("New notes.")] string? notes = null)
     {
-        await GetOwnedBookAsync(bookId);
+        await GetOwnedBookAsync(bookId, _repo);
         var card = await _repo.GetCharacterCardAsync(bookId, characterId)
             ?? throw new McpException($"Character {characterId} not found in book {bookId}.");
         if (name != null) card.Name = name;
@@ -177,7 +166,7 @@ public class ContentMcpTools
         [Description("The book ID.")] int bookId,
         [Description("The character card ID to delete.")] int characterId)
     {
-        await GetOwnedBookAsync(bookId);
+        await GetOwnedBookAsync(bookId, _repo);
         await _repo.DeleteCharacterCardAsync(bookId, characterId);
         return JsonSerializer.Serialize(new { deleted = true, characterId }, _json);
     }
@@ -189,7 +178,7 @@ public class ContentMcpTools
     public async Task<string> ListPlotThreads(
         [Description("The book ID.")] int bookId)
     {
-        await GetOwnedBookAsync(bookId);
+        await GetOwnedBookAsync(bookId, _repo);
         var threads = await _repo.GetPlotThreadsAsync(bookId);
         var result = threads.Select(t => new
         {
@@ -212,7 +201,7 @@ public class ContentMcpTools
         [Description("Chapter number where this thread is resolved (optional).")] int? resolvedChapterNumber = null,
         [Description("Status: Active, Resolved, or Dormant. Defaults to Active.")] string status = "Active")
     {
-        await GetOwnedBookAsync(bookId);
+        await GetOwnedBookAsync(bookId, _repo);
         if (!Enum.TryParse<PlotThreadType>(type, ignoreCase: true, out var typeEnum))
             throw new McpException($"Invalid type '{type}'. Valid values: MainPlot, Subplot, CharacterArc, Mystery, Foreshadowing, WorldBuilding, ThematicThread.");
         if (!Enum.TryParse<PlotThreadStatus>(status, ignoreCase: true, out var statusEnum))
@@ -239,7 +228,7 @@ public class ContentMcpTools
         [Description("New introduced chapter number.")] int? introducedChapterNumber = null,
         [Description("New resolved chapter number.")] int? resolvedChapterNumber = null)
     {
-        await GetOwnedBookAsync(bookId);
+        await GetOwnedBookAsync(bookId, _repo);
         var thread = await _repo.GetPlotThreadAsync(bookId, threadId)
             ?? throw new McpException($"Plot thread {threadId} not found in book {bookId}.");
         if (name != null) thread.Name = name;
@@ -268,7 +257,7 @@ public class ContentMcpTools
         [Description("The book ID.")] int bookId,
         [Description("The plot thread ID to delete.")] int threadId)
     {
-        await GetOwnedBookAsync(bookId);
+        await GetOwnedBookAsync(bookId, _repo);
         await _repo.DeletePlotThreadAsync(bookId, threadId);
         return JsonSerializer.Serialize(new { deleted = true, threadId }, _json);
     }
@@ -280,7 +269,7 @@ public class ContentMcpTools
     public async Task<string> ListChapters(
         [Description("The book ID.")] int bookId)
     {
-        await GetOwnedBookAsync(bookId);
+        await GetOwnedBookAsync(bookId, _repo);
         var chapters = await _repo.GetChaptersAsync(bookId);
         var result = chapters.Select(c => new
         {
@@ -297,7 +286,7 @@ public class ContentMcpTools
         [Description("The book ID.")] int bookId,
         [Description("The chapter ID.")] int chapterId)
     {
-        await GetOwnedBookAsync(bookId);
+        await GetOwnedBookAsync(bookId, _repo);
         var chapter = await _repo.GetChapterAsync(bookId, chapterId)
             ?? throw new McpException($"Chapter {chapterId} not found in book {bookId}.");
         return JsonSerializer.Serialize(new
@@ -319,7 +308,7 @@ public class ContentMcpTools
         [Description("Foreshadowing notes — what hints are planted in this chapter (optional).")] string? foreshadowingNotes = null,
         [Description("Payoff notes — what earlier foreshadowing is paid off (optional).")] string? payoffNotes = null)
     {
-        await GetOwnedBookAsync(bookId);
+        await GetOwnedBookAsync(bookId, _repo);
         var existing = await _repo.GetChaptersAsync(bookId);
         var nextNumber = existing.Any() ? existing.Max(c => c.Number) + 1 : 1;
         var chapter = await _repo.AddChapterAsync(new Chapter
@@ -348,7 +337,7 @@ public class ContentMcpTools
         [Description("New payoff notes.")] string? payoffNotes = null,
         [Description("New status: Outlined, Writing, Review, Editing, Done.")] string? status = null)
     {
-        await GetOwnedBookAsync(bookId);
+        await GetOwnedBookAsync(bookId, _repo);
         var chapter = await _repo.GetChapterAsync(bookId, chapterId)
             ?? throw new McpException($"Chapter {chapterId} not found in book {bookId}.");
         if (title != null) chapter.Title = title;

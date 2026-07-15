@@ -1,4 +1,4 @@
-export const PROVIDERS = ['Ollama', 'OpenAI', 'AzureOpenAI', 'GoogleAIStudio'] as const
+export const PROVIDERS = ['Ollama', 'OpenAI', 'GoogleAIStudio'] as const
 export type LlmProviderName = typeof PROVIDERS[number]
 
 export const DEFAULT_ENDPOINTS: Record<string, string> = {

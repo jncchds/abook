@@ -11,9 +11,7 @@ public interface IAgentOrchestrator
     Task StartWorkflowAsync(int bookId, CancellationToken ct = default);
     Task ContinueWorkflowAsync(int bookId, CancellationToken ct = default);
     Task ContinuePlanningAsync(int bookId, CancellationToken ct = default);
-    Task StopWorkflowAsync(int bookId);
     Task ResumeWithAnswerAsync(int messageId, string answer, CancellationToken ct = default);
-    Task<AgentRunStatus?> GetRunStatusAsync(int bookId);
 }
 
 public enum RunStartResult

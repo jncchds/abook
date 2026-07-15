@@ -154,12 +154,6 @@ public class AgentOrchestrator : IAgentOrchestrator
             // Terminal WorkflowProgress(isComplete=true) is emitted by ExecuteAgentRunAsync after this body returns.
         });
 
-    public Task StopWorkflowAsync(int bookId)
-    {
-        _state.CancelRun(bookId);
-        return Task.CompletedTask;
-    }
-
     /// <summary>
     /// Continue an interrupted workflow: skips Done chapters, resumes writing/editing
     /// from where it left off, then runs the continuity check.
@@ -569,7 +563,4 @@ public class AgentOrchestrator : IAgentOrchestrator
             _logger.LogWarning("[Book {BookId}] No in-memory pending TCS for message {MessageId} — run may have been rehydrated or answer was already handled.", message.BookId, messageId);
         }
     }
-
-    public Task<AgentRunStatus?> GetRunStatusAsync(int bookId) =>
-        Task.FromResult(_state.GetStatus(bookId));
 }

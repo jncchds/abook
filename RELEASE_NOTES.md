@@ -2,6 +2,15 @@
 
 ## v0.1.16 — 2026-07-15
 
+- refactor: extracted shared MCP tool helpers into new `McpToolBase` abstract class; all four MCP tool classes (`UserMcpTools`, `AgentMcpTools`, `BookMcpTools`, `ContentMcpTools`) now inherit from it, eliminating ~40 lines of duplicated `CurrentUserId()` and `GetOwnedBookAsync()` / `EnsureBookOwnershipAsync()` boilerplate
+- refactor: extracted `ControllerExtensions.RequireBookOwnershipAndLoadAsync` overload that returns both the ownership error and the loaded `Book` in a tuple; eliminates redundant re-fetches in `BooksController` actions like `Update` and `GetDefaultPrompts`
+- refactor: refactored all 9 book-scoped ownership checks in `BooksController` to use `ControllerExtensions.RequireBookOwnershipAsync` / `RequireBookOwnershipAndLoadAsync` consistently, replacing inline `GetById + null-check + UserId comparison` blocks (~21 lines of boilerplate removed)
+- fix: removed unused `HasPending(int bookId)` and `GetPendingTask(int bookId)` methods from `AgentRunStateService` — they had no callers
+- fix: removed `StopWorkflowAsync` from `IAgentOrchestrator` interface and its implementation in `AgentOrchestrator`; the `AgentController.Stop` action calls `_runState.CancelRun(bookId)` directly, making the wrapper redundant
+- fix: removed unused `GetRunStatusAsync(int bookId)` from `IAgentOrchestrator` — UI reads agent status via `AgentRunStateService.GetStatus` instead
+- refactor: removed `AzureOpenAI` from the `LlmProvider` enum (was never implemented, only reserved for future use); updated `LlmProviderFactory`, `AGENTS.md`, README.md env-var docs, and frontend `PROVIDERS` list to match
+- docs: synced documentation (`AGENTS.md`, `README.md`) with the AzureOpenAI removal from the provider enum
+
 - fix: agent run crash recovery — `AgentController.RunInBackground` no longer silently drops exceptions (`_ = ex;` removed); unexpected errors now log at Error level and force a terminal in-memory status so the book stops appearing stuck on "Running" forever; added `TryRemoveRunId` to `AgentRunStateService` for cleanup
 - fix: Ollama pull SSE endpoint — cancelled pulls now emit a Debug-level log (`Ollama pull cancelled by client`) instead of silently swallowing, making "pull appears to hang" issues debuggable
 - fix: error surfacing reliability — `ReportErrorAsync` (AgentBase) and `ReportAgentErrorAsync` (AgentOrchestrator) both now log at Error level when DB persistence or SignalR notification fails; previously these nested try/catches swallowed everything silently so an agent could fail without the user ever knowing

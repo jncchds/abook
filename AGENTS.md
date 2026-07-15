@@ -26,7 +26,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **Book**: Id, Title, Premise, Genre, TargetChapterCount, Status (Draft/InProgress/Complete), Language, StoryBibleSystemPrompt, CharactersSystemPrompt, PlotThreadsSystemPrompt, ChapterOutlinesSystemPrompt, WriterSystemPrompt, EditorSystemPrompt, ContinuityCheckerSystemPrompt, **HumanAssisted** (bool, default false), **BaseBookId** (nullable self-FK → Book), **SettingsCopiedAt** (nullable UTC timestamp), UserId (FK → AppUser), CreatedAt, UpdatedAt
 - **Chapter**: Id, BookId, Number, Title, Outline, Content (markdown), Status (Outlined/Writing/Review/Editing/Done), CreatedAt, UpdatedAt
 - **AgentMessage**: Id, BookId, ChapterId (nullable), AgentRole, MessageType (Content/Question/Answer/SystemNote/Feedback), Content, IsResolved, **IsOptional** (bool, default false), CreatedAt
-- **LlmConfiguration**: Id, BookId (nullable, FK → Book), **UserId (nullable, FK → AppUser)**, Provider (Ollama/OpenAI/AzureOpenAI/GoogleAIStudio), ModelName, Endpoint, ApiKey (nullable), EmbeddingModelName (nullable)
+- **LlmConfiguration**: Id, BookId (nullable, FK → Book), **UserId (nullable, FK → AppUser)**, Provider (Ollama/OpenAI/GoogleAIStudio), ModelName, Endpoint, ApiKey (nullable), EmbeddingModelName (nullable)
   - Lookup chain: book-specific (BookId) → user-default (UserId, no BookId) → global (neither)
 - **LlmPreset**: Id, UserId (nullable, FK → AppUser), Name, Provider, ModelName, Endpoint, ApiKey (nullable), EmbeddingModelName (nullable), CreatedAt, UpdatedAt
   - Visible to: own presets (UserId = currentUser) + global presets (UserId = null)
@@ -270,7 +270,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **.NET 10** (latest; Docker images `mcr.microsoft.com/dotnet/sdk:10.0` + `aspnet:10.0`)
 - **`.slnx` solution format** — requires .NET 9+ SDK (XML-based, lighter than classic `.sln`)
 - **Ollama accessed via host.docker.internal** — not containerized, user manages it externally
-- **LLM provider is pluggable** — abstracted behind `ILlmProviderFactory`, configured per-book or globally; supported: Ollama, OpenAI, AzureOpenAI (reserved for future implementation), GoogleAIStudio.
+- **LLM provider is pluggable** — abstracted behind `ILlmProviderFactory`, configured per-book or globally; supported: Ollama, OpenAI, GoogleAIStudio.
 - **SK Ollama connector** is alpha (`Microsoft.SemanticKernel.Connectors.Ollama` 1.x-alpha); suppress `SKEXP0070` pragma
 - **Agents use Semantic Kernel function calling** for the "ask question" tool — agent invokes a `AskUser` function which triggers the pause mechanism
 - **Agent runs are fire-and-forget** — `AgentController` returns 202 immediately; `AgentRunStateService` singleton tracks state; duplicate run returns 409

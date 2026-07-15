@@ -224,8 +224,6 @@ public class AgentRunStateService
         return false;
     }
 
-    public bool HasPending(int bookId) => _pending.ContainsKey(bookId);
-
     /// <summary>Creates a new CancellationToken for a book's run. Disposes any previous CTS.</summary>
     public CancellationToken CreateRunCts(int bookId)
     {
@@ -265,10 +263,6 @@ public class AgentRunStateService
         var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pending[bookId] = (pendingMessageId, tcs);
     }
-
-    /// <summary>Returns the TCS task for a rehydrated waiting run, so the recovery service can await it.</summary>
-    public Task<string>? GetPendingTask(int bookId) =>
-        _pending.TryGetValue(bookId, out var p) ? p.Tcs.Task : null;
 
     /// <summary>Removes and returns the cached persisted run Id for a book. Returns null if none cached.</summary>
     public bool TryRemoveRunId(int bookId, out Guid? runId)

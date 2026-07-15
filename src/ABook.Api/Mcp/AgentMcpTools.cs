@@ -10,12 +10,11 @@ using System.Text.Json.Serialization;
 namespace ABook.Api.Mcp;
 
 /// <summary>MCP tools for triggering and controlling AI agent workflows.</summary>
-public class AgentMcpTools
+public class AgentMcpTools : McpToolBase
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly AgentRunStateService _runState;
     private readonly IBookRepository _repo;
-    private readonly IHttpContextAccessor _http;
 
     private static readonly JsonSerializerOptions _json = new()
     {
@@ -25,23 +24,16 @@ public class AgentMcpTools
     };
 
     public AgentMcpTools(IServiceScopeFactory scopeFactory, AgentRunStateService runState, IBookRepository repo, IHttpContextAccessor http)
+        : base(http)
     {
         _scopeFactory = scopeFactory;
         _runState = runState;
         _repo = repo;
-        _http = http;
     }
 
-    private int CurrentUserId() =>
-        int.Parse(_http.HttpContext!.User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
-    private async Task EnsureBookOwnershipAsync(int bookId)
-    {
-        var userId = CurrentUserId();
-        var book = await _repo.GetByIdAsync(bookId);
-        if (book is null || book.UserId != userId)
-            throw new McpException($"Book {bookId} not found.");
-    }
+
+
 
     private void EnsureCanStart(int bookId)
     {
@@ -73,7 +65,7 @@ public class AgentMcpTools
     public async Task<string> StartPlanning(
         [Description("The book ID to plan.")] int bookId)
     {
-        await EnsureBookOwnershipAsync(bookId);
+        await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
         var ct = _runState.CreateRunCts(bookId);
         _ = RunInBackground(bookId, (o, c) => o.StartPlanningAsync(bookId, c), ct);
@@ -85,7 +77,7 @@ public class AgentMcpTools
     public async Task<string> ContinuePlanning(
         [Description("The book ID.")] int bookId)
     {
-        await EnsureBookOwnershipAsync(bookId);
+        await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
         var ct = _runState.CreateRunCts(bookId);
         _ = RunInBackground(bookId, (o, c) => o.ContinuePlanningAsync(bookId, c), ct);
@@ -99,7 +91,7 @@ public class AgentMcpTools
     public async Task<string> StartWorkflow(
         [Description("The book ID to run the full workflow for.")] int bookId)
     {
-        await EnsureBookOwnershipAsync(bookId);
+        await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
         var ct = _runState.CreateRunCts(bookId);
         _ = RunInBackground(bookId, (o, c) => o.StartWorkflowAsync(bookId, c), ct);
@@ -111,7 +103,7 @@ public class AgentMcpTools
     public async Task<string> ContinueWorkflow(
         [Description("The book ID.")] int bookId)
     {
-        await EnsureBookOwnershipAsync(bookId);
+        await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
         var ct = _runState.CreateRunCts(bookId);
         _ = RunInBackground(bookId, (o, c) => o.ContinueWorkflowAsync(bookId, c), ct);
@@ -135,7 +127,7 @@ public class AgentMcpTools
         [Description("The book ID.")] int bookId,
         [Description("The chapter ID to write.")] int chapterId)
     {
-        await EnsureBookOwnershipAsync(bookId);
+        await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
         _ = RunInBackground(bookId, (o, ct) => o.StartWritingAsync(bookId, chapterId, ct));
         return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "writing" }, _json);
@@ -147,7 +139,7 @@ public class AgentMcpTools
         [Description("The book ID.")] int bookId,
         [Description("The chapter ID to edit.")] int chapterId)
     {
-        await EnsureBookOwnershipAsync(bookId);
+        await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
         _ = RunInBackground(bookId, (o, ct) => o.StartEditingAsync(bookId, chapterId, ct));
         return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "editing" }, _json);
@@ -159,7 +151,7 @@ public class AgentMcpTools
         [Description("The book ID.")] int bookId,
         [Description("Optional chapter ID for a focused per-chapter check. Omit for a full manuscript check.")] int? chapterId = null)
     {
-        await EnsureBookOwnershipAsync(bookId);
+        await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
         _ = RunInBackground(bookId, (o, ct) => o.StartContinuityCheckAsync(bookId, ct));
         return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "continuity_check" }, _json);

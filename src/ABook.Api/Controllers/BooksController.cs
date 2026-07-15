@@ -43,9 +43,10 @@ public class BooksController : ControllerBase
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id)
     {
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, id, _repo);
+        if (ownershipError is not null) return ownershipError;
+
         var book = await _repo.GetByIdWithDetailsAsync(id);
-        if (book is null) return NotFound();
-        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
         return Ok(book);
     }
 
@@ -110,9 +111,9 @@ public class BooksController : ControllerBase
     [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateBookRequest req)
     {
-        var book = await _repo.GetByIdAsync(id);
-        if (book is null) return NotFound();
-        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
+        var ownershipResult = await ControllerExtensions.RequireBookOwnershipAndLoadAsync(this, id, _repo);
+        if (ownershipResult.Error is not null) return ownershipResult.Error;
+        var book = ownershipResult.Book!;
 
         // Snapshot the current metadata before overwriting
         await _repo.AddBookSnapshotAsync(new ABook.Core.Models.BookSnapshot
@@ -148,9 +149,9 @@ public class BooksController : ControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id)
     {
-        var book = await _repo.GetByIdAsync(id);
-        if (book is null) return NotFound();
-        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, id, _repo);
+        if (ownershipError is not null) return ownershipError;
+
         await _repo.DeleteAsync(id);
         try { await _vectorStore.DeleteCollectionAsync(id); } catch { /* non-fatal */ }
         return NoContent();
@@ -159,9 +160,9 @@ public class BooksController : ControllerBase
     [HttpGet("{id:int}/token-usage")]
     public async Task<IActionResult> GetTokenUsage(int id)
     {
-        var book = await _repo.GetByIdAsync(id);
-        if (book is null) return NotFound();
-        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, id, _repo);
+        if (ownershipError is not null) return ownershipError;
+
         var records = await _repo.GetTokenUsageAsync(id);
         return Ok(records.Select(r => new
         {
@@ -181,17 +182,19 @@ public class BooksController : ControllerBase
     [HttpDelete("{id:int}/token-usage")]
     public async Task<IActionResult> DeleteTokenUsage(int id)
     {
-        var book = await _repo.GetByIdAsync(id);
-        if (book is null) return NotFound();
-        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, id, _repo);
+        if (ownershipError is not null) return ownershipError;
+
         await _repo.DeleteTokenUsageAsync(id);
         return NoContent();
     }
 
     [HttpGet("{id:int}/default-prompts")]
-    public async Task<IActionResult> GetDefaultPrompts(int id)    {
-        var book = await _repo.GetByIdAsync(id);
-        if (book is null) return NotFound();
+    public async Task<IActionResult> GetDefaultPrompts(int id)
+    {
+        var ownershipResult = await ControllerExtensions.RequireBookOwnershipAndLoadAsync(this, id, _repo);
+        if (ownershipResult.Error is not null) return ownershipResult.Error;
+        var book = ownershipResult.Book!;
 
         var lang = string.IsNullOrWhiteSpace(book.Language) ? "English" : book.Language;
 
@@ -222,9 +225,9 @@ public class BooksController : ControllerBase
     [HttpGet("{id:int}/rag/search")]
     public async Task<IActionResult> RagSearch(int id, [FromQuery] string? query = null, [FromQuery] int topK = 5)
     {
-        var book = await _repo.GetByIdAsync(id);
-        if (book is null) return NotFound();
-        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
+        var ownershipResult = await ControllerExtensions.RequireBookOwnershipAndLoadAsync(this, id, _repo);
+        if (ownershipResult.Error is not null) return ownershipResult.Error;
+        var book = ownershipResult.Book!;
 
         var config = await _repo.GetLlmConfigAsync(id, book.UserId);
         var embeddingModelConfigured = config is not null && !string.IsNullOrWhiteSpace(config.EmbeddingModelName);
@@ -289,18 +292,17 @@ public class BooksController : ControllerBase
     [HttpGet("{id:int}/history")]
     public async Task<IActionResult> GetHistory(int id)
     {
-        var book = await _repo.GetByIdAsync(id);
-        if (book is null) return NotFound();
-        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, id, _repo);
+        if (ownershipError is not null) return ownershipError;
+
         return Ok(await _repo.GetBookSnapshotsAsync(id));
     }
 
     [HttpGet("{id:int}/history/{snapshotId:int}")]
     public async Task<IActionResult> GetHistorySnapshot(int id, int snapshotId)
     {
-        var book = await _repo.GetByIdAsync(id);
-        if (book is null) return NotFound();
-        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, id, _repo);
+        if (ownershipError is not null) return ownershipError;
         var snapshot = await _repo.GetBookSnapshotAsync(id, snapshotId);
         return snapshot is null ? NotFound() : Ok(snapshot);
     }
