@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useBookContext } from '../../contexts/BookContext'
-import { createChapter, archiveChapter, restoreChapter, getChapterVersions, getChapterVersion } from '../../api'
+import { createChapter, updateChapter, archiveChapter, restoreChapter, clearChapterContent, getChapterVersions, getChapterVersion } from '../../api'
 import type { ChapterVersionMeta, ChapterVersionFull } from '../../api'
 import { parsePlanningStream } from '../../utils/streamParsers'
 import { chapterStatusColor } from '../../utils/chapterStatus'
@@ -56,6 +56,19 @@ export default function Chapters() {
     setBook(prev => prev ? {
       ...prev,
       chapters: (prev.chapters ?? []).map(c => c.id === chapterId ? { ...c, isArchived: true } : c)
+    } : prev)
+  }
+
+  const handleClearChapter = async (chapterId: number) => {
+    if (!confirm('Clear this chapter\'s content? The outline will be kept.')) return
+    const ch = book.chapters?.find(c => c.id === chapterId)
+    if (!ch) return
+    await clearChapterContent(id, ch)
+    setBook(prev => prev ? {
+      ...prev,
+      chapters: (prev.chapters ?? []).map(c =>
+        c.id === chapterId ? { ...c, content: '', status: 'Outlined' } : c
+      )
     } : prev)
   }
 
@@ -153,7 +166,10 @@ export default function Chapters() {
               </div>
               <div className="book-list-card-right">
                 {!isRunning && (
-                  <button className="btn-archive" title="Archive chapter" onClick={() => handleArchive(c.id)}>🗄</button>
+                  <>
+                    <button className="btn-sm btn-ghost" title="Clear chapter content (keep outline)" onClick={() => handleClearChapter(c.id)}>🗑 Clear</button>
+                    <button className="btn-archive" title="Archive chapter" onClick={() => handleArchive(c.id)}>🗄</button>
+                  </>
                 )}
               </div>
             </div>

@@ -1,8 +1,13 @@
 # Release Notes
 
-## v0.1.17 — 2026-07-16
+## v0.1.17 — 2026-07-15
 
 - fix: presets page no longer showed an empty list on mount; added missing `getPresets()` call so the Presets page loads user-owned + global presets from the server (same API as BookSettings/GlobalSettings)
+- editor: patch-then-creative flow with new "rewrite" issue type for intra-chapter inconsistencies that need creative rewording instead of mechanical patches
+- checker: INTRA-CHAPTER CONSISTENCY SCAN detects same-character contradictions across paragraphs (clothing shifts, timeline impossibilities) and flags them as rewrite issues
+- writer: added intra-chapter consistency rules to prevent the LLM from introducing contradictions within a single chapter
+- editor: position-first matching with ±3 line window; Position is now nullable since LLM-generated line numbers are unreliable
+- ui: per-chapter "🗑 Clear" button in Chapters view (clears content, keeps outline); Book sidebar chapters now use circle badges visible when collapsed; global thin overlay scrollbar
 
 ## v0.1.16 — 2026-07-15
 

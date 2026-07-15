@@ -78,12 +78,44 @@ public class EditorAgent : AgentBase
 
         if (checkerResult is { HasIssues: true, Issues.Length: > 0 })
         {
-            await ApplyPatchesAsync(bookId, chapterId, checkerResult!, finalizeStatus, ct);
-            return;
-        }
+            // Separate patchable issues from rewrite-only issues
+            var patches = checkerResult.Issues.Where(i =>
+                i.Type != "rewrite" && !string.IsNullOrEmpty(i.OriginalText)).ToArray();
+            var rewrites = checkerResult.Issues.Where(i => i.Type == "rewrite").ToList();
 
-        // ── CREATIVE LLM PATH (manual edits / no checker patches) ─────────────────
-        await EditWithLlmAsync(bookId, chapterId, humanAttentionPoints, finalizeStatus, ct);
+            if (patches.Length > 0)
+            {
+                // Phase 1: mechanical patches
+                await ApplyPatchesAsync(bookId, chapterId, new CheckerResult(true, patches, string.Empty), finalizeStatus, ct);
+            }
+
+            // Phase 2: creative pass for rewrite issues (on patched content if applicable)
+            if (rewrites.Count > 0)
+            {
+                ChapterVersion? patchedVersion = null;
+                if (patches.Length > 0)
+                {
+                    // Load the version we just saved to get patched content
+                    var versions = await Repo.GetChapterVersionsAsync(chapterId);
+                    patchedVersion = versions.OrderByDescending(v => v.CreatedAt).FirstOrDefault();
+                }
+
+                string contentToEdit = patchedVersion?.Content ?? chapter.Content;
+                string instructions = BuildRewriteInstructions(rewrites);
+                await EditWithLlmForRewrites(bookId, chapterId, contentToEdit, instructions,
+                    finalizeStatus, synopsesBlock.ToString(), rewrites, charRag, locationRag, threadRag, phrasesRag, ct);
+            }
+            else if (patches.Length == 0)
+            {
+                // No issues at all — minor polish creative pass
+                await EditWithLlmAsync(bookId, chapterId, humanAttentionPoints, finalizeStatus, ct);
+            }
+        }
+        else
+        {
+            // ── CREATIVE LLM PATH (manual edits / no checker patches) ─────────────────
+            await EditWithLlmAsync(bookId, chapterId, humanAttentionPoints, finalizeStatus, ct);
+        }
     }
 
     /// <summary>
@@ -325,12 +357,172 @@ public class EditorAgent : AgentBase
     }
 
     /// <summary>
+    /// Build human-readable rewrite instructions from checker-flagged rewrite issues.
+    /// Used when the Editor needs a creative pass on already-patched content to resolve
+    /// inconsistencies that can't be fixed by mechanical patching (e.g. clothing contradictions,
+    /// timeline impossibilities, state changes without transition).
+    /// </summary>
+    private static string BuildRewriteInstructions(List<CheckerIssue> rewrites)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("## Issues Requiring Creative Resolution\n");
+
+        for (int n = 0; n < rewrites.Count; n++)
+        {
+            var issue = rewrites[n];
+            sb.AppendLine($"**Issue {n + 1}:** {issue.Description}");
+            if (!string.IsNullOrWhiteSpace(issue.Problem))
+                sb.AppendLine($"   Problem: {issue.Problem}");
+            if (!string.IsNullOrWhiteSpace(issue.CanonicalFact))
+                sb.AppendLine($"   Canonical fact: {issue.CanonicalFact}");
+            if (!string.IsNullOrWhiteSpace(issue.Location))
+                sb.AppendLine($"   Location: {issue.Location}");
+            if (!string.IsNullOrWhiteSpace(issue.SuggestedRewrite))
+                sb.AppendLine($"   Suggested approach: {issue.SuggestedRewrite}");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("Fix ALL of the above issues by rewriting the affected passages. Maintain consistency " +
+                      "throughout the chapter — if a character's appearance, state, or a location detail " +
+                      "contradicts itself across paragraphs, choose one version and apply it everywhere " +
+                      "the affected element appears. Preserve all other prose exactly as written.");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Creative LLM edit path for resolving rewrite issues flagged by the Checker.
+    /// Takes already-patched content plus rewrite instructions, streams a full-chapter
+    /// creative pass that resolves contradictions while preserving everything else.
+    /// </summary>
+    private async Task EditWithLlmForRewrites(int bookId, int chapterId, string contentToEdit,
+        string rewriteInstructions, bool finalizeStatus,
+        string synopsesBlockStr,
+        List<CheckerIssue> rewrites,
+        string charRag, string locationRag, string threadRag, string phrasesRag,
+        CancellationToken ct)
+    {
+        var book = await Repo.GetByIdAsync(bookId)
+            ?? throw new InvalidOperationException($"Book {bookId} not found.");
+        var chapter = await Repo.GetChapterAsync(bookId, chapterId)
+            ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
+
+        var (kernel, config) = await GetKernelAsync(bookId);
+        var bible = await Repo.GetStoryBibleAsync(bookId);
+
+        string systemPrompt;
+        systemPrompt = !string.IsNullOrWhiteSpace(book.EditorSystemPrompt)
+            ? InterpolateSystemPrompt(book.EditorSystemPrompt, book, bible)
+            : InterpolateSystemPrompt(DefaultPrompts.Editor, book, bible);
+
+        var history = new ChatHistory();
+        history.AddSystemMessage(systemPrompt);
+
+        // Build cross-chapter context (same structure as EditWithLlmAsync)
+        var sb = new System.Text.StringBuilder();
+
+        if (!string.IsNullOrWhiteSpace(synopsesBlockStr))
+        {
+            sb.AppendLine("## Story So Far — Chapter Synopses");
+            sb.AppendLine(synopsesBlockStr);
+            sb.AppendLine();
+        }
+        bool hasRagContext = !string.IsNullOrWhiteSpace(charRag) || !string.IsNullOrWhiteSpace(locationRag)
+                          || !string.IsNullOrWhiteSpace(threadRag) || !string.IsNullOrWhiteSpace(phrasesRag);
+        if (hasRagContext)
+        {
+            sb.AppendLine("## Prior Chapter Passages (for context — do not re-introduce or restate)");
+            if (!string.IsNullOrWhiteSpace(charRag))     { sb.AppendLine("\n### Character Details");                              sb.AppendLine(charRag); }
+            if (!string.IsNullOrWhiteSpace(locationRag)) { sb.AppendLine("\n### Location & Setting Details");                     sb.AppendLine(locationRag); }
+            if (!string.IsNullOrWhiteSpace(threadRag))   { sb.AppendLine("\n### Plot Thread Context");                            sb.AppendLine(threadRag); }
+            if (!string.IsNullOrWhiteSpace(phrasesRag))  { sb.AppendLine("\n### Potentially Repeated Phrases & Descriptions");   sb.AppendLine(phrasesRag); }
+            sb.AppendLine();
+        }
+
+        sb.AppendLine($"Please fix Chapter {chapter.Number}: {chapter.Title}");
+        sb.AppendLine(rewriteInstructions);
+        sb.AppendLine($"\nChapter content (already mechanically patched — only resolve the creative issues above):");
+        sb.AppendLine(contentToEdit);
+        history.AddUserMessage(sb.ToString());
+
+        // Stream prose only; stop forwarding tokens to SignalR once editorial-notes heading appears
+        var edited = await StreamResponseAsync(kernel, config, history, bookId, chapterId, AgentRole.Editor, ct,
+            stopStreamingAt: _notesHeadingRegex);
+
+        // Split off the editorial notes section.
+        var notesMatch = _notesHeadingRegex.Match(edited);
+
+        string prose;
+        if (notesMatch.Success)
+        {
+            var notes = edited[notesMatch.Index..];
+            prose = edited[..notesMatch.Index].Trim();
+            await Repo.AddMessageAsync(new AgentMessage
+            {
+                BookId = bookId,
+                ChapterId = chapterId,
+                AgentRole = AgentRole.Editor,
+                MessageType = MessageType.Feedback,
+                Content = notes,
+                IsResolved = true
+            });
+        }
+        else
+        {
+            prose = edited;
+        }
+
+        var editedContent = StripLeadingChapterHeading(prose, chapter.Number, chapter.Title);
+        var editedStatus = finalizeStatus ? ChapterStatus.Done : ChapterStatus.Review;
+
+        // Save as new version — this represents the creative pass resolving rewrite issues
+        var version = new ChapterVersion
+        {
+            ChapterId = chapterId,
+            BookId = bookId,
+            Title = chapter.Title,
+            Outline = chapter.Outline,
+            Content = editedContent,
+            Status = editedStatus,
+            PovCharacter = chapter.PovCharacter,
+            CharactersInvolvedJson = chapter.CharactersInvolvedJson,
+            PlotThreadsJson = chapter.PlotThreadsJson,
+            ForeshadowingNotes = chapter.ForeshadowingNotes,
+            PayoffNotes = chapter.PayoffNotes,
+            CreatedBy = "agent:Editor",
+            HasEmbeddings = false,
+        };
+        await Repo.AddChapterVersionAsync(version);
+
+        try { await IndexChapterAsync(bookId, chapterId, version.Id, kernel, config!, ct); }
+        catch (OperationCanceledException) { throw; }
+        catch { /* non-fatal */ }
+
+        // Post a system note explaining what the creative pass addressed
+        var noteSb = new System.Text.StringBuilder();
+        noteSb.AppendLine($"✏️ Creative edit — resolved {rewrites.Count} inconsistency issue(s):");
+        foreach (var issue in rewrites)
+            noteSb.AppendLine($"  - {issue.Description}");
+        await Repo.AddMessageAsync(new AgentMessage
+        {
+            BookId = bookId,
+            ChapterId = chapterId,
+            AgentRole = AgentRole.Editor,
+            MessageType = MessageType.SystemNote,
+            Content = noteSb.ToString(),
+            IsResolved = true
+        });
+
+        await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Done", chapterId, ct);
+    }
+
+    /// <summary>
     /// Locate an issue's OriginalText in chapter content. Strategy:
-    ///   1. Normalize whitespace (CRLF→LF, trim trailing) and full-text IndexOf.
-    ///      If exactly one match → apply immediately (no position needed).
-    ///   2. If ambiguous (multiple matches), use position as a hint to narrow
-    ///      the search to that specific line. Only applies if OriginalText is
-    ///      confirmed present on the target line.
+    ///   1. If Position is provided, search within ±3 lines of that line number first.
+    ///   2. Fall back to full-text IndexOf on normalized content.
+    ///   3. If multiple matches remain and position was provided, try the position line
+    ///      as a disambiguator.
     /// Returns PatchMatch with offset and optional skip reason for failures.
     /// </summary>
     private static PatchMatch FindPatchLocation(string content, CheckerIssue issue)
@@ -341,24 +533,52 @@ public class EditorAgent : AgentBase
         if (string.IsNullOrEmpty(normOriginal))
             return PatchMatch.Skipped("original text is empty");
 
-        // 1. Full-text IndexOf on normalized content — try unique match first
+        // 1. Position-first: search within ±3 lines of reported line number
+        if (issue.Position.HasValue && issue.Position.Value > 0)
+        {
+            var matchNearPosition = FindInLineWindow(normalized, normOriginal, issue.Position.Value);
+            if (matchNearPosition >= 0) return PatchMatch.Found(matchNearPosition);
+        }
+
+        // 2. Full-text IndexOf fallback
         int firstIdx = normalized.IndexOf(normOriginal, StringComparison.Ordinal);
         if (firstIdx < 0) return PatchMatch.Skipped("text not found in chapter");
 
         int occurrenceCount = CountOccurrences(normalized, normOriginal);
         if (occurrenceCount == 1) return PatchMatch.Found(firstIdx);    // unique — done
 
-        // 2. Ambiguous — use position as hint to disambiguate
+        // 3. Ambiguous — use position as final disambiguator if available
         var lines = normalized.Split('\n');
-        if (issue.Position > 0 && issue.Position <= lines.Length)
+        if (issue.Position.HasValue && issue.Position.Value > 0 && issue.Position.Value <= lines.Length)
         {
-            int lineStartOffset = GetLineStartOffset(normalized, issue.Position);
-            string lineContent = lines[issue.Position - 1];
+            int lineStartOffset = GetLineStartOffset(normalized, issue.Position.Value);
+            string lineContent = lines[issue.Position.Value - 1];
             int localIdx = lineContent.IndexOf(normOriginal, StringComparison.Ordinal);
             if (localIdx >= 0) return PatchMatch.Found(lineStartOffset + localIdx);  // confirmed on target line
         }
 
         return PatchMatch.Skipped("ambiguous — multiple matches and position did not confirm");
+    }
+
+    /// <summary>
+    /// Search for normOriginal within ±window lines of the given lineNumber.
+    /// Returns character offset in normalized content, or -1 if no match found.
+    /// </summary>
+    private static int FindInLineWindow(string normalized, string needle, int lineNumber, int window = 3)
+    {
+        var lines = normalized.Split('\n');
+        int startLine = Math.Max(0, lineNumber - 1 - window);
+        int endLine = Math.Min(lines.Length - 1, lineNumber - 1 + window);
+
+        for (int i = startLine; i <= endLine; i++)
+        {
+            int offset = GetLineStartOffset(normalized, i + 1);
+            string lineContent = lines[i];
+            int localIdx = lineContent.IndexOf(needle, StringComparison.Ordinal);
+            if (localIdx >= 0) return offset + localIdx;
+        }
+
+        return -1;
     }
 
     private static string NormalizeWhitespace(string text)
@@ -413,10 +633,11 @@ public class EditorAgent : AgentBase
             for (int n = 0; n < items.Count; n++)
             {
                 var issue = items[n];
+                var lineHint = issue.Position.HasValue ? $"Line {issue.Position.Value}: " : string.Empty;
                 if (!string.IsNullOrWhiteSpace(issue.ReplacementText) && !string.IsNullOrEmpty(issue.OriginalText))
-                    sb.AppendLine($"{n + 1}. **Line {issue.Position}**: `{EscapeMarkdown(issue.OriginalText)}` → `{EscapeMarkdown(issue.ReplacementText)}` — {issue.Description}");
+                    sb.AppendLine($"{n + 1}. **{lineHint}`{EscapeMarkdown(issue.OriginalText)}` → `{EscapeMarkdown(issue.ReplacementText)}` — {issue.Description}");
                 else
-                    sb.AppendLine($"{n + 1}. **Line {issue.Position}**: {issue.Description}");
+                    sb.AppendLine($"{n + 1}. **{lineHint}{issue.Description}");
                 if (!string.IsNullOrWhiteSpace(issue.OriginalText))
                     sb.Append($"   Original: `{EscapeMarkdown(issue.OriginalText)}`\n");
             }
@@ -428,7 +649,10 @@ public class EditorAgent : AgentBase
         {
             sb.AppendLine("\n⚠️ Could not apply:");
             foreach (var (issue, reason) in skipped)
-                sb.AppendLine($"- {Capitalize(issue.Type)} on line {issue.Position} — {reason}");
+        {
+            var posHint = issue.Position.HasValue ? $" on line {issue.Position.Value}" : string.Empty;
+            sb.AppendLine($"- {Capitalize(issue.Type)}{posHint} — {reason}");
+        }
         }
 
         return sb;

@@ -128,6 +128,16 @@ public static class DefaultPrompts
         - Do not echo phrases, metaphors, images, or similes that appear in the prior-chapter passages provided in the context. Seek fresh language every time.
         - Vary scene-entry beats. If prior chapters opened with a character waking up, an internal monologue, or a specific sensory detail, choose a different approach here.
         - If a recurring motif or quirk appears in the prior passages, do not repeat it unless it is intentional and narratively significant.
+
+        INTRA-CHAPTER CONSISTENCY — follow these strictly WITHIN this chapter alone:
+        - Do NOT describe the same character's appearance differently in different paragraphs without
+          a narrative reason (e.g., explicitly writing them changing clothes). If Anna wears a red coat
+          in paragraph 2, she must still wear the red coat in paragraph 8 unless you write her taking it off.
+        - Do NOT introduce timeline contradictions within a single scene. Once you establish a time or
+          sequence of events, all subsequent references must be compatible with it.
+        - Do NOT state explicit constraints about a location (e.g., "only one door") and then contradict
+          them later in the same chapter.
+        - Do NOT change a character's physical or emotional state mid-scene without describing the transition.
         """;
 
     public static readonly string Editor =
@@ -214,6 +224,21 @@ public static class DefaultPrompts
         - Pacing problems (e.g. rushing key moments or padding filler)
         - Redundant descriptions that state the same thing twice in different words
         - Unclear dialogue attribution (who is speaking when)
+
+        INTRA-CHAPTER CONSISTENCY SCAN — check for contradictions WITHIN this chapter itself,
+        independent of prior chapters or planning documents. Scan specifically for:
+        - Same character described differently in different paragraphs without a narrative reason
+          (e.g., red coat → blue jacket without writing them changing clothes)
+        - Explicit constraints violated later (e.g., "only one door" then "opened the second door")
+        - Timeline impossibilities within a single scene (e.g., "arrived at three" then
+          "waiting two hours" when current time is 4pm)
+        - State changes without transition (e.g., character seated → standing mid-sentence
+          with no intervening action described)
+        For each intra-chapter issue found, output as type "rewrite" (not verbatim patch).
+        Include fields: Problem (what's wrong), CanonicalFact (correct state if determinable from
+        Character Cards or Chapter Outline, otherwise "choose consistently"), Location (paragraph
+        hint like "Paragraph 3-4"), SuggestedRewrite (optional guidance). Do NOT provide
+        verbatim OriginalText/ReplacementText for rewrite issues — they require creative rewording.
 
         Return a JSON object with exactly these fields:
           "hasIssues" (boolean — true if any issues were found),

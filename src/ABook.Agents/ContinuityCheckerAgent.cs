@@ -262,7 +262,11 @@ public class ContinuityCheckerAgent : AgentBase
                 i.ProposedFix ?? string.Empty,
                 i.OriginalText ?? string.Empty,
                 i.ReplacementText ?? string.Empty,
-                Math.Max(1, i.Position))).ToArray() ?? [];
+                i.Position,
+                i.Location,
+                i.Problem,
+                i.CanonicalFact,
+                i.SuggestedRewrite)).ToArray() ?? [];
             result = new CheckerResult(dto?.HasIssues ?? false, issues, dto?.Summary ?? string.Empty);
         }
         catch
@@ -289,7 +293,7 @@ public class ContinuityCheckerAgent : AgentBase
     private static string FormatCheckerReport(CheckerResult result)
     {
         var sb = new System.Text.StringBuilder();
-        var types = new[] { "continuity", "grammar", "repetition", "style" };
+        var types = new[] { "continuity", "grammar", "repetition", "style", "rewrite" };
         var grouped = types.Select(t => (t, items: result.Issues.Where(i => i.Type == t).ToArray())).Where(g => g.items.Length > 0).ToList();
 
         sb.AppendLine(result.HasIssues ? $"⚠️ Issues found — {result.Issues.Length} total." : "✅ No issues found.");
@@ -298,14 +302,27 @@ public class ContinuityCheckerAgent : AgentBase
 
         foreach (var (typeName, items) in grouped)
         {
-            sb.AppendLine($"\n### {Capitalize(typeName)} ({items.Length} fix(es))");
+            sb.AppendLine($"\n### {Capitalize(typeName)} ({items.Length} issue(s))");
             for (int n = 0; n < items.Length; n++)
             {
                 var issue = items[n];
-                sb.AppendLine($"{n + 1}. **Line {issue.Position}**: {issue.Description}");
-                if (!string.IsNullOrWhiteSpace(issue.OriginalText))
+                if (issue.Type == "rewrite")
                 {
-                    sb.Append($"   Original: `{EscapeMarkdown(issue.OriginalText)}`\n");
+                    var locationHint = !string.IsNullOrWhiteSpace(issue.Location)
+                        ? $" in {issue.Location}"
+                        : string.Empty;
+                    sb.AppendLine($"{n + 1}. **Rewrite{locationHint}**: {issue.Description}");
+                    if (!string.IsNullOrWhiteSpace(issue.Problem))
+                        sb.AppendLine($"   Problem: {issue.Problem}");
+                    if (!string.IsNullOrWhiteSpace(issue.CanonicalFact))
+                        sb.AppendLine($"   Canonical fact: {issue.CanonicalFact}");
+                }
+                else
+                {
+                    var lineHint = issue.Position.HasValue ? $" on line {issue.Position}" : string.Empty;
+                    sb.AppendLine($"{n + 1}. **{Capitalize(issue.Type)}{lineHint}**: {issue.Description}");
+                    if (!string.IsNullOrWhiteSpace(issue.OriginalText))
+                        sb.Append($"   Original: `{EscapeMarkdown(issue.OriginalText)}`\n");
                 }
             }
         }
@@ -332,7 +349,11 @@ public class ContinuityCheckerAgent : AgentBase
         public string ProposedFix { get; set; } = string.Empty;
         public string OriginalText { get; set; } = string.Empty;
         public string ReplacementText { get; set; } = string.Empty;
-        public int Position { get; set; }
+        public int? Position { get; set; }
+        public string? Location { get; set; }
+        public string? Problem { get; set; }
+        public string? CanonicalFact { get; set; }
+        public string? SuggestedRewrite { get; set; }
     }
 
     /// <summary>DTO for deserializing the ContinuityChecker JSON response.</summary>
@@ -352,12 +373,16 @@ public class ContinuityCheckerAgent : AgentBase
                   "items": {
                     "type": "object",
                     "properties": {
-                      "type": { "type": "string" },
+                      "type": { "type": "string", "enum": ["continuity", "grammar", "repetition", "style", "rewrite"] },
                       "description": { "type": "string" },
                       "proposedFix": { "type": "string" },
                       "originalText": { "type": "string" },
                       "replacementText": { "type": "string" },
-                      "position": { "type": "integer", "minimum": 1 }
+                      "position": { "type": ["integer", "null"], "minimum": 1 },
+                      "location": { "type": ["string", "null"] },
+                      "problem": { "type": ["string", "null"] },
+                      "canonicalFact": { "type": ["string", "null"] },
+                      "suggestedRewrite": { "type": ["string", "null"] }
                     },
                     "required": ["type", "description", "proposedFix", "originalText", "replacementText"],
                     "additionalProperties": false

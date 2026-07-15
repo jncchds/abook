@@ -131,17 +131,19 @@ function BookSidebar() {
         onClick={() => navigate(`/books/${id}/chapters`)}
         dot={isPhaseComplete('chapters')}
       />
-      <div className="sidebar-chapters hide-when-collapsed">
+      <div className="sidebar-chapters">
         {(book.chapters ?? []).filter(c => !c.isArchived).map(c => (
-          <div
+          <button
             key={c.id}
-            className={`sidebar-ch-item${startsAt(`chapters/${c.id}`) ? ' active' : ''}`}
+            className={`sidebar-btn${startsAt(`chapters/${c.id}`) ? ' active' : ''}`}
             onClick={() => navigate(`/books/${id}/chapters/${c.id}`)}
           >
-            <span className="sidebar-ch-num">{c.number}.</span>
-            <span className="sidebar-ch-title">{c.title || 'Untitled'}</span>
+            <span className="s-icon">
+              <span className="lib-ch-circle">{c.number}</span>
+            </span>
+            <span className="s-label">{c.title || 'Untitled'}</span>
             <span className="sidebar-ch-dot" style={{ background: statusColor(c.status) }} />
-          </div>
+          </button>
         ))}
       </div>
     </Sidebar>

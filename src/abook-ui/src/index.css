@@ -328,8 +328,8 @@ label { display: block; font-size: 0.85rem; color: var(--text-muted); margin-bot
 .sidebar-ch-item.active { background: rgba(99,102,241,0.15); color: var(--accent); }
 .sidebar-ch-num { color: var(--text-muted); font-size: 0.75rem; flex-shrink: 0; min-width: 1.6rem; }
 .sidebar-ch-title { flex: 1; word-break: break-word; white-space: normal; }
-.sidebar-ch-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
-.app-sidebar.collapsed .sidebar-chapters { display: none; }
+.sidebar-ch-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; vertical-align: middle; margin-left: 3px; }
+
 
 /* Sidebar book list (Dashboard) */
 .sidebar-book-entry {
@@ -792,6 +792,21 @@ button:disabled:hover { background: var(--accent); }
 .library-login-prompt {
   display: flex; flex-direction: column; align-items: center; gap: 1rem;
   padding: 4rem 2rem; text-align: center; color: var(--text-muted);
+}
+
+/* ======== Thin overlay scrollbar (like mobile) — no layout width stolen ======== */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(150,150,170,.35) transparent;
+}
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(150,150,170,.35);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(150,150,170,.6);
 }
 
 /* ======== Circular chapter number badge in library sidebar ======== */
