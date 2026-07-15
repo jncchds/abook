@@ -29,7 +29,7 @@ export default function Overview() {
   }
 
   return (
-    <div className="book-overview">
+    <div>
       {editingBook ? (
         <div className="book-edit-form">
           <label>Title<input value={bookEditTitle} onChange={e => setBookEditTitle(e.target.value)} /></label>
@@ -49,7 +49,7 @@ export default function Overview() {
         </div>
       ) : (
         <>
-          <div className="book-overview-header">
+          <div className="page-header">
             <h2>{book.title}</h2>
             {!isRunning && (
               <button className="btn-edit-book" onClick={() => { setBookEditTitle(book.title); setBookEditPremise(book.premise); setBookEditGenre(book.genre); setBookEditTargetChapters(book.targetChapterCount); setBookEditHumanAssisted(book.humanAssisted ?? false); setEditingBook(true) }} title="Edit book details">✎ Edit</button>
@@ -63,22 +63,7 @@ export default function Overview() {
           )}
           <p><strong>Premise:</strong> {book.premise}</p>
           <p><strong>Genre:</strong> {book.genre} · <strong>Language:</strong> {book.language} · <strong>Target chapters:</strong> {book.targetChapterCount}{book.humanAssisted ? ' · 🤝 Human-assisted' : ''}</p>
-          <div className="phase-actions" style={{ marginTop: '1rem' }}>
-            {isPhaseComplete('chapters') ? (
-              <>
-                <span className="phase-status-badge phase-complete">✅ Chapters Complete</span>
-                <button className="btn-sm btn-ghost phase-action-btn" onClick={() => handleReopenPhase('chapters')}>↺ Reopen</button>
-              </>
-            ) : (book.chapters ?? []).length > 0 ? (
-              <>
-                <span className="phase-status-badge phase-not-started">⬜ Chapters Not Started</span>
-                <button className="btn-sm phase-action-btn" onClick={() => handleCompletePhase('chapters')}>✓ Complete</button>
-              </>
-            ) : null}
-            {(book.chapters ?? []).length > 0 && (
-              <button className="btn-sm btn-danger phase-action-btn" onClick={() => handleClearPhase('chapters', () => setBook(prev => prev ? { ...prev, chapters: [] } : prev))}>🗑 Clear Chapters</button>
-            )}
-          </div>
+
 
         </>
       )}

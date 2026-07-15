@@ -26,7 +26,7 @@ export default function BookListLayout() {
       <Sidebar bottomChildren={
         <SidebarBtn icon="🚪" label={`Sign Out (${user?.username ?? '…'})`} onClick={handleLogout} />
       }>
-        <SidebarBtn icon="➕" label="New Book" active={location.pathname === '/' && location.search.includes('new=1')} onClick={() => navigate('/?new=1')} />
+        <SidebarBtn icon="📖" label="Books" active={location.pathname === '/'} onClick={() => navigate('/')} />
         {user?.isAdmin && <SidebarBtn icon="👥" label="Users" active={location.pathname === '/admin/users'} onClick={() => navigate('/admin/users')} />}
         <SidebarBtn icon="🔑" label="Presets" active={location.pathname === '/presets'} onClick={() => navigate('/presets')} />
         <SidebarBtn icon="⚙" label="Settings" active={location.pathname === '/settings'} onClick={() => navigate('/settings')} />

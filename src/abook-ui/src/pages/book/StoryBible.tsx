@@ -52,7 +52,7 @@ export default function StoryBiblePage() {
   }
 
   return (
-    <div className="book-overview">
+    <div>
       {showHistory ? (
         <div className="history-panel">
           <div className="history-panel-header">
@@ -109,8 +109,8 @@ export default function StoryBiblePage() {
         </div>
       ) : (
         <div className="bible-view">
-          <div className="bible-view-header">
-            <h3>Story Bible</h3>
+          <div className="page-header">
+            <h2>Story Bible</h2>
             <button className="btn-edit-book" onClick={() => { setBibleForm(storyBible ?? {}); setEditingBible(true) }}>✎ Edit</button>
           </div>
           <PhaseActionBar phase="storybible" onClear={() => setStoryBible(null)} onHistory={handleOpenHistory} />

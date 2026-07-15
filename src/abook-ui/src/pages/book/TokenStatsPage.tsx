@@ -12,11 +12,11 @@ export default function TokenStatsPage() {
   }
 
   return (
-    <div className="view-content">
-      <div className="view-header">
-        <h2>🪙 Token Stats</h2>
+    <div>
+      <div className="page-header">
+        <h2>Token Stats</h2>
         {tokenStats.length > 0 && !isRunning && (
-          <button className="btn-sm btn-danger" onClick={clearTokenUsageForBook}>� Archive</button>
+          <button className="btn-sm btn-archive" onClick={clearTokenUsageForBook}>� Archive</button>
         )}
       </div>
       {tokenStats.length === 0 ? (

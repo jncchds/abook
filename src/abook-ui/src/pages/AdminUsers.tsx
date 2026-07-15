@@ -42,8 +42,8 @@ export default function AdminUsers() {
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
-        <h1 style={{ margin: 0 }}>User Management</h1>
+      <div className="page-header">
+        <h2>User Management</h2>
         <button onClick={() => setShowForm(v => !v)}>+ New User</button>
       </div>
 

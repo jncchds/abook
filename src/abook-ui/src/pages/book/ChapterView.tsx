@@ -169,20 +169,21 @@ export default function ChapterView() {
         <>
           <div className="chapter-header">
             <h2>Chapter {chapter.number}: {chapter.title}</h2>
-            <span className="ch-status-badge" style={{ background: statusColor(chapter.status) }}>{chapter.status}</span>
-            {chapter.isArchived && <span className="history-source-badge" style={{ marginLeft: '0.5rem' }}>archived</span>}
-            {!isRunning && !chapter.isArchived && (
-              <button className="btn-edit-chapter" onClick={() => { setChapterEditTitle(chapter.title); setChapterEditOutline(chapter.outline ?? ''); setEditingChapter(true) }} title="Edit chapter title and outline">✎ Edit</button>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+            {!isRunning && (
+              <span className="phase-status-badge" style={{ background: chapter.status === 'Done' ? 'rgba(34,197,94,0.15)' : statusColor(chapter.status) + '22', color: chapter.status === 'Done' ? '#22c55e' : statusColor(chapter.status) }}>{chapter.status}</span>
             )}
-            <button className="btn-sm btn-ghost" onClick={handleOpenHistory} title="View version history">📜 History</button>
-            {!chapter.isArchived && chapter.status !== 'Outlined' && (
-              <button className="btn-clear-chapter" disabled={isRunning} onClick={handleClearChapter} title="Clear chapter content and reset status to Outlined">↺ Clear</button>
-            )}
+            {chapter.isArchived && <span className="history-source-badge">archived</span>}
             {!isRunning && !chapter.isArchived && (
-              <button className="btn-sm btn-ghost" onClick={handleArchive} title="Archive this chapter">🗄</button>
+              <button className="btn-icon" onClick={() => { setChapterEditTitle(chapter.title); setChapterEditOutline(chapter.outline ?? ''); setEditingChapter(true) }} title="Edit chapter title and outline">✎ Edit</button>
+            )}
+            <button className="btn-icon" onClick={handleOpenHistory} title="View version history">📜 History</button>
+            {!isRunning && !chapter.isArchived && (
+              <button className="btn-archive" onClick={handleArchive} title="Archive this chapter">🗄 Archive</button>
             )}
             {chapter.isArchived && (
-              <button className="btn-sm" onClick={handleRestoreChapter} title="Restore this chapter">♻ Restore</button>
+              <button className="btn-icon" onClick={handleRestoreChapter} title="Restore this chapter">♻ Restore</button>
             )}
           </div>
           {chapter.outline && (

@@ -2,6 +2,12 @@
 
 ## v0.1.16 — 2026-07-15
 
+- ui: unified page headers across all pages with `.page-header` + `<h2>` pattern (replacing five separate styles); consistent title sizing and spacing everywhere
+- ui: all archive/delete actions use unified red ghost style (`.btn-archive`) — Characters, Plot Threads, Chapters cards, ChatPage, Token Stats, ChapterView
+- ui: ChatPage restructured to render as normal content; message cards use `book-list-card` layout with type-specific left-border accents; nav item renamed "Agent Messages"
+- ui: New Book form integrated inline into Books page; preset form at top of page with model-loading functionality matching BookSettings LLM config
+- ui: chapter status badge moved into action buttons bar below header; Clear Chapter and phase-action controls removed from Overview (archiving covers that)
+- css: removed dead CSS rules — old header selectors, chat-panel rules, book-detail mobile layout, reader-content/reader-chapter-nav
 - docs: completed Azure OpenAI removal from README — removed the provider row from LLM Providers table, updated feature bullet and env-var docs to only list Ollama/OpenAI/Google AI Studio; added "Removed providers" callout block explaining both Azure and LM Studio removals with migration paths (OpenAI + custom endpoint)
 - docs: corrected `LlmProvider.LMStudio` note in AGENTS.md — enum value was actually deleted from `Enums.cs`, not just removed from the factory. Added warning that EF Core will fail on old DB rows with provider=4
 - docs: updated three `OllamaController` references in AGENTS.md (Phase 2 controller list, Relevant Files file list, Ollama model management note) to point to `ModelsController` which absorbed this functionality

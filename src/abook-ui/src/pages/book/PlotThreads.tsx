@@ -83,7 +83,7 @@ export default function PlotThreads() {
 
   if (showHistory) {
     return (
-      <div className="view-content">
+      <div>
         <div className="history-panel-header">
           <h3>📜 Plot Threads History</h3>
           <button className="btn-sm btn-ghost" onClick={() => setShowHistory(false)}>✕ Close</button>
@@ -122,8 +122,8 @@ export default function PlotThreads() {
   }
 
   return (
-    <div className="view-content">
-      <div className="view-header">
+    <div>
+      <div className="page-header">
         <h2>Plot Threads ({activeThreads.length}{archivedThreads.length > 0 ? ' + ' + archivedThreads.length + ' archived' : ''})</h2>
         <button className="btn-sm" onClick={() => { setForm({}); setAddingThread(true); setEditingId(null) }}>+ Add</button>
       </div>
@@ -244,7 +244,7 @@ export default function PlotThreads() {
               <div className="book-list-card-right">
                 <button className="btn-icon" title="Edit" onClick={() => { setForm({}); setEditingId(t.id); setAddingThread(false) }}>✎</button>
                 <button className="btn-icon" title="Version History" onClick={() => handleOpenItemHistory(t.id)}>📜</button>
-                <button className="btn-icon" title="Archive" onClick={async () => {
+                <button className="btn-archive" title="Archive" onClick={async () => {
                   await archivePlotThread(bookId, t.id)
                   setPlotThreads(prev => prev.map(p => p.id === t.id ? { ...p, isArchived: true } : p))
                 }}>🗄</button>

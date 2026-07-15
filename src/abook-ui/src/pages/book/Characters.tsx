@@ -83,7 +83,7 @@ export default function Characters() {
 
   if (showHistory) {
     return (
-      <div className="view-content">
+      <div>
         <div className="history-panel-header">
           <h3>📜 Characters History</h3>
           <button className="btn-sm btn-ghost" onClick={() => setShowHistory(false)}>✕ Close</button>
@@ -123,8 +123,8 @@ export default function Characters() {
   }
 
   return (
-    <div className="view-content">
-      <div className="view-header">
+    <div>
+      <div className="page-header">
         <h2>Characters ({activeChars.length}{archivedChars.length > 0 ? ' + ' + archivedChars.length + ' archived' : ''})</h2>
         <button className="btn-sm" onClick={() => { setCharForm({}); setAddingChar(true); setEditingCharId(null) }}>+ Add</button>
       </div>
@@ -250,7 +250,7 @@ export default function Characters() {
               <div className="book-list-card-right">
                 <button className="btn-icon" title="Edit" onClick={() => { setCharForm({}); setEditingCharId(ch.id); setAddingChar(false) }}>✎</button>
                 <button className="btn-icon" title="Version History" onClick={() => handleOpenItemHistory(ch.id)}>📜</button>
-                <button className="btn-icon" title="Archive" onClick={async () => {
+                <button className="btn-archive" title="Archive" onClick={async () => {
                   await archiveCharacter(bookId, ch.id)
                   setCharacters(prev => prev.map(c => c.id === ch.id ? { ...c, isArchived: true } : c))
                 }}>🗄</button>

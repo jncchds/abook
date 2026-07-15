@@ -83,9 +83,10 @@ export default function Chapters() {
   }
 
   return (
-    <div className="view-content">
-      <div className="view-header">
-        <h2>📚 Chapters ({activeChapters.length}{archivedChapters.length > 0 ? ' + ' + archivedChapters.length + ' archived' : ''})</h2>
+    <div>
+      <div className="page-header">
+        <h2>Chapters ({activeChapters.length}{archivedChapters.length > 0 ? ' + ' + archivedChapters.length + ' archived' : ''})</h2>
+        <button className="btn-sm" onClick={() => setAddingChapter(true)}>+ Add</button>
       </div>
 
       {/* Phase action bar */}
@@ -151,9 +152,8 @@ export default function Chapters() {
                 )}
               </div>
               <div className="book-list-card-right">
-                <button onClick={() => navigate(`/books/${id}/chapters/${c.id}`)}>Open →</button>
                 {!isRunning && (
-                  <button className="btn-icon" title="Archive chapter" onClick={() => handleArchive(c.id)}>🗄</button>
+                  <button className="btn-archive" title="Archive chapter" onClick={() => handleArchive(c.id)}>🗄</button>
                 )}
               </div>
             </div>
@@ -225,35 +225,7 @@ export default function Chapters() {
         </div>
       )}
 
-      {/* Add chapter */}
-      {!isRunning && (
-        <div style={{ marginTop: '1.5rem' }}>
-          {addingChapter ? (
-            <div className="card" style={{ maxWidth: 560 }}>
-              <h3>Add Chapter</h3>
-              <label>
-                Title
-                <input
-                  autoFocus
-                  value={newTitle}
-                  onChange={e => setNewTitle(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleAddChapter()}
-                />
-              </label>
-              <label>
-                Outline
-                <textarea rows={3} value={newOutline} onChange={e => setNewOutline(e.target.value)} />
-              </label>
-              <div className="actions">
-                <button onClick={handleAddChapter} disabled={!newTitle.trim()}>Add</button>
-                <button className="btn-ghost" onClick={() => { setAddingChapter(false); setNewTitle(''); setNewOutline('') }}>Cancel</button>
-              </div>
-            </div>
-          ) : (
-            <button className="btn-sm" onClick={() => setAddingChapter(true)}>+ Add Chapter</button>
-          )}
-        </div>
-      )}
+
     </div>
   )
 }

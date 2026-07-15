@@ -81,8 +81,8 @@ export default function Library() {
   }
 
   return (
-    <div className="library-content">
-      <h2 className="library-page-title">Library</h2>
+    <div>
+      <div className="page-header"><h2>Library</h2></div>
 
       <form className="library-filters card" onSubmit={handleApplyFilters}>
         <label>
@@ -113,7 +113,7 @@ export default function Library() {
             style={{ width: '8rem' }}
           />
         </label>
-        <div className="actions" style={{ alignSelf: 'flex-end' }}>
+        <div className="actions">
           <button type="submit" className="btn">Search</button>
           <button type="button" className="btn-ghost" onClick={handleClearFilters}>Clear</button>
         </div>

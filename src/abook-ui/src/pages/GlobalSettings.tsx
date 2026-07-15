@@ -175,7 +175,7 @@ export default function GlobalSettings() {
 
   return (
     <>
-      <h1>Settings</h1>
+      <div className="page-header"><h2>Settings</h2></div>
 
       {/* Profile */}
       <section className="settings-section">

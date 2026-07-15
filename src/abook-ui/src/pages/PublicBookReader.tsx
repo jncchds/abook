@@ -43,19 +43,21 @@ export default function PublicBookReader() {
   if (!currentChapter) return <p className="empty">Chapter not found.</p>
 
   return (
-    <div className="reader-content">
-      <div className="chapter-header">
+    <div>
+      <div className="page-header">
         <h2>Chapter {currentChapter.number}{currentChapter.title ? ': ' + currentChapter.title : ''}</h2>
       </div>
-      {currentChapter.outline && (
-        <div className="outline" style={{ marginBottom: '1.5rem' }}>
-          <em>{currentChapter.outline}</em>
+      {(currentChapter.povCharacter || currentChapter.foreshadowingNotes || currentChapter.payoffNotes) && (
+        <div className="chapter-meta-fields">
+          {currentChapter.povCharacter && <span className="ch-meta-item"><strong>POV:</strong> {currentChapter.povCharacter}</span>}
+          {currentChapter.foreshadowingNotes && <span className="ch-meta-item"><strong>Foreshadowing:</strong> {currentChapter.foreshadowingNotes}</span>}
+          {currentChapter.payoffNotes && <span className="ch-meta-item"><strong>Payoff:</strong> {currentChapter.payoffNotes}</span>}
         </div>
       )}
       <div className="chapter-content">
         <ReactMarkdown>{currentChapter.content}</ReactMarkdown>
       </div>
-      <div className="reader-chapter-nav">
+      <div className="chapter-prev-next">
         {prevChapter ? (
           <button className="btn-ghost reader-prev-btn" onClick={() => navigate(`/library/${id}/chapters/${prevChapter.id}`)}>
             ← Ch {prevChapter.number}: {prevChapter.title || 'Chapter ' + prevChapter.number}
