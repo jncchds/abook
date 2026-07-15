@@ -16,7 +16,7 @@ ABook is a self-hosted web application that uses AI agents to collaboratively wr
 - **Ancestor-aware planning references** — when generating a new Story Bible / Characters / Plot Threads / Chapter Outlines for a continued book, prior books’ artifacts are injected as reference context
 - **Full synopsis spine** — every prior chapter's title and outline is injected into Writer and Editor user messages so agents can see the narrative shape of the whole book and avoid recycling scene beats, re-describing established characters, or restating established facts
 - **Explicit anti-repetition rules** in default Writer, Editor, and Checker prompts — never re-introduce a known character/place, never restate established facts, vary scene-entry beats, flag echoed phrases
-- **Pluggable LLM backend** — Ollama (default, local), OpenAI (or any OpenAI-compatible API), Azure OpenAI, or Google AI Studio; configurable globally, per-user, or per-book
+- **Pluggable LLM backend** — Ollama (default, local), OpenAI (or any OpenAI-compatible API), or Google AI Studio; configurable globally, per-user, or per-book
 - **Per-book customization** — language, assisted-generation toggle, and per-phase system prompt overrides (Story Bible, Characters, Plot Threads, Chapter Outlines, Writer, Editor, Checker) with supported template tokens
 - **Inline editing** — edit book metadata, chapter titles/outlines, and add chapters manually without leaving the detail page
 - **Multi-user** — cookie-based authentication with admin role for user management
@@ -178,9 +178,10 @@ Configure the LLM backend in the app's **Settings** page or via the API:
 | Provider | Notes |
 |---|---|
 | **Ollama** | Default. Runs locally; `host.docker.internal` resolves to the host from inside Docker. |
-| **OpenAI** | Provide API key and model name (e.g. `gpt-4o`). Leave endpoint blank for the real OpenAI API; set a custom endpoint to use any OpenAI-compatible API (Groq, Together, LM Studio at `http://host.docker.internal:1234/v1`, etc.). |
-| **Azure OpenAI** | Provide your Azure endpoint, API key, and deployment name as the model. |
+| **OpenAI** | Provide API key and model name (e.g. `gpt-4o`). Leave endpoint blank for the real OpenAI API; set a custom endpoint to use any OpenAI-compatible API (Groq, Together, etc.). |
 | **Google AI Studio** | Native Gemini connector. Requires an API key (get one at [aistudio.google.com](https://aistudio.google.com/apikey)). Models: `gemini-2.0-flash`, `gemini-2.5-pro`, etc. Embedding model: `text-embedding-004`. |
+
+> **Removed providers:** Azure OpenAI (functionally identical to the OpenAI provider — use OpenAI with a custom endpoint instead) and LM Studio (use OpenAI with endpoint `http://host.docker.internal:1234/v1`).
 
 Configurations can be set globally, per-user, or per-book. The lookup order is: book-specific → user-default → global.
 

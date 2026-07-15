@@ -2,6 +2,11 @@
 
 ## v0.1.16 — 2026-07-15
 
+- docs: completed Azure OpenAI removal from README — removed the provider row from LLM Providers table, updated feature bullet and env-var docs to only list Ollama/OpenAI/Google AI Studio; added "Removed providers" callout block explaining both Azure and LM Studio removals with migration paths (OpenAI + custom endpoint)
+- docs: corrected `LlmProvider.LMStudio` note in AGENTS.md — enum value was actually deleted from `Enums.cs`, not just removed from the factory. Added warning that EF Core will fail on old DB rows with provider=4
+- docs: updated three `OllamaController` references in AGENTS.md (Phase 2 controller list, Relevant Files file list, Ollama model management note) to point to `ModelsController` which absorbed this functionality
+- docs: corrected ProcessChapterAsync workflow description in AGENTS.md — removed the "final informational Check" step since it was actually deleted from the code; patches are deterministic so no re-check is needed
+
 - refactor: extracted shared MCP tool helpers into new `McpToolBase` abstract class; all four MCP tool classes (`UserMcpTools`, `AgentMcpTools`, `BookMcpTools`, `ContentMcpTools`) now inherit from it, eliminating ~40 lines of duplicated `CurrentUserId()` and `GetOwnedBookAsync()` / `EnsureBookOwnershipAsync()` boilerplate
 - refactor: extracted `ControllerExtensions.RequireBookOwnershipAndLoadAsync` overload that returns both the ownership error and the loaded `Book` in a tuple; eliminates redundant re-fetches in `BooksController` actions like `Update` and `GetDefaultPrompts`
 - refactor: refactored all 9 book-scoped ownership checks in `BooksController` to use `ControllerExtensions.RequireBookOwnershipAsync` / `RequireBookOwnershipAndLoadAsync` consistently, replacing inline `GetById + null-check + UserId comparison` blocks (~21 lines of boilerplate removed)
