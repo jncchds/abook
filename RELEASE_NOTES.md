@@ -1,5 +1,9 @@
 # Release Notes
 
+## v0.1.17 — 2026-07-16
+
+- fix: presets page no longer showed an empty list on mount; added missing `getPresets()` call so the Presets page loads user-owned + global presets from the server (same API as BookSettings/GlobalSettings)
+
 ## v0.1.16 — 2026-07-15
 
 - ui: unified page headers across all pages with `.page-header` + `<h2>` pattern (replacing five separate styles); consistent title sizing and spacing everywhere

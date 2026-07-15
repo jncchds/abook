@@ -27,6 +27,10 @@ export default function Presets() {
       .finally(() => setModelsLoading(false))
   }
 
+  useEffect(() => {
+    getPresets().then(r => setPresets(r.data)).catch(err => console.error('Failed to load presets', err))
+  }, [])
+
   useEffect(() => { fetchModels() }, [form.provider])
 
   const handleSubmit = async (e: React.FormEvent) => {
