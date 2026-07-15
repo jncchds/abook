@@ -261,7 +261,8 @@ public class ContinuityCheckerAgent : AgentBase
                 i.Description ?? string.Empty,
                 i.ProposedFix ?? string.Empty,
                 i.OriginalText ?? string.Empty,
-                i.ReplacementText ?? string.Empty)).ToArray() ?? [];
+                i.ReplacementText ?? string.Empty,
+                Math.Max(1, i.Position))).ToArray() ?? [];
             result = new CheckerResult(dto?.HasIssues ?? false, issues, dto?.Summary ?? string.Empty);
         }
         catch
@@ -288,35 +289,34 @@ public class ContinuityCheckerAgent : AgentBase
     private static string FormatCheckerReport(CheckerResult result)
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine(result.HasIssues ? "⚠️ Issues found." : "✅ No issues found.");
+        var types = new[] { "continuity", "grammar", "repetition", "style" };
+        var grouped = types.Select(t => (t, items: result.Issues.Where(i => i.Type == t).ToArray())).Where(g => g.items.Length > 0).ToList();
+
+        sb.AppendLine(result.HasIssues ? $"⚠️ Issues found — {result.Issues.Length} total." : "✅ No issues found.");
         if (!string.IsNullOrWhiteSpace(result.Summary))
             sb.AppendLine($"\n{result.Summary}");
 
-        var continuityIssues = result.Issues.Where(i => i.Type == "continuity").ToArray();
-        var styleIssues = result.Issues.Where(i => i.Type == "style").ToArray();
+        foreach (var (typeName, items) in grouped)
+        {
+            sb.AppendLine($"\n### {Capitalize(typeName)} ({items.Length} fix(es))");
+            for (int n = 0; n < items.Length; n++)
+            {
+                var issue = items[n];
+                sb.AppendLine($"{n + 1}. **Line {issue.Position}**: {issue.Description}");
+                if (!string.IsNullOrWhiteSpace(issue.OriginalText))
+                {
+                    sb.Append($"   Original: `{EscapeMarkdown(issue.OriginalText)}`\n");
+                }
+            }
+        }
 
-        if (continuityIssues.Length > 0)
-        {
-            sb.AppendLine("\n### Continuity Issues");
-            foreach (var issue in continuityIssues)
-            {
-                sb.AppendLine($"- **{issue.Description}**");
-                if (!string.IsNullOrWhiteSpace(issue.ProposedFix))
-                    sb.AppendLine($"  → Fix: {issue.ProposedFix}");
-            }
-        }
-        if (styleIssues.Length > 0)
-        {
-            sb.AppendLine("\n### Style Issues");
-            foreach (var issue in styleIssues)
-            {
-                sb.AppendLine($"- **{issue.Description}**");
-                if (!string.IsNullOrWhiteSpace(issue.ProposedFix))
-                    sb.AppendLine($"  → Fix: {issue.ProposedFix}");
-            }
-        }
         return sb.ToString().Trim();
     }
+
+    private static string Capitalize(string s) => char.ToUpper(s[0]) + s[1..];
+
+    /// <summary>Escape backticks inside markdown inline-code spans so they don't break formatting.</summary>
+    private static string EscapeMarkdown(string text) => text.Replace("`", "\\`");
 
     private static readonly System.Text.Json.JsonSerializerOptions _jsonOptions = new()
     {
@@ -332,6 +332,7 @@ public class ContinuityCheckerAgent : AgentBase
         public string ProposedFix { get; set; } = string.Empty;
         public string OriginalText { get; set; } = string.Empty;
         public string ReplacementText { get; set; } = string.Empty;
+        public int Position { get; set; }
     }
 
     /// <summary>DTO for deserializing the ContinuityChecker JSON response.</summary>
@@ -355,9 +356,10 @@ public class ContinuityCheckerAgent : AgentBase
                       "description": { "type": "string" },
                       "proposedFix": { "type": "string" },
                       "originalText": { "type": "string" },
-                      "replacementText": { "type": "string" }
+                      "replacementText": { "type": "string" },
+                      "position": { "type": "integer", "minimum": 1 }
                     },
-                    "required": ["type", "description", "proposedFix"],
+                    "required": ["type", "description", "proposedFix", "originalText", "replacementText"],
                     "additionalProperties": false
                   }
                 },

@@ -32,6 +32,11 @@
 - refactor: extracted duplicated `CheckOwnershipAsync` (~20 lines × 5 controllers) into shared static `ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo)` in new `Controllers/ControllerExtensions.cs`; removed the private method from StoryBibleController, CharactersController, ChaptersController, and PlotThreadsController
 - refactor: extracted 4× repeated human-assisted pause block in `RunPlanningPipelineAsync` into private `ApplyHumanAssistedNoteAsync(...)` helper; also simplified by removing redundant `qaStr` variable in favour of direct `qaContext.ToString()` calls
 - fix: null chapter fallback logging — `ProcessChapterAsync` now emits a Warning when `GetChapterAsync` returns null and falls back to cached data, making stale-state bugs detectable
+- feat: checker catches four issue types — `continuity`, `grammar`, `repetition`, and `style` — each returned as a structured JSON patch with verbatim `originalText` (context-rich, min ~20 chars), `replacementText`, and an optional 1-indexed line-number hint for disambiguation
+- feat: EditorAgent split into two focused methods — `ApplyPatchesAsync` handles checker patches mechanically (no LLM call) using IndexOf-first matching with whitespace normalization (`CRLF→LF`, trailing-space trim per line); `EditWithLlmAsync` handles manual edits / MCP tools via the creative LLM path
+- feat: patch application uses end-first ordering so earlier replacements don't corrupt character offsets for later patches; position field used as a secondary hint only when IndexOf finds multiple matches on the same text, and only if the original text is confirmed present on that target line
+- feat: editorial feedback message grouped by issue type (continuity / grammar / repetition / style) shows `original → replacement` inline plus description per fix; unapplied patches reported factually with specific skip reason (no verbatim text provided / text not found in chapter / ambiguous — multiple matches and position did not confirm)
+- refactor: removed the Final Check step from `ProcessChapterAsync`; patches are deterministic so re-checking is unnecessary, failures surfacing in chat panel instead
 
 ## v0.1.15 — 2026-07-14
 

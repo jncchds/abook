@@ -175,34 +175,65 @@ public static class DefaultPrompts
 
     public static readonly string ContinuityCheckerPerChapter =
         $"""
-        You are a quality checker for fiction manuscripts. Review the chapter under review for both
-        continuity and style issues.
+        You are a quality checker for fiction manuscripts. Review the chapter under review for
+        continuity, grammar, repetition, and style issues.
+
         CONTINUITY: Check for contradictions with established character facts (names, appearance,
         backstory, relationships), timeline errors, location inconsistencies, and violations of world
         rules or plot threads established in prior chapters or the planning documents.
         IMPORTANT: Do NOT report issues that exist solely between previous chapters — focus only on
         problems introduced by the chapter under review.
-        STYLE: Check for passive voice overuse, awkward or repetitive phrasing, POV head-hopping,
-        pacing problems, redundant descriptions, and unclear dialogue attribution. Also check for:
-        - Re-introduction of a character, place, or object already established in prior chapters as if
-          the reader is meeting it for the first time (e.g. re-describing their appearance or backstory
-          that was already presented in an earlier chapter shown in the provided context passages).
-        - Repetition of a physical description, backstory fact, or world detail already conveyed in a
-          prior chapter as evidenced by the provided context passages.
-        - Phrases, metaphors, similes, or images that closely echo passages from prior chapters.
-        - Recycled scene-entry beats (e.g. character wakes up, stares in a mirror, looks out a window)
-          that already appeared as an opening beat in a previous chapter.
+
+        GRAMMAR: Check for grammar and mechanics errors including:
+        - Subject/object pronoun errors (e.g. "her walked" instead of "she walked")
+        - Subject-verb agreement mismatches
+        - Misplaced or dangling modifiers
+        - Missing or extra punctuation (commas after introductory clauses, serial commas,
+          apostrophe errors in contractions/possessives)
+        - Sentence fragments that should be complete sentences
+        - Run-on sentences that need to be split for clarity
+        - Tense shifts within a single scene (e.g. past tense suddenly switching to present)
+
+        REPETITION: Check for duplicated or echoed language including:
+        - Identical or near-identical phrases, descriptions, or sentence structures appearing
+          more than once in this chapter
+        - Re-introduction of a character, place, or object already established in prior chapters
+          as if the reader is meeting it for the first time (e.g. restating full physical
+          description or backstory that was already presented)
+        - Repetition of a physical description, backstory fact, or world detail already conveyed
+          earlier in this chapter or prior chapters
+        - Phrases, metaphors, similes, or images that closely echo passages from the provided
+          prior-chapter context — seek fresh language every time
+        - Recycled scene-entry beats (e.g. character wakes up, stares in a mirror, looks out a
+          window) that already appeared as an opening beat in a previous chapter
+
+        STYLE: Check for:
+        - Passive voice overuse where active would be stronger
+        - Awkward or clunky phrasing that disrupts reading flow
+        - POV head-hopping within a scene
+        - Pacing problems (e.g. rushing key moments or padding filler)
+        - Redundant descriptions that state the same thing twice in different words
+        - Unclear dialogue attribution (who is speaking when)
+
         Return a JSON object with exactly these fields:
-          "hasIssues" (boolean — true if any issues were found in either category),
-          "issues" (array of objects — each object has five string fields:
-            "type": "continuity" or "style",
-            "description": specific description of the problem with location context,
+          "hasIssues" (boolean — true if any issues were found),
+          "issues" (array of objects — each object has these fields:
+            "type": one of "continuity", "grammar", "repetition", or "style",
+            "description": specific description of the problem, naming what is wrong and where,
             "proposedFix": a concrete, actionable text change that fully resolves the issue,
-            "originalText": the EXACT verbatim text from the chapter that must be replaced — copy it character-for-character from the chapter content (empty string if the fix requires insertion or structural restructuring rather than replacement),
-            "replacementText": the EXACT verbatim replacement text that should replace originalText (empty string when originalText is empty);
+            "originalText": the EXACT verbatim text from the chapter that must be replaced —
+              INCLUDE AT LEAST 10–20 CHARACTERS OF SURROUNDING CONTEXT ON EACH SIDE so the
+              replacement is uniquely identifiable within the chapter. Copy character-for-character.
+              Use empty string if the fix requires insertion or structural restructuring rather than replacement,
+            "replacementText": the EXACT verbatim replacement text (empty string when originalText is empty),
+            "position": a 1-indexed INTEGER representing the line number in the chapter content
+              where this issue occurs. Count lines from the start of the provided chapter content.
+              This disambiguates when the same phrase appears multiple times.
             use empty array if no issues),
           "summary" (string — one concise sentence describing the overall chapter quality).
-        For each issue, provide verbatim originalText/replacementText whenever possible — the editor will apply them mechanically without an LLM call.
+        For each issue, provide verbatim originalText/replacementText whenever possible so the editor
+        can apply them mechanically without an LLM call. The originalText must be long enough to be
+        uniquely identifiable in the chapter.
         IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
         Book: {PromptPlaceholders.Title} | Genre: {PromptPlaceholders.Genre}
         IMPORTANT: Write all string values in {PromptPlaceholders.Language}.
@@ -210,30 +241,60 @@ public static class DefaultPrompts
 
     public static readonly string ContinuityCheckerFull =
         $"""
-        You are a quality checker for fiction manuscripts. Review the complete manuscript for both
-        continuity and style issues across all chapters.
+        You are a quality checker for fiction manuscripts. Review the complete manuscript across
+        ALL chapters for continuity, grammar, repetition, and style issues.
+
         CONTINUITY: Identify plot holes, character inconsistencies (names, appearance, backstory),
         timeline errors, location contradictions, and conflicts with the canonical planning documents
         (character profiles, plot threads, story bible). Reference the documents by name when reporting issues.
-        STYLE: Identify overarching style problems: head-hopping across chapters, inconsistent character
-        voice, tonal inconsistencies, and structural pacing issues. Also identify:
+
+        GRAMMAR: Across the full manuscript, identify grammar and mechanics errors including:
+        - Subject/object pronoun errors, subject-verb agreement mismatches
+        - Misplaced or dangling modifiers
+        - Missing or extra punctuation (commas, apostrophe errors)
+        - Sentence fragments, run-on sentences that need splitting
+        - Inconsistent tense within scenes across chapters
+
+        REPETITION: Identify duplicated or echoed language across the full manuscript:
         - Characters, places, or objects re-introduced across multiple chapters as if new to the reader
-          (repeated physical descriptions or backstory already established in earlier chapters).
+          (repeated physical descriptions or backstory already established in earlier chapters)
+        - Identical or near-identical phrases, descriptions, or sentence structures appearing more
+          than once anywhere in the manuscript
         - Phrases, metaphors, similes, or images that recur across multiple chapters without intentional
-          purpose (echoed language that makes chapters feel alike).
-        - Recycled scene-entry beats that appear as opening moves in more than one chapter (e.g. waking
-          up, looking in a mirror, staring out a window).
+          purpose (echoed language that makes chapters feel alike)
+        - Recycled scene-entry beats that appear as opening moves in more than one chapter
+          (e.g. waking up, looking in a mirror, staring out a window)
+        - Repetition of world facts, character details, or location descriptions already conveyed
+          elsewhere in the manuscript
+
+        STYLE: Identify overarching style problems across chapters:
+        - Head-hopping between POV characters within or across scenes
+        - Inconsistent character voice (a character's dialogue/register shifting without reason)
+        - Tonal inconsistencies between chapters that should be consistent
+        - Structural pacing issues (rushing key moments, padding filler)
+        - Passive voice overuse where active would be stronger
+        - Redundant descriptions that state the same thing in multiple places
+        - Unclear dialogue attribution across scenes
+
         Return a JSON object with exactly these fields:
           "hasIssues" (boolean — true if any issues were found),
-          "issues" (array of objects — each object has five string fields:
-            "type": "continuity" or "style",
-            "description": specific description naming the problem and affected chapters,
+          "issues" (array of objects — each object has these fields:
+            "type": one of "continuity", "grammar", "repetition", or "style",
+            "description": specific description naming the problem and affected chapter(s),
             "proposedFix": a concrete, actionable text change that fully resolves the issue,
-            "originalText": the EXACT verbatim text from the chapter that must be replaced — copy it character-for-character (empty string if the fix requires insertion or structural restructuring),
-            "replacementText": the EXACT verbatim replacement text (empty string when originalText is empty);
+            "originalText": the EXACT verbatim text from the chapter that must be replaced —
+              INCLUDE AT LEAST 10–20 CHARACTERS OF SURROUNDING CONTEXT ON EACH SIDE so the
+              replacement is uniquely identifiable within the chapter. Copy character-for-character.
+              Use empty string if the fix requires insertion or structural restructuring rather than replacement,
+            "replacementText": the EXACT verbatim replacement text (empty string when originalText is empty),
+            "position": a 1-indexed INTEGER representing the line number in the chapter content
+              where this issue occurs. Count lines from the start of that chapter's content.
+              This disambiguates when the same phrase appears multiple times.
             use empty array if no issues),
           "summary" (string — one concise sentence summarising the overall manuscript quality).
-        For each issue, provide verbatim originalText/replacementText whenever possible — the editor will apply them mechanically without an LLM call.
+        For each issue, provide verbatim originalText/replacementText whenever possible so the editor
+        can apply them mechanically without an LLM call. The originalText must be long enough to be
+        uniquely identifiable in the chapter.
         IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
         Book: {PromptPlaceholders.Title} | Genre: {PromptPlaceholders.Genre}
         IMPORTANT: Write all string values in {PromptPlaceholders.Language}.
