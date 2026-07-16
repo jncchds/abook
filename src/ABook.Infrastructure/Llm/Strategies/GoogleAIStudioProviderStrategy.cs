@@ -44,10 +44,22 @@ public class GoogleAIStudioProviderStrategy : ILlmProviderStrategy
                 OpenAIProviderHelpers.CreateOpenAIClient(OpenAICompatEndpoint, config.ApiKey));
     }
 
-    public PromptExecutionSettings CreateExecutionSettings(float temperature, string? jsonSchema = null) =>
-        new GeminiPromptExecutionSettings
+    public PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, string? jsonSchema = null)
+    {
+        var settings = new GeminiPromptExecutionSettings
         {
-            Temperature = (double?)temperature,
+            Temperature = (double?)(config.Temperature > 0 ? config.Temperature : null),
             ResponseMimeType = !string.IsNullOrWhiteSpace(jsonSchema) ? "application/json" : null,
         };
+
+        // Pass max output tokens via ExtensionData since GeminiPromptExecutionSettings
+        // does not expose it as a direct property.
+        if (config.MaxTokens.HasValue && config.MaxTokens.Value > 0)
+            settings.ExtensionData!["max_output_tokens"] = config.MaxTokens.Value;
+
+        // GoogleAIStudio does not expose timeout or reasoning_effort as execution parameters.
+        // These fields are silently ignored for this provider.
+
+        return settings;
+    }
 }

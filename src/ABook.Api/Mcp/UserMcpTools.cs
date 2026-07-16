@@ -155,6 +155,10 @@ public class UserMcpTools : McpToolBase
         config.Endpoint = preset.Endpoint;
         config.ApiKey = preset.ApiKey;
         config.EmbeddingModelName = preset.EmbeddingModelName;
+        config.Temperature = preset.Temperature ?? 0.8f;
+        config.TimeoutMs = preset.TimeoutMs;
+        config.ReasoningEffort = preset.ReasoningEffort;
+        config.MaxTokens = preset.MaxTokens;
         await _repo.UpsertLlmConfigAsync(config);
         return JsonSerializer.Serialize(new
         {

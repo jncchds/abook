@@ -77,6 +77,10 @@ export interface LlmConfig {
   endpoint: string
   apiKey?: string
   embeddingModelName?: string
+  temperature?: number | null
+  timeoutMs?: number | null
+  reasoningEffort?: string | null
+  maxTokens?: number | null
 }
 
 export interface AgentRunStatus {
@@ -353,6 +357,10 @@ export interface LlmPreset {
   endpoint: string
   apiKey?: string | null
   embeddingModelName?: string | null
+  temperature?: number | null
+  timeoutMs?: number | null
+  reasoningEffort?: string | null
+  maxTokens?: number | null
   createdAt?: string
   updatedAt?: string
 }

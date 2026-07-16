@@ -13,8 +13,16 @@ public class OllamaProviderStrategy : ILlmProviderStrategy
 {
     public LlmProvider Provider => LlmProvider.Ollama;
 
-    public IChatCompletionService CreateChatCompletion(LlmConfiguration config) =>
-        new OllamaApiClient(new Uri(config.Endpoint), config.ModelName).AsChatCompletionService();
+    public IChatCompletionService CreateChatCompletion(LlmConfiguration config)
+    {
+        var httpClient = new HttpClient
+        {
+            BaseAddress = new Uri(config.Endpoint),
+            Timeout = TimeSpan.FromMilliseconds(config.TimeoutMs ?? 120000)
+        };
+        // OllamaApiClient owns the HttpClient for its lifetime; dispose when SK service is disposed.
+        return new OllamaApiClient(httpClient, config.ModelName).AsChatCompletionService();
+    }
 
     public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGeneration(LlmConfiguration config)
     {
@@ -34,8 +42,20 @@ public class OllamaProviderStrategy : ILlmProviderStrategy
 
     // The SK 1.74.0-alpha Ollama connector does not expose Ollama's `format: "json"` API parameter
     // via OllamaPromptExecutionSettings. JSON output quality is ensured by the prompt text alone.
-    // The SK 1.74.0-alpha Ollama connector does not expose Ollama's `format: "json"` API parameter
-    // via OllamaPromptExecutionSettings. JSON output quality is ensured by the prompt text alone.
-    public PromptExecutionSettings CreateExecutionSettings(float temperature, string? jsonSchema = null) =>
-        new OllamaPromptExecutionSettings { Temperature = (float?)temperature };
+    public PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, string? jsonSchema = null)
+    {
+        var settings = new OllamaPromptExecutionSettings
+        {
+            Temperature = (float?)(config.Temperature > 0 ? config.Temperature : null),
+            NumPredict = config.MaxTokens,
+            ExtensionData = new Dictionary<string, object>(),
+        };
+
+        if (config.TimeoutMs.HasValue && config.TimeoutMs.Value > 0)
+            settings.ExtensionData["timeout"] = config.TimeoutMs.Value;
+        if (!string.IsNullOrWhiteSpace(config.ReasoningEffort))
+            settings.ExtensionData["reasoning_effort"] = config.ReasoningEffort;
+
+        return settings;
+    }
 }

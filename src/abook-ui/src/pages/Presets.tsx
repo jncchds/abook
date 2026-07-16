@@ -5,7 +5,11 @@ import { PROVIDERS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PR
 
 const emptyForm = {
   name: '', provider: 'Ollama', modelName: '', endpoint: '', apiKey: '', embeddingModelName: '',
-} as const
+  temperature: undefined as number | undefined,
+  timeoutMs: undefined as number | undefined,
+  reasoningEffort: undefined as string | undefined,
+  maxTokens: undefined as number | undefined,
+}
 
 export default function Presets() {
   const [presets, setPresets] = useState<LlmPreset[]>([])
@@ -13,6 +17,7 @@ export default function Presets() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   // Model fetching — same pattern as BookSettings LLM config form
   const [models, setModels] = useState<ProviderModel[]>([])
@@ -57,6 +62,10 @@ export default function Presets() {
       endpoint: preset.endpoint,
       apiKey: preset.apiKey ?? '',
       embeddingModelName: preset.embeddingModelName ?? '',
+      temperature: preset.temperature ?? undefined,
+      timeoutMs: preset.timeoutMs ?? undefined,
+      reasoningEffort: preset.reasoningEffort ?? undefined,
+      maxTokens: preset.maxTokens ?? undefined,
     })
   }
 
@@ -168,6 +177,57 @@ export default function Presets() {
             API Key (optional)
             <input type="password" value={form.apiKey ?? ''} onChange={e => setForm(f => ({ ...f, apiKey: e.target.value }))} />
           </label>
+          <details open={showAdvanced} onToggle={e => setShowAdvanced((e.target as HTMLDetailsElement).open)} style={{ marginTop: '0.75rem' }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 600, userSelect: 'none' }}>⚙ Advanced LLM Parameters</summary>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.75rem' }}>
+              <label>
+                Temperature (0–1)
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="default (0.8)"
+                  value={form.temperature ?? ''}
+                  onChange={e => setForm(f => ({ ...f, temperature: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                />
+                <span className="hint">Higher = more creative. Leave blank for default.</span>
+              </label>
+              <label>
+                Timeout (ms)
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]+"
+                  placeholder="default (no timeout)"
+                  value={form.timeoutMs ?? ''}
+                  onChange={e => setForm(f => ({ ...f, timeoutMs: e.target.value === '' ? undefined : parseInt(e.target.value, 10) }))}
+                />
+                <span className="hint">Request timeout. Leave blank for no override.</span>
+              </label>
+              <label>
+                Reasoning effort
+                <select value={form.reasoningEffort ?? ''} onChange={e => setForm(f => ({ ...f, reasoningEffort: e.target.value || undefined }))}>
+                  <option value="">Default</option>
+                  <option value="none">Disabled</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+                <span className="hint">For reasoning models (DeepSeek-R1, Qwen3). Leave blank for model default.</span>
+              </label>
+              <label>
+                Max tokens
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]+"
+                  placeholder="default (provider default)"
+                  value={form.maxTokens ?? ''}
+                  onChange={e => setForm(f => ({ ...f, maxTokens: e.target.value === '' ? undefined : parseInt(e.target.value, 10) }))}
+                />
+                <span className="hint">Maximum output tokens. Leave blank for provider default.</span>
+              </label>
+            </div>
+          </details>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem' }}>
             <button type="submit">{editingId !== null ? 'Update Preset' : 'Save Preset'}</button>
             {editingId !== null && (

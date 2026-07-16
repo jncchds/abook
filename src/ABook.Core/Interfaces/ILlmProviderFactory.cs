@@ -11,9 +11,9 @@ public interface ILlmProviderFactory
     IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGeneration(LlmConfiguration config);
     Kernel CreateKernel(LlmConfiguration config);
     /// <summary>
-    /// Creates provider-specific <see cref="PromptExecutionSettings"/> with the correct JSON output
-    /// format parameter when a JSON schema is provided. When <paramref name="jsonSchema"/> is null,
-    /// no response format constraint is applied.
+    /// Creates provider-specific <see cref="PromptExecutionSettings"/> from the given LLM configuration,
+    /// applying Temperature, TimeoutMs, ReasoningEffort, and MaxTokens mapped to each provider's native
+    /// parameters. When a JSON schema is provided, constrains output format accordingly.
     /// </summary>
-    PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, float temperature, string? jsonSchema = null);
+    PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, string? jsonSchema = null);
 }

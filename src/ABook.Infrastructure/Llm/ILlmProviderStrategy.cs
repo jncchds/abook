@@ -12,8 +12,10 @@ public interface ILlmProviderStrategy
     IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGeneration(LlmConfiguration config);
     void ConfigureKernelBuilder(IKernelBuilder builder, LlmConfiguration config);
     /// <summary>
-    /// Creates provider-specific execution settings with the appropriate JSON output format parameter
-    /// when a schema is provided. When <paramref name="jsonSchema"/> is null, no response format constraint is applied.
+    /// Creates provider-specific execution settings from the given LLM configuration. Reads
+    /// Temperature, TimeoutMs, ReasoningEffort, and MaxTokens from config and maps them to
+    /// the provider's native parameters (or ExtensionData for Ollama). When <paramref name="jsonSchema"/>
+    /// is non-null, the settings constrain JSON output format.
     /// </summary>
-    PromptExecutionSettings CreateExecutionSettings(float temperature, string? jsonSchema = null);
+    PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, string? jsonSchema = null);
 }

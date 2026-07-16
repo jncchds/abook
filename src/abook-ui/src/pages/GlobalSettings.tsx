@@ -8,7 +8,7 @@ import { useAuth } from '../hooks/useAuth'
 
 export default function GlobalSettings() {
   const { user, setUser } = useAuth()
-  const [config, setConfig] = useState<LlmConfig>({ ...INITIAL_LLM_CONFIG })
+  const [config, setConfig] = useState<LlmConfig>({ ...INITIAL_LLM_CONFIG, temperature: undefined as number | undefined, timeoutMs: undefined as number | undefined, reasoningEffort: undefined as string | undefined, maxTokens: undefined as number | undefined })
   const { supported: notifSupported, permission, enabled: notifEnabled, setEnabled: setNotifEnabled } = useNotifications()
   const [models, setModels] = useState<ProviderModel[]>([])
   const [modelsLoading, setModelsLoading] = useState(false)
@@ -81,6 +81,10 @@ export default function GlobalSettings() {
       endpoint: config.endpoint,
       apiKey: config.apiKey ?? '',
       embeddingModelName: config.embeddingModelName ?? '',
+      temperature: config.temperature || undefined,
+      timeoutMs: config.timeoutMs || undefined,
+      reasoningEffort: config.reasoningEffort || undefined,
+      maxTokens: config.maxTokens || undefined,
     }
     const existing = presets.find(p => p.userId !== null && p.name.toLowerCase() === name.toLowerCase())
     if (existing) {
@@ -105,6 +109,10 @@ export default function GlobalSettings() {
       endpoint: preset.endpoint || defaultEndpoint,
       apiKey: preset.apiKey ?? undefined,
       embeddingModelName: preset.embeddingModelName ?? undefined,
+      temperature: preset.temperature ?? undefined,
+      timeoutMs: preset.timeoutMs ?? undefined,
+      reasoningEffort: preset.reasoningEffort ?? undefined,
+      maxTokens: preset.maxTokens ?? undefined,
     }
     setConfig(newConfig)
     fetchModels(newConfig.endpoint, newConfig.provider, newConfig.apiKey)
@@ -381,6 +389,57 @@ export default function GlobalSettings() {
             API Key (optional)
             <input type="password" value={config.apiKey ?? ''} onChange={e => setConfig(c => ({ ...c, apiKey: e.target.value }))} />
           </label>
+          <details style={{ marginTop: '0.75rem' }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 600, userSelect: 'none' }}>⚙ Advanced LLM Parameters</summary>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.75rem' }}>
+              <label>
+                Temperature (0–1)
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="default (0.8)"
+                  value={config.temperature ?? ''}
+                  onChange={e => setConfig(c => ({ ...c, temperature: e.target.value === '' ? undefined : parseFloat(e.target.value) }))}
+                />
+                <span className="hint">Higher = more creative. Leave blank for default.</span>
+              </label>
+              <label>
+                Timeout (ms)
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]+"
+                  placeholder="default (no timeout)"
+                  value={config.timeoutMs ?? ''}
+                  onChange={e => setConfig(c => ({ ...c, timeoutMs: e.target.value === '' ? undefined : parseInt(e.target.value, 10) }))}
+                />
+                <span className="hint">Request timeout. Leave blank for no override.</span>
+              </label>
+              <label>
+                Reasoning effort
+                <select value={config.reasoningEffort ?? ''} onChange={e => setConfig(c => ({ ...c, reasoningEffort: e.target.value || undefined }))}>
+                  <option value="">Default</option>
+                  <option value="none">Disabled</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+                <span className="hint">For reasoning models (DeepSeek-R1, Qwen3). Leave blank for model default.</span>
+              </label>
+              <label>
+                Max tokens
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]+"
+                  placeholder="default (provider default)"
+                  value={config.maxTokens ?? ''}
+                  onChange={e => setConfig(c => ({ ...c, maxTokens: e.target.value === '' ? undefined : parseInt(e.target.value, 10) }))}
+                />
+                <span className="hint">Maximum output tokens. Leave blank for provider default.</span>
+              </label>
+            </div>
+          </details>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '0.25rem' }}>
             <button type="submit">Save LLM Config</button>
             {saved && <span className="saved-msg">✓ Saved</span>}

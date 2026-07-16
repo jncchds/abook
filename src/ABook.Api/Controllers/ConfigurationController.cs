@@ -35,7 +35,11 @@ public class ConfigurationController : ControllerBase
             ModelName = req.ModelName,
             Endpoint = req.Endpoint,
             ApiKey = req.ApiKey,
-            EmbeddingModelName = req.EmbeddingModelName
+            EmbeddingModelName = req.EmbeddingModelName,
+            Temperature = req.Temperature ?? 0.8f,
+            TimeoutMs = req.TimeoutMs,
+            ReasoningEffort = req.ReasoningEffort,
+            MaxTokens = req.MaxTokens
         };
         var saved = await _repo.UpsertLlmConfigAsync(config);
         return Ok(saved);
@@ -48,4 +52,8 @@ public record LlmConfigRequest(
     string ModelName,
     string Endpoint,
     string? ApiKey,
-    string? EmbeddingModelName);
+    string? EmbeddingModelName,
+    float? Temperature = null,
+    int? TimeoutMs = null,
+    string? ReasoningEffort = null,
+    int? MaxTokens = null);

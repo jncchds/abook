@@ -16,6 +16,19 @@ public class LlmConfiguration
     /// </summary>
     public string? ApiKey { get; set; }
     public string? EmbeddingModelName { get; set; }
+    /// <summary>
+    /// Sampling temperature (0–1). Null/empty means use ABook's default (0.8f).
+    /// </summary>
+    public float Temperature { get; set; } = 0.8f;
+    /// <summary>Request timeout in milliseconds. 0 or negative = no override.</summary>
+    public int? TimeoutMs { get; set; }
+    /// <summary>
+    /// Reasoning effort for reasoning-capable models.
+    /// Values: "none" | "low" | "medium" | "high". Null/empty = model default.
+    /// </summary>
+    public string? ReasoningEffort { get; set; }
+    /// <summary>Maximum output tokens. 0 or negative = provider default.</summary>
+    public int? MaxTokens { get; set; }
 
     [JsonIgnore] public Book? Book { get; set; }
     [JsonIgnore] public AppUser? User { get; set; }

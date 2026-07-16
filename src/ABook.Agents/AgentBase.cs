@@ -57,7 +57,7 @@ public abstract class AgentBase
         System.Text.RegularExpressions.Regex? stopStreamingAt = null, string? jsonSchema = null)
     {
         var chat = kernel.GetRequiredService<IChatCompletionService>();
-        var settings = LlmFactory.CreateExecutionSettings(config, 0.8f, jsonSchema);
+        var settings = LlmFactory.CreateExecutionSettings(config, jsonSchema);
         // Reuse the singleton buffer so the HTTP endpoint can serve accumulated content on hard-refresh.
         // Clear any stale content from a previous run with the same key before starting.
         var sb = StateService.GetOrCreateStreamBuffer(bookId, chapterId, role.ToString());

@@ -39,6 +39,10 @@ public class PresetsController : ControllerBase
             Endpoint = req.Endpoint,
             ApiKey = req.ApiKey,
             EmbeddingModelName = req.EmbeddingModelName,
+            Temperature = req.Temperature ?? 0.8f,
+            TimeoutMs = req.TimeoutMs,
+            ReasoningEffort = req.ReasoningEffort,
+            MaxTokens = req.MaxTokens,
         };
         var created = await _repo.CreatePresetAsync(preset);
         return CreatedAtAction(nameof(GetAll), new { id = created.Id }, created);
@@ -60,6 +64,10 @@ public class PresetsController : ControllerBase
         existing.Endpoint = req.Endpoint;
         existing.ApiKey = req.ApiKey;
         existing.EmbeddingModelName = req.EmbeddingModelName;
+        existing.Temperature = req.Temperature ?? 0.8f;
+        existing.TimeoutMs = req.TimeoutMs;
+        existing.ReasoningEffort = req.ReasoningEffort;
+        existing.MaxTokens = req.MaxTokens;
         await _repo.UpdatePresetAsync(existing);
         return Ok(existing);
     }
@@ -84,4 +92,8 @@ public record PresetRequest(
     string ModelName,
     string Endpoint,
     string? ApiKey,
-    string? EmbeddingModelName);
+    string? EmbeddingModelName,
+    float? Temperature = null,
+    int? TimeoutMs = null,
+    string? ReasoningEffort = null,
+    int? MaxTokens = null);

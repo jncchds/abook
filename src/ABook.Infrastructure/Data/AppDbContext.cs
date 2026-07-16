@@ -8,6 +8,14 @@ public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    {
+        base.OnConfiguring(optionsBuilder);
+        // Suppress pending model changes warning during startup migration — harmless, migration applies anyway.
+        optionsBuilder.ConfigureWarnings(warnings => warnings.Ignore(
+            Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
+    }
+
     public DbSet<Book> Books => Set<Book>();
     public DbSet<Chapter> Chapters => Set<Chapter>();
     public DbSet<ChapterVersion> ChapterVersions => Set<ChapterVersion>();

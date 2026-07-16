@@ -56,12 +56,21 @@ public class OpenAIProviderStrategy : ILlmProviderStrategy
         }
     }
 
-    public PromptExecutionSettings CreateExecutionSettings(float temperature, string? jsonSchema = null) =>
-        new OpenAIPromptExecutionSettings
+    public PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, string? jsonSchema = null)
+    {
+        var settings = new OpenAIPromptExecutionSettings
         {
-            Temperature = (double?)temperature,
+            Temperature = (double?)(config.Temperature > 0 ? config.Temperature : null),
             ResponseFormat = !string.IsNullOrWhiteSpace(jsonSchema)
                 ? OpenAI.Chat.ChatResponseFormat.CreateJsonSchemaFormat("structured_output", BinaryData.FromString(jsonSchema!))
                 : null,
         };
+
+        if (config.MaxTokens.HasValue && config.MaxTokens.Value > 0)
+            settings.MaxTokens = config.MaxTokens.Value;
+        if (!string.IsNullOrWhiteSpace(config.ReasoningEffort) && config.ReasoningEffort != "none")
+            settings.ReasoningEffort = config.ReasoningEffort;
+
+        return settings;
+    }
 }

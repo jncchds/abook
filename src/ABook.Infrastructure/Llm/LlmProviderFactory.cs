@@ -44,6 +44,6 @@ public class LlmProviderFactory : ILlmProviderFactory
         return builder.Build();
     }
 
-    public PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, float temperature, string? jsonSchema = null) =>
-        GetStrategy(config.Provider).CreateExecutionSettings(temperature, jsonSchema);
+    public PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, string? jsonSchema = null) =>
+        GetStrategy(config.Provider).CreateExecutionSettings(config, jsonSchema);
 }
