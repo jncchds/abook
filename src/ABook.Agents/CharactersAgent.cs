@@ -1,9 +1,7 @@
-#pragma warning disable SKEXP0001, SKEXP0010, SKEXP0070
 
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ABook.Agents;
 
@@ -30,16 +28,16 @@ public class CharactersAgent : AgentBase
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 2/4 - Characters...", false, ct);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.CharactersAgent, "Running", ct: ct);
 
-        var (kernel, config) = await GetKernelAsync(bookId);
-        var history = new ChatHistory();
+        var config = await GetConfigAsync(bookId);
+        var messages = new List<Microsoft.Extensions.AI.ChatMessage>();
         var ancestorReference = await Repo.BuildAncestorPlanningReferenceAsync(bookId, ct);
 
         var systemPrompt = !string.IsNullOrWhiteSpace(book.CharactersSystemPrompt)
             ? InterpolateSystemPrompt(book.CharactersSystemPrompt, book, bible)
             : InterpolateSystemPrompt(DefaultPrompts.Characters, book, bible);
 
-        history.AddSystemMessage(systemPrompt);
-        history.AddUserMessage($"""
+        messages.Add(new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.System, systemPrompt));
+        messages.Add(new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, $"""
             Book title: {book.Title}
             Genre: {book.Genre}
             Premise: {book.Premise}
@@ -55,9 +53,9 @@ public class CharactersAgent : AgentBase
             {(ancestorReference.Length > 0 ? $"\n{ancestorReference}" : "")}
 
             Create detailed character profiles for this book.
-            """);
+            """));
 
-        var raw = await StreamResponseAsync(kernel, config, history, bookId, null, AgentRole.CharactersAgent, ct, jsonSchema: JsonSchemas.Characters);
+        var raw = await StreamResponseAsync(config, messages, bookId, null, AgentRole.CharactersAgent, ct, jsonSchema: JsonSchemas.Characters);
 
         List<CharacterCard> characters;
         try { characters = Parse(bookId, raw); }

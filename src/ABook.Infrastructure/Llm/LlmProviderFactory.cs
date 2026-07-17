@@ -2,48 +2,39 @@ using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using ABook.Infrastructure.Llm.Strategies;
 using Microsoft.Extensions.AI;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ABook.Infrastructure.Llm;
 
 /// <summary>
-/// Factory that creates Semantic Kernel services (chat completion, embeddings) based on
-/// the configured LLM provider. Uses a strategy pattern for provider-specific implementation.
-/// <para>
-/// <b>Future migration:</b> Consider migrating to Microsoft.Extensions.AI abstraction layer
-/// (https://aka.ms/MLNET-MEAI) to reduce direct dependency on Semantic Kernel and make it
-/// easier to add new providers without SK-specific connectors.
-/// </para>
+/// Factory that creates MEAI chat clients and embedding generators based on the configured LLM provider.
+/// Chat clients use custom HttpClients with configurable timeouts for Ollama and Google.
+/// OpenAI uses the official MEAI.OpenAI connector which provides automatic ReasoningContent extraction.
+/// Embedding generation continues using the existing OpenAI-compatible endpoint pattern for all providers.
 /// </summary>
 public class LlmProviderFactory : ILlmProviderFactory
 {
-    private static readonly Dictionary<LlmProvider, ILlmProviderStrategy> Strategies =
-        new ILlmProviderStrategy[]
+    private static readonly Dictionary<LlmProvider, IProviderConfigMapper> Mappers = new(
+        new IProviderConfigMapper[]
         {
-            new OllamaProviderStrategy(),
-            new OpenAIProviderStrategy(),
-            new GoogleAIStudioProviderStrategy(),
-        }.ToDictionary(s => s.Provider);
+            new OllamaProviderConfigMapper(),
+            new OpenAIProviderConfigMapper(),
+            new GoogleAiStudioProviderConfigMapper(),
+        }.ToDictionary(s => s.Provider));
 
-    private static ILlmProviderStrategy GetStrategy(LlmProvider provider) =>
-        Strategies.TryGetValue(provider, out var strategy)
-            ? strategy
-            : throw new NotSupportedException($"Provider '{provider}' is not supported.");
+    private static IProviderConfigMapper GetMapper(LlmProvider provider) =>
+        Mappers.TryGetValue(provider, out var mapper) ? mapper : throw new NotSupportedException($"Provider '{provider}' is not supported.");
 
-    public IChatCompletionService CreateChatCompletion(LlmConfiguration config) =>
-        GetStrategy(config.Provider).CreateChatCompletion(config);
+    public IChatClient CreateChatClient(LlmConfiguration config) => config.Provider switch
+    {
+        LlmProvider.Ollama => new OllamaChatClient(config),
+        LlmProvider.OpenAI => new OpenAiChatClient(config),
+        LlmProvider.GoogleAIStudio => new GoogleAiStudioChatClient(config),
+        _ => throw new NotSupportedException($"Provider '{config.Provider}' is not supported."),
+    };
 
     public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGeneration(LlmConfiguration config) =>
-        GetStrategy(config.Provider).CreateEmbeddingGeneration(config);
+        GetMapper(config.Provider).CreateEmbeddingGeneration(config);
 
-    public Kernel CreateKernel(LlmConfiguration config)
-    {
-        var builder = Kernel.CreateBuilder();
-        GetStrategy(config.Provider).ConfigureKernelBuilder(builder, config);
-        return builder.Build();
-    }
-
-    public PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, string? jsonSchema = null) =>
-        GetStrategy(config.Provider).CreateExecutionSettings(config, jsonSchema);
+    public ChatOptions BuildChatOptions(LlmConfiguration config, string? jsonSchema = null) =>
+        GetMapper(config.Provider).BuildChatOptions(config, jsonSchema);
 }

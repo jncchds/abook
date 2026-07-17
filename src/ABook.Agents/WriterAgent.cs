@@ -1,4 +1,3 @@
-#pragma warning disable SKEXP0001, SKEXP0010, SKEXP0070
 
 using System.Text;
 using System.Text.Json;
@@ -6,8 +5,6 @@ using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using ABook.Infrastructure.VectorStore;
 using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ABook.Agents;
 
@@ -33,13 +30,13 @@ public class WriterAgent : AgentBase
         await Repo.UpdateChapterAsync(chapter);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Writer, "Running", chapterId, ct);
 
-        var (kernel, config) = await GetKernelAsync(bookId);
+        var config = await GetConfigAsync(bookId);
 
         var contextBlock = await BuildWriterContextAsync(bookId, chapter, config!, ct);
         var synopsesBlock = await BuildChapterSynopsesAsync(bookId, chapter.Number, ct);
         var prevEnding = await GetPreviousChapterEndingAsync(bookId, chapter.Number, paragraphCount: 3);
 
-        var history = new ChatHistory();
+        var messages = new List<Microsoft.Extensions.AI.ChatMessage>();
         var bible = await Repo.GetStoryBibleAsync(bookId);
         var basePrompt = !string.IsNullOrWhiteSpace(book.WriterSystemPrompt)
             ? InterpolateSystemPrompt(book.WriterSystemPrompt, book, bible)
@@ -50,9 +47,9 @@ public class WriterAgent : AgentBase
             {contextBlock}
             {(prevEnding.Length > 0 ? $"\nThe previous chapter ended with:\n{prevEnding}\nContinue the story naturally from this point." : "")}
             """;
-        history.AddSystemMessage(systemPrompt);
+        messages.Add(new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.System, systemPrompt));
 
-        history.AddUserMessage($"""
+        messages.Add(new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, $"""
             {(synopsesBlock.Length > 0 ? $"## Story So Far \u2014 Chapter Synopses\nRefer to this to avoid re-introducing or restating anything already established in prior chapters.\n{synopsesBlock}\n\n" : "")}Write the full content for:
             Chapter {chapter.Number}: {chapter.Title}
             Outline: {chapter.Outline}
@@ -61,9 +58,9 @@ public class WriterAgent : AgentBase
             {(chapter.PayoffNotes.Length > 0 ? $"Pay off in this chapter: {chapter.PayoffNotes}" : "")}
 
             Write at least 1000 words of narrative prose. Output markdown only. Do NOT include a chapter heading.
-            """);
+            """));
 
-        var content = await StreamResponseAsync(kernel, config, history, bookId, chapterId, AgentRole.Writer, ct);
+        var content = await StreamResponseAsync(config, messages, bookId, chapterId, AgentRole.Writer, ct);
         content = StripLeadingChapterHeading(content, chapter.Number, chapter.Title);
 
         // Save this write as a new version so history is preserved
@@ -89,7 +86,7 @@ public class WriterAgent : AgentBase
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Writer, "Done", chapterId, ct);
 
         // Index chapter version in pgvector for RAG
-        try { await IndexChapterAsync(bookId, chapterId, savedVersion.Id, kernel, config!, ct); }
+        try { await IndexChapterAsync(bookId, chapterId, savedVersion.Id, config!, ct); }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {

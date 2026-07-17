@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.1.19 — 2026-07-17
+
+- refactor: **full Semantic Kernel → MEAI migration** — replaced `Microsoft.SemanticKernel` with `Microsoft.Extensions.AI` (v10.*) throughout the agent engine and infrastructure layers; all agents now use `IChatClient` + `GetStreamingResponseAsync` instead of SK's `IChatCompletionService`
+- refactor: extracted provider-specific chat clients into custom implementations — `OllamaApiClient`, `OpenAiChatClient`, `GoogleAiStudioChatClient`; each wraps its provider's API behind the same MEAI `IChatClient` interface
+- refactor: replaced strategy pattern (`ILlmProviderStrategy`) with config-mapper pattern (`IProviderConfigMapper`) in `LlmProviderFactory`; cleaner DI mapping per provider
+- refactor: removed all SK packages and pragmas (`SKEXP0070`, `Microsoft.SemanticKernel.*`); simplified csproj references to just `Microsoft.Extensions.AI 10.*` + `Microsoft.Extensions.AI.OpenAI 10.*`
+- refactor: `AgentBase.StreamResponseAsync` signature changed — takes `LlmConfiguration` + `IEnumerable<ChatMessage>` instead of SK `Kernel` + `ChatHistory`; reasoning/thinking extraction unified under MEAI's `AdditionalProperties["ReasoningContent"]` surface
+- feat: **LLM thinking/reasoning content captured and saved as agent messages** — supports both vendor metadata keys (`ReasoningContent`) from MEAI streaming updates AND inline `<think>…</think>` / `<thinking>…</thinking>` tags (DeepSeek-R1, Qwen3, etc.); merged into a single SystemNote with 💭 prefix; UI refreshes via `MessagesUpdated` SignalR event
+- docs: updated README.md architecture diagram and tech stack table to reflect MEAI instead of Semantic Kernel
+- docs: updated AGENTS.md Phase 3 description, decisions section, and relevant files list to match the MEAI refactor
+
+## v0.1.18 — 2026-07-16
+
+- llm: added execution parameters (Temperature, TimeoutMs, ReasoningEffort, MaxTokens) to LlmConfiguration and LlmPreset models; UI pages updated with controls for temperature slider, timeout input, reasoning effort selector, max tokens input
+- ollama: fixed HttpClient timeout leak — OllamaApiClient now receives custom HttpClient with config.TimeoutMs applied (previously used .NET default 100s)
+- migration: AddLlmExecutionParameters adds Temperature, TimeoutMs, ReasoningEffort, MaxTokens columns to LlmConfigurations and LlmPresets tables
+- ui: Presets page loads presets on mount; added temperature/timeout/reasoning/max-tokens fields to preset forms (GlobalSettings, BookSettings, Presets)
+
 ## v0.1.17 — 2026-07-15
 
 - fix: presets page no longer showed an empty list on mount; added missing `getPresets()` call so the Presets page loads user-owned + global presets from the server (same API as BookSettings/GlobalSettings)

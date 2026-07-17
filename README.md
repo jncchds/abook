@@ -35,7 +35,7 @@ ABook is a self-hosted web application that uses AI agents to collaboratively wr
 [React SPA — served as static files from ASP.NET wwwroot]
         ↕ REST API + SignalR
 [ASP.NET Core 10 API]
-        ↕ Semantic Kernel          ↕ EF Core + pgvector
+        ↕ MEAI (pluggable LLM)   ↕ EF Core + pgvector
 [LLM (Ollama/OpenAI/…)]    [PostgreSQL (vectors stored in-DB)]
 ```
 
@@ -288,7 +288,8 @@ The multi-stage Dockerfile builds the React app (Node 20), compiles the .NET API
 | Layer | Technology |
 |---|---|
 | Frontend | React 19, TypeScript, Vite, Zustand, react-markdown |
-| Backend | ASP.NET Core 10, C#, Semantic Kernel |
+| Backend | ASP.NET Core 10, C#, MEAI |
+| AI layer | Microsoft.Extensions.AI 10.*, `Microsoft.Extensions.AI.OpenAI` 10.* |
 | Database | PostgreSQL 16 via EF Core 10 + Npgsql |
 | Vector store | pgvector (stored in PostgreSQL, `Pgvector.EntityFrameworkCore` 0.x) |
 | Real-time | SignalR |

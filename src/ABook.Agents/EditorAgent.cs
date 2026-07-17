@@ -1,11 +1,8 @@
-#pragma warning disable SKEXP0001, SKEXP0010, SKEXP0070
 
 using System.Text.Json;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ABook.Agents;
 
@@ -38,7 +35,7 @@ public class EditorAgent : AgentBase
         await Repo.UpdateChapterAsync(chapter);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Running", chapterId, ct);
 
-        var (kernel, config) = await GetKernelAsync(bookId);
+        var config = await GetConfigAsync(bookId);
 
         // Cross-chapter context: full synopsis spine + 4 targeted RAG queries
         var synopsesBlock = await BuildChapterSynopsesAsync(bookId, chapter.Number, ct);
@@ -73,8 +70,7 @@ public class EditorAgent : AgentBase
             phrasesRag  = await GetRagContextAsync(bookId, phrasesQuery,  4, LlmFactory, config, chapter.Id, ct);
         }
 
-        var history = new ChatHistory();
-        var bible = await Repo.GetStoryBibleAsync(bookId);
+        // History variable intentionally removed — not used in this branch.
 
         if (checkerResult is { HasIssues: true, Issues.Length: > 0 })
         {
@@ -194,8 +190,8 @@ public class EditorAgent : AgentBase
         await Repo.AddChapterVersionAsync(patchVersion);
 
         // Re-index the edited content so subsequent RAG queries see the corrected prose
-        var (kernel, config) = await GetKernelAsync(bookId);
-        try { await IndexChapterAsync(bookId, chapterId, patchVersion.Id, kernel, config!, ct); }
+        var config = await GetConfigAsync(bookId);
+        try { await IndexChapterAsync(bookId, chapterId, patchVersion.Id, config!, ct); }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
@@ -219,7 +215,7 @@ public class EditorAgent : AgentBase
         var book = await Repo.GetByIdAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
 
-        var (kernel, config) = await GetKernelAsync(bookId);
+        var config = await GetConfigAsync(bookId);
         var bible = await Repo.GetStoryBibleAsync(bookId);
 
         // Cross-chapter context: synopsis spine + 4 targeted RAG queries for anti-repetition
@@ -253,13 +249,13 @@ public class EditorAgent : AgentBase
             phrasesRag  = await GetRagContextAsync(bookId, phrasesQuery,  4, LlmFactory, config, chapter.Id, ct);
         }
 
-        var history = new ChatHistory();
+        var messages = new List<Microsoft.Extensions.AI.ChatMessage>();
 
         string systemPrompt;
         systemPrompt = !string.IsNullOrWhiteSpace(book.EditorSystemPrompt)
             ? InterpolateSystemPrompt(book.EditorSystemPrompt, book, bible)
             : InterpolateSystemPrompt(DefaultPrompts.Editor, book, bible);
-        history.AddSystemMessage(systemPrompt);
+        messages.Add(new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.System, systemPrompt));
 
         // Build cross-chapter context for anti-repetition checks
         var sb = new System.Text.StringBuilder();
@@ -295,10 +291,10 @@ public class EditorAgent : AgentBase
         }
 
         sb.AppendLine($"\nOriginal content:\n{chapter.Content}");
-        history.AddUserMessage(sb.ToString());
+        messages.Add(new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, sb.ToString()));
 
         // Stream prose only; stop forwarding tokens to SignalR once editorial-notes heading appears
-        var edited = await StreamResponseAsync(kernel, config, history, bookId, chapterId, AgentRole.Editor, ct,
+        var edited = await StreamResponseAsync(config, messages, bookId, chapterId, AgentRole.Editor, ct,
             stopStreamingAt: _notesHeadingRegex);
 
         // Split off the editorial notes section.
@@ -348,7 +344,7 @@ public class EditorAgent : AgentBase
         await Repo.AddChapterVersionAsync(version);
 
         // Re-index the edited content so subsequent RAG queries see the corrected prose
-        try { await IndexChapterAsync(bookId, chapterId, version.Id, kernel, config!, ct); }
+        try { await IndexChapterAsync(bookId, chapterId, version.Id, config!, ct); }
         catch (OperationCanceledException) { throw; }
         catch { /* non-fatal — embeddings unavailable */ }
 
@@ -407,7 +403,7 @@ public class EditorAgent : AgentBase
         var chapter = await Repo.GetChapterAsync(bookId, chapterId)
             ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
 
-        var (kernel, config) = await GetKernelAsync(bookId);
+        var config = await GetConfigAsync(bookId);
         var bible = await Repo.GetStoryBibleAsync(bookId);
 
         string systemPrompt;
@@ -415,8 +411,8 @@ public class EditorAgent : AgentBase
             ? InterpolateSystemPrompt(book.EditorSystemPrompt, book, bible)
             : InterpolateSystemPrompt(DefaultPrompts.Editor, book, bible);
 
-        var history = new ChatHistory();
-        history.AddSystemMessage(systemPrompt);
+        var messages = new List<Microsoft.Extensions.AI.ChatMessage>();
+        messages.Add(new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.System, systemPrompt));
 
         // Build cross-chapter context (same structure as EditWithLlmAsync)
         var sb = new System.Text.StringBuilder();
@@ -443,10 +439,10 @@ public class EditorAgent : AgentBase
         sb.AppendLine(rewriteInstructions);
         sb.AppendLine($"\nChapter content (already mechanically patched — only resolve the creative issues above):");
         sb.AppendLine(contentToEdit);
-        history.AddUserMessage(sb.ToString());
+        messages.Add(new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, sb.ToString()));
 
         // Stream prose only; stop forwarding tokens to SignalR once editorial-notes heading appears
-        var edited = await StreamResponseAsync(kernel, config, history, bookId, chapterId, AgentRole.Editor, ct,
+        var edited = await StreamResponseAsync(config, messages, bookId, chapterId, AgentRole.Editor, ct,
             stopStreamingAt: _notesHeadingRegex);
 
         // Split off the editorial notes section.
@@ -494,7 +490,7 @@ public class EditorAgent : AgentBase
         };
         await Repo.AddChapterVersionAsync(version);
 
-        try { await IndexChapterAsync(bookId, chapterId, version.Id, kernel, config!, ct); }
+        try { await IndexChapterAsync(bookId, chapterId, version.Id, config!, ct); }
         catch (OperationCanceledException) { throw; }
         catch { /* non-fatal */ }
 

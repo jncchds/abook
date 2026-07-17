@@ -1,19 +1,18 @@
 using ABook.Core.Models;
 using Microsoft.Extensions.AI;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ABook.Core.Interfaces;
 
 public interface ILlmProviderFactory
 {
-    IChatCompletionService CreateChatCompletion(LlmConfiguration config);
+    /// <summary>Creates a chat client for streaming completions.</summary>
+    IChatClient CreateChatClient(LlmConfiguration config);
+
+    /// <summary>Creates an embedding generator for RAG context retrieval and chapter indexing.</summary>
     IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGeneration(LlmConfiguration config);
-    Kernel CreateKernel(LlmConfiguration config);
-    /// <summary>
-    /// Creates provider-specific <see cref="PromptExecutionSettings"/> from the given LLM configuration,
-    /// applying Temperature, TimeoutMs, ReasoningEffort, and MaxTokens mapped to each provider's native
-    /// parameters. When a JSON schema is provided, constrains output format accordingly.
-    /// </summary>
-    PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, string? jsonSchema = null);
+
+    /// <summary>Builds ChatOptions from the given LLM configuration, applying Temperature, MaxOutputTokens,
+    /// ReasoningEffort (OpenAI), TimeoutMs mapping, and JSON schema response format constraints.
+    /// Provider-specific extras are set via ChatOptions.Metadata.</summary>
+    ChatOptions BuildChatOptions(LlmConfiguration config, string? jsonSchema = null);
 }

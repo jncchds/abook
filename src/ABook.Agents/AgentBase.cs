@@ -1,11 +1,8 @@
-#pragma warning disable SKEXP0001, SKEXP0010, SKEXP0070
-
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using ABook.Infrastructure.VectorStore;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ABook.Agents;
 
@@ -39,12 +36,32 @@ public abstract class AgentBase
         Logger = loggerFactory.CreateLogger(GetType().FullName ?? GetType().Name);
     }
 
-    protected async Task<(Kernel kernel, LlmConfiguration config)> GetKernelAsync(int bookId)
+    /// <summary>
+    /// Builds a message list with a system prompt followed by a user message.
+    /// Convenience helper for the common two-message pattern used by all agents.
+    /// </summary>
+    protected static List<ChatMessage> BuildMessages(string systemPrompt, string userMessage)
+    {
+        var messages = new List<ChatMessage>();
+        messages.Add(new ChatMessage(ChatRole.System, systemPrompt));
+        messages.Add(new ChatMessage(ChatRole.User, userMessage));
+        return messages;
+    }
+
+    /// <summary>
+    /// Builds a message list with only a system prompt (no user message).
+    /// </summary>
+    protected static List<ChatMessage> BuildSystemMessages(string systemPrompt)
+    {
+        return [new ChatMessage(ChatRole.System, systemPrompt)];
+    }
+
+    protected async Task<LlmConfiguration> GetConfigAsync(int bookId)
     {
         var book = await Repo.GetByIdAsync(bookId);
         var config = await Repo.GetLlmConfigAsync(bookId, book?.UserId)
             ?? throw new InvalidOperationException("No LLM configuration found.");
-        return (LlmFactory.CreateKernel(config), config);
+        return config;
     }
 
 
@@ -53,46 +70,47 @@ public abstract class AgentBase
     /// <param name="suspiciousThreshold">Minimum response length before a 'suspiciously short' warning is emitted. Pass 0 to suppress.</param>
     /// <param name="stopStreamingAt">Optional regex. Once matched against the accumulated buffer, further tokens are still accumulated but no longer forwarded to the SignalR stream. Use to prevent notes/metadata sections from appearing in the chapter view.</param>
     protected async Task<string> StreamResponseAsync(
-        Kernel kernel, LlmConfiguration config, ChatHistory history, int bookId, int? chapterId, AgentRole role, CancellationToken ct, int suspiciousThreshold = 50,
+        LlmConfiguration config, IEnumerable<ChatMessage> messages, int bookId, int? chapterId, AgentRole role, CancellationToken ct, int suspiciousThreshold = 50,
         System.Text.RegularExpressions.Regex? stopStreamingAt = null, string? jsonSchema = null)
     {
-        var chat = kernel.GetRequiredService<IChatCompletionService>();
-        var settings = LlmFactory.CreateExecutionSettings(config, jsonSchema);
+        using var chatClient = LlmFactory.CreateChatClient(config);
+        var chatOptions = LlmFactory.BuildChatOptions(config, jsonSchema);
+
         // Reuse the singleton buffer so the HTTP endpoint can serve accumulated content on hard-refresh.
         // Clear any stale content from a previous run with the same key before starting.
         var sb = StateService.GetOrCreateStreamBuffer(bookId, chapterId, role.ToString());
         sb.Clear();
         // Prompt tokens are stable before the call; compute here so they are available in the catch block.
-        int promptTokens = history.Sum(m => (m.Content?.Length ?? 0)) / 4;
+        int promptTokens = messages.Sum(m => (m.Text?.Length ?? 0)) / 4;
 
         if (DebugLoggingEnabled)
         {
             var req = new System.Text.StringBuilder();
             req.AppendLine($"=== LLM Request [{role}] Book={bookId} Chapter={chapterId} ===");
-            foreach (var msg in history)
-                req.AppendLine($"[{msg.Role}] {msg.Content}");
+            foreach (var msg in messages)
+                req.AppendLine($"[{msg.Role.Value}] {msg.Text}");
             req.AppendLine("=== End Request ===");
             Logger.LogInformation("{LlmRequest}", req.ToString());
         }
 
         var thinkingSb = new System.Text.StringBuilder();
-        // Provider-specific metadata keys that carry reasoning/thinking tokens. Checked once per provider.
-        const string ReasoningMetaKey = "ReasoningContent";
 
         try
         {
             bool stopStreaming = false;
-            await foreach (var chunk in chat.GetStreamingChatMessageContentsAsync(history, settings, kernel, ct))
+            await foreach (var update in chatClient.GetStreamingResponseAsync(messages, chatOptions, ct))
             {
-                // Accumulate vendor-specific thinking/reasoning content from chunk metadata.
-                if (chunk.Metadata is not null &&
-                    chunk.Metadata.TryGetValue(ReasoningMetaKey, out var thinkVal) &&
-                    thinkVal is string ts && ts.Length > 0)
+                // MEAI surfaces reasoning content via AdditionalProperties for providers that support it.
+                if (update.AdditionalProperties is { Count: > 0 })
                 {
-                    thinkingSb.Append(ts);
+                    if (update.AdditionalProperties.TryGetValue("ReasoningContent", out var thinkVal) &&
+                        thinkVal is string reasoningText && reasoningText.Length > 0)
+                    {
+                        thinkingSb.Append(reasoningText);
+                    }
                 }
 
-                if (chunk.Content is { Length: > 0 } token)
+                if (update.Text is { Length: > 0 } token)
                 {
                     sb.Append(token);
                     if (!stopStreaming)
@@ -446,7 +464,7 @@ public abstract class AgentBase
     /// Index a chapter version's content into pgvector for RAG retrieval.
     /// Chunks the content, generates embeddings, and stores them with the version FK.
     /// </summary>
-    protected async Task IndexChapterAsync(int bookId, int chapterId, int chapterVersionId, Kernel kernel, LlmConfiguration config, CancellationToken ct)
+    protected async Task IndexChapterAsync(int bookId, int chapterId, int chapterVersionId, LlmConfiguration config, CancellationToken ct)
     {
         await VectorStore.EnsureCollectionAsync(bookId, ct);
         
