@@ -2,6 +2,9 @@
 
 ## v0.1.19 — 2026-07-17
 
+- fix: chapter view no longer shows checker/analysis output (e.g. "No issues found") as if it were chapter prose — narrowed live-stream token routing in `BookContext` to only Writer and Editor roles; ContinuityChecker tokens with a chapterId are now dropped from the chapter display buffer entirely, since that analysis belongs in the chat panel via SystemNote messages
+- fix: hard-refresh no longer restores stale PreWriteCheck buffers into ChapterView — `useRestoreStream` now computes `activeRole` only for Writer/Editor roles when the running agent targets the currently-viewed chapter; previously ContinuityChecker status on a chapter caused `getStreamBuffer(bookId, "ContinuityChecker", chapterId)` to return cached analysis text and display it as chapter content
+
 - refactor: **full Semantic Kernel → MEAI migration** — replaced `Microsoft.SemanticKernel` with `Microsoft.Extensions.AI` (v10.*) throughout the agent engine and infrastructure layers; all agents now use `IChatClient` + `GetStreamingResponseAsync` instead of SK's `IChatCompletionService`
 - refactor: extracted provider-specific chat clients into custom implementations — `OllamaApiClient`, `OpenAiChatClient`, `GoogleAiStudioChatClient`; each wraps its provider's API behind the same MEAI `IChatClient` interface
 - refactor: replaced strategy pattern (`ILlmProviderStrategy`) with config-mapper pattern (`IProviderConfigMapper`) in `LlmProviderFactory`; cleaner DI mapping per provider

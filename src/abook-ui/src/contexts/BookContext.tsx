@@ -205,8 +205,11 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       } else if (agentRole === 'PlotThreadsAgent') {
         setPlotThreadsStream(prev => prev + token)
       } else if (agentRole === 'ChaptersAgent' || cId === null) {
+        // Planner, final-manuscript continuity check, or any agent without a chapter — planner buffer.
         setPlannerBuffer(prev => prev + token)
-      } else {
+      } else if (agentRole === 'Writer' || agentRole === 'Editor') {
+        // Only Writer and Editor tokens go to the live chapter stream so
+        // ChapterView shows actual prose, never checker/analysis output.
         setStreamingChapterId(cId)
         setStreamBuffer(prev => prev + token)
       }
@@ -256,8 +259,11 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
           getChapters(bookId).then(r => setBook(prev => prev ? { ...prev, chapters: r.data } : prev))
         } else {
           // Writer/Editor/ContinuityChecker Done: patch only the affected chapter.
-          // Fall back to reloading all chapters for full-manuscript continuity check (cId=null).
+          // Clear any in-progress stream buffer so ChapterView falls through to showing
+          // actual persisted chapter.content from DB instead of stale streaming tokens.
           if (cId !== null) {
+            setStreamBuffer('')
+            setStreamingChapterId(null)
             getChapter(bookId, cId)
               .then(r => setBook(prev => prev
                 ? { ...prev, chapters: prev.chapters?.map(ch => ch.id === cId ? r.data : ch) }

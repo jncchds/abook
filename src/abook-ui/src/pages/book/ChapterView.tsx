@@ -22,8 +22,12 @@ export default function ChapterView() {
   const [activating, setActivating] = useState(false)
 
   const chapter = book?.chapters?.find(c => c.id === Number(chapterId))
-  // Pass the active role so the stream buffer can be located by agentRole on hard-refresh
-  const activeRole = runStatus?.chapterId === chapter?.id ? runStatus?.role : undefined
+  // Only restore live prose streams (Writer/Editor) — never analysis agent buffers
+  // like ContinuityChecker, whose content would appear as chapter text.
+  const isChapterActive = runStatus?.chapterId === chapter?.id
+  const contentRoles = ['Writer', 'Editor']
+  const activeRole = isChapterActive && runStatus?.role && contentRoles.includes(runStatus.role)
+    ? runStatus.role : undefined
 
   // Restore in-progress stream on hard-refresh (must be before early returns)
   useRestoreStream(book?.id, isRunning, streamBuffer, activeRole, chapter?.id, (content) => {
