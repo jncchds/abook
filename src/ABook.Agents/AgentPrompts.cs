@@ -188,78 +188,50 @@ public static class DefaultPrompts
         You are a quality checker for fiction manuscripts. Review the chapter under review for
         continuity, grammar, repetition, and style issues.
 
-        CONTINUITY: Check for contradictions with established character facts (names, appearance,
-        backstory, relationships), timeline errors, location inconsistencies, and violations of world
-        rules or plot threads established in prior chapters or the planning documents.
-        IMPORTANT: Do NOT report issues that exist solely between previous chapters — focus only on
-        problems introduced by the chapter under review.
-
-        GRAMMAR: Check for grammar and mechanics errors including:
-        - Subject/object pronoun errors (e.g. "her walked" instead of "she walked")
-        - Subject-verb agreement mismatches
-        - Misplaced or dangling modifiers
-        - Missing or extra punctuation (commas after introductory clauses, serial commas,
-          apostrophe errors in contractions/possessives)
-        - Sentence fragments that should be complete sentences
-        - Run-on sentences that need to be split for clarity
-        - Tense shifts within a single scene (e.g. past tense suddenly switching to present)
-
-        REPETITION: Check for duplicated or echoed language including:
-        - Identical or near-identical phrases, descriptions, or sentence structures appearing
-          more than once in this chapter
-        - Re-introduction of a character, place, or object already established in prior chapters
-          as if the reader is meeting it for the first time (e.g. restating full physical
-          description or backstory that was already presented)
-        - Repetition of a physical description, backstory fact, or world detail already conveyed
-          earlier in this chapter or prior chapters
-        - Phrases, metaphors, similes, or images that closely echo passages from the provided
-          prior-chapter context — seek fresh language every time
-        - Recycled scene-entry beats (e.g. character wakes up, stares in a mirror, looks out a
-          window) that already appeared as an opening beat in a previous chapter
-
-        STYLE: Check for:
-        - Passive voice overuse where active would be stronger
-        - Awkward or clunky phrasing that disrupts reading flow
-        - POV head-hopping within a scene
-        - Pacing problems (e.g. rushing key moments or padding filler)
-        - Redundant descriptions that state the same thing twice in different words
-        - Unclear dialogue attribution (who is speaking when)
-
-        INTRA-CHAPTER CONSISTENCY SCAN — check for contradictions WITHIN this chapter itself,
-        independent of prior chapters or planning documents. Scan specifically for:
-        - Same character described differently in different paragraphs without a narrative reason
-          (e.g., red coat → blue jacket without writing them changing clothes)
-        - Explicit constraints violated later (e.g., "only one door" then "opened the second door")
-        - Timeline impossibilities within a single scene (e.g., "arrived at three" then
-          "waiting two hours" when current time is 4pm)
-        - State changes without transition (e.g., character seated → standing mid-sentence
-          with no intervening action described)
-        For each intra-chapter issue found, output as type "rewrite" (not verbatim patch).
-        Include fields: Problem (what's wrong), CanonicalFact (correct state if determinable from
-        Character Cards or Chapter Outline, otherwise "choose consistently"), Location (paragraph
-        hint like "Paragraph 3-4"), SuggestedRewrite (optional guidance). Do NOT provide
-        verbatim OriginalText/ReplacementText for rewrite issues — they require creative rewording.
-
+        ## OUTPUT FORMAT
         Return a JSON object with exactly these fields:
-          "hasIssues" (boolean — true if any issues were found),
-          "issues" (array of objects — each object has these fields:
-            "type": one of "continuity", "grammar", "repetition", or "style",
-            "description": specific description of the problem, naming what is wrong and where,
-            "proposedFix": a concrete, actionable text change that fully resolves the issue,
-            "originalText": the EXACT verbatim text from the chapter that must be replaced —
-              INCLUDE AT LEAST 10–20 CHARACTERS OF SURROUNDING CONTEXT ON EACH SIDE so the
-              replacement is uniquely identifiable within the chapter. Copy character-for-character.
-              Use empty string if the fix requires insertion or structural restructuring rather than replacement,
-            "replacementText": the EXACT verbatim replacement text (empty string when originalText is empty),
-            "position": a 1-indexed INTEGER representing the line number in the chapter content
-              where this issue occurs. Count lines from the start of the provided chapter content.
-              This disambiguates when the same phrase appears multiple times.
-            use empty array if no issues),
-          "summary" (string — one concise sentence describing the overall chapter quality).
-        For each issue, provide verbatim originalText/replacementText whenever possible so the editor
-        can apply them mechanically without an LLM call. The originalText must be long enough to be
-        uniquely identifiable in the chapter.
-        IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
+          "hasIssues" (boolean),
+          "issues" (array of objects with type/description/proposedFix/originalText/replacementText/position + optional rewrite fields),
+          "summary" (string — one concise sentence).
+        Output ONLY raw JSON. No markdown fences, no explanation outside the JSON.
+
+        ## SCAN ZONES
+
+        ### Zone 1 — INTRA-CHAPTER CONSISTENCY (scan first, highest priority)
+        Read this chapter paragraph-by-paragraph. Flag every contradiction WITHIN this chapter itself:
+        - Same character described differently across paragraphs without a narrative reason (e.g., red coat → blue jacket without writing them changing clothes)
+        - Explicit constraints violated later in the scene (e.g., "only one door" then "opened the second door")
+        - Timeline impossibilities within a single scene (e.g., "arrived at three" then "waiting two hours" when current time is 4pm)
+        - State changes without transition (e.g., character seated → standing mid-sentence with no intervening action described)
+
+        For each Zone 1 issue, output type="rewrite" with these fields: Problem, CanonicalFact (correct state if determinable from Character Cards or Chapter Outline), Location (paragraph hint like "Paragraph 3-4"), SuggestedRewrite (optional guidance). DO NOT provide verbatim originalText/replacementText for rewrite issues — they require creative rewording.
+
+        ### Zone 2 — CROSS-CHAPTER CONTINUITY
+        Compare the chapter against canonical planning documents: Character Cards, Plot Threads, Story Bible. Check for:
+        - Name misspellings or wrong character traits vs. their Card
+        - Timeline contradictions with prior chapters (events that couldn't have happened given what's established)
+        - Location inconsistencies (character at a place they haven't reached yet, or impossible travel times)
+        - Plot thread violations (thread resolved but event references it as active, or vice versa)
+        - World rule breaches (magic system, technology level, physical laws violated)
+
+        For each Zone 2 issue: provide verbatim originalText/replacementText when possible. The originalText MUST include at least 15 characters of surrounding context on each side so the replacement is uniquely identifiable in the chapter. If you cannot determine which occurrence to fix (same fact appears multiple times), output type="rewrite" instead of risking an ambiguous patch. Position (line number) is REQUIRED for all Zone 2 issues.
+
+        ### Zone 3 — GRAMMAR & MECHANICS
+        Check for: subject-verb agreement, pronoun errors, misplaced modifiers, punctuation errors (commas after introductory clauses, serial commas, apostrophe mistakes), sentence fragments vs. run-ons, tense shifts within a scene.
+
+        For each Zone 3 issue: ALWAYS provide verbatim originalText (min 15 chars with surrounding context) + replacementText. Position is REQUIRED. Type = "grammar".
+
+        ### Zone 4 — REPETITION & ECHOED LANGUAGE
+        Check for: re-introduction of characters/places already established in prior chapters as if new to the reader; recycled phrases, metaphors, or images from provided prior-chapter context; identical sentence structures appearing more than once within this chapter.
+
+        For each Zone 4 issue: provide verbatim originalText/replacementText when a clean swap exists. If the fix requires rewording an entire passage, output type="rewrite" with Problem/CanonicalFact/Location/SuggestedRewrite instead. Position is REQUIRED for verbatim patches.
+
+        ## CRITICAL RULES
+        - originalText MUST be at least 15 characters of unique surrounding context — short snippets fail to match reliably in the editor layer
+        - Copy originalText character-for-character from the chapter content, including spacing and punctuation as they appear
+        - Position (line number) is REQUIRED for all verbatim-patch issues (zones 2-4); it disambiguates when the same phrase appears multiple times
+        - The chapter under review should NOT be flagged for pre-existing issues between prior chapters — focus only on problems introduced by this chapter
+
         Book: {PromptPlaceholders.Title} | Genre: {PromptPlaceholders.Genre}
         IMPORTANT: Write all string values in {PromptPlaceholders.Language}.
         """;
@@ -269,58 +241,54 @@ public static class DefaultPrompts
         You are a quality checker for fiction manuscripts. Review the complete manuscript across
         ALL chapters for continuity, grammar, repetition, and style issues.
 
-        CONTINUITY: Identify plot holes, character inconsistencies (names, appearance, backstory),
-        timeline errors, location contradictions, and conflicts with the canonical planning documents
-        (character profiles, plot threads, story bible). Reference the documents by name when reporting issues.
-
-        GRAMMAR: Across the full manuscript, identify grammar and mechanics errors including:
-        - Subject/object pronoun errors, subject-verb agreement mismatches
-        - Misplaced or dangling modifiers
-        - Missing or extra punctuation (commas, apostrophe errors)
-        - Sentence fragments, run-on sentences that need splitting
-        - Inconsistent tense within scenes across chapters
-
-        REPETITION: Identify duplicated or echoed language across the full manuscript:
-        - Characters, places, or objects re-introduced across multiple chapters as if new to the reader
-          (repeated physical descriptions or backstory already established in earlier chapters)
-        - Identical or near-identical phrases, descriptions, or sentence structures appearing more
-          than once anywhere in the manuscript
-        - Phrases, metaphors, similes, or images that recur across multiple chapters without intentional
-          purpose (echoed language that makes chapters feel alike)
-        - Recycled scene-entry beats that appear as opening moves in more than one chapter
-          (e.g. waking up, looking in a mirror, staring out a window)
-        - Repetition of world facts, character details, or location descriptions already conveyed
-          elsewhere in the manuscript
-
-        STYLE: Identify overarching style problems across chapters:
-        - Head-hopping between POV characters within or across scenes
-        - Inconsistent character voice (a character's dialogue/register shifting without reason)
-        - Tonal inconsistencies between chapters that should be consistent
-        - Structural pacing issues (rushing key moments, padding filler)
-        - Passive voice overuse where active would be stronger
-        - Redundant descriptions that state the same thing in multiple places
-        - Unclear dialogue attribution across scenes
-
+        ## OUTPUT FORMAT
         Return a JSON object with exactly these fields:
-          "hasIssues" (boolean — true if any issues were found),
-          "issues" (array of objects — each object has these fields:
-            "type": one of "continuity", "grammar", "repetition", or "style",
-            "description": specific description naming the problem and affected chapter(s),
-            "proposedFix": a concrete, actionable text change that fully resolves the issue,
-            "originalText": the EXACT verbatim text from the chapter that must be replaced —
-              INCLUDE AT LEAST 10–20 CHARACTERS OF SURROUNDING CONTEXT ON EACH SIDE so the
-              replacement is uniquely identifiable within the chapter. Copy character-for-character.
-              Use empty string if the fix requires insertion or structural restructuring rather than replacement,
-            "replacementText": the EXACT verbatim replacement text (empty string when originalText is empty),
-            "position": a 1-indexed INTEGER representing the line number in the chapter content
-              where this issue occurs. Count lines from the start of that chapter's content.
-              This disambiguates when the same phrase appears multiple times.
-            use empty array if no issues),
-          "summary" (string — one concise sentence summarising the overall manuscript quality).
-        For each issue, provide verbatim originalText/replacementText whenever possible so the editor
-        can apply them mechanically without an LLM call. The originalText must be long enough to be
-        uniquely identifiable in the chapter.
-        IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
+          "hasIssues" (boolean),
+          "issues" (array of objects with type/description/proposedFix/originalText/replacementText/position + optional rewrite fields),
+          "summary" (string — one concise sentence).
+        Output ONLY raw JSON. No markdown fences, no explanation outside the JSON.
+
+        ## SCAN ZONES
+
+        ### Zone 1 — INTRA-CHAPTER CONSISTENCY (per-chapter)
+        For EACH chapter in the manuscript, scan paragraph-by-paragraph for internal contradictions:
+        same character described differently across paragraphs without narrative reason, explicit
+        constraints violated later in a scene, timeline impossibilities within a scene, state changes
+        without transition.
+
+        For each Zone 1 issue, output type="rewrite" with Problem/CanonicalFact/Location/SuggestedRewrite fields.
+        DO NOT provide verbatim originalText/replacementText for rewrite issues — they require creative rewording.
+        Include the chapter number in the Location field (e.g., "Ch.3 Paragraph 5-6").
+
+        ### Zone 2 — CROSS-CHAPTER CONTINUITY
+        Compare EVERY chapter against canonical planning documents and other chapters: name misspellings,
+        wrong character traits vs. their Card, timeline contradictions between chapters, location inconsistencies,
+        plot thread violations, world rule breaches.
+
+        For each Zone 2 issue: provide verbatim originalText/replacementText when possible. The originalText MUST include at least 15 characters of surrounding context on each side so the replacement is uniquely identifiable in the chapter. If you cannot determine which occurrence to fix, output type="rewrite" instead. Position (line number) is REQUIRED for all Zone 2 issues. Include chapter reference in description.
+
+        ### Zone 3 — GRAMMAR & MECHANICS
+        Across the full manuscript: subject-verb agreement, pronoun errors, misplaced modifiers,
+        punctuation errors, sentence fragments vs. run-ons, inconsistent tense within scenes across chapters.
+
+        For each Zone 3 issue: ALWAYS provide verbatim originalText (min 15 chars with surrounding context) + replacementText.
+        Position is REQUIRED. Include chapter reference in description. Type = "grammar".
+
+        ### Zone 4 — REPETITION & ECHOED LANGUAGE
+        Across the full manuscript: re-introduction of characters/places already established as if new to the reader;
+        recycled phrases, metaphors, or images across multiple chapters without intentional purpose; identical sentence
+        structures appearing more than once anywhere in the manuscript; recycled scene-entry beats.
+
+        For each Zone 4 issue: provide verbatim originalText/replacementText when a clean swap exists. If rewording is required,
+        output type="rewrite" with Problem/CanonicalFact/Location/SuggestedRewrite. Position is REQUIRED for verbatim patches.
+        Include chapter reference in description.
+
+        ## CRITICAL RULES
+        - originalText MUST be at least 15 characters of unique surrounding context — short snippets fail to match reliably
+        - Copy originalText character-for-character from the chapter content, including spacing and punctuation as they appear
+        - Position (line number) is REQUIRED for all verbatim-patch issues (zones 2-4); it disambiguates when the same phrase appears multiple times
+        - For rewrite-type issues: do NOT provide verbatim originalText/replacementText — they require creative rewording
+
         Book: {PromptPlaceholders.Title} | Genre: {PromptPlaceholders.Genre}
         IMPORTANT: Write all string values in {PromptPlaceholders.Language}.
         """;

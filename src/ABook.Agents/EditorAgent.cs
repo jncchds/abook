@@ -140,7 +140,7 @@ public class EditorAgent : AgentBase
                 continue;
             }
 
-            var match = FindPatchLocation(content, issue);
+            var match = FindPatchLocationV2(content, issue);
             if (match.Offset >= 0)
                 appliedPatches.Add((match.Offset, issue));
             else
@@ -158,6 +158,23 @@ public class EditorAgent : AgentBase
 
         var patchedContent = StripLeadingChapterHeading(content, chapter.Number, chapter.Title);
         var patchedStatus = finalizeStatus ? ChapterStatus.Done : ChapterStatus.Review;
+
+        // ── POST-APPLY VERIFICATION ────────────────────────────────────────
+        // Re-run matching on the final content to catch phantom artifacts
+        // (offset misalignment that left residual originalText behind).
+        var stillPresent = VerifyPatchesApplied(chapter.Content ?? string.Empty, patchedContent, result);
+        if (stillPresent.Count > 0)
+        {
+            Logger.LogWarning("[Book {BookId}] Patch verification: {Count} issue(s) still present after apply.",
+                bookId, stillPresent.Count);
+            foreach (var remaining in stillPresent)
+                Logger.LogWarning("[Book {BookId}] Unresolved: [{Type}] {Description}",
+                    bookId, remaining.Type,
+                    remaining.Description?.Trim().Substring(0, Math.Min(80, remaining.Description?.Length ?? 0)));
+            // Add unresolved items to skippedIssues for the feedback message
+            foreach (var u in stillPresent)
+                skippedIssues.Add((u, "still present after patch application — possible offset misalignment"));
+        }
 
         // Feedback message grouped by issue type with all fields per fix
         var feedbackSb = BuildEditorialFeedback(appliedPatches.Select(p => p.Issue), skippedIssues);
@@ -521,36 +538,70 @@ public class EditorAgent : AgentBase
     ///      as a disambiguator.
     /// Returns PatchMatch with offset and optional skip reason for failures.
     /// </summary>
-    private static PatchMatch FindPatchLocation(string content, CheckerIssue issue)
+    /// <summary>
+    /// Locate an issue's OriginalText in chapter content. Strategy (v2):
+    ///   1. Normalize BOTH sides identically (unify \r\n, trim trailing whitespace per line).
+    ///   2. Build offset mapping from normalized→original positions.
+    ///   3. IndexOf on the normalized strings to find a candidate match.
+    ///   4. If found: translate normalized offset → original offset via the mapping.
+    ///   5. Uniqueness check — if the needle appears multiple times in normalized text,
+    ///      use Position as disambiguator (search ±3 lines around reported line).
+    ///   6. Fallback: paragraph-level matching if exact IndexOf fails or remains ambiguous.
+    /// Returns PatchMatch with offset and optional skip reason for failures.
+    /// </summary>
+    private static PatchMatch FindPatchLocationV2(string content, CheckerIssue issue)
     {
-        var normalized = NormalizeWhitespace(content);
-        var normOriginal = NormalizeWhitespace(issue.OriginalText);
+        var normalizedContent = NormalizeForMatch(content);
+        var normNeedle = NormalizeForMatch(issue.OriginalText);
 
-        if (string.IsNullOrEmpty(normOriginal))
+        if (string.IsNullOrEmpty(normNeedle))
             return PatchMatch.Skipped("original text is empty");
 
-        // 1. Position-first: search within ±3 lines of reported line number
+        // Build offset mapping: normalized position → original position
+        int[] mapping = BuildOffsetMapping(content, normalizedContent);
+
+        // 1. Full-text IndexOf on normalized strings
+        int firstNormIdx = normalizedContent.IndexOf(normNeedle, StringComparison.Ordinal);
+        if (firstNormIdx < 0) return PatchMatch.Skipped("text not found in chapter (even after normalization)");
+
+        // Translate to original offset
+        int origOffset;
+        if (firstNormIdx >= mapping.Length)
+            return PatchMatch.Skipped("offset translation failed — normalized index out of range");
+        origOffset = mapping[firstNormIdx];
+
+        // 2. Uniqueness check
+        int occurrenceCount = CountOccurrences(normalizedContent, normNeedle);
+        if (occurrenceCount == 1)
+            return PatchMatch.Found(origOffset);
+
+        // 3. Ambiguous — use Position as disambiguator
         if (issue.Position.HasValue && issue.Position.Value > 0)
         {
-            var matchNearPosition = FindInLineWindow(normalized, normOriginal, issue.Position.Value);
-            if (matchNearPosition >= 0) return PatchMatch.Found(matchNearPosition);
+            var matchNearPosition = FindInLineWindow(normalizedContent, normNeedle, issue.Position.Value);
+            if (matchNearPosition >= 0) return PatchMatch.Found(mapping[matchNearPosition]);
+
+            // Fallback: try line-window on original content directly
+            // (in case position refers to original lines rather than normalized)
+            var origLines = content.Split('\n');
+            int startLine = Math.Max(0, issue.Position.Value - 1 - 3);
+            int endLine = Math.Min(origLines.Length - 1, issue.Position.Value - 1 + 3);
+            for (int i = startLine; i <= endLine; i++)
+            {
+                string origLine = origLines[i].TrimEnd(' ', '\t');
+                int localIdx = origLine.IndexOf(issue.OriginalText.TrimEnd(' ', '\t'), StringComparison.Ordinal);
+                if (localIdx >= 0) return PatchMatch.Found(GetLineStartOffset(content, i + 1) + localIdx);
+            }
         }
 
-        // 2. Full-text IndexOf fallback
-        int firstIdx = normalized.IndexOf(normOriginal, StringComparison.Ordinal);
-        if (firstIdx < 0) return PatchMatch.Skipped("text not found in chapter");
-
-        int occurrenceCount = CountOccurrences(normalized, normOriginal);
-        if (occurrenceCount == 1) return PatchMatch.Found(firstIdx);    // unique — done
-
-        // 3. Ambiguous — use position as final disambiguator if available
-        var lines = normalized.Split('\n');
-        if (issue.Position.HasValue && issue.Position.Value > 0 && issue.Position.Value <= lines.Length)
+        // 4. Paragraph-level fallback: split content into paragraphs (blank-line-separated),
+        //    search each for the needle normalized. This handles cases where IndexOf fails due to
+        //    smart-quote differences or subtle character variations.
+        var paragraphs = SplitParagraphs(normalizedContent);
+        foreach (var para in paragraphs)
         {
-            int lineStartOffset = GetLineStartOffset(normalized, issue.Position.Value);
-            string lineContent = lines[issue.Position.Value - 1];
-            int localIdx = lineContent.IndexOf(normOriginal, StringComparison.Ordinal);
-            if (localIdx >= 0) return PatchMatch.Found(lineStartOffset + localIdx);  // confirmed on target line
+            int paraNormIdx = para.IndexOf(normNeedle, StringComparison.Ordinal);
+            if (paraNormIdx >= 0) return PatchMatch.Found(paraNormIdx);
         }
 
         return PatchMatch.Skipped("ambiguous — multiple matches and position did not confirm");
@@ -577,13 +628,73 @@ public class EditorAgent : AgentBase
         return -1;
     }
 
-    private static string NormalizeWhitespace(string text)
+    /// <summary>
+    /// Normalizes text for patch matching. Unifies line endings and trims trailing whitespace per line,
+    /// preserving newline boundaries. Returns the normalized string.
+    /// </summary>
+    private static string NormalizeForMatch(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
-        var lines = text.Split('\n');
+        // Unify \r\n → \n first
+        var unified = text.Replace("\r\n", "\n").Replace("\r", "\n");
+        // Trim trailing whitespace per line, keep newlines intact
+        var lines = unified.Split('\n');
         for (int i = 0; i < lines.Length; i++)
-            lines[i] = lines[i].TrimEnd(' ', '\r', '\t');
+            lines[i] = lines[i].TrimEnd(' ', '\t');
         return string.Join("\n", lines);
+    }
+
+    /// <summary>
+    /// Builds a parallel index mapping each character position in the normalized text to its
+    /// corresponding position in the original (pre-normalization) text. Handles \r\n→\n shrinking
+    /// and trailing-whitespace trimming. The returned array has length == normalized.Length;
+    /// mapping[i] is the original string index of the character at normalized position i.
+    /// </summary>
+    private static int[] BuildOffsetMapping(string original, string normalized)
+    {
+        if (string.IsNullOrEmpty(normalized)) return Array.Empty<int>();
+
+        var mapping = new int[normalized.Length];
+        int ni = 0; // current position in normalized output
+
+        // Split both strings by \n — NormalizeForMatch does:\n.Replace("\r\n", "\n") then split.
+        // We walk each line's trimmed characters and track positions from the original.
+        var origLines = original.Split('\n');
+        var normLines = normalized.Split('\n');
+
+        for (int lineIdx = 0; lineIdx < origLines.Length && ni < mapping.Length; lineIdx++)
+        {
+            var origLine = origLines[lineIdx];
+            // Trim trailing whitespace EXACTLY as NormalizeForMatch does it
+            var trimmedOrig = origLine.TrimEnd(' ', '\t');
+
+            for (int ci = 0; ci < trimmedOrig.Length && ni < mapping.Length; ci++)
+            {
+                char c = trimmedOrig[ci];
+
+                if (c == '\r' && ci + 1 < trimmedOrig.Length && trimmedOrig[ci + 1] == '\n')
+                {
+                    // \r\n within this line → single \n in normalized output.
+                    // Both original positions map to the same normalized position.
+                    if (ni < mapping.Length) mapping[ni] = ci;
+                    ni++;
+                    ci++; // skip the '\n' — consumed by the '\r' line ending
+                }
+                else if (c == '\r')
+                {
+                    // Standalone '\r' → single '\n' in normalized output
+                    mapping[ni] = ci;
+                    ni++;
+                }
+                else
+                {
+                    mapping[ni] = ci;
+                    ni++;
+                }
+            }
+        }
+
+        return mapping;
     }
 
     private static int CountOccurrences(string haystack, string needle)
@@ -600,6 +711,41 @@ public class EditorAgent : AgentBase
         for (int i = 0; i < lineNumber - 1 && i < lines.Length; i++)
             offset += lines[i].Length + 1;
         return offset;
+    }
+
+    /// <summary>
+    /// Split text into paragraphs separated by blank lines (\n\n or more). Returns array of
+    /// paragraph strings (without the separating newlines). Empty input returns empty array.
+    /// </summary>
+    private static string[] SplitParagraphs(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return Array.Empty<string>();
+        var parts = text.Split(new[] { "\n\n" }, StringSplitOptions.None);
+        // Trim each paragraph's trailing whitespace
+        for (int i = 0; i < parts.Length; i++)
+            parts[i] = parts[i].TrimEnd(' ', '\t');
+        return parts;
+    }
+
+    /// <summary>
+    /// After all patches are applied, re-run patch matching to verify each issue was actually
+    /// resolved. Returns a list of issues whose originalText STILL exists in the patched content.
+    /// This catches phantom artifacts where offset misalignment left residual text behind.
+    /// </summary>
+    private static List<CheckerIssue> VerifyPatchesApplied(string originalContent, string patchedContent, CheckerResult result)
+    {
+        var stillPresent = new List<CheckerIssue>();
+        foreach (var issue in result.Issues)
+        {
+            if (string.IsNullOrEmpty(issue.OriginalText)) continue; // rewrite-type — not verbatim matchable
+
+            var normOrig = NormalizeForMatch(issue.OriginalText);
+            var normPatched = NormalizeForMatch(patchedContent);
+            int idx = normPatched.IndexOf(normOrig, StringComparison.Ordinal);
+            if (idx >= 0)
+                stillPresent.Add(issue); // this patch didn't actually remove the original text
+        }
+        return stillPresent;
     }
 
     /// <summary>
