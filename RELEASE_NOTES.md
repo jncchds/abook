@@ -1,9 +1,13 @@
 # Release Notes
 
-## v0.1.19 — 2026-07-17
+## v0.1.19 — 2026-07-18
 
 - fix: chapter view no longer shows checker/analysis output (e.g. "No issues found") as if it were chapter prose — narrowed live-stream token routing in `BookContext` to only Writer and Editor roles; ContinuityChecker tokens with a chapterId are now dropped from the chapter display buffer entirely, since that analysis belongs in the chat panel via SystemNote messages
 - fix: hard-refresh no longer restores stale PreWriteCheck buffers into ChapterView — `useRestoreStream` now computes `activeRole` only for Writer/Editor roles when the running agent targets the currently-viewed chapter; previously ContinuityChecker status on a chapter caused `getStreamBuffer(bookId, "ContinuityChecker", chapterId)` to return cached analysis text and display it as chapter content
+
+- editor: replaced fragile IndexOf-based patch matching with offset-aware normalization — `NormalizeForMatch` properly unifies CRLF→LF before trimming trailing whitespace; `BuildOffsetMapping` walks trimmed lines and builds a parallel index from normalized→original positions so offsets translate correctly even when \r\n shrinks the string
+- editor: added post-apply verification (`VerifyPatchesApplied`) that re-runs match logic on patched content to catch phantom artifacts — residual originalText left by offset misalignment is now logged as Warning and reported in feedback instead of silently disappearing into the output
+- checker: restructured ContinuityChecker prompts into four focused scan zones (Intra-chapter Consistency, Cross-chapter Continuity, Grammar & Mechanics, Repetition & Echoed Language) — each zone has its own precision requirements; Zone 1 issues are rewrite-type only, Zones 2-4 require verbatim patches with min 15-char originalText and required Position for disambiguation
 
 - refactor: **full Semantic Kernel → MEAI migration** — replaced `Microsoft.SemanticKernel` with `Microsoft.Extensions.AI` (v10.*) throughout the agent engine and infrastructure layers; all agents now use `IChatClient` + `GetStreamingResponseAsync` instead of SK's `IChatCompletionService`
 - refactor: extracted provider-specific chat clients into custom implementations — `OllamaApiClient`, `OpenAiChatClient`, `GoogleAiStudioChatClient`; each wraps its provider's API behind the same MEAI `IChatClient` interface
