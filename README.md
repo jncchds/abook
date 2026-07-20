@@ -16,7 +16,7 @@ ABook is a self-hosted web application that uses AI agents to collaboratively wr
 - **Ancestor-aware planning references** — when generating a new Story Bible / Characters / Plot Threads / Chapter Outlines for a continued book, prior books’ artifacts are injected as reference context
 - **Full synopsis spine** — every prior chapter's title and outline is injected into Writer and Editor user messages so agents can see the narrative shape of the whole book and avoid recycling scene beats, re-describing established characters, or restating established facts
 - **Explicit anti-repetition rules** in default Writer, Editor, and Checker prompts — never re-introduce a known character/place, never restate established facts, vary scene-entry beats, flag echoed phrases
-- **Pluggable LLM backend** — Ollama (default, local), OpenAI (or any OpenAI-compatible API), or Google AI Studio; configurable globally, per-user, or per-book
+- **Pluggable LLM backend** — Ollama (default, local), OpenAI (official API only), OpenAICompatible (any OpenAI-compatible endpoint like LMStudio, OpenRouter, Groq, Together), or Google AI Studio; configurable globally, per-user, or per-book
 - **Per-book customization** — language, assisted-generation toggle, and per-phase system prompt overrides (Story Bible, Characters, Plot Threads, Chapter Outlines, Writer, Editor, Checker) with supported template tokens
 - **Inline editing** — edit book metadata, chapter titles/outlines, and add chapters manually without leaving the detail page
 - **Multi-user** — cookie-based authentication with admin role for user management
@@ -121,7 +121,7 @@ volumes:
 |---|---|---|
 | `ConnectionStrings__DefaultConnection` | — | PostgreSQL connection string |
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` disables Swagger |
-| `LlmDefaults__Provider` | `Ollama` | Default LLM provider (`Ollama`, `OpenAI`, `GoogleAIStudio`) |
+| `LlmDefaults__Provider` | `Ollama` | Default LLM provider (`Ollama`, `OpenAI`, `OpenAICompatible`, `GoogleAIStudio`) |
 | `LlmDefaults__ModelName` | `llama3` | Default model name |
 | `LlmDefaults__Endpoint` | `http://host.docker.internal:11434` | Default LLM endpoint |
 | `LlmDefaults__ApiKey` | — | API key for the default LLM provider (required for OpenAI / GoogleAIStudio; optional for Ollama) |

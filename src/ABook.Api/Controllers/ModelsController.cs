@@ -56,18 +56,19 @@ public class ModelsController : ControllerBase
                 return Ok(models);
             }
 
-            if (string.Equals(provider, "OpenAI", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(provider, "OpenAI", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(provider, "OpenAICompatible", StringComparison.OrdinalIgnoreCase))
             {
                 if (string.IsNullOrWhiteSpace(apiKey))
-                    return BadRequest(new { message = "API key is required for OpenAI." });
-                var modelsUrl = string.IsNullOrWhiteSpace(endpoint)
+                    return BadRequest(new { message = $"API key is required for OpenAI{(provider == "OpenAICompatible" ? "+ compatible" : "")}." });
+                var modelsUrl = string.Equals(provider, "OpenAI", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(endpoint)
                     ? "https://api.openai.com/v1/models"
                     : baseUrl + "/models";
                 var request = new HttpRequestMessage(HttpMethod.Get, modelsUrl);
                 request.Headers.Add("Authorization", $"Bearer {apiKey}");
                 var resp = await client.SendAsync(request);
                 if (!resp.IsSuccessStatusCode)
-                    return StatusCode((int)resp.StatusCode, new { message = "Failed to reach OpenAI." });
+                    return StatusCode((int)resp.StatusCode, new { message = "Failed to reach model provider." });
                 var json = await resp.Content.ReadAsStringAsync();
                 using var doc = JsonDocument.Parse(json);
                 var models = doc.RootElement.GetProperty("data")

@@ -189,3 +189,9 @@ Initial public release.
 - Multi-platform Docker image (linux/amd64, linux/arm64)
 - Soft-archive for agent messages and token records
 - Anti-repetition system for Writer/Editor/Continuity Checker agents
+
+## v0.1.19 — 2026-07-20
+
+- feat: **new `LlmProvider.OpenAICompatible` provider** for any OpenAI-compatible endpoint (LMStudio, OpenRouter, Groq, Together, etc.) that isn't the official OpenAI API — uses a custom `OpenRouterHttpChatClient` that bypasses MEAI's SSE parser entirely, parsing streaming responses directly and surfacing both content tokens and reasoning/thinking tokens through MEAI's standard `AdditionalProperties["ReasoningContent"]` channel; this prevents thinking-only chunks (common with Nemotron, GPT-OSS on OpenRouter) from corrupting structured JSON output in planning agents
+- feat: **OpenAI-compatible model listing** — `GET /api/models` now handles `OpenAICompatible` provider the same as OpenAI when an endpoint is supplied, fetching models from `{endpoint}/models`
+- docs: updated README.md and AGENTS.md to document the new provider alongside Ollama, OpenAI, and GoogleAIStudio

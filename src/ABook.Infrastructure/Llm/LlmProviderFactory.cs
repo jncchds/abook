@@ -18,6 +18,7 @@ public class LlmProviderFactory : ILlmProviderFactory
         {
             new OllamaProviderConfigMapper(),
             new OpenAIProviderConfigMapper(),
+            new OpenAICompatibleProviderConfigMapper(),
             new GoogleAiStudioProviderConfigMapper(),
         }.ToDictionary(s => s.Provider));
 
@@ -28,6 +29,7 @@ public class LlmProviderFactory : ILlmProviderFactory
     {
         LlmProvider.Ollama => new OllamaChatClient(config),
         LlmProvider.OpenAI => new OpenAiChatClient(config),
+        LlmProvider.OpenAICompatible => new OpenRouterHttpChatClient(config),
         LlmProvider.GoogleAIStudio => new GoogleAiStudioChatClient(config),
         _ => throw new NotSupportedException($"Provider '{config.Provider}' is not supported."),
     };
