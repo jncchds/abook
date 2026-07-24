@@ -78,6 +78,25 @@ public class ModelsController : ControllerBase
                 return Ok(models);
             }
 
+            if (string.Equals(provider, "OpenAICompatible", StringComparison.OrdinalIgnoreCase))
+            {
+                var modelsUrl = baseUrl + "/models";
+                var request = new HttpRequestMessage(HttpMethod.Get, modelsUrl);
+                if (!string.IsNullOrWhiteSpace(apiKey))
+                    request.Headers.Add("Authorization", $"Bearer {apiKey}");
+                var resp = await client.SendAsync(request);
+                if (!resp.IsSuccessStatusCode)
+                    return StatusCode((int)resp.StatusCode, new { message = "Failed to reach OpenAI-compatible endpoint." });
+                var json = await resp.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                var models = doc.RootElement.GetProperty("data")
+                    .EnumerateArray()
+                    .Select(m => new { name = m.GetProperty("id").GetString(), size = 0L })
+                    .OrderBy(m => m.name)
+                    .ToList();
+                return Ok(models);
+            }
+
             // Ollama (default) — no apiKey needed
             var ollamaResp = await client.GetAsync($"{baseUrl}/api/tags");
             if (!ollamaResp.IsSuccessStatusCode)
