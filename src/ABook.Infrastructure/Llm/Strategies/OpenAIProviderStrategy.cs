@@ -21,8 +21,6 @@ public class OpenAIProviderStrategy : ILlmProviderStrategy
     public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGeneration(LlmConfiguration config)
     {
         var embeddingModel = config.EmbeddingModelName ?? config.ModelName;
-        if (string.IsNullOrWhiteSpace(config.Endpoint) && string.IsNullOrWhiteSpace(config.ApiKey))
-            throw new InvalidOperationException("OpenAI API key is required when no custom endpoint is set.");
         if (string.IsNullOrWhiteSpace(config.Endpoint))
             return new OpenAIClient(new ApiKeyCredential(config.ApiKey ?? ""))
                 .GetEmbeddingClient(embeddingModel)
@@ -40,8 +38,7 @@ public class OpenAIProviderStrategy : ILlmProviderStrategy
             [EnumeratorCancellation] CancellationToken ct = default)
         {
             OpenAIClient openAiClient = string.IsNullOrWhiteSpace(config.Endpoint)
-                ? new OpenAIClient(new ApiKeyCredential(config.ApiKey
-                    ?? throw new InvalidOperationException("OpenAI API key is required.")))
+                ? new OpenAIClient(new ApiKeyCredential(config.ApiKey ?? ""))
                 : OpenAIProviderHelpers.CreateOpenAIClient(config.Endpoint, config.ApiKey);
 
             var chatClient = openAiClient.GetChatClient(config.ModelName);

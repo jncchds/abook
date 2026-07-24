@@ -9,6 +9,7 @@
 - infra: GoogleAIStudio now uses OpenAI SDK directly against Google's compat endpoint (`/v1beta/openai`) — no separate Google connector
 - ui: `OpenAI Compatible` added to all provider dropdowns; `Reasoning effort` field hidden for `OpenAICompatible` (not sent by that provider); provider names now display human-readable labels
 - fix: model list loading now works for OpenAI and OpenAICompatible providers; ModelsController handles OpenAICompatible via `/models` with optional Bearer token
+- fix: API key is now optional for OpenAI and OpenAICompatible providers (useful for local/proxied endpoints)
 
 ## v0.1.19 — 2026-07-24
 

@@ -15,7 +15,7 @@ export const PROVIDER_LABELS: Record<LlmProviderName, string> = {
 }
 
 export const MODEL_LIST_PROVIDERS = new Set(['Ollama', 'OpenAI', 'OpenAICompatible', 'GoogleAIStudio'])
-export const API_KEY_REQUIRED_PROVIDERS = new Set(['OpenAI', 'GoogleAIStudio'])
+export const API_KEY_REQUIRED_PROVIDERS = new Set(['GoogleAIStudio'])
 // OpenAICompatible: endpoint always editable, API key optional
 export const PROXY_REQUIRED_PROVIDERS = new Set()
 
