@@ -1,11 +1,7 @@
-#pragma warning disable SKEXP0001, SKEXP0010, SKEXP0070
-
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using ABook.Infrastructure.VectorStore;
 using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ABook.Agents;
 
@@ -19,7 +15,6 @@ public abstract class AgentBase
     protected readonly AgentRunStateService StateService;
     protected readonly ILogger Logger;
 
-    // Set LLM_DEBUG_LOGGING=true to print full prompts and responses to the console.
     private static readonly bool DebugLoggingEnabled =
         string.Equals(Environment.GetEnvironmentVariable("LLM_DEBUG_LOGGING"), "true", StringComparison.OrdinalIgnoreCase);
 
@@ -39,68 +34,65 @@ public abstract class AgentBase
         Logger = loggerFactory.CreateLogger(GetType().FullName ?? GetType().Name);
     }
 
-    protected async Task<(Kernel kernel, LlmConfiguration config)> GetKernelAsync(int bookId)
+    protected async Task<(ILlmChatClient client, LlmConfiguration config)> GetChatClientAsync(int bookId)
     {
         var book = await Repo.GetByIdAsync(bookId);
         var config = await Repo.GetLlmConfigAsync(bookId, book?.UserId)
             ?? throw new InvalidOperationException("No LLM configuration found.");
-        return (LlmFactory.CreateKernel(config), config);
+        return (LlmFactory.CreateChatClient(config), config);
     }
-
-
 
     /// <summary>Streams LLM tokens to the book's SignalR group and accumulates the full response.</summary>
     /// <param name="suspiciousThreshold">Minimum response length before a 'suspiciously short' warning is emitted. Pass 0 to suppress.</param>
-    /// <param name="stopStreamingAt">Optional regex. Once matched against the accumulated buffer, further tokens are still accumulated but no longer forwarded to the SignalR stream. Use to prevent notes/metadata sections from appearing in the chapter view.</param>
+    /// <param name="stopStreamingAt">Optional regex. Once matched against the accumulated buffer, further tokens are still accumulated but no longer forwarded to the SignalR stream.</param>
     protected async Task<string> StreamResponseAsync(
-        Kernel kernel, LlmConfiguration config, ChatHistory history, int bookId, int? chapterId, AgentRole role, CancellationToken ct, int suspiciousThreshold = 50,
+        ILlmChatClient client, LlmConfiguration config, IReadOnlyList<LlmChatMessage> messages,
+        int bookId, int? chapterId, AgentRole role, CancellationToken ct,
+        int suspiciousThreshold = 50,
         System.Text.RegularExpressions.Regex? stopStreamingAt = null, string? jsonSchema = null)
     {
-        var chat = kernel.GetRequiredService<IChatCompletionService>();
-        var settings = LlmFactory.CreateExecutionSettings(config, jsonSchema);
-        // Reuse the singleton buffer so the HTTP endpoint can serve accumulated content on hard-refresh.
-        // Clear any stale content from a previous run with the same key before starting.
+        var options = new LlmChatOptions
+        {
+            Temperature = config.Temperature > 0 ? config.Temperature : null,
+            MaxTokens = config.MaxTokens is > 0 ? config.MaxTokens : null,
+            ReasoningEffort = config.ReasoningEffort,
+            TimeoutMs = config.TimeoutMs,
+            JsonSchema = jsonSchema,
+        };
+
         var sb = StateService.GetOrCreateStreamBuffer(bookId, chapterId, role.ToString());
         sb.Clear();
-        // Prompt tokens are stable before the call; compute here so they are available in the catch block.
-        int promptTokens = history.Sum(m => (m.Content?.Length ?? 0)) / 4;
+        int promptTokens = messages.Sum(m => m.Content.Length) / 4;
 
         if (DebugLoggingEnabled)
         {
             var req = new System.Text.StringBuilder();
             req.AppendLine($"=== LLM Request [{role}] Book={bookId} Chapter={chapterId} ===");
-            foreach (var msg in history)
+            foreach (var msg in messages)
                 req.AppendLine($"[{msg.Role}] {msg.Content}");
             req.AppendLine("=== End Request ===");
             Logger.LogInformation("{LlmRequest}", req.ToString());
         }
 
         var thinkingSb = new System.Text.StringBuilder();
-        // Provider-specific metadata keys that carry reasoning/thinking tokens. Checked once per provider.
-        const string ReasoningMetaKey = "ReasoningContent";
 
         try
         {
             bool stopStreaming = false;
-            await foreach (var chunk in chat.GetStreamingChatMessageContentsAsync(history, settings, kernel, ct))
+            await foreach (var chunk in client.StreamAsync(messages, options, ct))
             {
-                // Accumulate vendor-specific thinking/reasoning content from chunk metadata.
-                if (chunk.Metadata is not null &&
-                    chunk.Metadata.TryGetValue(ReasoningMetaKey, out var thinkVal) &&
-                    thinkVal is string ts && ts.Length > 0)
-                {
-                    thinkingSb.Append(ts);
-                }
+                if (chunk.Reasoning?.Length > 0)
+                    thinkingSb.Append(chunk.Reasoning);
 
-                if (chunk.Content is { Length: > 0 } token)
+                if (chunk.Content?.Length > 0)
                 {
-                    sb.Append(token);
+                    sb.Append(chunk.Content);
                     if (!stopStreaming)
                     {
                         if (stopStreamingAt is not null && stopStreamingAt.IsMatch(sb.ToString()))
                             stopStreaming = true;
                         else
-                            await Notifier.StreamTokenAsync(bookId, chapterId, role, token, ct);
+                            await Notifier.StreamTokenAsync(bookId, chapterId, role, chunk.Content, ct);
                     }
                 }
             }
@@ -110,7 +102,6 @@ public abstract class AgentBase
         {
             Logger.LogError(ex, "[Book {BookId}] [{Role}] LLM streaming call failed after receiving {Chars} chars. Partial response:\n{Partial}",
                 bookId, role, sb.Length, sb.Length > 0 ? sb.ToString() : "(empty)");
-            // Persist a failed record so Token Stats shows partial usage even on error.
             try
             {
                 await Repo.AddTokenUsageAsync(new TokenUsageRecord
@@ -131,9 +122,7 @@ public abstract class AgentBase
 
         var result = sb.ToString();
 
-        // Extract <think>…</think> / <thinking>…</thinking> blocks (e.g. DeepSeek-R1, Qwen3).
         var (inlineThinking, cleanedResult) = ExtractThinkingTags(result);
-        // Merge metadata-gathered thinking with tag-extracted thinking.
         var fullThinking = MergeThinking(thinkingSb.ToString(), inlineThinking);
         if (!string.IsNullOrWhiteSpace(fullThinking))
         {
@@ -149,14 +138,10 @@ public abstract class AgentBase
                 role, bookId, chapterId, result);
 
         if (result.Trim().Length == 0)
-        {
             Logger.LogWarning("[Book {BookId}] [{Role}] LLM returned an empty response.", bookId, role);
-        }
         else if (suspiciousThreshold > 0 && result.Length < suspiciousThreshold)
-        {
             Logger.LogWarning("[Book {BookId}] [{Role}] LLM returned a suspiciously short response ({Chars} chars): {Response}",
                 bookId, role, result.Length, result.Trim());
-        }
 
         int completionTokens = result.Length / 4;
         try { await Notifier.NotifyTokenStatsAsync(bookId, chapterId, role.ToString(), promptTokens, completionTokens, ct); }
@@ -174,12 +159,11 @@ public abstract class AgentBase
                 ModelName = config.ModelName,
             });
         }
-        catch { /* non-fatal — do not interrupt agent on DB write failure */ }
+        catch { /* non-fatal */ }
 
         return result;
     }
 
-    /// <summary>Persist a question message and notify the UI to pause.</summary>
     protected async Task<AgentMessage> AskUserAsync(
         int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct, bool isOptional = false)
     {
@@ -195,16 +179,9 @@ public abstract class AgentBase
         });
 
         await Notifier.NotifyQuestionAsync(bookId, msg, ct);
-
         return msg;
     }
 
-    /// <summary>
-    /// Ask the user a question, pause execution, and return their answer.
-    /// Sets run state to WaitingForInput until the answer is submitted via the API.
-    /// The pause is persisted to the DB so the run survives an app restart.
-    /// When <paramref name="isOptional"/> is true the user may submit an empty answer to skip.
-    /// </summary>
     protected async Task<string> AskUserAndWaitAsync(
         int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct, bool isOptional = false)
     {
@@ -217,10 +194,9 @@ public abstract class AgentBase
         StateService.SetStatus(bookId, new AgentRunStatus(role, "WaitingForInput", chapterId));
         await Notifier.NotifyStatusChangedAsync(bookId, role, "WaitingForInput", chapterId, ct);
 
-        // Persist pause so the question survives a process restart
         await StateService.PersistRunPausedAsync(bookId, msg.Id);
 
-        var answer = await tcs.Task; // throws OperationCanceledException if stopped
+        var answer = await tcs.Task;
 
         StateService.SetStatus(bookId, new AgentRunStatus(role, "Running", chapterId));
         await StateService.PersistRunResumedAsync(bookId);
@@ -229,10 +205,6 @@ public abstract class AgentBase
         return answer;
     }
 
-    /// <summary>
-    /// Persists an error as a SystemNote agent message so it appears in the chat panel,
-    /// then fires the AgentError SignalR event. Never throws.
-    /// </summary>
     protected async Task ReportErrorAsync(int bookId, int? chapterId, AgentRole role, string message, CancellationToken ct = default)
     {
         try
@@ -261,8 +233,6 @@ public abstract class AgentBase
         }
     }
 
-    /// <summary>Retrieve relevant context chunks from pgvector for RAG. Returns empty on failure or when no embedding model is configured.
-    /// Token usage for the embedding call is persisted/notified when <paramref name="ct"/> and <paramref name="chapterId"/> are supplied.</summary>
     protected async Task<string> GetRagContextAsync(
         int bookId, string query, int topK, ILlmProviderFactory factory, LlmConfiguration config,
         int? chapterId = null, CancellationToken ct = default)
@@ -309,15 +279,12 @@ public abstract class AgentBase
         }
     }
 
-    /// <summary>Remove any leading markdown heading(s) the LLM added for the chapter title.</summary>
     protected static string StripLeadingChapterHeading(string content, int number, string title)
     {
         var lines = content.TrimStart().Split('\n').ToList();
-        // Strip consecutive heading lines that look like a chapter title (# / ## / bold / plain)
         while (lines.Count > 0)
         {
             var raw = lines[0];
-            // Normalise: remove markdown heading markers, asterisks (bold), whitespace
             var stripped = raw.TrimStart('#', '*', ' ').TrimEnd('#', '*', ' ').Trim();
             if (string.IsNullOrWhiteSpace(stripped)) { lines.RemoveAt(0); continue; }
 
@@ -325,7 +292,6 @@ public abstract class AgentBase
             bool looksLikeHeading =
                 stripped.StartsWith(chapterPrefix, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(stripped, title, StringComparison.OrdinalIgnoreCase) ||
-                // "Chapter One", "Chapter Two" etc.
                 System.Text.RegularExpressions.Regex.IsMatch(stripped,
                     @"^chapter\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b",
                     System.Text.RegularExpressions.RegexOptions.IgnoreCase);
@@ -337,15 +303,6 @@ public abstract class AgentBase
         return string.Join('\n', lines).TrimStart();
     }
 
-    /// <summary>
-    /// Substitutes <see cref="PromptPlaceholders"/> tokens in a user-supplied system prompt
-    /// with live data from <paramref name="book"/> and, when provided, <paramref name="bible"/>.
-    /// <para>
-    /// Book-level tokens: {TITLE}, {GENRE}, {PREMISE}, {CHAPTER_COUNT}, {LANGUAGE}.
-    /// Story-Bible tokens (require <paramref name="bible"/>): {SETTING}, {THEMES}, {TONE}, {WORLD_RULES}.
-    /// Cross-chapter token (require <paramref name="chapterSynopses"/>): {CHAPTER_SYNOPSES}.
-    /// </para>
-    /// </summary>
     protected static string InterpolateSystemPrompt(string prompt, Book book, ABook.Core.Models.StoryBible? bible = null, string? chapterSynopses = null)
     {
         var result = prompt
@@ -370,11 +327,6 @@ public abstract class AgentBase
         return result;
     }
 
-    /// <summary>
-    /// Returns the last few paragraphs of the previous chapter to give the Writer
-    /// continuity context without relying solely on RAG.
-    /// Returns empty string for chapter 1 or when no content is available.
-    /// </summary>
     protected async Task<string> GetPreviousChapterEndingAsync(int bookId, int currentChapterNumber, int paragraphCount = 3)
     {
         if (currentChapterNumber <= 1) return string.Empty;
@@ -386,7 +338,6 @@ public abstract class AgentBase
                 .FirstOrDefault();
             if (prev is null) return string.Empty;
 
-            // Split into paragraphs (blank-line-separated) and take the last N
             var paras = prev.Content!
                 .Split(["\n\n", "\r\n\r\n"], StringSplitOptions.RemoveEmptyEntries)
                 .Where(p => !string.IsNullOrWhiteSpace(p))
@@ -398,14 +349,6 @@ public abstract class AgentBase
         catch { return string.Empty; }
     }
 
-    /// <summary>
-    /// Returns a compact numbered list of every non-archived chapter that precedes
-    /// <paramref name="currentChapterNumber"/> (or all chapters when it is null), formatted as:
-    /// <c>N. **Title** — Outline</c>.
-    /// Inject this into the Writer/Editor user message so agents can see the full narrative spine
-    /// and avoid re-introducing or restating anything already established.
-    /// Never truncated — full history is always included.
-    /// </summary>
     protected async Task<string> BuildChapterSynopsesAsync(
         int bookId, int? currentChapterNumber = null, CancellationToken ct = default)
     {
@@ -427,10 +370,6 @@ public abstract class AgentBase
         catch { return string.Empty; }
     }
 
-    /// <summary>
-    /// Extract the outermost JSON object or array from a raw LLM response,
-    /// stripping any markdown code fences and surrounding prose.
-    /// </summary>
     protected static string ExtractJson(string raw, char open, char close)
     {
         raw = raw.Trim();
@@ -442,24 +381,18 @@ public abstract class AgentBase
         return raw;
     }
 
-    /// <summary>
-    /// Index a chapter version's content into pgvector for RAG retrieval.
-    /// Chunks the content, generates embeddings, and stores them with the version FK.
-    /// </summary>
-    protected async Task IndexChapterAsync(int bookId, int chapterId, int chapterVersionId, Kernel kernel, LlmConfiguration config, CancellationToken ct)
+    protected async Task IndexChapterAsync(int bookId, int chapterId, int chapterVersionId, LlmConfiguration config, CancellationToken ct)
     {
         await VectorStore.EnsureCollectionAsync(bookId, ct);
-        
+
         var version = await Repo.GetChapterVersionAsync(chapterId, chapterVersionId);
         if (version is null || string.IsNullOrEmpty(version.Content)) return;
 
         var chapter = await Repo.GetChapterAsync(bookId, chapterId);
         if (chapter is null) return;
 
-        // Delete any existing chunks for this version (clean state)
         await VectorStore.DeleteVersionChunksAsync(bookId, chapterVersionId, ct);
 
-        // Chunk and embed
         var chunks = TextChunker.Chunk(version.Content);
         var embedder = LlmFactory.CreateEmbeddingGeneration(config);
 
@@ -497,11 +430,6 @@ public abstract class AgentBase
             System.Text.RegularExpressions.RegexOptions.IgnoreCase |
             System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    /// <summary>
-    /// Extracts all <c>&lt;think&gt;…&lt;/think&gt;</c> (and <c>&lt;thinking&gt;…&lt;/thinking&gt;</c>)
-    /// blocks from <paramref name="text"/>. Returns the combined thinking content and the cleaned text
-    /// with the blocks removed.
-    /// </summary>
     private static (string thinking, string cleaned) ExtractThinkingTags(string text)
     {
         var matches = ThinkTagRegex.Matches(text);
@@ -519,10 +447,6 @@ public abstract class AgentBase
         return metaThinking + "\n\n" + inlineThinking;
     }
 
-    /// <summary>
-    /// Persists extracted LLM thinking/reasoning as an agent message so users can inspect it,
-    /// then emits a <c>MessagesUpdated</c> SignalR event so the chat panel refreshes.
-    /// </summary>
     private async Task SaveThinkingAsync(int bookId, int? chapterId, AgentRole role, string thinking, CancellationToken ct)
     {
         await Repo.AddMessageAsync(new AgentMessage
@@ -538,4 +462,3 @@ public abstract class AgentBase
         catch { /* non-fatal */ }
     }
 }
-

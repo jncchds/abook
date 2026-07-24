@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import type { LlmConfig, LlmPreset, ProviderModel } from '../api'
 import { getLlmConfig, updateLlmConfig, getModels, getPresets, createPreset, updatePreset, getApiToken, regenerateApiToken, updateProfile } from '../api'
-import { PROVIDERS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, INITIAL_LLM_CONFIG } from '../config/providers'
+import { PROVIDERS, PROVIDER_LABELS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, INITIAL_LLM_CONFIG } from '../config/providers'
 import { useNotifications } from '../hooks/useNotifications'
 import { useAuth } from '../hooks/useAuth'
 
@@ -329,7 +329,7 @@ export default function GlobalSettings() {
               setModels([])
               fetchModels(newEndpoint, prov, config.apiKey)
             }}>
-              {PROVIDERS.map(p => <option key={p}>{p}</option>)}
+              {PROVIDERS.map(p => <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>)}
             </select>
           </label>
           <label>
@@ -415,6 +415,7 @@ export default function GlobalSettings() {
                 />
                 <span className="hint">Request timeout. Leave blank for no override.</span>
               </label>
+              {config.provider !== 'OpenAICompatible' && (
               <label>
                 Reasoning effort
                 <select value={config.reasoningEffort ?? ''} onChange={e => setConfig(c => ({ ...c, reasoningEffort: e.target.value || undefined }))}>
@@ -426,6 +427,7 @@ export default function GlobalSettings() {
                 </select>
                 <span className="hint">For reasoning models (DeepSeek-R1, Qwen3). Leave blank for model default.</span>
               </label>
+              )}
               <label>
                 Max tokens
                 <input

@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.1.20 — 2026-07-24
+
+- infra: removed Semantic Kernel entirely; replaced with direct SDK calls per provider (OllamaSharp for Ollama, OpenAI SDK for OpenAI/GoogleAIStudio, custom SSE reader for OpenAICompatible)
+- infra: introduced `OpenAICompatible` provider type (LMStudio, OpenRouter, vLLM, etc.) — streams raw SSE, captures both `content` and `reasoning_content` deltas, does not send `reasoning_effort`
+- infra: new thin `ILlmChatClient` / `LlmStreamChunk` abstractions replace all SK types across agents and infrastructure
+- infra: Ollama thinking tokens now sourced from native `Message.Thinking` field (via `Think = true`); JSON schema sent as native `Format` parameter
+- infra: GoogleAIStudio now uses OpenAI SDK directly against Google's compat endpoint (`/v1beta/openai`) — no separate Google connector
+- ui: `OpenAI Compatible` added to all provider dropdowns; `Reasoning effort` field hidden for `OpenAICompatible` (not sent by that provider); provider names now display human-readable labels
+
 ## v0.1.19 — 2026-07-24
 
 - fix: checker and editor messages now appear in the chat panel in real-time after each agent finishes; `StatusChanged("Done")` for Writer/Editor/ContinuityChecker now calls `refreshMessages()` alongside the chapter reload

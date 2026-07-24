@@ -1,12 +1,13 @@
-#pragma warning disable SKEXP0010
-
+#pragma warning disable OPENAI001
+using System.Runtime.CompilerServices;
+using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.Extensions.AI;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
-using Microsoft.SemanticKernel.Connectors.OpenAI;
 using OpenAI;
+using OpenAI.Chat;
 using System.ClientModel;
+using OAIChatMessage = OpenAI.Chat.ChatMessage;
+using OAIResponseFormat = OpenAI.Chat.ChatResponseFormat;
 
 namespace ABook.Infrastructure.Llm.Strategies;
 
@@ -14,14 +15,8 @@ public class OpenAIProviderStrategy : ILlmProviderStrategy
 {
     public LlmProvider Provider => LlmProvider.OpenAI;
 
-    public IChatCompletionService CreateChatCompletion(LlmConfiguration config)
-    {
-        var openAiEndpoint = string.IsNullOrWhiteSpace(config.Endpoint) ? null : new Uri(config.Endpoint);
-        if (openAiEndpoint == null && string.IsNullOrWhiteSpace(config.ApiKey))
-            throw new InvalidOperationException("OpenAI API key is required when no custom endpoint is set.");
-        return new Microsoft.SemanticKernel.Connectors.OpenAI.OpenAIChatCompletionService(
-            config.ModelName, openAiEndpoint!, config.ApiKey);
-    }
+    public ILlmChatClient CreateChatClient(LlmConfiguration config) =>
+        new OpenAIChatClientWrapper(config);
 
     public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGeneration(LlmConfiguration config)
     {
@@ -37,40 +32,52 @@ public class OpenAIProviderStrategy : ILlmProviderStrategy
             .AsIEmbeddingGenerator();
     }
 
-    public void ConfigureKernelBuilder(IKernelBuilder builder, LlmConfiguration config)
+    private sealed class OpenAIChatClientWrapper(LlmConfiguration config) : ILlmChatClient
     {
-        var openAiEndpoint = string.IsNullOrWhiteSpace(config.Endpoint) ? null : new Uri(config.Endpoint);
-        var apiKey = openAiEndpoint != null ? config.ApiKey : (config.ApiKey ?? throw new InvalidOperationException("OpenAI API key is required when no custom endpoint is set."));
-        if (openAiEndpoint == null)
+        public async IAsyncEnumerable<LlmStreamChunk> StreamAsync(
+            IReadOnlyList<LlmChatMessage> messages,
+            LlmChatOptions options,
+            [EnumeratorCancellation] CancellationToken ct = default)
         {
-            builder.AddOpenAIChatCompletion(config.ModelName, apiKey!);
-            builder.AddOpenAIEmbeddingGenerator(
-                config.EmbeddingModelName ?? "text-embedding-3-small", apiKey!);
+            OpenAIClient openAiClient = string.IsNullOrWhiteSpace(config.Endpoint)
+                ? new OpenAIClient(new ApiKeyCredential(config.ApiKey
+                    ?? throw new InvalidOperationException("OpenAI API key is required.")))
+                : OpenAIProviderHelpers.CreateOpenAIClient(config.Endpoint, config.ApiKey);
+
+            var chatClient = openAiClient.GetChatClient(config.ModelName);
+
+            var chatMessages = messages.Select<LlmChatMessage, OAIChatMessage>(m => m.Role switch
+            {
+                LlmChatRole.System => OAIChatMessage.CreateSystemMessage(m.Content),
+                LlmChatRole.Assistant => OAIChatMessage.CreateAssistantMessage(m.Content),
+                _ => OAIChatMessage.CreateUserMessage(m.Content),
+            }).ToList();
+
+            var chatOptions = new ChatCompletionOptions();
+            if (options.Temperature is { } temp && temp > 0)
+                chatOptions.Temperature = (float)temp;
+            if (options.MaxTokens is { } max && max > 0)
+                chatOptions.MaxOutputTokenCount = max;
+            if (!string.IsNullOrWhiteSpace(options.JsonSchema))
+                chatOptions.ResponseFormat = OAIResponseFormat.CreateJsonSchemaFormat(
+                    "structured_output",
+                    BinaryData.FromString(options.JsonSchema));
+            if (!string.IsNullOrWhiteSpace(options.ReasoningEffort) && options.ReasoningEffort != "none")
+                chatOptions.ReasoningEffortLevel = options.ReasoningEffort switch
+                {
+                    "low" => ChatReasoningEffortLevel.Low,
+                    "medium" => ChatReasoningEffortLevel.Medium,
+                    _ => ChatReasoningEffortLevel.High,
+                };
+
+            await foreach (var update in chatClient.CompleteChatStreamingAsync(chatMessages, chatOptions, ct))
+            {
+                foreach (var part in update.ContentUpdate)
+                {
+                    if (part.Text?.Length > 0)
+                        yield return new LlmStreamChunk(part.Text, null);
+                }
+            }
         }
-        else
-        {
-            builder.AddOpenAIChatCompletion(config.ModelName, openAiEndpoint, apiKey);
-            if (!string.IsNullOrWhiteSpace(config.EmbeddingModelName))
-                builder.AddOpenAIEmbeddingGenerator(
-                    config.EmbeddingModelName, OpenAIProviderHelpers.CreateOpenAIClient(config.Endpoint, apiKey));
-        }
-    }
-
-    public PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, string? jsonSchema = null)
-    {
-        var settings = new OpenAIPromptExecutionSettings
-        {
-            Temperature = (double?)(config.Temperature > 0 ? config.Temperature : null),
-            ResponseFormat = !string.IsNullOrWhiteSpace(jsonSchema)
-                ? OpenAI.Chat.ChatResponseFormat.CreateJsonSchemaFormat("structured_output", BinaryData.FromString(jsonSchema!))
-                : null,
-        };
-
-        if (config.MaxTokens.HasValue && config.MaxTokens.Value > 0)
-            settings.MaxTokens = config.MaxTokens.Value;
-        if (!string.IsNullOrWhiteSpace(config.ReasoningEffort) && config.ReasoningEffort != "none")
-            settings.ReasoningEffort = config.ReasoningEffort;
-
-        return settings;
     }
 }

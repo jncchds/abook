@@ -1,9 +1,6 @@
-#pragma warning disable SKEXP0001, SKEXP0010, SKEXP0070
-
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ABook.Agents;
 
@@ -29,16 +26,16 @@ public class StoryBibleAgent : AgentBase
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 1/4 - Story Bible...", false, ct);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.StoryBibleAgent, "Running", ct: ct);
 
-        var (kernel, config) = await GetKernelAsync(bookId);
-        var history = new ChatHistory();
+        var (client, config) = await GetChatClientAsync(bookId);
+        var messages = new List<LlmChatMessage>();
         var ancestorReference = await Repo.BuildAncestorPlanningReferenceAsync(bookId, ct);
 
         var systemPrompt = !string.IsNullOrWhiteSpace(book.StoryBibleSystemPrompt)
             ? InterpolateSystemPrompt(book.StoryBibleSystemPrompt, book)
             : InterpolateSystemPrompt(DefaultPrompts.StoryBible, book);
 
-        history.AddSystemMessage(systemPrompt);
-        history.AddUserMessage($"""
+        messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
+        messages.Add(new LlmChatMessage(LlmChatRole.User, $"""
             Book title: {book.Title}
             Genre: {book.Genre}
             Premise: {book.Premise}
@@ -47,9 +44,9 @@ public class StoryBibleAgent : AgentBase
             {(ancestorReference.Length > 0 ? $"\n{ancestorReference}" : "")}
 
             Create the Story Bible for this book.
-            """);
+            """));
 
-        var raw = await StreamResponseAsync(kernel, config, history, bookId, null, AgentRole.StoryBibleAgent, ct, jsonSchema: JsonSchemas.StoryBible);
+        var raw = await StreamResponseAsync(client, config, messages, bookId, null, AgentRole.StoryBibleAgent, ct, jsonSchema: JsonSchemas.StoryBible);
 
         StoryBible bible;
         try { bible = Parse(bookId, raw); }

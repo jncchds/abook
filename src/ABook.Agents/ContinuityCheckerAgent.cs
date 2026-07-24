@@ -1,11 +1,7 @@
-﻿#pragma warning disable SKEXP0001, SKEXP0010, SKEXP0070
-
-using System.Text.Json;
+﻿using System.Text.Json;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ABook.Agents;
 
@@ -35,20 +31,20 @@ public class ContinuityCheckerAgent : AgentBase
 
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Running", chapterId, ct);
 
-        var (kernel, config) = await GetKernelAsync(bookId);
+        var (client, config) = await GetChatClientAsync(bookId);
         var establishedFacts = await BuildEstablishedFactsAsync(bookId, chapter);
 
         // â”€â”€ Step 1: Detect â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        var detectHistory = new ChatHistory();
-        detectHistory.AddSystemMessage($"""
+        var detectHistory = new List<LlmChatMessage>();
+        detectHistory.Add(new LlmChatMessage(LlmChatRole.System, $"""
             You are a story continuity expert. Your task is to evaluate a single chapter outline
             against the established facts of a book and identify any contradictions.
             If the outline is consistent, respond with exactly the text: No issues found.
             Otherwise list each contradiction on a numbered line. Be specific: name the
             established fact it conflicts with and what the outline says instead.
             Book: {book.Title} | Genre: {book.Genre} | Language: {book.Language}
-            """);
-        detectHistory.AddUserMessage($"""
+            """));
+        detectHistory.Add(new LlmChatMessage(LlmChatRole.User, $"""
             ## Established Facts
             {establishedFacts}
 
@@ -60,9 +56,9 @@ public class ContinuityCheckerAgent : AgentBase
             {(chapter.PayoffNotes.Length > 0 ? $"Payoff notes: {chapter.PayoffNotes}" : "")}
 
             Are there any contradictions between this outline and the established facts above?
-            """);
+            """));
 
-        var detectResponse = await StreamResponseAsync(kernel, config, detectHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct);
+        var detectResponse = await StreamResponseAsync(client, config, detectHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct);
 
         if (detectResponse.Trim().StartsWith("No issues found", StringComparison.OrdinalIgnoreCase))
         {
@@ -71,15 +67,15 @@ public class ContinuityCheckerAgent : AgentBase
         }
 
         // â”€â”€ Step 2: Fix â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        var fixHistory = new ChatHistory();
-        fixHistory.AddSystemMessage($"""
+        var fixHistory = new List<LlmChatMessage>();
+        fixHistory.Add(new LlmChatMessage(LlmChatRole.System, $"""
             You are a story editor. Your task is to rewrite a chapter outline to resolve
             all listed contradictions with the established facts, while preserving the
             chapter's narrative purpose and key events.
             Output ONLY the corrected outline text â€” no headings, no explanations.
             Write in {book.Language}.
-            """);
-        fixHistory.AddUserMessage($"""
+            """));
+        fixHistory.Add(new LlmChatMessage(LlmChatRole.User, $"""
             ## Established Facts
             {establishedFacts}
 
@@ -91,9 +87,9 @@ public class ContinuityCheckerAgent : AgentBase
             {detectResponse}
 
             Rewrite the outline to resolve all contradictions above.
-            """);
+            """));
 
-        var fixedOutline = await StreamResponseAsync(kernel, config, fixHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct);
+        var fixedOutline = await StreamResponseAsync(client, config, fixHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct);
 
         if (!string.IsNullOrWhiteSpace(fixedOutline))
         {
@@ -132,7 +128,7 @@ public class ContinuityCheckerAgent : AgentBase
 
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Running", chapterId, ct);
 
-        var (kernel, config) = await GetKernelAsync(bookId);
+        var (client, config) = await GetChatClientAsync(bookId);
         var doneChapters = book.Chapters.Where(c => c.Status == ChapterStatus.Done || c.Status == ChapterStatus.Review).ToList();
 
         if (doneChapters.Count == 0)
@@ -176,7 +172,7 @@ public class ContinuityCheckerAgent : AgentBase
                 ragContext = string.Join("\n\n===\n\n", ragParts);
         }
 
-        var history = new ChatHistory();
+        var messages = new List<LlmChatMessage>();
 
         var bible = await Repo.GetStoryBibleAsync(bookId);
 
@@ -195,7 +191,7 @@ public class ContinuityCheckerAgent : AgentBase
         {
             systemPrompt = InterpolateSystemPrompt(DefaultPrompts.ContinuityCheckerFull, book, bible);
         }
-        history.AddSystemMessage(systemPrompt);
+        messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
 
         // Build user message
         var contextSections = new System.Text.StringBuilder();
@@ -246,9 +242,9 @@ public class ContinuityCheckerAgent : AgentBase
                 {synopsis}{humanNotesSection}
                 """;
         }
-        history.AddUserMessage(userMessage);
+        messages.Add(new LlmChatMessage(LlmChatRole.User, userMessage));
 
-        var responseJson = await StreamResponseAsync(kernel, config, history, bookId, (int?)null, AgentRole.ContinuityChecker, ct,
+        var responseJson = await StreamResponseAsync(client, config, messages, bookId, (int?)null, AgentRole.ContinuityChecker, ct,
             jsonSchema: CheckerResultDto.JsonSchema);
 
         // Parse structured JSON result; gracefully degrade on parse failure

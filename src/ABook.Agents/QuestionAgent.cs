@@ -1,10 +1,7 @@
-#pragma warning disable SKEXP0001, SKEXP0010, SKEXP0070
-
 using System.Text;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ABook.Agents;
 
@@ -32,9 +29,9 @@ public class QuestionAgent : AgentBase
     {
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Checking if clarification is needed…", false, ct);
 
-        var (kernel, config) = await GetKernelAsync(bookId);
-        var history = new ChatHistory();
-        history.AddSystemMessage($"""
+        var (client, config) = await GetChatClientAsync(bookId);
+        var messages = new List<LlmChatMessage>();
+        messages.Add(new LlmChatMessage(LlmChatRole.System, $"""
             You are helping plan a book. Given the book premise below, determine if there is anything
             genuinely unclear that an author decision would meaningfully change the story plan.
             If so, list those questions as a numbered list (e.g. "1. Question here?").
@@ -47,11 +44,11 @@ public class QuestionAgent : AgentBase
             - Focus on continuation decisions only: e.g. where this book picks up after the prior book's
               ending, what happened to key characters between books, or what this book's unique focus is.
             - Treat all facts from the prior book as established — only ask about genuine ambiguities.
-            """);
-        history.AddUserMessage(bookContext);
+            """));
+        messages.Add(new LlmChatMessage(LlmChatRole.User, bookContext));
 
         string response;
-        try { response = await StreamResponseAsync(kernel, config, history, bookId, (int?)null, AgentRole.Planner, ct); }
+        try { response = await StreamResponseAsync(client, config, messages, bookId, (int?)null, AgentRole.Planner, ct); }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {

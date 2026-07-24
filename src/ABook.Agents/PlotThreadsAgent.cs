@@ -1,9 +1,6 @@
-#pragma warning disable SKEXP0001, SKEXP0010, SKEXP0070
-
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ABook.Agents;
 
@@ -34,8 +31,8 @@ public class PlotThreadsAgent : AgentBase
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 3/4 - Plot Threads...", false, ct);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.PlotThreadsAgent, "Running", ct: ct);
 
-        var (kernel, config) = await GetKernelAsync(bookId);
-        var history = new ChatHistory();
+        var (client, config) = await GetChatClientAsync(bookId);
+        var messages = new List<LlmChatMessage>();
         var ancestorReference = await Repo.BuildAncestorPlanningReferenceAsync(bookId, ct);
 
         var characterSummary = string.Join("\n", characters.Select(c =>
@@ -45,8 +42,8 @@ public class PlotThreadsAgent : AgentBase
             ? InterpolateSystemPrompt(book.PlotThreadsSystemPrompt, book, bible)
             : InterpolateSystemPrompt(DefaultPrompts.PlotThreads, book, bible);
 
-        history.AddSystemMessage(systemPrompt);
-        history.AddUserMessage($"""
+        messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
+        messages.Add(new LlmChatMessage(LlmChatRole.User, $"""
             Book title: {book.Title}
             Genre: {book.Genre}
             Premise: {book.Premise}
@@ -64,9 +61,9 @@ public class PlotThreadsAgent : AgentBase
             {(ancestorReference.Length > 0 ? $"\n{ancestorReference}" : "")}
 
             Create the plot thread map for this book.
-            """);
+            """));
 
-        var raw = await StreamResponseAsync(kernel, config, history, bookId, null, AgentRole.PlotThreadsAgent, ct, jsonSchema: JsonSchemas.PlotThreads);
+        var raw = await StreamResponseAsync(client, config, messages, bookId, null, AgentRole.PlotThreadsAgent, ct, jsonSchema: JsonSchemas.PlotThreads);
 
         List<PlotThread> threads;
         try { threads = Parse(bookId, raw); }

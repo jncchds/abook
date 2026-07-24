@@ -2,20 +2,9 @@ using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using ABook.Infrastructure.Llm.Strategies;
 using Microsoft.Extensions.AI;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ABook.Infrastructure.Llm;
 
-/// <summary>
-/// Factory that creates Semantic Kernel services (chat completion, embeddings) based on
-/// the configured LLM provider. Uses a strategy pattern for provider-specific implementation.
-/// <para>
-/// <b>Future migration:</b> Consider migrating to Microsoft.Extensions.AI abstraction layer
-/// (https://aka.ms/MLNET-MEAI) to reduce direct dependency on Semantic Kernel and make it
-/// easier to add new providers without SK-specific connectors.
-/// </para>
-/// </summary>
 public class LlmProviderFactory : ILlmProviderFactory
 {
     private static readonly Dictionary<LlmProvider, ILlmProviderStrategy> Strategies =
@@ -24,6 +13,7 @@ public class LlmProviderFactory : ILlmProviderFactory
             new OllamaProviderStrategy(),
             new OpenAIProviderStrategy(),
             new GoogleAIStudioProviderStrategy(),
+            new OpenAICompatibleProviderStrategy(),
         }.ToDictionary(s => s.Provider);
 
     private static ILlmProviderStrategy GetStrategy(LlmProvider provider) =>
@@ -31,19 +21,9 @@ public class LlmProviderFactory : ILlmProviderFactory
             ? strategy
             : throw new NotSupportedException($"Provider '{provider}' is not supported.");
 
-    public IChatCompletionService CreateChatCompletion(LlmConfiguration config) =>
-        GetStrategy(config.Provider).CreateChatCompletion(config);
+    public ILlmChatClient CreateChatClient(LlmConfiguration config) =>
+        GetStrategy(config.Provider).CreateChatClient(config);
 
     public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGeneration(LlmConfiguration config) =>
         GetStrategy(config.Provider).CreateEmbeddingGeneration(config);
-
-    public Kernel CreateKernel(LlmConfiguration config)
-    {
-        var builder = Kernel.CreateBuilder();
-        GetStrategy(config.Provider).ConfigureKernelBuilder(builder, config);
-        return builder.Build();
-    }
-
-    public PromptExecutionSettings CreateExecutionSettings(LlmConfiguration config, string? jsonSchema = null) =>
-        GetStrategy(config.Provider).CreateExecutionSettings(config, jsonSchema);
 }

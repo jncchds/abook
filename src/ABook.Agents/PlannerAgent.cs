@@ -1,9 +1,6 @@
-﻿#pragma warning disable SKEXP0001, SKEXP0010, SKEXP0070
-
-using ABook.Core.Interfaces;
+﻿using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ABook.Agents;
 
@@ -35,7 +32,7 @@ public class PlannerAgent : AgentBase
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ChaptersAgent, "Running", ct: ct);
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 4/4 - Chapter Outlines...", false, ct);
 
-        var (kernel, config) = await GetKernelAsync(bookId);
+        var (client, config) = await GetChatClientAsync(bookId);
         var ancestorReference = await Repo.BuildAncestorPlanningReferenceAsync(bookId, ct);
 
         var charSumForChapters = string.Join("\n", characters.Select(c =>
@@ -43,12 +40,12 @@ public class PlannerAgent : AgentBase
         var threadSummary = string.Join("\n", threads.Select(t =>
             $"- {t.Name} ({t.Type}, introduced ch.{t.IntroducedChapterNumber?.ToString() ?? "?"}): {t.Description}"));
 
-        var chapterHistory = new ChatHistory();
+        var messages = new List<LlmChatMessage>();
         var systemPrompt = !string.IsNullOrWhiteSpace(book.ChapterOutlinesSystemPrompt)
             ? InterpolateSystemPrompt(book.ChapterOutlinesSystemPrompt, book, bible)
             : InterpolateSystemPrompt(DefaultPrompts.ChapterOutlines, book, bible);
-        chapterHistory.AddSystemMessage(systemPrompt);
-        chapterHistory.AddUserMessage($"""
+        messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
+        messages.Add(new LlmChatMessage(LlmChatRole.User, $"""
             Book title: {book.Title}
             Genre: {book.Genre}
             Premise: {book.Premise}
@@ -70,9 +67,9 @@ public class PlannerAgent : AgentBase
             {(ancestorReference.Length > 0 ? $"\n{ancestorReference}" : "")}
 
             Create {book.TargetChapterCount} detailed chapter outlines for this book.
-            """);
+            """));
 
-        var chapterRaw = await StreamResponseAsync(kernel, config, chapterHistory, bookId, null, AgentRole.ChaptersAgent, ct, jsonSchema: JsonSchemas.ChapterOutlines);
+        var chapterRaw = await StreamResponseAsync(client, config, messages, bookId, null, AgentRole.ChaptersAgent, ct, jsonSchema: JsonSchemas.ChapterOutlines);
 
         List<Chapter> chapters;
         try { chapters = ParseChapterOutlines(bookId, chapterRaw); }

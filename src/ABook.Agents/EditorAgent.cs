@@ -1,18 +1,12 @@
-#pragma warning disable SKEXP0001, SKEXP0010, SKEXP0070
-
 using System.Text.Json;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ABook.Agents;
 
 public class EditorAgent : AgentBase
 {
-    // Matches the editorial-notes heading the LLM appends after chapter prose.
-    // Used to stop streaming those notes into the chapter view.
     private static readonly System.Text.RegularExpressions.Regex _notesHeadingRegex =
         new(@"^##\s+(editorial notes?|editor'?s? notes?|feedback|changes made|notes?|revisions?)\s*$",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Multiline);
@@ -38,9 +32,8 @@ public class EditorAgent : AgentBase
         await Repo.UpdateChapterAsync(chapter);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Running", chapterId, ct);
 
-        var (kernel, config) = await GetKernelAsync(bookId);
+        var (client, config) = await GetChatClientAsync(bookId);
 
-        // Cross-chapter context: full synopsis spine + 4 targeted RAG queries
         var synopsesBlock = await BuildChapterSynopsesAsync(bookId, chapter.Number, ct);
 
         string charRag = string.Empty, locationRag = string.Empty, threadRag = string.Empty, phrasesRag = string.Empty;
@@ -64,38 +57,26 @@ public class EditorAgent : AgentBase
 
             var phrasesQuery = "repeated descriptions recurring phrases re-introduction established facts";
 
-            // Sequential — GetRagContextAsync touches the shared scoped BookRepository
-            // (AddTokenUsageAsync → SaveChangesAsync), so concurrent calls corrupt the EF
-            // Core identity map. VectorStore.SearchAsync is safe (owns its own DbContext).
             charRag     = await GetRagContextAsync(bookId, charQuery,     4, LlmFactory, config, chapter.Id, ct);
             locationRag = await GetRagContextAsync(bookId, locationQuery, 3, LlmFactory, config, chapter.Id, ct);
             threadRag   = await GetRagContextAsync(bookId, threadQuery,   3, LlmFactory, config, chapter.Id, ct);
             phrasesRag  = await GetRagContextAsync(bookId, phrasesQuery,  4, LlmFactory, config, chapter.Id, ct);
         }
 
-        var history = new ChatHistory();
-        var bible = await Repo.GetStoryBibleAsync(bookId);
-
         if (checkerResult is { HasIssues: true, Issues.Length: > 0 })
         {
-            // Separate patchable issues from rewrite-only issues
             var patches = checkerResult.Issues.Where(i =>
                 i.Type != "rewrite" && !string.IsNullOrEmpty(i.OriginalText)).ToArray();
             var rewrites = checkerResult.Issues.Where(i => i.Type == "rewrite").ToList();
 
             if (patches.Length > 0)
-            {
-                // Phase 1: mechanical patches
                 await ApplyPatchesAsync(bookId, chapterId, new CheckerResult(true, patches, string.Empty), finalizeStatus, ct);
-            }
 
-            // Phase 2: creative pass for rewrite issues (on patched content if applicable)
             if (rewrites.Count > 0)
             {
                 ChapterVersion? patchedVersion = null;
                 if (patches.Length > 0)
                 {
-                    // Load the version we just saved to get patched content
                     var versions = await Repo.GetChapterVersionsAsync(chapterId);
                     patchedVersion = versions.OrderByDescending(v => v.CreatedAt).FirstOrDefault();
                 }
@@ -107,33 +88,23 @@ public class EditorAgent : AgentBase
             }
             else if (patches.Length == 0)
             {
-                // No issues at all — minor polish creative pass
                 await EditWithLlmAsync(bookId, chapterId, humanAttentionPoints, finalizeStatus, ct);
             }
         }
         else
         {
-            // ── CREATIVE LLM PATH (manual edits / no checker patches) ─────────────────
             await EditWithLlmAsync(bookId, chapterId, humanAttentionPoints, finalizeStatus, ct);
         }
     }
 
-    /// <summary>
-    /// Mechanically apply verbatim patches from the continuity checker. No LLM call.
-    /// Patches are located via position-based matching and applied end-first to preserve offsets.
-    /// Unlocated patches are skipped silently but reported in the feedback message.
-    /// A new ChapterVersion is created so history is preserved.
-    /// </summary>
     private async Task ApplyPatchesAsync(int bookId, int chapterId, CheckerResult result,
         bool finalizeStatus, CancellationToken ct)
     {
         var chapter = await Repo.GetChapterAsync(bookId, chapterId)
             ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
 
-        // Normalize once so all offsets from FindPatchLocation are valid on this string
         var content = NormalizeWhitespace(chapter.Content ?? string.Empty);
 
-        // Locate each patch (end-first to avoid offset corruption on application)
         var appliedPatches = new List<(int Offset, CheckerIssue Issue)>();
         var skippedIssues = new List<(CheckerIssue Issue, string Reason)>();
 
@@ -152,7 +123,6 @@ public class EditorAgent : AgentBase
                 skippedIssues.Add((issue, match.Reason ?? "text not found in chapter"));
         }
 
-        // Sort descending — apply from end of chapter toward the start so offsets stay valid
         appliedPatches.Sort((a, b) => b.Offset.CompareTo(a.Offset));
 
         foreach (var (offset, issue) in appliedPatches)
@@ -165,7 +135,6 @@ public class EditorAgent : AgentBase
         var patchedContent = StripLeadingChapterHeading(content, chapter.Number, chapter.Title);
         var patchedStatus = finalizeStatus ? ChapterStatus.Done : ChapterStatus.Review;
 
-        // Feedback message grouped by issue type with all fields per fix
         var feedbackSb = BuildEditorialFeedback(appliedPatches.Select(p => p.Issue), skippedIssues);
         await Repo.AddMessageAsync(new AgentMessage
         {
@@ -195,9 +164,8 @@ public class EditorAgent : AgentBase
         };
         await Repo.AddChapterVersionAsync(patchVersion);
 
-        // Re-index the edited content so subsequent RAG queries see the corrected prose
-        var (kernel, config) = await GetKernelAsync(bookId);
-        try { await IndexChapterAsync(bookId, chapterId, patchVersion.Id, kernel, config!, ct); }
+        var (_, config) = await GetChatClientAsync(bookId);
+        try { await IndexChapterAsync(bookId, chapterId, patchVersion.Id, config!, ct); }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
@@ -208,11 +176,6 @@ public class EditorAgent : AgentBase
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Done", chapterId, ct);
     }
 
-    /// <summary>
-    /// Creative LLM edit path — used when no checker patches are available (manual edits,
-    /// MCP tools). Streams edited prose via SignalR; splits off editorial-notes section.
-    /// A new ChapterVersion is created so history is preserved.
-    /// </summary>
     private async Task EditWithLlmAsync(int bookId, int chapterId, string? humanAttentionPoints,
         bool finalizeStatus, CancellationToken ct)
     {
@@ -221,10 +184,9 @@ public class EditorAgent : AgentBase
         var book = await Repo.GetByIdAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
 
-        var (kernel, config) = await GetKernelAsync(bookId);
+        var (client, config) = await GetChatClientAsync(bookId);
         var bible = await Repo.GetStoryBibleAsync(bookId);
 
-        // Cross-chapter context: synopsis spine + 4 targeted RAG queries for anti-repetition
         var synopsesBlock = await BuildChapterSynopsesAsync(bookId, chapter.Number, ct);
 
         string charRag = string.Empty, locationRag = string.Empty;
@@ -255,15 +217,13 @@ public class EditorAgent : AgentBase
             phrasesRag  = await GetRagContextAsync(bookId, phrasesQuery,  4, LlmFactory, config, chapter.Id, ct);
         }
 
-        var history = new ChatHistory();
+        var messages = new List<LlmChatMessage>();
 
-        string systemPrompt;
-        systemPrompt = !string.IsNullOrWhiteSpace(book.EditorSystemPrompt)
+        var systemPrompt = !string.IsNullOrWhiteSpace(book.EditorSystemPrompt)
             ? InterpolateSystemPrompt(book.EditorSystemPrompt, book, bible)
             : InterpolateSystemPrompt(DefaultPrompts.Editor, book, bible);
-        history.AddSystemMessage(systemPrompt);
+        messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
 
-        // Build cross-chapter context for anti-repetition checks
         var sb = new System.Text.StringBuilder();
 
         if (synopsesBlock.Length > 0)
@@ -277,10 +237,10 @@ public class EditorAgent : AgentBase
         if (hasRagContext)
         {
             sb.AppendLine("## Prior Chapter Passages (use to identify re-introductions and repeated content)");
-            if (!string.IsNullOrWhiteSpace(charRag))     { sb.AppendLine("\n### Character Details");                              sb.AppendLine(charRag); }
-            if (!string.IsNullOrWhiteSpace(locationRag)) { sb.AppendLine("\n### Location & Setting Details");                     sb.AppendLine(locationRag); }
-            if (!string.IsNullOrWhiteSpace(threadRag))   { sb.AppendLine("\n### Plot Thread Context");                            sb.AppendLine(threadRag); }
-            if (!string.IsNullOrWhiteSpace(phrasesRag))  { sb.AppendLine("\n### Potentially Repeated Phrases & Descriptions");   sb.AppendLine(phrasesRag); }
+            if (!string.IsNullOrWhiteSpace(charRag))     { sb.AppendLine("\n### Character Details");                             sb.AppendLine(charRag); }
+            if (!string.IsNullOrWhiteSpace(locationRag)) { sb.AppendLine("\n### Location & Setting Details");                    sb.AppendLine(locationRag); }
+            if (!string.IsNullOrWhiteSpace(threadRag))   { sb.AppendLine("\n### Plot Thread Context");                           sb.AppendLine(threadRag); }
+            if (!string.IsNullOrWhiteSpace(phrasesRag))  { sb.AppendLine("\n### Potentially Repeated Phrases & Descriptions");  sb.AppendLine(phrasesRag); }
             sb.AppendLine();
         }
 
@@ -297,13 +257,11 @@ public class EditorAgent : AgentBase
         }
 
         sb.AppendLine($"\nOriginal content:\n{chapter.Content}");
-        history.AddUserMessage(sb.ToString());
+        messages.Add(new LlmChatMessage(LlmChatRole.User, sb.ToString()));
 
-        // Stream prose only; stop forwarding tokens to SignalR once editorial-notes heading appears
-        var edited = await StreamResponseAsync(kernel, config, history, bookId, chapterId, AgentRole.Editor, ct,
+        var edited = await StreamResponseAsync(client, config, messages, bookId, chapterId, AgentRole.Editor, ct,
             stopStreamingAt: _notesHeadingRegex);
 
-        // Split off the editorial notes section.
         var notesMatch = _notesHeadingRegex.Match(edited);
 
         string prose;
@@ -326,11 +284,9 @@ public class EditorAgent : AgentBase
             prose = edited;
         }
 
-        // Strip any leading chapter heading the LLM may have added (e.g. "# Chapter 1: Title")
         var editedContent = StripLeadingChapterHeading(prose, chapter.Number, chapter.Title);
         var editedStatus = finalizeStatus ? ChapterStatus.Done : ChapterStatus.Review;
 
-        // Save this edit as a new version so history is preserved
         var version = new ChapterVersion
         {
             ChapterId = chapterId,
@@ -349,21 +305,14 @@ public class EditorAgent : AgentBase
         };
         await Repo.AddChapterVersionAsync(version);
 
-        // Re-index the edited content so subsequent RAG queries see the corrected prose
-        try { await IndexChapterAsync(bookId, chapterId, version.Id, kernel, config!, ct); }
+        try { await IndexChapterAsync(bookId, chapterId, version.Id, config!, ct); }
         catch (OperationCanceledException) { throw; }
-        catch { /* non-fatal — embeddings unavailable */ }
+        catch { /* non-fatal */ }
 
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Done", chapterId, ct);
     }
 
-    /// <summary>
-    /// Build human-readable rewrite instructions from checker-flagged rewrite issues.
-    /// Used when the Editor needs a creative pass on already-patched content to resolve
-    /// inconsistencies that can't be fixed by mechanical patching (e.g. clothing contradictions,
-    /// timeline impossibilities, state changes without transition).
-    /// </summary>
     private static string BuildRewriteInstructions(List<CheckerIssue> rewrites)
     {
         var sb = new System.Text.StringBuilder();
@@ -392,11 +341,6 @@ public class EditorAgent : AgentBase
         return sb.ToString();
     }
 
-    /// <summary>
-    /// Creative LLM edit path for resolving rewrite issues flagged by the Checker.
-    /// Takes already-patched content plus rewrite instructions, streams a full-chapter
-    /// creative pass that resolves contradictions while preserving everything else.
-    /// </summary>
     private async Task EditWithLlmForRewrites(int bookId, int chapterId, string contentToEdit,
         string rewriteInstructions, bool finalizeStatus,
         string synopsesBlockStr,
@@ -409,18 +353,16 @@ public class EditorAgent : AgentBase
         var chapter = await Repo.GetChapterAsync(bookId, chapterId)
             ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
 
-        var (kernel, config) = await GetKernelAsync(bookId);
+        var (client, config) = await GetChatClientAsync(bookId);
         var bible = await Repo.GetStoryBibleAsync(bookId);
 
-        string systemPrompt;
-        systemPrompt = !string.IsNullOrWhiteSpace(book.EditorSystemPrompt)
+        var systemPrompt = !string.IsNullOrWhiteSpace(book.EditorSystemPrompt)
             ? InterpolateSystemPrompt(book.EditorSystemPrompt, book, bible)
             : InterpolateSystemPrompt(DefaultPrompts.Editor, book, bible);
 
-        var history = new ChatHistory();
-        history.AddSystemMessage(systemPrompt);
+        var messages = new List<LlmChatMessage>();
+        messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
 
-        // Build cross-chapter context (same structure as EditWithLlmAsync)
         var sb = new System.Text.StringBuilder();
 
         if (!string.IsNullOrWhiteSpace(synopsesBlockStr))
@@ -434,10 +376,10 @@ public class EditorAgent : AgentBase
         if (hasRagContext)
         {
             sb.AppendLine("## Prior Chapter Passages (for context — do not re-introduce or restate)");
-            if (!string.IsNullOrWhiteSpace(charRag))     { sb.AppendLine("\n### Character Details");                              sb.AppendLine(charRag); }
-            if (!string.IsNullOrWhiteSpace(locationRag)) { sb.AppendLine("\n### Location & Setting Details");                     sb.AppendLine(locationRag); }
-            if (!string.IsNullOrWhiteSpace(threadRag))   { sb.AppendLine("\n### Plot Thread Context");                            sb.AppendLine(threadRag); }
-            if (!string.IsNullOrWhiteSpace(phrasesRag))  { sb.AppendLine("\n### Potentially Repeated Phrases & Descriptions");   sb.AppendLine(phrasesRag); }
+            if (!string.IsNullOrWhiteSpace(charRag))     { sb.AppendLine("\n### Character Details");                             sb.AppendLine(charRag); }
+            if (!string.IsNullOrWhiteSpace(locationRag)) { sb.AppendLine("\n### Location & Setting Details");                    sb.AppendLine(locationRag); }
+            if (!string.IsNullOrWhiteSpace(threadRag))   { sb.AppendLine("\n### Plot Thread Context");                           sb.AppendLine(threadRag); }
+            if (!string.IsNullOrWhiteSpace(phrasesRag))  { sb.AppendLine("\n### Potentially Repeated Phrases & Descriptions");  sb.AppendLine(phrasesRag); }
             sb.AppendLine();
         }
 
@@ -445,13 +387,11 @@ public class EditorAgent : AgentBase
         sb.AppendLine(rewriteInstructions);
         sb.AppendLine($"\nChapter content (already mechanically patched — only resolve the creative issues above):");
         sb.AppendLine(contentToEdit);
-        history.AddUserMessage(sb.ToString());
+        messages.Add(new LlmChatMessage(LlmChatRole.User, sb.ToString()));
 
-        // Stream prose only; stop forwarding tokens to SignalR once editorial-notes heading appears
-        var edited = await StreamResponseAsync(kernel, config, history, bookId, chapterId, AgentRole.Editor, ct,
+        var edited = await StreamResponseAsync(client, config, messages, bookId, chapterId, AgentRole.Editor, ct,
             stopStreamingAt: _notesHeadingRegex);
 
-        // Split off the editorial notes section.
         var notesMatch = _notesHeadingRegex.Match(edited);
 
         string prose;
@@ -477,7 +417,6 @@ public class EditorAgent : AgentBase
         var editedContent = StripLeadingChapterHeading(prose, chapter.Number, chapter.Title);
         var editedStatus = finalizeStatus ? ChapterStatus.Done : ChapterStatus.Review;
 
-        // Save as new version — this represents the creative pass resolving rewrite issues
         var version = new ChapterVersion
         {
             ChapterId = chapterId,
@@ -496,11 +435,10 @@ public class EditorAgent : AgentBase
         };
         await Repo.AddChapterVersionAsync(version);
 
-        try { await IndexChapterAsync(bookId, chapterId, version.Id, kernel, config!, ct); }
+        try { await IndexChapterAsync(bookId, chapterId, version.Id, config!, ct); }
         catch (OperationCanceledException) { throw; }
         catch { /* non-fatal */ }
 
-        // Post a system note explaining what the creative pass addressed
         var noteSb = new System.Text.StringBuilder();
         noteSb.AppendLine($"✏️ Creative edit — resolved {rewrites.Count} inconsistency issue(s):");
         foreach (var issue in rewrites)
@@ -519,13 +457,6 @@ public class EditorAgent : AgentBase
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Done", chapterId, ct);
     }
 
-    /// <summary>
-    /// Locate an issue's OriginalText in chapter content using a two-pass strategy.
-    /// Pass 1: exact match on trailing-whitespace-normalized content.
-    /// Pass 2: smart-quote normalization (curly → ASCII) as lightweight insurance.
-    /// Within each pass, position hint drives a ±5-line window first, then falls back
-    /// to full-text; ambiguous multi-matches are resolved by closest-offset heuristic.
-    /// </summary>
     private static PatchMatch FindPatchLocation(string content, CheckerIssue issue)
     {
         var normalized = NormalizeWhitespace(content);
@@ -534,11 +465,9 @@ public class EditorAgent : AgentBase
         if (string.IsNullOrEmpty(normOriginal))
             return PatchMatch.Skipped("original text is empty");
 
-        // Pass 1: exact match
         var p1 = TryLocate(normalized, normOriginal, issue.Position);
         if (p1.Offset >= 0) return p1;
 
-        // Pass 2: smart-quote normalization (char-for-char replacement — offsets stay valid)
         var p2 = TryLocate(NormalizeQuotes(normalized), NormalizeQuotes(normOriginal), issue.Position);
         if (p2.Offset >= 0) return p2;
 
@@ -547,21 +476,18 @@ public class EditorAgent : AgentBase
 
     private static PatchMatch TryLocate(string haystack, string needle, int? positionHint)
     {
-        // 1. Position-first window (±5 lines — wider since position now comes from a numbered source)
         if (positionHint.HasValue && positionHint.Value > 0)
         {
             int windowIdx = FindInLineWindow(haystack, needle, positionHint.Value, window: 5);
             if (windowIdx >= 0) return PatchMatch.Found(windowIdx);
         }
 
-        // 2. Full-text IndexOf
         int firstIdx = haystack.IndexOf(needle, StringComparison.Ordinal);
         if (firstIdx < 0) return PatchMatch.Skipped("not found");
 
         int count = CountOccurrences(haystack, needle);
         if (count == 1) return PatchMatch.Found(firstIdx);
 
-        // 3. Ambiguous — try exact-line confirmation
         if (positionHint.HasValue && positionHint.Value > 0)
         {
             var lines = haystack.Split('\n');
@@ -572,7 +498,6 @@ public class EditorAgent : AgentBase
                 if (localIdx >= 0) return PatchMatch.Found(lineStart + localIdx);
             }
 
-            // 4. Closest-offset heuristic — pick the occurrence nearest the position hint
             int targetOffset = GetLineStartOffset(haystack, positionHint.Value);
             int best = -1, bestDist = int.MaxValue, idx = 0;
             while ((idx = haystack.IndexOf(needle, idx, StringComparison.Ordinal)) >= 0)
@@ -587,10 +512,6 @@ public class EditorAgent : AgentBase
         return PatchMatch.Skipped("ambiguous — multiple matches and position did not confirm");
     }
 
-    /// <summary>
-    /// Search for normOriginal within ±window lines of the given lineNumber.
-    /// Returns character offset in normalized content, or -1 if no match found.
-    /// </summary>
     private static int FindInLineWindow(string normalized, string needle, int lineNumber, int window = 3)
     {
         var lines = normalized.Split('\n');
@@ -637,9 +558,6 @@ public class EditorAgent : AgentBase
         return offset;
     }
 
-    /// <summary>
-    /// Build the editorial feedback message grouped by issue type with all fields per fix.
-    /// </summary>
     private static System.Text.StringBuilder BuildEditorialFeedback(
         IEnumerable<CheckerIssue> applied, IEnumerable<(CheckerIssue Issue, string Reason)> skipped)
     {
@@ -684,9 +602,6 @@ public class EditorAgent : AgentBase
         return sb;
     }
 
-    /// <summary>
-    /// Result of locating a patch: either a confirmed character offset, or a skip with reason.
-    /// </summary>
     private sealed record PatchMatch(int Offset, string? Reason)
     {
         public static PatchMatch Found(int offset) => new(offset, null);

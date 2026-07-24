@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { LlmPreset, ProviderModel } from '../api'
 import { getPresets, createPreset, updatePreset, deletePreset, getModels } from '../api'
-import { PROVIDERS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS } from '../config/providers'
+import { PROVIDERS, PROVIDER_LABELS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS } from '../config/providers'
 
 const emptyForm = {
   name: '', provider: 'Ollama', modelName: '', endpoint: '', apiKey: '', embeddingModelName: '',
@@ -119,7 +119,7 @@ export default function Presets() {
               setForm(f => ({ ...f, provider: prov, endpoint: f.endpoint && (DEFAULT_ENDPOINTS[f.provider] === f.endpoint) ? defaultEndpoint : f.endpoint }))
               setModels([])
             }}>
-              {PROVIDERS.map(p => <option key={p}>{p}</option>)}
+              {PROVIDERS.map(p => <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>)}
             </select>
           </label>
           <label>
@@ -203,6 +203,7 @@ export default function Presets() {
                 />
                 <span className="hint">Request timeout. Leave blank for no override.</span>
               </label>
+              {form.provider !== 'OpenAICompatible' && (
               <label>
                 Reasoning effort
                 <select value={form.reasoningEffort ?? ''} onChange={e => setForm(f => ({ ...f, reasoningEffort: e.target.value || undefined }))}>
@@ -214,6 +215,7 @@ export default function Presets() {
                 </select>
                 <span className="hint">For reasoning models (DeepSeek-R1, Qwen3). Leave blank for model default.</span>
               </label>
+              )}
               <label>
                 Max tokens
                 <input

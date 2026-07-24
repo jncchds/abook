@@ -1,13 +1,9 @@
-#pragma warning disable SKEXP0001, SKEXP0010, SKEXP0070
-
 using System.Text;
 using System.Text.Json;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using ABook.Infrastructure.VectorStore;
 using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
 
 namespace ABook.Agents;
 
@@ -33,13 +29,13 @@ public class WriterAgent : AgentBase
         await Repo.UpdateChapterAsync(chapter);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Writer, "Running", chapterId, ct);
 
-        var (kernel, config) = await GetKernelAsync(bookId);
+        var (client, config) = await GetChatClientAsync(bookId);
 
         var contextBlock = await BuildWriterContextAsync(bookId, chapter, config!, ct);
         var synopsesBlock = await BuildChapterSynopsesAsync(bookId, chapter.Number, ct);
         var prevEnding = await GetPreviousChapterEndingAsync(bookId, chapter.Number, paragraphCount: 3);
 
-        var history = new ChatHistory();
+        var messages = new List<LlmChatMessage>();
         var bible = await Repo.GetStoryBibleAsync(bookId);
         var basePrompt = !string.IsNullOrWhiteSpace(book.WriterSystemPrompt)
             ? InterpolateSystemPrompt(book.WriterSystemPrompt, book, bible)
@@ -50,10 +46,10 @@ public class WriterAgent : AgentBase
             {contextBlock}
             {(prevEnding.Length > 0 ? $"\nThe previous chapter ended with:\n{prevEnding}\nContinue the story naturally from this point." : "")}
             """;
-        history.AddSystemMessage(systemPrompt);
+        messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
 
-        history.AddUserMessage($"""
-            {(synopsesBlock.Length > 0 ? $"## Story So Far \u2014 Chapter Synopses\nRefer to this to avoid re-introducing or restating anything already established in prior chapters.\n{synopsesBlock}\n\n" : "")}Write the full content for:
+        messages.Add(new LlmChatMessage(LlmChatRole.User, $"""
+            {(synopsesBlock.Length > 0 ? $"## Story So Far — Chapter Synopses\nRefer to this to avoid re-introducing or restating anything already established in prior chapters.\n{synopsesBlock}\n\n" : "")}Write the full content for:
             Chapter {chapter.Number}: {chapter.Title}
             Outline: {chapter.Outline}
             {(chapter.PovCharacter.Length > 0 ? $"Point of view: {chapter.PovCharacter}" : "")}
@@ -61,12 +57,11 @@ public class WriterAgent : AgentBase
             {(chapter.PayoffNotes.Length > 0 ? $"Pay off in this chapter: {chapter.PayoffNotes}" : "")}
 
             Write at least 1000 words of narrative prose. Output markdown only. Do NOT include a chapter heading.
-            """);
+            """));
 
-        var content = await StreamResponseAsync(kernel, config, history, bookId, chapterId, AgentRole.Writer, ct);
+        var content = await StreamResponseAsync(client, config, messages, bookId, chapterId, AgentRole.Writer, ct);
         content = StripLeadingChapterHeading(content, chapter.Number, chapter.Title);
 
-        // Save this write as a new version so history is preserved
         var version = new ChapterVersion
         {
             ChapterId = chapterId,
@@ -88,8 +83,7 @@ public class WriterAgent : AgentBase
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Writer, "Done", chapterId, ct);
 
-        // Index chapter version in pgvector for RAG
-        try { await IndexChapterAsync(bookId, chapterId, savedVersion.Id, kernel, config!, ct); }
+        try { await IndexChapterAsync(bookId, chapterId, savedVersion.Id, config!, ct); }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
@@ -97,17 +91,11 @@ public class WriterAgent : AgentBase
         }
     }
 
-    /// <summary>
-    /// Assembles the rich context block injected into the Writer system prompt:
-    /// Story Bible (tone + world rules), relevant character profiles, active plot threads,
-    /// and RAG passages from prior chapters.
-    /// </summary>
     private async Task<string> BuildWriterContextAsync(
         int bookId, Chapter chapter, LlmConfiguration config, CancellationToken ct)
     {
         var sb = new StringBuilder();
 
-        // Story Bible
         var bible = await Repo.GetStoryBibleAsync(bookId);
         if (bible is not null)
         {
@@ -120,7 +108,6 @@ public class WriterAgent : AgentBase
                 sb.AppendLine($"Setting: {bible.SettingDescription}");
         }
 
-        // Relevant character profiles
         var allCards = await Repo.GetCharacterCardsAsync(bookId);
         if (allCards.Any())
         {
@@ -134,7 +121,7 @@ public class WriterAgent : AgentBase
 
             if (relevantCards.Count > 0)
             {
-                sb.AppendLine("\n## Character Profiles (canonical � do not contradict)");
+                sb.AppendLine("\n## Character Profiles (canonical — do not contradict)");
                 foreach (var card in relevantCards)
                 {
                     sb.AppendLine($"\n**{card.Name}** ({card.Role})");
@@ -150,7 +137,6 @@ public class WriterAgent : AgentBase
             }
         }
 
-        // Active plot threads for this chapter
         var allThreads = await Repo.GetPlotThreadsAsync(bookId);
         if (allThreads.Any())
         {
@@ -171,10 +157,8 @@ public class WriterAgent : AgentBase
             }
         }
 
-        // RAG: 3 targeted queries for character, location, and plot-thread consistency
         if (chapter.Number > 1)
         {
-            // Query 1: characters involved in this chapter
             List<string> charNames;
             try { charNames = JsonSerializer.Deserialize<List<string>>(chapter.CharactersInvolvedJson) ?? []; }
             catch { charNames = []; }
@@ -182,10 +166,8 @@ public class WriterAgent : AgentBase
                 ? $"character appearance description personality {string.Join(' ', charNames)}"
                 : "character appearance description personality backstory";
 
-            // Query 2: locations / setting mentioned in the outline
             var locationQuery = $"location place setting description {chapter.Outline}";
 
-            // Query 3: plot thread context
             List<string> threadNames;
             try { threadNames = JsonSerializer.Deserialize<List<string>>(chapter.PlotThreadsJson) ?? []; }
             catch { threadNames = []; }
@@ -193,16 +175,13 @@ public class WriterAgent : AgentBase
                 ? $"plot thread events foreshadowing {string.Join(' ', threadNames)}"
                 : $"plot events sequence foreshadowing {chapter.Outline}";
 
-            // Sequential — GetRagContextAsync touches the shared scoped BookRepository
-            // (AddTokenUsageAsync → SaveChangesAsync), so concurrent calls corrupt the EF
-            // Core identity map. VectorStore.SearchAsync is safe (owns its own DbContext).
             var charRag     = await GetRagContextAsync(bookId, charQuery,     4, LlmFactory, config, chapter.Id, ct);
             var locationRag = await GetRagContextAsync(bookId, locationQuery, 3, LlmFactory, config, chapter.Id, ct);
             var threadRag   = await GetRagContextAsync(bookId, threadQuery,   3, LlmFactory, config, chapter.Id, ct);
 
             if (!string.IsNullOrWhiteSpace(charRag) || !string.IsNullOrWhiteSpace(locationRag) || !string.IsNullOrWhiteSpace(threadRag))
             {
-                sb.AppendLine("\n## Prior Chapter Passages (for consistency \u2014 do not re-introduce or restate)");
+                sb.AppendLine("\n## Prior Chapter Passages (for consistency — do not re-introduce or restate)");
                 if (!string.IsNullOrWhiteSpace(charRag))
                 {
                     sb.AppendLine("\n### Character Details from Prior Chapters");
@@ -223,9 +202,4 @@ public class WriterAgent : AgentBase
 
         return sb.ToString();
     }
-
-    // NOTE: IndexChapterAsync has been moved to AgentBase.IndexChapterAsync (version-aware).
-    // The WriterAgent now calls the base method via IndexChapterAsync(bookId, chapterId, versionId, ...).
-    // This class no longer has its own IndexChapterAsync.
-
 }
