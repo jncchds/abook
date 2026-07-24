@@ -18,7 +18,7 @@ export function useRestoreStream(
   onRestoreRef.current = onRestore
 
   useEffect(() => {
-    if (!bookId || !isRunning || currentBuffer) return
+    if (!bookId || !isRunning || currentBuffer || !agentRole) return
     getStreamBuffer(bookId, agentRole, chapterId)
       .then(r => { if (r.data.content) onRestoreRef.current(r.data.content) })
       .catch(() => {})

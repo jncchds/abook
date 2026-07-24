@@ -246,19 +246,24 @@ public static class DefaultPrompts
             "type": one of "continuity", "grammar", "repetition", or "style",
             "description": specific description of the problem, naming what is wrong and where,
             "proposedFix": a concrete, actionable text change that fully resolves the issue,
-            "originalText": the EXACT verbatim text from the chapter that must be replaced —
-              INCLUDE AT LEAST 10–20 CHARACTERS OF SURROUNDING CONTEXT ON EACH SIDE so the
-              replacement is uniquely identifiable within the chapter. Copy character-for-character.
-              Use empty string if the fix requires insertion or structural restructuring rather than replacement,
+            "originalText": the EXACT verbatim text from the chapter to be replaced.
+              Copy CHARACTER-FOR-CHARACTER from the numbered source — including all punctuation,
+              apostrophes, quote marks, capitalization, and any embedded newlines exactly as they appear.
+              Do NOT fix, paraphrase, or alter even a single character; any deviation causes the patch to
+              be silently dropped. Include AT LEAST 30 CHARACTERS OF SURROUNDING CONTEXT on each side
+              (or the full sentence when the error falls within one sentence, whichever is longer).
+              Do NOT include the "N | " line-number prefix.
+              Use empty string only for pure insertion or large-scale structural rewrites.
             "replacementText": the EXACT verbatim replacement text (empty string when originalText is empty),
-            "position": a 1-indexed INTEGER representing the line number in the chapter content
-              where this issue occurs. Count lines from the start of the provided chapter content.
-              This disambiguates when the same phrase appears multiple times.
+            "position": REQUIRED for all non-rewrite issues — copy the line number directly from the
+              "N | " prefix printed at the start of each line in the chapter content provided.
+              Provide this even when the phrase appears only once; it is the primary tool for locating the patch.
             use empty array if no issues),
           "summary" (string — one concise sentence describing the overall chapter quality).
-        For each issue, provide verbatim originalText/replacementText whenever possible so the editor
-        can apply them mechanically without an LLM call. The originalText must be long enough to be
-        uniquely identifiable in the chapter.
+        CRITICAL: For every non-rewrite issue you MUST provide verbatim originalText and replacementText.
+        The editor applies patches without any LLM call — if originalText is not character-for-character
+        identical to the chapter text the patch will be silently dropped and the issue goes unfixed.
+        When uncertain, include more surrounding context rather than less.
         IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
         Book: {PromptPlaceholders.Title} | Genre: {PromptPlaceholders.Genre}
         IMPORTANT: Write all string values in {PromptPlaceholders.Language}.
@@ -307,19 +312,24 @@ public static class DefaultPrompts
             "type": one of "continuity", "grammar", "repetition", or "style",
             "description": specific description naming the problem and affected chapter(s),
             "proposedFix": a concrete, actionable text change that fully resolves the issue,
-            "originalText": the EXACT verbatim text from the chapter that must be replaced —
-              INCLUDE AT LEAST 10–20 CHARACTERS OF SURROUNDING CONTEXT ON EACH SIDE so the
-              replacement is uniquely identifiable within the chapter. Copy character-for-character.
-              Use empty string if the fix requires insertion or structural restructuring rather than replacement,
+            "originalText": the EXACT verbatim text from the chapter to be replaced.
+              Copy CHARACTER-FOR-CHARACTER from the numbered source — including all punctuation,
+              apostrophes, quote marks, capitalization, and any embedded newlines exactly as they appear.
+              Do NOT fix, paraphrase, or alter even a single character; any deviation causes the patch to
+              be silently dropped. Include AT LEAST 30 CHARACTERS OF SURROUNDING CONTEXT on each side
+              (or the full sentence when the error falls within one sentence, whichever is longer).
+              Do NOT include the "N | " line-number prefix.
+              Use empty string only for pure insertion or large-scale structural rewrites.
             "replacementText": the EXACT verbatim replacement text (empty string when originalText is empty),
-            "position": a 1-indexed INTEGER representing the line number in the chapter content
-              where this issue occurs. Count lines from the start of that chapter's content.
-              This disambiguates when the same phrase appears multiple times.
+            "position": REQUIRED for all non-rewrite issues — copy the line number directly from the
+              "N | " prefix printed at the start of each line in the chapter content provided.
+              Provide this even when the phrase appears only once; it is the primary tool for locating the patch.
             use empty array if no issues),
           "summary" (string — one concise sentence summarising the overall manuscript quality).
-        For each issue, provide verbatim originalText/replacementText whenever possible so the editor
-        can apply them mechanically without an LLM call. The originalText must be long enough to be
-        uniquely identifiable in the chapter.
+        CRITICAL: For every non-rewrite issue you MUST provide verbatim originalText and replacementText.
+        The editor applies patches without any LLM call — if originalText is not character-for-character
+        identical to the chapter text the patch will be silently dropped and the issue goes unfixed.
+        When uncertain, include more surrounding context rather than less.
         IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
         Book: {PromptPlaceholders.Title} | Genre: {PromptPlaceholders.Genre}
         IMPORTANT: Write all string values in {PromptPlaceholders.Language}.

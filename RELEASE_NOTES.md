@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.1.19 — 2026-07-24
+
+- fix: chapter view no longer shows ContinuityChecker streaming output (pre-write or post-write analysis) in place of chapter content; checker tokens are now discarded on the frontend (the analysis is saved to the chat panel as a SystemNote); also fixes hard-refresh restore incorrectly pulling checker output into the chapter area
+- checker: chapter content is now sent to the LLM with `N | ` line-number prefixes so position hints are read directly from the source rather than estimated; `originalText` instructions strengthened to require 30+ char context and character-for-character verbatim copying
+- editor: mechanical patch matching upgraded to a two-pass strategy (exact → smart-quote normalization); position window widened from ±3 to ±5 lines; ambiguous multi-matches resolved by closest-offset heuristic instead of being silently dropped; content pre-normalized before patching so apply-loop offsets are always valid
+- CLAUDE.md: added workflow rules for release notes on every commit, date verification on the current version heading, no running outside Docker, and fixing compilation warnings
+
 ## v0.1.17 — 2026-07-15
 
 - fix: presets page no longer showed an empty list on mount; added missing `getPresets()` call so the Presets page loads user-owned + global presets from the server (same API as BookSettings/GlobalSettings)

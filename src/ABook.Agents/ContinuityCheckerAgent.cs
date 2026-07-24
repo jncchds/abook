@@ -223,7 +223,8 @@ public class ContinuityCheckerAgent : AgentBase
             var currentExcerpt =
                 $"Chapter {currentChapter.Number}: {currentChapter.Title}\n" +
                 $"Outline: {currentChapter.Outline}\n" +
-                $"Content: {currentChapter.Content}";
+                $"Content (each line is prefixed with its 1-indexed line number — do NOT include the \"N | \" prefix in originalText):\n" +
+                NumberLines(currentChapter.Content ?? string.Empty);
 
             userMessage = $"""
                 Check Chapter {currentChapter.Number} ("{currentChapter.Title}") for continuity issues.
@@ -398,6 +399,12 @@ public class ContinuityCheckerAgent : AgentBase
 
 
     // â”€â”€ Private Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    private static string NumberLines(string content)
+    {
+        var lines = content.Split('\n');
+        return string.Join("\n", lines.Select((line, i) => $"{i + 1} | {line}"));
+    }
 
     /// <summary>
     /// Builds a compact "established facts" block for a specific chapter's pre-write check:

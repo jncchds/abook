@@ -204,6 +204,8 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         setCharactersStream(prev => prev + token)
       } else if (agentRole === 'PlotThreadsAgent') {
         setPlotThreadsStream(prev => prev + token)
+      } else if (agentRole === 'ContinuityChecker') {
+        // Checker output is structural analysis saved to chat — never display in chapter view
       } else if (agentRole === 'ChaptersAgent' || cId === null) {
         setPlannerBuffer(prev => prev + token)
       } else {

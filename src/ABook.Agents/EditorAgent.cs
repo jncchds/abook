@@ -130,7 +130,8 @@ public class EditorAgent : AgentBase
         var chapter = await Repo.GetChapterAsync(bookId, chapterId)
             ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
 
-        var content = chapter.Content ?? string.Empty;
+        // Normalize once so all offsets from FindPatchLocation are valid on this string
+        var content = NormalizeWhitespace(chapter.Content ?? string.Empty);
 
         // Locate each patch (end-first to avoid offset corruption on application)
         var appliedPatches = new List<(int Offset, CheckerIssue Issue)>();
@@ -156,7 +157,8 @@ public class EditorAgent : AgentBase
 
         foreach (var (offset, issue) in appliedPatches)
         {
-            content = content.Remove(offset, issue.OriginalText.Length)
+            var removeLength = NormalizeWhitespace(issue.OriginalText).Length;
+            content = content.Remove(offset, removeLength)
                              .Insert(offset, issue.ReplacementText ?? string.Empty);
         }
 
@@ -518,12 +520,11 @@ public class EditorAgent : AgentBase
     }
 
     /// <summary>
-    /// Locate an issue's OriginalText in chapter content. Strategy:
-    ///   1. If Position is provided, search within ±3 lines of that line number first.
-    ///   2. Fall back to full-text IndexOf on normalized content.
-    ///   3. If multiple matches remain and position was provided, try the position line
-    ///      as a disambiguator.
-    /// Returns PatchMatch with offset and optional skip reason for failures.
+    /// Locate an issue's OriginalText in chapter content using a two-pass strategy.
+    /// Pass 1: exact match on trailing-whitespace-normalized content.
+    /// Pass 2: smart-quote normalization (curly → ASCII) as lightweight insurance.
+    /// Within each pass, position hint drives a ±5-line window first, then falls back
+    /// to full-text; ambiguous multi-matches are resolved by closest-offset heuristic.
     /// </summary>
     private static PatchMatch FindPatchLocation(string content, CheckerIssue issue)
     {
@@ -533,28 +534,54 @@ public class EditorAgent : AgentBase
         if (string.IsNullOrEmpty(normOriginal))
             return PatchMatch.Skipped("original text is empty");
 
-        // 1. Position-first: search within ±3 lines of reported line number
-        if (issue.Position.HasValue && issue.Position.Value > 0)
+        // Pass 1: exact match
+        var p1 = TryLocate(normalized, normOriginal, issue.Position);
+        if (p1.Offset >= 0) return p1;
+
+        // Pass 2: smart-quote normalization (char-for-char replacement — offsets stay valid)
+        var p2 = TryLocate(NormalizeQuotes(normalized), NormalizeQuotes(normOriginal), issue.Position);
+        if (p2.Offset >= 0) return p2;
+
+        return PatchMatch.Skipped("text not found in chapter");
+    }
+
+    private static PatchMatch TryLocate(string haystack, string needle, int? positionHint)
+    {
+        // 1. Position-first window (±5 lines — wider since position now comes from a numbered source)
+        if (positionHint.HasValue && positionHint.Value > 0)
         {
-            var matchNearPosition = FindInLineWindow(normalized, normOriginal, issue.Position.Value);
-            if (matchNearPosition >= 0) return PatchMatch.Found(matchNearPosition);
+            int windowIdx = FindInLineWindow(haystack, needle, positionHint.Value, window: 5);
+            if (windowIdx >= 0) return PatchMatch.Found(windowIdx);
         }
 
-        // 2. Full-text IndexOf fallback
-        int firstIdx = normalized.IndexOf(normOriginal, StringComparison.Ordinal);
-        if (firstIdx < 0) return PatchMatch.Skipped("text not found in chapter");
+        // 2. Full-text IndexOf
+        int firstIdx = haystack.IndexOf(needle, StringComparison.Ordinal);
+        if (firstIdx < 0) return PatchMatch.Skipped("not found");
 
-        int occurrenceCount = CountOccurrences(normalized, normOriginal);
-        if (occurrenceCount == 1) return PatchMatch.Found(firstIdx);    // unique — done
+        int count = CountOccurrences(haystack, needle);
+        if (count == 1) return PatchMatch.Found(firstIdx);
 
-        // 3. Ambiguous — use position as final disambiguator if available
-        var lines = normalized.Split('\n');
-        if (issue.Position.HasValue && issue.Position.Value > 0 && issue.Position.Value <= lines.Length)
+        // 3. Ambiguous — try exact-line confirmation
+        if (positionHint.HasValue && positionHint.Value > 0)
         {
-            int lineStartOffset = GetLineStartOffset(normalized, issue.Position.Value);
-            string lineContent = lines[issue.Position.Value - 1];
-            int localIdx = lineContent.IndexOf(normOriginal, StringComparison.Ordinal);
-            if (localIdx >= 0) return PatchMatch.Found(lineStartOffset + localIdx);  // confirmed on target line
+            var lines = haystack.Split('\n');
+            if (positionHint.Value <= lines.Length)
+            {
+                int lineStart = GetLineStartOffset(haystack, positionHint.Value);
+                int localIdx = lines[positionHint.Value - 1].IndexOf(needle, StringComparison.Ordinal);
+                if (localIdx >= 0) return PatchMatch.Found(lineStart + localIdx);
+            }
+
+            // 4. Closest-offset heuristic — pick the occurrence nearest the position hint
+            int targetOffset = GetLineStartOffset(haystack, positionHint.Value);
+            int best = -1, bestDist = int.MaxValue, idx = 0;
+            while ((idx = haystack.IndexOf(needle, idx, StringComparison.Ordinal)) >= 0)
+            {
+                int dist = Math.Abs(idx - targetOffset);
+                if (dist < bestDist) { bestDist = dist; best = idx; }
+                idx += needle.Length;
+            }
+            if (best >= 0) return PatchMatch.Found(best);
         }
 
         return PatchMatch.Skipped("ambiguous — multiple matches and position did not confirm");
@@ -589,6 +616,10 @@ public class EditorAgent : AgentBase
             lines[i] = lines[i].TrimEnd(' ', '\r', '\t');
         return string.Join("\n", lines);
     }
+
+    private static string NormalizeQuotes(string text) =>
+        text.Replace('‘', '\'').Replace('’', '\'')
+            .Replace('“', '"').Replace('”', '"');
 
     private static int CountOccurrences(string haystack, string needle)
     {
