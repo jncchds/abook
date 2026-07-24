@@ -1,33 +1,47 @@
 # ABook — Agentic AI Book Writing
 
-ABook is a self-hosted web application that uses AI agents to collaboratively write books. Seven specialized agents — Story Bible, Characters, Plot Threads, Chapter Outlines, Writer, Editor, and Continuity Checker — work together under your direction, streaming their progress in real time and pausing to ask clarifying questions when needed.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Docker Hub](https://img.shields.io/docker/v/jncchds/abook?label=Docker%20Hub)](https://hub.docker.com/r/jncchds/abook)
+[![.NET](https://img.shields.io/badge/.NET-10-purple)](https://dotnet.microsoft.com/)
+
+A self-hosted web application that uses AI agents to collaboratively write books. Seven specialized agents — Story Bible, Characters, Plot Threads, Chapter Outlines, Writer, Checker, and Editor — work together under your direction, streaming their progress in real time and pausing to ask clarifying questions when needed.
+
+---
 
 ## Features
 
-- **Seven specialized agents** across two phases: a 4-phase Planner (Story Bible → Characters → Plot Threads → Chapter Outlines) and a 3-agent writing pipeline (Pre-write Check → Write → Check → Edit → final Check) per chapter
-- **Human-assisted generation** — enable a per-book assisted mode that pauses after each planning phase and during chapter checking so you can add optional guidance; optional prompts support **Skip** and pending questions are restored after page refresh
-- **Guided planning Q&A** — agents ask clarifying questions up front before planning begins, then carry your answers through Story Bible, Characters, Plot Threads, and Chapter Outlines
-- **Real-time streaming** — watch chapters being written token by token via SignalR; Story Bible, Characters, and Plot Threads stream to their respective tabs with live progressive JSON previews
-- **Checker → mechanical patch apply** — the Checker flags continuity, grammar, repetition, and style issues as structured JSON patches with verbatim original text and replacement; the Editor applies them mechanically (no LLM call) using IndexOf-first matching with whitespace normalization and position-as-hint disambiguation, then re-indexes the chapter for RAG. Feedback message grouped by type shows all fields per fix.
-- **Token usage statistics** — per-agent prompt and completion token counts displayed in a scrollable collapsible panel and persisted to the database; Clear button to reset
-- **RAG context retrieval** — Writer uses 3 targeted queries (characters, locations, plot threads) and Editor uses 4 (same + repeated-phrase detection) against pgvector embeddings to keep chapters consistent and avoid re-introductions
-- **Book continuation mode** — create a new book based on a previous one; the new book copies key settings (language, human-assisted mode, target chapter count, all system prompts, and book-scoped LLM config)
-- **Ancestry-aware memory retrieval** — RAG queries for a continued book include the full base-book chain (parent, grandparent, etc.), so sequels keep awareness of earlier events
-- **Ancestor-aware planning references** — when generating a new Story Bible / Characters / Plot Threads / Chapter Outlines for a continued book, prior books’ artifacts are injected as reference context
-- **Full synopsis spine** — every prior chapter's title and outline is injected into Writer and Editor user messages so agents can see the narrative shape of the whole book and avoid recycling scene beats, re-describing established characters, or restating established facts
-- **Explicit anti-repetition rules** in default Writer, Editor, and Checker prompts — never re-introduce a known character/place, never restate established facts, vary scene-entry beats, flag echoed phrases
-- **Pluggable LLM backend** — Ollama (default, local), OpenAI (or any OpenAI-compatible API), or Google AI Studio; configurable globally, per-user, or per-book
-- **Per-book customization** — language, assisted-generation toggle, and per-phase system prompt overrides (Story Bible, Characters, Plot Threads, Chapter Outlines, Writer, Editor, Checker) with supported template tokens
+### Writing pipeline
+- **Seven specialized agents** across two phases: a 4-phase Planner (Story Bible → Characters → Plot Threads → Chapter Outlines) and a per-chapter writing pipeline (Pre-write Check → Write → Check → Edit)
+- **Checker → mechanical patch apply** — the Checker flags continuity, grammar, repetition, and style issues as structured JSON patches; the Editor applies them mechanically (no LLM call) using indexed text matching with whitespace normalization and position hints
+- **Full synopsis spine** — every prior chapter's title and outline is injected into Writer and Editor messages so agents stay aware of the whole narrative and avoid recycling beats or re-introducing established characters
+- **RAG context retrieval** — Writer runs 3 targeted queries (characters, locations, plot threads) and Editor runs 4 (same + repeated-phrase detection) against pgvector embeddings
+
+### Planning & guidance
+- **Guided planning Q&A** — agents ask clarifying questions up front before planning begins, then carry your answers through all four planning phases
+- **Human-assisted generation** — pauses after each planning phase and after each Checker pass so you can add optional notes; pending questions are restored after page refresh; supports **Ctrl+Enter** to submit
+- **Flexible workflow controls** — **Plan Only**, **Write Book**, **Continue**, **Continue Planning**, and individual per-chapter agent buttons; **Stop** cancels any running agent cleanly
+
+### Content management
+- **Story Bible, Characters & Plot Threads** — generated by the Planner, fully editable, with per-item version history and snapshot restore
 - **Inline editing** — edit book metadata, chapter titles/outlines, and add chapters manually without leaving the detail page
+- **Version history** — chapters, characters, and plot threads all track history with preview and restore; soft-archive instead of delete
+- **Book continuation** — create a sequel that copies all settings and inherits ancestor context; RAG and planning reference the full base-book chain
+
+### Exports & sharing
+- **Multiple export formats** — HTML (6 colour themes, adjustable font size), EPUB, FB2, and a Metadata document (book info, outlines, planning artifacts, agent messages, token stats)
+- **Public Library** — browse and read published books without logging in (when public mode is enabled); each chapter has its own URL for bookmarking and sharing
+
+### Infrastructure
+- **Pluggable LLM backend** — Ollama (default, local), OpenAI (or any OpenAI-compatible API), or Google AI Studio; configurable globally, per-user, or per-book
+- **Real-time streaming** — watch chapters being written token by token via SignalR; planning phases stream with live progressive JSON previews
+- **Token usage statistics** — per-agent prompt and completion token counts, persisted to the database and displayed in a collapsible panel
+- **MCP server** — built-in Model Context Protocol server at `/mcp`; connect Claude Desktop, VS Code Copilot, or any MCP client using a per-user API token
 - **Multi-user** — cookie-based authentication with admin role for user management
 - **Ollama model management** — browse installed models, pull new ones with live progress
-- **Story Bible, Characters & Plot Threads** — automatically generated by the Planner agent (4-phase: Story Bible → Characters → Plot Threads → Chapter Outlines); each phase has its own configurable system prompt, tracks a **Complete / Not Started** status, is fully editable, and can be individually completed, reopened, or cleared
-- **Flexible workflow controls** — **Plan Only** (outline the book and stop, so you can review/edit outlines before writing), **Write Book** (full autonomous pipeline), **Continue** (resume from the first non-Done chapter), **Continue Planning** (re-run only the incomplete planning phases, skipping any already marked Complete), and individual per-chapter agent buttons
-- **Global concurrency limit** — cap simultaneous agent runs across all books/users with `AgentSettings__MaxConcurrentRuns` (changes apply after app restart)
-- **Clear buttons** — clear agent messages or token stats for a book without deleting any content
-- **Multiple export formats** — download the finished book as **HTML** (6 colour themes, adjustable font size), **EPUB**, or **FB2**; or download a **Metadata document** (book info, chapter outlines, Story Bible, Characters, Plot Threads, agent messages, token statistics) as themed HTML
-- **Public Library** — browse and read published books without logging in (when public mode is enabled); each chapter has its own URL (`/library/:bookId/chapters/:chapterId`) for bookmarking and sharing; the Library uses the same sidebar layout as the rest of the app with download buttons (HTML / FB2 / EPUB) in the sidebar; chapter numbers appear as circular accent-colored badges in the sidebar; unauthenticated users land on the Library page by default
-- **MCP server** — built-in Model Context Protocol server at `/mcp`; any MCP-compatible client (Claude Desktop, VS Code Copilot) can read and write book content and trigger agents using a per-user API token generated in Settings
+- **Global concurrency limit** — cap simultaneous agent runs across all books/users with `AgentSettings__MaxConcurrentRuns`
+- **PWA support** — installable, works offline for cached content
+
+---
 
 ## Architecture
 
@@ -35,11 +49,13 @@ ABook is a self-hosted web application that uses AI agents to collaboratively wr
 [React SPA — served as static files from ASP.NET wwwroot]
         ↕ REST API + SignalR
 [ASP.NET Core 10 API]
-        ↕ Semantic Kernel          ↕ EF Core + pgvector
-[LLM (Ollama/OpenAI/…)]    [PostgreSQL (vectors stored in-DB)]
+        ↕ Direct provider SDKs      ↕ EF Core 10 + Npgsql
+[LLM (Ollama / OpenAI / Google)]   [PostgreSQL 16 (pgvector in-DB)]
 ```
 
-React is built at image-build time and served from `wwwroot/` — there is no separate frontend container.
+React is built at image-build time and served from `wwwroot/` — there is no separate frontend container at runtime.
+
+---
 
 ## Quick Start
 
@@ -51,7 +67,6 @@ React is built at image-build time and served from `wwwroot/` — there is no se
 ### Run with Docker Compose
 
 ```bash
-# Pull and start everything
 docker-compose up -d
 
 # App is available at
@@ -63,7 +78,6 @@ On first launch the app shows a **Create Admin Account** setup screen — the fi
 ### Run from Docker Hub
 
 ```bash
-# Create a docker-compose.yml or run directly:
 docker run -d \
   -p 5000:8080 \
   -e ConnectionStrings__DefaultConnection="Host=<postgres-host>;Port=5432;Database=abook;Username=abook;Password=abook" \
@@ -71,7 +85,7 @@ docker run -d \
   jncchds/abook:latest
 ```
 
-> PostgreSQL (with the pgvector extension) must be reachable. The compose file below starts it automatically.
+> PostgreSQL with the pgvector extension must be reachable. The compose file below starts it automatically.
 
 <details>
 <summary>Full docker-compose.yml</summary>
@@ -113,6 +127,8 @@ volumes:
 
 </details>
 
+---
+
 ## Configuration
 
 ### Environment Variables
@@ -124,22 +140,33 @@ volumes:
 | `LlmDefaults__Provider` | `Ollama` | Default LLM provider (`Ollama`, `OpenAI`, `GoogleAIStudio`) |
 | `LlmDefaults__ModelName` | `llama3` | Default model name |
 | `LlmDefaults__Endpoint` | `http://host.docker.internal:11434` | Default LLM endpoint |
-| `LlmDefaults__ApiKey` | — | API key for the default LLM provider (required for OpenAI / GoogleAIStudio; optional for Ollama) |
+| `LlmDefaults__ApiKey` | — | API key (required for OpenAI / GoogleAIStudio; optional for Ollama) |
 | `LlmDefaults__EmbeddingModelName` | — | Embedding model for RAG (optional; falls back to chat model) |
-| `AgentSettings__MaxConcurrentRuns` | `3` | Global max number of simultaneous agent runs across all books/users (`Running` + `WaitingForInput`) |
+| `AgentSettings__MaxConcurrentRuns` | `3` | Max simultaneous agent runs across all books/users |
+| `PublicMode` | `false` | Enable public library (anonymous access to published books) |
 
 > Changing `AgentSettings__MaxConcurrentRuns` requires restarting the API process/container.
 
+For local development, copy `src/ABook.Api/appsettings.Local.example.json` → `appsettings.Local.json` and fill in your values.
+
+### LLM Providers
+
+Configure the LLM backend in **Settings** or via the API:
+
+| Provider | Notes |
+|---|---|
+| **Ollama** | Default. Runs locally; `host.docker.internal` resolves to the host from inside Docker. |
+| **OpenAI** | Provide an API key and model name (e.g. `gpt-4o`). Leave endpoint blank for the real OpenAI API; set a custom endpoint for any OpenAI-compatible API (Groq, Together, LM Studio at `http://host.docker.internal:1234/v1`, etc.). |
+| **Google AI Studio** | Native Gemini connector. Requires an API key from [aistudio.google.com](https://aistudio.google.com/apikey). Suggested models: `gemini-2.0-flash`, `gemini-2.5-pro`. Embedding model: `text-embedding-004`. |
+
+Configurations can be set globally, per-user, or per-book. The lookup order is: book-specific → user-default → global.
+
 ### MCP Access
 
-ABook includes a built-in [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server at `/mcp`. Any MCP-compatible client (Claude Desktop, VS Code / GitHub Copilot, etc.) can connect to it to:
+ABook includes a built-in [Model Context Protocol](https://modelcontextprotocol.io/) server at `/mcp`. Any MCP-compatible client can connect to read and write book content and trigger agent workflows.
 
-- Read and manage books, story bibles, characters, plot threads, and chapters
-- Trigger agent workflows (plan, write, edit, continuity check)
-- Answer agent questions and poll run status
-
-To connect:
-1. Open **Settings** in ABook and find the **MCP Access** section
+**Setup:**
+1. Open **Settings** → **MCP Access**
 2. Generate an API token (or click Regenerate to rotate)
 3. Add the server to your MCP client config using `Authorization: Bearer <token>`
 
@@ -169,83 +196,63 @@ To connect:
 }
 ```
 
-The `LlmDefaults__*` variables seed the global LLM configuration on startup. They can also be set in `appsettings.Local.json` (copy from `appsettings.Local.example.json`) for local development, or in `docker-compose.override.yml` for Docker-based local overrides.
-
-### LLM Providers
-
-Configure the LLM backend in the app's **Settings** page or via the API:
-
-| Provider | Notes |
-|---|---|
-| **Ollama** | Default. Runs locally; `host.docker.internal` resolves to the host from inside Docker. |
-| **OpenAI** | Provide API key and model name (e.g. `gpt-4o`). Leave endpoint blank for the real OpenAI API; set a custom endpoint to use any OpenAI-compatible API (Groq, Together, etc.). |
-| **Google AI Studio** | Native Gemini connector. Requires an API key (get one at [aistudio.google.com](https://aistudio.google.com/apikey)). Models: `gemini-2.0-flash`, `gemini-2.5-pro`, etc. Embedding model: `text-embedding-004`. |
-
-> **Removed providers:** Azure OpenAI (functionally identical to the OpenAI provider — use OpenAI with a custom endpoint instead) and LM Studio (use OpenAI with endpoint `http://host.docker.internal:1234/v1`).
-
-Configurations can be set globally, per-user, or per-book. The lookup order is: book-specific → user-default → global.
+---
 
 ## Agent Workflow
 
 ```
 User creates book (title, premise, genre, target chapters)
          │
-         ├─ optional: choose a base book (settings copied once at creation)
+         ├─ optional: choose a base book (settings + context copied)
          │
          ▼
-  ┌─────────────────────────────────────────────────────┐
-  │  [Planner Agent] — 4-phase planning pipeline        │
-  │   Phase 1: Story Bible (world-building, tone, rules)│
-  │   Phase 2: Character Cards (roles, arcs, goals)     │
-  │   Phase 3: Plot Threads (subplots, themes, arcs)    │
-  │   Phase 4: Chapter Outlines (title + synopsis each) │
-  │   Prior books in the continuation chain are included │
-  │   as reference context for planning                 │
-  │   ─ asks clarifying questions up front, then        │
-  │     optionally pauses after each phase in           │
-  │     Human-assisted mode                             │
-  └─────────────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────────┐
+  │  Planner — 4-phase pipeline                          │
+  │   Phase 1: Story Bible (world-building, tone, rules) │
+  │   Phase 2: Character Cards (roles, arcs, goals)      │
+  │   Phase 3: Plot Threads (subplots, themes, arcs)     │
+  │   Phase 4: Chapter Outlines (title + synopsis each)  │
+  │                                                      │
+  │   Asks clarifying questions up front; optionally     │
+  │   pauses after each phase in Human-assisted mode     │
+  └──────────────────────────────────────────────────────┘
          │
          │  ← "Plan Only" stops here so you can review
-         │    and edit outlines, characters, plot threads
-         │    before clicking "Continue"
+         │    and edit outlines before clicking "Continue"
          ▼
   For each chapter:
-  [Continuity Checker]  ── pre-write: checks outline for contradictions
+  [Checker]  ── pre-write: checks outline for contradictions
          │
          ▼
-  [Writer Agent]  ── writes full chapter prose
-         │ draft prose
+  [Writer]  ── writes full chapter prose
+         │
          ▼
-    [Checker Agent] ── per-chapter continuity + style review
-      │ structured issue report (+ optional author notes in assisted mode)
-      ▼
-    [Editor Agent]  ── fixes reported issues (skipped if no issues found)
-      │ revised prose
-      ▼
-    [Checker Agent] ── final informational re-check (no further editing)
-      │
-      ▼
-  [Continuity Checker] ── final full-manuscript pass after all chapters complete
+  [Checker]  ── continuity + style review → structured JSON patches
+         │         (optional human pause in assisted mode)
+         ▼
+  [Editor]  ── applies patches mechanically (skipped if no issues)
          │
          ▼
       Done ✓
 ```
 
-Agents stream tokens via SignalR as they write. Workflow controls:
-- **Plan Only** — runs the Planner and stops so you can edit outlines before writing
-- **Write Book** — runs the full pipeline automatically from scratch
-- **Continue** — resumes from the first non-Done chapter (skips already-completed ones)
-- **Continue Planning** — re-runs only the incomplete planning phases; phases already marked Complete are skipped
-- **Stop** — cancels any running agent cleanly
-- Individual stage buttons (Write / Edit / Continuity) are available per chapter
+Agents stream tokens via SignalR as they write.
 
-In **Human-assisted generation** mode, the app also pauses:
-- after each completed planning phase to collect optional author notes
-- after each Checker pass so you can add extra attention points before the Editor runs
-- with support for **Ctrl+Enter** to submit answers quickly in the chat panel
+**Workflow controls:**
 
-For books created from a base book, chapter-level RAG retrieval also includes embeddings from all ancestor books in the base chain.
+| Button | Behaviour |
+|---|---|
+| **Plan Only** | Runs the Planner and stops so you can review outlines |
+| **Write Book** | Full pipeline from scratch (idempotent — skips completed phases and Done chapters) |
+| **Continue** | Resumes from the first non-Done chapter |
+| **Continue Planning** | Re-runs only the incomplete planning phases |
+| **Stop** | Cancels any running agent cleanly |
+
+In **Human-assisted** mode the app also pauses after each planning phase and after each Checker pass to collect optional author notes.
+
+For books created from a base book, chapter-level RAG retrieval includes embeddings from all ancestor books in the continuation chain.
+
+---
 
 ## Development
 
@@ -258,22 +265,29 @@ For books created from a base book, chapter-level RAG retrieval also includes em
 ### Local Setup
 
 ```bash
-# Start supporting services
+# Start PostgreSQL
 docker-compose up postgres -d
 
-# Start the UI dev server (proxies API to localhost:5178)
+# Start the UI dev server (proxies API calls to localhost:5000)
 cd src/abook-ui
 npm install
 npm run dev
 
-# Start the API (in a second terminal)
+# Start the API (second terminal)
 cd src/ABook.Api
-dotnet run
+dotnet run --urls http://localhost:5000
 ```
 
-For local LLM configuration, copy `src/ABook.Api/appsettings.Local.example.json` to `appsettings.Local.json` and fill in your values. Alternatively, create a `docker-compose.override.yml` (see the committed example) to set `LlmDefaults__*` environment variables for Docker runs.
+The React dev server runs at `http://localhost:5173` and proxies `/api` and `/hubs` to the ASP.NET server.
 
-The React dev server runs at `http://localhost:5173` and proxies `/api` and `/hub` to the ASP.NET server at `http://localhost:5178`.
+### Database Migrations
+
+```bash
+dotnet ef migrations add <MigrationName> --project src/ABook.Infrastructure --startup-project src/ABook.Api
+dotnet ef database update --project src/ABook.Infrastructure --startup-project src/ABook.Api
+```
+
+Always use the `dotnet ef` CLI — never create migration files by hand.
 
 ### Build Docker Image
 
@@ -283,19 +297,28 @@ docker build -t abook .
 
 The multi-stage Dockerfile builds the React app (Node 20), compiles the .NET API (.NET 10 SDK), and produces a minimal runtime image (ASP.NET 10).
 
+### LLM Debug Logging
+
+Set `LLM_DEBUG_LOGGING=true` to print the full chat history and LLM responses to the application log at `Information` level.
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
 | Frontend | React 19, TypeScript, Vite, Zustand, react-markdown |
-| Backend | ASP.NET Core 10, C#, Semantic Kernel |
+| Backend | ASP.NET Core 10, C# |
+| LLM | Ollama, OpenAI SDK, Google AI SDK (per-provider direct calls) |
 | Database | PostgreSQL 16 via EF Core 10 + Npgsql |
-| Vector store | pgvector (stored in PostgreSQL, `Pgvector.EntityFrameworkCore` 0.x) |
+| Vector store | pgvector (in-DB, `Pgvector.EntityFrameworkCore`) |
 | Real-time | SignalR |
-| Auth | Cookie-based, `IPasswordHasher<T>`, API token (Bearer) for MCP |
+| Auth | Cookie-based, `IPasswordHasher<T>`, Bearer API token for MCP |
 | MCP | `ModelContextProtocol.AspNetCore` 1.2.0 — HTTP/SSE transport, 37 tools |
 | Container | Docker, Docker Compose |
 
+---
+
 ## License
 
-[Apache-2.0 license](LICENSE)
+[MIT](LICENSE)
