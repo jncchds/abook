@@ -2,6 +2,8 @@
 
 ## v0.1.19 — 2026-07-24
 
+- fix: checker and editor messages now appear in the chat panel in real-time after each agent finishes; `StatusChanged("Done")` for Writer/Editor/ContinuityChecker now calls `refreshMessages()` alongside the chapter reload
+- ui: agent message cards now always render as collapsible — first line is the summary header, details expand on click; `BuildEditorialFeedback` header changed to plain-text `✏️ Editorial Notes — N applied, M skipped` (also fixes malformed `)` when no skips); thinking header simplified to `💭 Thinking`
 - fix: chapter view no longer shows ContinuityChecker streaming output (pre-write or post-write analysis) in place of chapter content; checker tokens are now discarded on the frontend (the analysis is saved to the chat panel as a SystemNote); also fixes hard-refresh restore incorrectly pulling checker output into the chapter area
 - checker: chapter content is now sent to the LLM with `N | ` line-number prefixes so position hints are read directly from the source rather than estimated; `originalText` instructions strengthened to require 30+ char context and character-for-character verbatim copying
 - editor: mechanical patch matching upgraded to a two-pass strategy (exact → smart-quote normalization); position window widened from ±3 to ±5 lines; ambiguous multi-matches resolved by closest-offset heuristic instead of being silently dropped; content pre-normalized before patching so apply-loop offsets are always valid

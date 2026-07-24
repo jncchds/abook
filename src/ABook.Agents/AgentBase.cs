@@ -531,7 +531,7 @@ public abstract class AgentBase
             ChapterId = chapterId,
             AgentRole = role,
             MessageType = MessageType.SystemNote,
-            Content = $"💭 **Thinking:**\n\n{thinking}",
+            Content = $"💭 Thinking\n\n{thinking}",
             IsResolved = true
         });
         try { await Notifier.NotifyMessagesUpdatedAsync(bookId, ct); }

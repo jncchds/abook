@@ -2,6 +2,18 @@ import { useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useBookContext } from '../../contexts/BookContext'
 
+function splitContent(content: string): [string, string] {
+  const dnIdx = content.indexOf('\n\n')
+  const snIdx = content.indexOf('\n')
+  const splitIdx = dnIdx >= 0 ? dnIdx : snIdx >= 0 ? snIdx : -1
+  if (splitIdx < 0) return [content.trim(), '']
+  return [content.slice(0, splitIdx).trim(), content.slice(splitIdx).trim()]
+}
+
+function cleanHeader(text: string): string {
+  return text.replace(/^#{1,6}\s+/, '').replace(/\*\*/g, '').replace(/__/g, '').trim()
+}
+
 export default function ChatPage() {
   const {
     messages, pendingQuestion, answerText, setAnswerText,
@@ -28,9 +40,10 @@ export default function ChatPage() {
         ) : (
           <div className="book-list">
             {messages.map(m => {
-              const preview = m.content.replace(/\*\*|__|~~|`|\n+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120)
-              const isLong = m.content.length > 200
-              const isMarkdown = m.messageType === 'SystemNote' || m.messageType === 'Feedback'
+              const isMarkdown = m.messageType === 'SystemNote' || m.messageType === 'Feedback' || m.messageType === 'Question'
+              const [rawHeader, body] = splitContent(m.content)
+              const header = cleanHeader(rawHeader)
+              const hasBody = body.length > 0
               return (
                 <div key={m.id} className={`book-list-card msg-${m.messageType.toLowerCase()}`}>
                   <div className="book-list-card-left">
@@ -38,20 +51,15 @@ export default function ChatPage() {
                       <span className="msg-role">{m.agentRole}</span>
                       <span className="msg-type">[{m.messageType}]</span>
                     </div>
-                    {isLong ? (
-                      <>
-                        <p className="blc-premise">{preview}{m.content.length > 120 ? '…' : ''}</p>
-                        <details style={{ marginTop: '0.5rem' }}>
-                          <summary style={{ cursor: 'pointer', color: 'var(--accent)', fontSize: '0.82rem' }}>Show full message</summary>
-                          {isMarkdown
-                            ? <ReactMarkdown>{m.content}</ReactMarkdown>
-                            : m.content}
-                        </details>
-                      </>
+                    {hasBody ? (
+                      <details>
+                        <summary className="blc-premise" style={{ cursor: 'pointer', marginBottom: 0, color: 'var(--text-muted)' }}>{header}</summary>
+                        <div style={{ marginTop: '0.5rem', fontSize: '0.875rem' }}>
+                          {isMarkdown ? <ReactMarkdown>{body}</ReactMarkdown> : <p style={{ color: 'var(--text-muted)', lineHeight: 1.6 }}>{body}</p>}
+                        </div>
+                      </details>
                     ) : (
-                      isMarkdown
-                        ? <ReactMarkdown>{m.content}</ReactMarkdown>
-                        : m.content
+                      <p className="blc-premise">{header}</p>
                     )}
                   </div>
                 </div>

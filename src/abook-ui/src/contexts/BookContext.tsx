@@ -269,6 +269,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
           } else {
             getChapters(bookId).then(r => setBook(prev => prev ? { ...prev, chapters: r.data } : prev))
           }
+          refreshMessages()
         }
       }
     })

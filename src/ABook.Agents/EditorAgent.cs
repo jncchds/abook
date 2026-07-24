@@ -646,15 +646,12 @@ public class EditorAgent : AgentBase
         var sb = new System.Text.StringBuilder();
         var types = new[] { "continuity", "grammar", "repetition", "style" };
 
-        // Group applied patches by type
-        var appliedByType = applied.GroupBy(i => i.Type).ToDictionary(g => g.Key, g => g.ToList());
-        int totalApplied = applied.Count();
+        var appliedList = applied.ToList();
+        var skippedList = skipped.ToList();
+        var appliedByType = appliedList.GroupBy(i => i.Type).ToDictionary(g => g.Key, g => g.ToList());
 
-        sb.AppendLine($"## Editorial Notes ({totalApplied} patch(es) applied");
-        if (skipped.Any())
-            sb.Append($", {skipped.Count()} skipped)");
-        else
-            sb.AppendLine(")");
+        var skippedPart = skippedList.Count > 0 ? $", {skippedList.Count} skipped" : string.Empty;
+        sb.AppendLine($"✏️ Editorial Notes — {appliedList.Count} patch(es) applied{skippedPart}");
 
         foreach (var typeName in types)
         {
@@ -666,24 +663,22 @@ public class EditorAgent : AgentBase
                 var issue = items[n];
                 var lineHint = issue.Position.HasValue ? $"Line {issue.Position.Value}: " : string.Empty;
                 if (!string.IsNullOrWhiteSpace(issue.ReplacementText) && !string.IsNullOrEmpty(issue.OriginalText))
-                    sb.AppendLine($"{n + 1}. **{lineHint}`{EscapeMarkdown(issue.OriginalText)}` → `{EscapeMarkdown(issue.ReplacementText)}` — {issue.Description}");
+                    sb.AppendLine($"{n + 1}. **{lineHint}`{EscapeMarkdown(issue.OriginalText)}` → `{EscapeMarkdown(issue.ReplacementText)}`** — {issue.Description}");
                 else
-                    sb.AppendLine($"{n + 1}. **{lineHint}{issue.Description}");
+                    sb.AppendLine($"{n + 1}. **{lineHint}{issue.Description}**");
                 if (!string.IsNullOrWhiteSpace(issue.OriginalText))
                     sb.Append($"   Original: `{EscapeMarkdown(issue.OriginalText)}`\n");
             }
         }
 
-        // Skipped section — factual, with specific reason for each skip
-        var skippedByType = skipped.GroupBy(s => s.Issue.Type).ToDictionary(g => g.Key, g => g.ToList());
-        if (skippedByType.Count > 0)
+        if (skippedList.Count > 0)
         {
             sb.AppendLine("\n⚠️ Could not apply:");
-            foreach (var (issue, reason) in skipped)
-        {
-            var posHint = issue.Position.HasValue ? $" on line {issue.Position.Value}" : string.Empty;
-            sb.AppendLine($"- {Capitalize(issue.Type)}{posHint} — {reason}");
-        }
+            foreach (var (issue, reason) in skippedList)
+            {
+                var posHint = issue.Position.HasValue ? $" on line {issue.Position.Value}" : string.Empty;
+                sb.AppendLine($"- {Capitalize(issue.Type)}{posHint} — {reason}");
+            }
         }
 
         return sb;
