@@ -361,8 +361,7 @@ public abstract class AgentBase
         {
             var chapters = await Repo.GetChaptersAsync(bookId);
             var relevant = chapters
-                .Where(c => !c.IsArchived
-                    && (currentChapterNumber == null || c.Number < currentChapterNumber)
+                .Where(c => (currentChapterNumber == null || c.Number < currentChapterNumber)
                     && (!string.IsNullOrWhiteSpace(c.Title) || !string.IsNullOrWhiteSpace(c.Outline)))
                 .OrderBy(c => c.Number)
                 .ToList();

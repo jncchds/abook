@@ -281,6 +281,8 @@ public class ContentMcpTools : McpToolBase
         await GetOwnedBookAsync(bookId, _repo);
         var chapter = await _repo.GetChapterAsync(bookId, chapterId)
             ?? throw new McpException($"Chapter {chapterId} not found in book {bookId}.");
+        if (chapter.IsArchived)
+            throw new McpException($"Chapter {chapterId} is archived and cannot be used for writing.");
         return JsonSerializer.Serialize(new
         {
             chapter.Id, chapter.Number, chapter.Title, chapter.Outline, chapter.Content,
