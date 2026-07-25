@@ -2,6 +2,8 @@ using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using ModelContextProtocol;
 using System.Security.Claims;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace ABook.Api.Mcp;
 
@@ -12,6 +14,13 @@ namespace ABook.Api.Mcp;
 public abstract class McpToolBase
 {
     protected readonly IHttpContextAccessor Http;
+
+    protected static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        ReferenceHandler = ReferenceHandler.IgnoreCycles,
+        Converters = { new JsonStringEnumConverter() },
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
 
     protected McpToolBase(IHttpContextAccessor http) => Http = http;
 

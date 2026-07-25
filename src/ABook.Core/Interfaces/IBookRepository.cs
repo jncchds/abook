@@ -56,6 +56,7 @@ public interface IBookRepository
     Task<IEnumerable<CharacterCard>> GetAllCharacterCardsAsync(int bookId);
     Task<CharacterCard?> GetCharacterCardAsync(int bookId, int cardId);
     Task<CharacterCard> AddCharacterCardAsync(CharacterCard card);
+    Task<IReadOnlyList<CharacterCard>> AddCharacterCardsBatchAsync(IEnumerable<CharacterCard> cards);
     Task UpdateCharacterCardAsync(CharacterCard card);
     Task ArchiveCharacterCardAsync(int bookId, int cardId);
     Task UnarchiveCharacterCardAsync(int bookId, int cardId);
@@ -64,6 +65,7 @@ public interface IBookRepository
 
     // Character Card versions
     Task<CharacterCardVersion> AddCharacterVersionAsync(CharacterCardVersion version);
+    Task AddCharacterVersionsBatchAsync(IEnumerable<CharacterCardVersion> versions);
     Task<IEnumerable<CharacterCardVersion>> GetCharacterVersionsAsync(int bookId, int cardId);
     Task<CharacterCardVersion?> GetCharacterVersionAsync(int bookId, int cardId, int versionId);
     Task<CharacterCard> RestoreCharacterVersionAsync(int bookId, int cardId, int versionId);
@@ -73,6 +75,7 @@ public interface IBookRepository
     Task<IEnumerable<PlotThread>> GetAllPlotThreadsAsync(int bookId);
     Task<PlotThread?> GetPlotThreadAsync(int bookId, int threadId);
     Task<PlotThread> AddPlotThreadAsync(PlotThread thread);
+    Task<IReadOnlyList<PlotThread>> AddPlotThreadsBatchAsync(IEnumerable<PlotThread> threads);
     Task UpdatePlotThreadAsync(PlotThread thread);
     Task ArchivePlotThreadAsync(int bookId, int threadId);
     Task UnarchivePlotThreadAsync(int bookId, int threadId);
@@ -81,6 +84,7 @@ public interface IBookRepository
 
     // Plot Thread versions
     Task<PlotThreadVersion> AddPlotThreadVersionAsync(PlotThreadVersion version);
+    Task AddPlotThreadVersionsBatchAsync(IEnumerable<PlotThreadVersion> versions);
     Task<IEnumerable<PlotThreadVersion>> GetPlotThreadVersionsAsync(int bookId, int threadId);
     Task<PlotThreadVersion?> GetPlotThreadVersionAsync(int bookId, int threadId, int versionId);
     Task<PlotThread> RestorePlotThreadVersionAsync(int bookId, int threadId, int versionId);

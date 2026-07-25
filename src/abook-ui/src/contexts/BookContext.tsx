@@ -136,6 +136,30 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     getMessages(bookId).then(r => setMessages(r.data)).catch(() => {})
   }, [bookId])
 
+  const refreshTokenStats = useCallback((signal?: AbortSignal) =>
+    getTokenUsage(bookId, signal).then(r => {
+      if (signal?.aborted) return
+      setWorkflowSteps(r.data.filter(rec => rec.stepLabel).map(rec => ({
+        id: rec.id,
+        step: rec.stepLabel!,
+        time: new Date(rec.createdAt).toLocaleString(),
+        endpoint: rec.endpoint,
+        modelName: rec.modelName,
+      })))
+      setTokenStats(r.data.filter(rec => !rec.stepLabel).map(rec => ({
+        id: rec.id,
+        chapterId: rec.chapterId,
+        role: rec.agentRole,
+        prompt: rec.promptTokens,
+        completion: rec.completionTokens,
+        time: new Date(rec.createdAt).toLocaleString(),
+        endpoint: rec.endpoint,
+        modelName: rec.modelName,
+        failed: rec.failed ?? false,
+        persisted: true,
+      })))
+    }), [bookId])
+
   useEffect(() => {
     const controller = new AbortController()
     const signal = controller.signal
@@ -158,34 +182,13 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         }
       }
     }).catch(() => {})
-    getTokenUsage(bookId, signal).then(r => {
-      if (signal.aborted) return
-      setWorkflowSteps(r.data.filter(rec => rec.stepLabel).map(rec => ({
-        id: rec.id,
-        step: rec.stepLabel!,
-        time: new Date(rec.createdAt).toLocaleString(),
-        endpoint: rec.endpoint,
-        modelName: rec.modelName,
-      })))
-      setTokenStats(r.data.filter(rec => !rec.stepLabel).map(rec => ({
-          id: rec.id,
-          chapterId: rec.chapterId,
-          role: rec.agentRole,
-          prompt: rec.promptTokens,
-          completion: rec.completionTokens,
-          time: new Date(rec.createdAt).toLocaleString(),
-          endpoint: rec.endpoint,
-          modelName: rec.modelName,
-          failed: rec.failed ?? false,
-          persisted: true,
-        })))
-    }).catch(() => {})
+    refreshTokenStats(signal).catch(() => {})
     getStoryBible(bookId, signal).then(r => { if (!signal.aborted) setStoryBible(r.data) }).catch(() => {})
     getCharacters(bookId, true, signal).then(r => { if (!signal.aborted) setCharacters(r.data) }).catch(() => {})
     getPlotThreads(bookId, true, signal).then(r => { if (!signal.aborted) setPlotThreads(r.data) }).catch(() => {})
 
     return () => { controller.abort() }
-  }, [refreshBook, bookId])
+  }, [refreshBook, refreshTokenStats, bookId])
 
   const clearStreams = useCallback(() => {
     setPlannerBuffer('')
@@ -322,27 +325,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       }
     })
     setOnTokenStats((_bId, cId, role, prompt, completion) => {
-      getTokenUsage(bookId).then(r => {
-        setWorkflowSteps(r.data.filter(rec => rec.stepLabel).map(rec => ({
-          id: rec.id,
-          step: rec.stepLabel!,
-          time: new Date(rec.createdAt).toLocaleString(),
-          endpoint: rec.endpoint,
-          modelName: rec.modelName,
-        })))
-        setTokenStats(r.data.filter(rec => !rec.stepLabel).map(rec => ({
-          id: rec.id,
-          chapterId: rec.chapterId,
-          role: rec.agentRole,
-          prompt: rec.promptTokens,
-          completion: rec.completionTokens,
-          time: new Date(rec.createdAt).toLocaleString(),
-          endpoint: rec.endpoint,
-          modelName: rec.modelName,
-          failed: rec.failed ?? false,
-          persisted: true,
-        })))
-      }).catch(() => {
+      refreshTokenStats().catch(() => {
         setTokenStats(prev => [...prev, {
           id: Date.now(), chapterId: cId, role, prompt, completion,
           time: new Date().toLocaleTimeString()
@@ -361,33 +344,24 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     setOnMessagesUpdated(() => {
       refreshMessages()
     })
-  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, refreshBook, refreshMessages, clearStreams, bookId, navigate])
+  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, refreshBook, refreshMessages, refreshTokenStats, clearStreams, bookId, navigate])
 
   const isRunning = runStatus?.state === 'Running' || runStatus?.state === 'WaitingForInput'
 
-  const handleWriteBook = async () => {
+  const startAgentRun = useCallback(async (apiCall: () => Promise<unknown>, initialRole: string) => {
     if (isRunning) return
     setWorkflowLog([])
     try {
-      await startWorkflow(bookId)
-      setRunStatus({ role: 'Planner', state: 'Running' })
+      await apiCall()
+      setRunStatus({ role: initialRole, state: 'Running' })
     } catch (err: unknown) {
       const msg = err as { response?: { status?: number } }
       if (msg?.response?.status === 409) alert('An agent is already running for this book.')
     }
-  }
+  }, [isRunning])
 
-  const handlePlanBook = async () => {
-    if (isRunning) return
-    setWorkflowLog([])
-    try {
-      await startPlanning(bookId)
-      setRunStatus({ role: 'Planner', state: 'Running' })
-    } catch (err: unknown) {
-      const msg = err as { response?: { status?: number } }
-      if (msg?.response?.status === 409) alert('An agent is already running for this book.')
-    }
-  }
+  const handleWriteBook = useCallback(() => startAgentRun(() => startWorkflow(bookId), 'Planner'), [startAgentRun, bookId])
+  const handlePlanBook = useCallback(() => startAgentRun(() => startPlanning(bookId), 'Planner'), [startAgentRun, bookId])
 
   const handleStop = async () => {
     try { await stopWorkflow(bookId) } catch { /* ignore */ }
@@ -460,13 +434,8 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   }
 
   const isPhaseComplete = (phase: string) => {
-    switch (phase) {
-      case 'storybible':  return book?.storyBibleStatus  === 'Complete'
-      case 'characters':  return book?.charactersStatus  === 'Complete'
-      case 'plotthreads': return book?.plotThreadsStatus === 'Complete'
-      case 'chapters':    return book?.chaptersStatus    === 'Complete'
-      default: return false
-    }
+    const key = phaseStatusKey[phase]
+    return key ? book?.[key] === 'Complete' : false
   }
 
   const clearMessagesForBook = async () => {

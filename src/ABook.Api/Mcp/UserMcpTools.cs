@@ -1,4 +1,5 @@
 using ABook.Agents;
+using ABook.Api.Services;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using ModelContextProtocol;
@@ -6,7 +7,6 @@ using ModelContextProtocol.Server;
 using System.ComponentModel;
 using System.Security.Claims;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace ABook.Api.Mcp;
 
@@ -15,28 +15,21 @@ public class UserMcpTools : McpToolBase
 {
     private readonly IBookRepository _repo;
     private readonly IUserRepository _users;
-    private readonly IServiceScopeFactory _scopeFactory;
     private readonly AgentRunStateService _runState;
-
-    private static readonly JsonSerializerOptions _json = new()
-    {
-        ReferenceHandler = ReferenceHandler.IgnoreCycles,
-        Converters = { new JsonStringEnumConverter() },
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
+    private readonly AgentRunnerService _runner;
 
     public UserMcpTools(
         IBookRepository repo,
         IUserRepository users,
-        IServiceScopeFactory scopeFactory,
         AgentRunStateService runState,
+        AgentRunnerService runner,
         IHttpContextAccessor http)
         : base(http)
     {
         _repo = repo;
         _users = users;
-        _scopeFactory = scopeFactory;
         _runState = runState;
+        _runner = runner;
     }
 
 
@@ -57,7 +50,7 @@ public class UserMcpTools : McpToolBase
             user.IsAdmin,
             hasApiToken = user.ApiToken is not null,
             user.CreatedAt
-        }, _json);
+        }, JsonOptions);
     }
 
     // ── LLM configuration ─────────────────────────────────────────────────────
@@ -71,7 +64,7 @@ public class UserMcpTools : McpToolBase
         var config = await _repo.GetLlmConfigAsync(null, userId)
                   ?? await _repo.GetLlmConfigAsync(null, null);
         if (config is null)
-            return JsonSerializer.Serialize(new { exists = false }, _json);
+            return JsonSerializer.Serialize(new { exists = false }, JsonOptions);
         return JsonSerializer.Serialize(new
         {
             config.Id,
@@ -82,7 +75,7 @@ public class UserMcpTools : McpToolBase
             config.EmbeddingModelName,
             isUserDefault = config.UserId == userId,
             isGlobal = config.UserId == null && config.BookId == null
-        }, _json);
+        }, JsonOptions);
     }
 
     [McpServerTool(Name = "set_llm_config")]
@@ -112,7 +105,7 @@ public class UserMcpTools : McpToolBase
             Provider = config.Provider.ToString(),
             config.ModelName,
             config.Endpoint
-        }, _json);
+        }, JsonOptions);
     }
 
     // ── Presets ───────────────────────────────────────────────────────────────
@@ -135,7 +128,7 @@ public class UserMcpTools : McpToolBase
             isOwned = p.UserId == userId,
             isGlobal = p.UserId == null
         });
-        return JsonSerializer.Serialize(result, _json);
+        return JsonSerializer.Serialize(result, JsonOptions);
     }
 
     [McpServerTool(Name = "apply_preset")]
@@ -166,7 +159,7 @@ public class UserMcpTools : McpToolBase
             presetName = preset.Name,
             Provider = config.Provider.ToString(),
             config.ModelName
-        }, _json);
+        }, JsonOptions);
     }
 
     // ── Generate book ─────────────────────────────────────────────────────────
@@ -195,7 +188,7 @@ public class UserMcpTools : McpToolBase
 
         // Start the full workflow in background
         var ct = _runState.CreateRunCts(book.Id);
-        _ = RunInBackground(book.Id, (o, c) => o.StartWorkflowAsync(book.Id, c), ct);
+        _ = _runner.RunAsync(book.Id, (o, c) => o.StartWorkflowAsync(book.Id, c), ct);
 
         return JsonSerializer.Serialize(new
         {
@@ -207,19 +200,7 @@ public class UserMcpTools : McpToolBase
             book.TargetChapterCount,
             workflowStarted = true,
             message = $"Book created with ID {book.Id}. Full workflow started. Use get_agent_status with bookId={book.Id} to monitor progress. The agent will pause at WaitingForInput state when it needs clarification — use answer_agent_question to respond."
-        }, _json);
+        }, JsonOptions);
     }
 
-    private async Task RunInBackground(int bookId, Func<IAgentOrchestrator, CancellationToken, Task> action, CancellationToken ct)
-    {
-        using var scope = _scopeFactory.CreateScope();
-        var orchestrator = scope.ServiceProvider.GetRequiredService<IAgentOrchestrator>();
-        try { await action(orchestrator, ct); }
-        catch (OperationCanceledException) { /* stopped by user */ }
-        catch (Exception ex)
-        {
-            var logger = scope.ServiceProvider.GetRequiredService<ILogger<UserMcpTools>>();
-            logger.LogError(ex, "Agent error during generate_book for book {BookId}", bookId);
-        }
-    }
 }

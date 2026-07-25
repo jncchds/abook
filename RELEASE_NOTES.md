@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.1.21 — 2026-07-25
+
+- refactor: extracted `refreshTokenStats` callback in `BookContext` to eliminate duplicated token-stat mapping logic
+- refactor: extracted `startAgentRun` helper in `BookContext` to collapse identical `handleWriteBook`/`handlePlanBook` bodies
+- refactor: `isPhaseComplete` now reuses `phaseStatusKey` map instead of repeating the same switch
+- refactor: `ReportAgentErrorAsync` in `AgentOrchestrator` now delegates to `AgentBase.ReportAgentErrorCoreAsync` — shared static core, no duplicate logic
+- refactor: extracted `GetPlanningSkipFlags` helper in `AgentOrchestrator`; collapsed `StartPlanningAsync`/`ContinuePlanningAsync` into one private method
+- refactor: extracted `FormatCharacterCard` helper in `ContinuityCheckerAgent` — used in both `BuildEstablishedFactsAsync` and `BuildStructuredContextAsync`
+- perf: `GetAncestryBookIdsAsync` now uses a single recursive CTE instead of one query per ancestor
+- perf: `CharactersAgent` and `PlotThreadsAgent` now batch-insert cards/threads and their initial versions in two `SaveChangesAsync` calls instead of 2N
+- infra: added `AddCharacterCardsBatchAsync`, `AddCharacterVersionsBatchAsync`, `AddPlotThreadsBatchAsync`, `AddPlotThreadVersionsBatchAsync` to `IBookRepository`
+- api: `getStreamBuffer`, `getModels`, `getCharacters`, `getPlotThreads` now use axios `params` consistently instead of manual `URLSearchParams`/string concatenation
+- types: merged `CharactersSnapshotMeta` and `PlotThreadsSnapshotMeta` into `ContentSnapshotMeta`; old names kept as deprecated type aliases
+- types: extracted `LlmSettings` base interface shared by `LlmConfig` and `LlmPreset`
+
 ## v0.1.20 — 2026-07-24
 
 - infra: removed Semantic Kernel entirely; replaced with direct SDK calls per provider (OllamaSharp for Ollama, OpenAI SDK for OpenAI/GoogleAIStudio, custom SSE reader for OpenAICompatible)

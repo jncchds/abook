@@ -69,18 +69,20 @@ export interface AgentMessage {
   createdAt: string
 }
 
-export interface LlmConfig {
-  id?: number
-  bookId?: number
+export interface LlmSettings {
   provider: string
   modelName: string
   endpoint: string
-  apiKey?: string
-  embeddingModelName?: string
+  apiKey?: string | null
+  embeddingModelName?: string | null
   temperature?: number | null
   timeoutMs?: number | null
   reasoningEffort?: string | null
   maxTokens?: number | null
+}
+export interface LlmConfig extends LlmSettings {
+  id?: number
+  bookId?: number
 }
 
 export interface AgentRunStatus {
@@ -210,13 +212,8 @@ export const getTokenUsage = (bookId: number, signal?: AbortSignal) =>
 export const clearTokenUsage = (bookId: number) =>
   api.delete(`/books/${bookId}/token-usage`)
 
-export const getStreamBuffer = (bookId: number, agentRole?: string, chapterId?: number) => {
-  const params = new URLSearchParams()
-  if (agentRole) params.set('agentRole', agentRole)
-  if (chapterId !== undefined) params.set('chapterId', String(chapterId))
-  const qs = params.toString()
-  return api.get<{ content: string }>(`/books/${bookId}/agent/stream-buffer` + (qs ? `?${qs}` : ''))
-}
+export const getStreamBuffer = (bookId: number, agentRole?: string, chapterId?: number) =>
+  api.get<{ content: string }>(`/books/${bookId}/agent/stream-buffer`, { params: { agentRole, chapterId } })
 
 // LLM Config
 export const getLlmConfig = (bookId?: number) =>
@@ -224,14 +221,8 @@ export const getLlmConfig = (bookId?: number) =>
 export const updateLlmConfig = (data: LlmConfig) => api.put<LlmConfig>('/configuration', data)
 
 // Models
-export const getModels = (endpoint?: string, provider?: string, apiKey?: string) => {
-  const params = new URLSearchParams()
-  if (endpoint) params.set('endpoint', endpoint)
-  if (provider) params.set('provider', provider)
-  if (apiKey) params.set('apiKey', apiKey)
-  const qs = params.toString()
-  return api.get<ProviderModel[]>('/models' + (qs ? `?${qs}` : ''))
-}
+export const getModels = (endpoint?: string, provider?: string, apiKey?: string) =>
+  api.get<ProviderModel[]>('/models', { params: { endpoint, provider, apiKey } })
 
 // Story Bible
 export interface StoryBible {
@@ -286,7 +277,7 @@ export interface CharacterCardVersion {
   createdAt: string
 }
 export const getCharacters = (bookId: number, includeArchived = false, signal?: AbortSignal) =>
-  api.get<CharacterCard[]>(`/books/${bookId}/characters${includeArchived ? '?includeArchived=true' : ''}`, { signal })
+  api.get<CharacterCard[]>(`/books/${bookId}/characters`, { params: includeArchived ? { includeArchived: true } : undefined, signal })
 export const createCharacter = (bookId: number, data: Omit<CharacterCard, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
   api.post<CharacterCard>(`/books/${bookId}/characters`, data)
 export const updateCharacter = (bookId: number, cardId: number, data: Omit<CharacterCard, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
@@ -331,7 +322,7 @@ export interface PlotThreadVersion {
   createdAt: string
 }
 export const getPlotThreads = (bookId: number, includeArchived = false, signal?: AbortSignal) =>
-  api.get<PlotThread[]>(`/books/${bookId}/plot-threads${includeArchived ? '?includeArchived=true' : ''}`, { signal })
+  api.get<PlotThread[]>(`/books/${bookId}/plot-threads`, { params: includeArchived ? { includeArchived: true } : undefined, signal })
 export const createPlotThread = (bookId: number, data: Omit<PlotThread, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
   api.post<PlotThread>(`/books/${bookId}/plot-threads`, data)
 export const updatePlotThread = (bookId: number, threadId: number, data: Omit<PlotThread, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
@@ -348,19 +339,10 @@ export const restorePlotThreadVersion = (bookId: number, threadId: number, versi
   api.post<PlotThread>(`/books/${bookId}/plot-threads/${threadId}/history/${versionId}/restore`)
 
 // LLM Presets
-export interface LlmPreset {
+export interface LlmPreset extends LlmSettings {
   id: number
   userId?: number | null
   name: string
-  provider: string
-  modelName: string
-  endpoint: string
-  apiKey?: string | null
-  embeddingModelName?: string | null
-  temperature?: number | null
-  timeoutMs?: number | null
-  reasoningEffort?: string | null
-  maxTokens?: number | null
   createdAt?: string
   updatedAt?: string
 }
@@ -391,31 +373,28 @@ export const getStoryBibleSnapshot = (bookId: number, snapshotId: number) =>
 export const restoreStoryBibleSnapshot = (bookId: number, snapshotId: number) =>
   api.post<StoryBible>(`/books/${bookId}/story-bible/history/${snapshotId}/restore`)
 
-// Characters history / snapshots (metadata — no DataJson)
-export interface CharactersSnapshotMeta {
+// Shared metadata type for Characters and Plot Threads snapshots (no DataJson)
+export interface ContentSnapshotMeta {
   id: number
   bookId: number
   reason: string
   source: string
   createdAt: string
 }
+/** @deprecated Use ContentSnapshotMeta */
+export type CharactersSnapshotMeta = ContentSnapshotMeta
+/** @deprecated Use ContentSnapshotMeta */
+export type PlotThreadsSnapshotMeta = ContentSnapshotMeta
+
 export const getCharactersHistory = (bookId: number) =>
-  api.get<CharactersSnapshotMeta[]>(`/books/${bookId}/characters/history`)
+  api.get<ContentSnapshotMeta[]>(`/books/${bookId}/characters/history`)
 export const getCharactersSnapshot = (bookId: number, snapshotId: number) =>
   api.get<{ id: number; bookId: number; dataJson: string; reason: string; source: string; createdAt: string }>(`/books/${bookId}/characters/history/${snapshotId}`)
 export const restoreCharactersSnapshot = (bookId: number, snapshotId: number) =>
   api.post<CharacterCard[]>(`/books/${bookId}/characters/history/${snapshotId}/restore`)
 
-// Plot Threads history / snapshots (metadata — no DataJson)
-export interface PlotThreadsSnapshotMeta {
-  id: number
-  bookId: number
-  reason: string
-  source: string
-  createdAt: string
-}
 export const getPlotThreadsHistory = (bookId: number) =>
-  api.get<PlotThreadsSnapshotMeta[]>(`/books/${bookId}/plot-threads/history`)
+  api.get<ContentSnapshotMeta[]>(`/books/${bookId}/plot-threads/history`)
 export const getPlotThreadsSnapshot = (bookId: number, snapshotId: number) =>
   api.get<{ id: number; bookId: number; dataJson: string; reason: string; source: string; createdAt: string }>(`/books/${bookId}/plot-threads/history/${snapshotId}`)
 export const restorePlotThreadsSnapshot = (bookId: number, snapshotId: number) =>

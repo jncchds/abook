@@ -1,8 +1,8 @@
 using ABook.Agents;
+using ABook.Api.Services;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Logging;
 
 namespace ABook.Api.Controllers;
 
@@ -10,18 +10,13 @@ namespace ABook.Api.Controllers;
 [Route("api/books/{bookId:int}/agent")]
 public class AgentController : ControllerBase
 {
-    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly AgentRunnerService _runner;
     private readonly AgentRunStateService _runState;
-    private readonly ILogger<AgentController> _logger;
 
-    public AgentController(
-        IServiceScopeFactory scopeFactory,
-        AgentRunStateService runState,
-        ILogger<AgentController> logger)
+    public AgentController(AgentRunnerService runner, AgentRunStateService runState)
     {
-        _scopeFactory = scopeFactory;
+        _runner = runner;
         _runState = runState;
-        _logger = logger;
     }
 
     private IActionResult? EnsureCanStart(int bookId)
@@ -41,9 +36,7 @@ public class AgentController : ControllerBase
     {
         var blocked = EnsureCanStart(bookId);
         if (blocked is not null) return blocked;
-
-        var ct = _runState.CreateRunCts(bookId);
-        _ = RunInBackground(bookId, (o, c) => o.StartPlanningAsync(bookId, c), ct);
+        _ = _runner.RunAsync(bookId, (o, c) => o.StartPlanningAsync(bookId, c), _runState.CreateRunCts(bookId));
         return Accepted();
     }
 
@@ -52,9 +45,7 @@ public class AgentController : ControllerBase
     {
         var blocked = EnsureCanStart(bookId);
         if (blocked is not null) return blocked;
-
-        var ct = _runState.CreateRunCts(bookId);
-        _ = RunInBackground(bookId, (o, c) => o.ContinuePlanningAsync(bookId, c), ct);
+        _ = _runner.RunAsync(bookId, (o, c) => o.ContinuePlanningAsync(bookId, c), _runState.CreateRunCts(bookId));
         return Accepted();
     }
 
@@ -63,9 +54,7 @@ public class AgentController : ControllerBase
     {
         var blocked = EnsureCanStart(bookId);
         if (blocked is not null) return blocked;
-
-        var ct = _runState.CreateRunCts(bookId);
-        _ = RunInBackground(bookId, (o, c) => o.StartWritingAsync(bookId, chapterId, c), ct);
+        _ = _runner.RunAsync(bookId, (o, c) => o.StartWritingAsync(bookId, chapterId, c), _runState.CreateRunCts(bookId));
         return Accepted();
     }
 
@@ -74,9 +63,7 @@ public class AgentController : ControllerBase
     {
         var blocked = EnsureCanStart(bookId);
         if (blocked is not null) return blocked;
-
-        var ct = _runState.CreateRunCts(bookId);
-        _ = RunInBackground(bookId, (o, c) => o.StartEditingAsync(bookId, chapterId, c), ct);
+        _ = _runner.RunAsync(bookId, (o, c) => o.StartEditingAsync(bookId, chapterId, c), _runState.CreateRunCts(bookId));
         return Accepted();
     }
 
@@ -85,9 +72,7 @@ public class AgentController : ControllerBase
     {
         var blocked = EnsureCanStart(bookId);
         if (blocked is not null) return blocked;
-
-        var ct = _runState.CreateRunCts(bookId);
-        _ = RunInBackground(bookId, (o, c) => o.StartContinuityCheckAsync(bookId, c), ct);
+        _ = _runner.RunAsync(bookId, (o, c) => o.StartContinuityCheckAsync(bookId, c), _runState.CreateRunCts(bookId));
         return Accepted();
     }
 
@@ -96,9 +81,7 @@ public class AgentController : ControllerBase
     {
         var blocked = EnsureCanStart(bookId);
         if (blocked is not null) return blocked;
-
-        var ct = _runState.CreateRunCts(bookId);
-        _ = RunInBackground(bookId, (o, c) => o.StartWorkflowAsync(bookId, c), ct);
+        _ = _runner.RunAsync(bookId, (o, c) => o.StartWorkflowAsync(bookId, c), _runState.CreateRunCts(bookId));
         return Accepted();
     }
 
@@ -107,9 +90,7 @@ public class AgentController : ControllerBase
     {
         var blocked = EnsureCanStart(bookId);
         if (blocked is not null) return blocked;
-
-        var ct = _runState.CreateRunCts(bookId);
-        _ = RunInBackground(bookId, (o, c) => o.ContinueWorkflowAsync(bookId, c), ct);
+        _ = _runner.RunAsync(bookId, (o, c) => o.ContinueWorkflowAsync(bookId, c), _runState.CreateRunCts(bookId));
         return Accepted();
     }
 
@@ -139,40 +120,5 @@ public class AgentController : ControllerBase
         return Ok(new { content });
     }
 
-    /// <summary>
-    /// Runs an orchestrator action in the background. The CancellationToken is created
-    /// by <see cref="AgentRunStateService.CreateRunCts"/> and stored in-memory keyed by bookId.
-    /// When <see cref="StopWorkflow"/> calls <see cref="AgentRunStateService.CancelRun"/>,
-    /// the CTS is cancelled which propagates to this <paramref name="ct"/>.
-    /// </summary>
-    private async Task RunInBackground(int bookId, Func<IAgentOrchestrator, CancellationToken, Task> action, CancellationToken ct = default)
-    {
-        using var scope = _scopeFactory.CreateScope();
-        var orchestrator = scope.ServiceProvider.GetRequiredService<IAgentOrchestrator>();
-        try
-        {
-            await action(orchestrator, ct);
-        }
-        catch (OperationCanceledException)
-        {
-            // Expected when stopped by the user — state already set by orchestrator
-        }
-        catch (Exception ex)
-        {
-            // The orchestrator's ExecuteAgentRunAsync should have handled status + persistence.
-            // If we reach here, something in that error path itself threw — log it and force a
-            // terminal in-memory status so the book isn't left stuck on "Running" forever.
-            _logger.LogError(ex,
-                "[Book {BookId}] Agent run failed outside orchestrator error handler — forcing terminal state.",
-                bookId);
-            var current = _runState.GetStatus(bookId);
-            if (current is { State: "Running" or "WaitingForInput" })
-            {
-                _runState.SetStatus(bookId, new AgentRunStatus(current.Role, "Failed", current.ChapterId));
-                _runState.ClearStreamBuffers(bookId);
-                _runState.TryRemoveRunId(bookId, out _);
-            }
-        }
-    }
 }
 

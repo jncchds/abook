@@ -62,22 +62,7 @@ public class WriterAgent : AgentBase
         var content = await StreamResponseAsync(client, config, messages, bookId, chapterId, AgentRole.Writer, ct);
         content = StripLeadingChapterHeading(content, chapter.Number, chapter.Title);
 
-        var version = new ChapterVersion
-        {
-            ChapterId = chapterId,
-            BookId = bookId,
-            Title = chapter.Title,
-            Outline = chapter.Outline,
-            Content = content,
-            Status = ChapterStatus.Review,
-            PovCharacter = chapter.PovCharacter,
-            CharactersInvolvedJson = chapter.CharactersInvolvedJson,
-            PlotThreadsJson = chapter.PlotThreadsJson,
-            ForeshadowingNotes = chapter.ForeshadowingNotes,
-            PayoffNotes = chapter.PayoffNotes,
-            CreatedBy = "agent:Writer",
-            HasEmbeddings = false,
-        };
+        var version = CreateChapterVersion(chapter, content, ChapterStatus.Review, AgentCreatedBy.Writer);
         var savedVersion = await Repo.AddChapterVersionAsync(version);
 
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);

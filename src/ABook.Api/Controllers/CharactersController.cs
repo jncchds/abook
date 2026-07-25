@@ -2,7 +2,6 @@
 using ABook.Core.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Security.Claims;
 
 namespace ABook.Api.Controllers;
 
@@ -14,19 +13,6 @@ public class CharactersController : ControllerBase
     private readonly IBookRepository _repo;
 
     public CharactersController(IBookRepository repo) => _repo = repo;
-
-    private int? CurrentUserId =>
-        User.Identity?.IsAuthenticated == true
-            ? int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!)
-            : (int?)null;
-
-    private async Task<IActionResult?> CheckOwnershipAsync(int bookId)
-    {
-        var book = await _repo.GetByIdAsync(bookId);
-        if (book is null) return NotFound();
-        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
-        return null;
-    }
 
     [HttpGet]
     public async Task<IActionResult> GetAll(int bookId, [FromQuery] bool includeArchived = false) =>

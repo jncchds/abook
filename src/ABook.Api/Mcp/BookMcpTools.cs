@@ -6,7 +6,6 @@ using ModelContextProtocol.Server;
 using System.ComponentModel;
 using System.Security.Claims;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace ABook.Api.Mcp;
 
@@ -15,13 +14,6 @@ public class BookMcpTools : McpToolBase
 {
     private readonly IBookRepository _repo;
     private readonly AgentRunStateService _runState;
-
-    private static readonly JsonSerializerOptions _json = new()
-    {
-        ReferenceHandler = ReferenceHandler.IgnoreCycles,
-        Converters = { new JsonStringEnumConverter() },
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
 
     public BookMcpTools(IBookRepository repo, AgentRunStateService runState, IHttpContextAccessor http)
         : base(http)
@@ -50,7 +42,7 @@ public class BookMcpTools : McpToolBase
             ChaptersStatus = b.ChaptersStatus.ToString(),
             b.TargetChapterCount, b.Language, b.CreatedAt
         });
-        return JsonSerializer.Serialize(result, _json);
+        return JsonSerializer.Serialize(result, JsonOptions);
     }
 
     [McpServerTool(Name = "get_book", ReadOnly = true)]
@@ -69,7 +61,7 @@ public class BookMcpTools : McpToolBase
             PlotThreadsStatus = book.PlotThreadsStatus.ToString(),
             ChaptersStatus = book.ChaptersStatus.ToString(),
             book.CreatedAt, book.UpdatedAt
-        }, _json);
+        }, JsonOptions);
     }
 
     [McpServerTool(Name = "create_book")]
@@ -91,7 +83,7 @@ public class BookMcpTools : McpToolBase
             Language = language,
             UserId = userId
         });
-        return JsonSerializer.Serialize(new { book.Id, book.Title, book.Genre, book.Premise, book.Language, book.TargetChapterCount }, _json);
+        return JsonSerializer.Serialize(new { book.Id, book.Title, book.Genre, book.Premise, book.Language, book.TargetChapterCount }, JsonOptions);
     }
 
     [McpServerTool(Name = "update_book")]
@@ -112,7 +104,7 @@ public class BookMcpTools : McpToolBase
         if (language != null) book.Language = language;
         book.UpdatedAt = DateTime.UtcNow;
         await _repo.UpdateAsync(book);
-        return JsonSerializer.Serialize(new { book.Id, book.Title, book.Genre, book.Premise, book.Language, book.TargetChapterCount }, _json);
+        return JsonSerializer.Serialize(new { book.Id, book.Title, book.Genre, book.Premise, book.Language, book.TargetChapterCount }, JsonOptions);
     }
 
     [McpServerTool(Name = "delete_book", Destructive = true)]
@@ -122,7 +114,7 @@ public class BookMcpTools : McpToolBase
     {
         await GetOwnedBookAsync(bookId, _repo);
         await _repo.DeleteAsync(bookId);
-        return JsonSerializer.Serialize(new { deleted = true, bookId }, _json);
+        return JsonSerializer.Serialize(new { deleted = true, bookId }, JsonOptions);
     }
 
     // ── Messages ─────────────────────────────────────────────────────────────
@@ -142,7 +134,7 @@ public class BookMcpTools : McpToolBase
             MessageType = m.MessageType.ToString(),
             m.Content, m.IsResolved, m.CreatedAt
         });
-        return JsonSerializer.Serialize(result, _json);
+        return JsonSerializer.Serialize(result, JsonOptions);
     }
 
     // ── Agent status ─────────────────────────────────────────────────────────
@@ -153,14 +145,14 @@ public class BookMcpTools : McpToolBase
         [Description("The book ID to check agent status for.")] int bookId)
     {
         var status = _runState.GetStatus(bookId);
-        if (status is null) return JsonSerializer.Serialize(new { running = false }, _json);
+        if (status is null) return JsonSerializer.Serialize(new { running = false }, JsonOptions);
         return JsonSerializer.Serialize(new
         {
             running = true,
             role = status.Role.ToString(),
             state = status.State,
             chapterId = status.ChapterId
-        }, _json);
+        }, JsonOptions);
     }
 
     // ── Token usage ───────────────────────────────────────────────────────────
@@ -178,6 +170,6 @@ public class BookMcpTools : McpToolBase
             AgentRole = r.AgentRole.ToString(),
             r.ChapterId, r.PromptTokens, r.CompletionTokens, r.CreatedAt
         });
-        return JsonSerializer.Serialize(result, _json);
+        return JsonSerializer.Serialize(result, JsonOptions);
     }
 }

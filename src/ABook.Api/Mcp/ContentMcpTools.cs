@@ -5,7 +5,6 @@ using ModelContextProtocol.Server;
 using System.ComponentModel;
 using System.Security.Claims;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace ABook.Api.Mcp;
 
@@ -13,13 +12,6 @@ namespace ABook.Api.Mcp;
 public class ContentMcpTools : McpToolBase
 {
     private readonly IBookRepository _repo;
-
-    private static readonly JsonSerializerOptions _json = new()
-    {
-        ReferenceHandler = ReferenceHandler.IgnoreCycles,
-        Converters = { new JsonStringEnumConverter() },
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
 
     public ContentMcpTools(IBookRepository repo, IHttpContextAccessor http)
         : base(http)
@@ -39,14 +31,14 @@ public class ContentMcpTools : McpToolBase
         await GetOwnedBookAsync(bookId, _repo);
         var bible = await _repo.GetStoryBibleAsync(bookId);
         if (bible is null)
-            return JsonSerializer.Serialize(new { exists = false }, _json);
+            return JsonSerializer.Serialize(new { exists = false }, JsonOptions);
         return JsonSerializer.Serialize(new
         {
             bible.Id, bible.BookId,
             bible.SettingDescription, bible.TimePeriod, bible.Themes,
             bible.ToneAndStyle, bible.WorldRules, bible.Notes,
             bible.CreatedAt, bible.UpdatedAt
-        }, _json);
+        }, JsonOptions);
     }
 
     [McpServerTool(Name = "update_story_bible")]
@@ -73,7 +65,7 @@ public class ContentMcpTools : McpToolBase
         {
             saved.Id, saved.BookId, saved.SettingDescription, saved.TimePeriod,
             saved.Themes, saved.ToneAndStyle, saved.WorldRules, saved.Notes
-        }, _json);
+        }, JsonOptions);
     }
 
     // ── Characters ────────────────────────────────────────────────────────────
@@ -92,7 +84,7 @@ public class ContentMcpTools : McpToolBase
             c.PhysicalDescription, c.Personality, c.Backstory,
             c.GoalMotivation, c.Arc, c.FirstAppearanceChapterNumber, c.Notes
         });
-        return JsonSerializer.Serialize(result, _json);
+        return JsonSerializer.Serialize(result, JsonOptions);
     }
 
     [McpServerTool(Name = "create_character")]
@@ -123,7 +115,7 @@ public class ContentMcpTools : McpToolBase
             FirstAppearanceChapterNumber = firstAppearanceChapterNumber,
             Notes = notes ?? string.Empty
         });
-        return JsonSerializer.Serialize(new { card.Id, card.Name, Role = card.Role.ToString() }, _json);
+        return JsonSerializer.Serialize(new { card.Id, card.Name, Role = card.Role.ToString() }, JsonOptions);
     }
 
     [McpServerTool(Name = "update_character")]
@@ -157,7 +149,7 @@ public class ContentMcpTools : McpToolBase
         if (arc != null) card.Arc = arc;
         if (notes != null) card.Notes = notes;
         await _repo.UpdateCharacterCardAsync(card);
-        return JsonSerializer.Serialize(new { card.Id, card.Name, Role = card.Role.ToString() }, _json);
+        return JsonSerializer.Serialize(new { card.Id, card.Name, Role = card.Role.ToString() }, JsonOptions);
     }
 
     [McpServerTool(Name = "delete_character", Destructive = true)]
@@ -168,7 +160,7 @@ public class ContentMcpTools : McpToolBase
     {
         await GetOwnedBookAsync(bookId, _repo);
         await _repo.DeleteCharacterCardAsync(bookId, characterId);
-        return JsonSerializer.Serialize(new { deleted = true, characterId }, _json);
+        return JsonSerializer.Serialize(new { deleted = true, characterId }, JsonOptions);
     }
 
     // ── Plot Threads ──────────────────────────────────────────────────────────
@@ -187,7 +179,7 @@ public class ContentMcpTools : McpToolBase
             Status = t.Status.ToString(),
             t.Description, t.IntroducedChapterNumber, t.ResolvedChapterNumber
         });
-        return JsonSerializer.Serialize(result, _json);
+        return JsonSerializer.Serialize(result, JsonOptions);
     }
 
     [McpServerTool(Name = "create_plot_thread")]
@@ -213,7 +205,7 @@ public class ContentMcpTools : McpToolBase
             IntroducedChapterNumber = introducedChapterNumber,
             ResolvedChapterNumber = resolvedChapterNumber
         });
-        return JsonSerializer.Serialize(new { thread.Id, thread.Name, Type = thread.Type.ToString(), Status = thread.Status.ToString() }, _json);
+        return JsonSerializer.Serialize(new { thread.Id, thread.Name, Type = thread.Type.ToString(), Status = thread.Status.ToString() }, JsonOptions);
     }
 
     [McpServerTool(Name = "update_plot_thread")]
@@ -248,7 +240,7 @@ public class ContentMcpTools : McpToolBase
         if (introducedChapterNumber.HasValue) thread.IntroducedChapterNumber = introducedChapterNumber;
         if (resolvedChapterNumber.HasValue) thread.ResolvedChapterNumber = resolvedChapterNumber;
         await _repo.UpdatePlotThreadAsync(thread);
-        return JsonSerializer.Serialize(new { thread.Id, thread.Name, Type = thread.Type.ToString(), Status = thread.Status.ToString() }, _json);
+        return JsonSerializer.Serialize(new { thread.Id, thread.Name, Type = thread.Type.ToString(), Status = thread.Status.ToString() }, JsonOptions);
     }
 
     [McpServerTool(Name = "delete_plot_thread", Destructive = true)]
@@ -259,7 +251,7 @@ public class ContentMcpTools : McpToolBase
     {
         await GetOwnedBookAsync(bookId, _repo);
         await _repo.DeletePlotThreadAsync(bookId, threadId);
-        return JsonSerializer.Serialize(new { deleted = true, threadId }, _json);
+        return JsonSerializer.Serialize(new { deleted = true, threadId }, JsonOptions);
     }
 
     // ── Chapters ──────────────────────────────────────────────────────────────
@@ -277,7 +269,7 @@ public class ContentMcpTools : McpToolBase
             Status = c.Status.ToString(),
             c.PovCharacter, c.ForeshadowingNotes, c.PayoffNotes
         });
-        return JsonSerializer.Serialize(result, _json);
+        return JsonSerializer.Serialize(result, JsonOptions);
     }
 
     [McpServerTool(Name = "get_chapter", ReadOnly = true)]
@@ -295,7 +287,7 @@ public class ContentMcpTools : McpToolBase
             Status = chapter.Status.ToString(),
             chapter.PovCharacter, chapter.ForeshadowingNotes, chapter.PayoffNotes,
             chapter.CreatedAt, chapter.UpdatedAt
-        }, _json);
+        }, JsonOptions);
     }
 
     [McpServerTool(Name = "create_chapter")]
@@ -321,7 +313,7 @@ public class ContentMcpTools : McpToolBase
             ForeshadowingNotes = foreshadowingNotes ?? string.Empty,
             PayoffNotes = payoffNotes ?? string.Empty
         });
-        return JsonSerializer.Serialize(new { chapter.Id, chapter.Number, chapter.Title }, _json);
+        return JsonSerializer.Serialize(new { chapter.Id, chapter.Number, chapter.Title }, JsonOptions);
     }
 
     [McpServerTool(Name = "update_chapter")]
@@ -354,6 +346,6 @@ public class ContentMcpTools : McpToolBase
         }
         chapter.UpdatedAt = DateTime.UtcNow;
         await _repo.UpdateChapterAsync(chapter);
-        return JsonSerializer.Serialize(new { chapter.Id, chapter.Number, chapter.Title, Status = chapter.Status.ToString() }, _json);
+        return JsonSerializer.Serialize(new { chapter.Id, chapter.Number, chapter.Title, Status = chapter.Status.ToString() }, JsonOptions);
     }
 }

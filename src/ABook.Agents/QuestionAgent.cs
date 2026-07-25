@@ -83,7 +83,7 @@ public class QuestionAgent : AgentBase
         int bookId, List<string> questions, StringBuilder qaContext, CancellationToken ct)
     {
         // Post a single overview message so the user knows what's coming
-        await Repo.AddMessageAsync(new AgentMessage
+        var overview = await Repo.AddMessageAsync(new AgentMessage
         {
             BookId = bookId,
             ChapterId = null,
@@ -92,13 +92,7 @@ public class QuestionAgent : AgentBase
             Content = $"The planner has {questions.Count} question(s) to clarify the plan:\n\n{string.Join("\n", questions.Select((q, i) => ($"{i + 1}. {q}")))}",
             IsResolved = false
         });
-        await Notifier.NotifyQuestionAsync(bookId,
-            new AgentMessage {
-                BookId = bookId, ChapterId = null, AgentRole = AgentRole.Planner,
-                MessageType = MessageType.Question,
-                Content = $"The planner has {questions.Count} question(s) to clarify the plan.\n\n{string.Join("\n", questions.Select((q, i) => ($"{i + 1}. {q}")))}",
-                IsResolved = false
-            }, ct);
+        await Notifier.NotifyQuestionAsync(bookId, overview, ct);
 
         foreach (var question in questions)
         {

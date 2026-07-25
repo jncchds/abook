@@ -205,11 +205,16 @@ public abstract class AgentBase
         return answer;
     }
 
-    protected async Task ReportErrorAsync(int bookId, int? chapterId, AgentRole role, string message, CancellationToken ct = default)
+    protected Task ReportErrorAsync(int bookId, int? chapterId, AgentRole role, string message, CancellationToken ct = default) =>
+        ReportAgentErrorCoreAsync(Repo, Notifier, Logger, bookId, role, chapterId, message);
+
+    internal static async Task ReportAgentErrorCoreAsync(
+        IBookRepository repo, IBookNotifier notifier, ILogger logger,
+        int bookId, AgentRole role, int? chapterId, string message)
     {
         try
         {
-            await Repo.AddMessageAsync(new AgentMessage
+            await repo.AddMessageAsync(new AgentMessage
             {
                 BookId = bookId,
                 ChapterId = chapterId,
@@ -221,15 +226,15 @@ public abstract class AgentBase
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "[Book {BookId}] Failed to persist error SystemNote for {Role}.", bookId, role);
+            logger.LogError(ex, "[Book {BookId}] Failed to persist error SystemNote for {Role}.", bookId, role);
         }
         try
         {
-            await Notifier.NotifyAgentErrorAsync(bookId, role.ToString(), message, ct);
+            await notifier.NotifyAgentErrorAsync(bookId, role.ToString(), message, CancellationToken.None);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "[Book {BookId}] Failed to notify AgentError via SignalR for {Role}.", bookId, role);
+            logger.LogError(ex, "[Book {BookId}] Failed to notify AgentError via SignalR for {Role}.", bookId, role);
         }
     }
 
@@ -446,6 +451,28 @@ public abstract class AgentBase
         if (string.IsNullOrWhiteSpace(inlineThinking)) return metaThinking;
         return metaThinking + "\n\n" + inlineThinking;
     }
+
+    protected static string Capitalize(string s) => char.ToUpper(s[0]) + s[1..];
+    protected static string EscapeMarkdown(string text) => text.Replace("`", "\\`");
+
+    protected static ChapterVersion CreateChapterVersion(
+        Chapter chapter, string content, ChapterStatus status, string createdBy) =>
+        new()
+        {
+            ChapterId = chapter.Id,
+            BookId = chapter.BookId,
+            Title = chapter.Title,
+            Outline = chapter.Outline,
+            Content = content,
+            Status = status,
+            PovCharacter = chapter.PovCharacter,
+            CharactersInvolvedJson = chapter.CharactersInvolvedJson,
+            PlotThreadsJson = chapter.PlotThreadsJson,
+            ForeshadowingNotes = chapter.ForeshadowingNotes,
+            PayoffNotes = chapter.PayoffNotes,
+            CreatedBy = createdBy,
+            HasEmbeddings = false,
+        };
 
     private async Task SaveThinkingAsync(int bookId, int? chapterId, AgentRole role, string thinking, CancellationToken ct)
     {

@@ -150,8 +150,8 @@ public class ContinuityCheckerAgent : AgentBase
         var synopsis = string.Join("\n\n", chaptersToSummarise.Select(c =>
             $"Chapter {c.Number}: {c.Title}\nOutline: {c.Outline}\nContent excerpt: {c.Content?[..Math.Min(800, c.Content?.Length ?? 0)]}..."));
 
-        // Structured context from planning artifacts
-        var structuredContext = await BuildStructuredContextAsync(bookId);
+        // Structured context from planning artifacts (also returns the bible to avoid a second fetch)
+        var (structuredContext, bible) = await BuildStructuredContextAsync(bookId);
 
         // RAG passages
         var ragContext = string.Empty;
@@ -173,8 +173,6 @@ public class ContinuityCheckerAgent : AgentBase
         }
 
         var messages = new List<LlmChatMessage>();
-
-        var bible = await Repo.GetStoryBibleAsync(bookId);
 
         string systemPrompt;
         if (!string.IsNullOrWhiteSpace(book.ContinuityCheckerSystemPrompt))
@@ -327,10 +325,6 @@ public class ContinuityCheckerAgent : AgentBase
         return sb.ToString().Trim();
     }
 
-    private static string Capitalize(string s) => char.ToUpper(s[0]) + s[1..];
-
-    /// <summary>Escape backticks inside markdown inline-code spans so they don't break formatting.</summary>
-    private static string EscapeMarkdown(string text) => text.Replace("`", "\\`");
 
     private static readonly System.Text.Json.JsonSerializerOptions _jsonOptions = new()
     {
@@ -396,6 +390,21 @@ public class ContinuityCheckerAgent : AgentBase
 
     // â”€â”€ Private Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+    private static void FormatCharacterCard(CharacterCard card, System.Text.StringBuilder sb)
+    {
+        sb.AppendLine($"\n**{card.Name}** ({card.Role})");
+        if (!string.IsNullOrWhiteSpace(card.PhysicalDescription))
+            sb.AppendLine($"  Appearance: {card.PhysicalDescription}");
+        if (!string.IsNullOrWhiteSpace(card.Personality))
+            sb.AppendLine($"  Personality: {card.Personality}");
+        if (!string.IsNullOrWhiteSpace(card.Backstory))
+            sb.AppendLine($"  Backstory: {card.Backstory}");
+        if (!string.IsNullOrWhiteSpace(card.GoalMotivation))
+            sb.AppendLine($"  Goal/motivation: {card.GoalMotivation}");
+        if (!string.IsNullOrWhiteSpace(card.Arc))
+            sb.AppendLine($"  Arc: {card.Arc}");
+    }
+
     private static string NumberLines(string content)
     {
         var lines = content.Split('\n');
@@ -434,19 +443,7 @@ public class ContinuityCheckerAgent : AgentBase
             {
                 sb.AppendLine("\n### Character Profiles (canonical)");
                 foreach (var card in cards)
-                {
-                    sb.AppendLine($"\n**{card.Name}** ({card.Role})");
-                    if (!string.IsNullOrWhiteSpace(card.PhysicalDescription))
-                        sb.AppendLine($"  Appearance: {card.PhysicalDescription}");
-                    if (!string.IsNullOrWhiteSpace(card.Personality))
-                        sb.AppendLine($"  Personality: {card.Personality}");
-                    if (!string.IsNullOrWhiteSpace(card.Backstory))
-                        sb.AppendLine($"  Backstory: {card.Backstory}");
-                    if (!string.IsNullOrWhiteSpace(card.GoalMotivation))
-                        sb.AppendLine($"  Goal/motivation: {card.GoalMotivation}");
-                    if (!string.IsNullOrWhiteSpace(card.Arc))
-                        sb.AppendLine($"  Arc: {card.Arc}");
-                }
+                    FormatCharacterCard(card, sb);
             }
         }
 
@@ -498,8 +495,9 @@ public class ContinuityCheckerAgent : AgentBase
 
     /// <summary>
     /// Builds the full structured context block for the complete CheckAsync (Story Bible + all characters + all threads).
+    /// Returns both the formatted context string and the fetched StoryBible to avoid a second DB round-trip.
     /// </summary>
-    private async Task<string> BuildStructuredContextAsync(int bookId)
+    private async Task<(string context, StoryBible? bible)> BuildStructuredContextAsync(int bookId)
     {
         var sb = new System.Text.StringBuilder();
 
@@ -520,17 +518,7 @@ public class ContinuityCheckerAgent : AgentBase
         {
             sb.AppendLine("\n## Character Profiles (canonical)");
             foreach (var card in cards)
-            {
-                sb.AppendLine($"\n**{card.Name}** ({card.Role})");
-                if (!string.IsNullOrWhiteSpace(card.PhysicalDescription))
-                    sb.AppendLine($"  Appearance: {card.PhysicalDescription}");
-                if (!string.IsNullOrWhiteSpace(card.Backstory))
-                    sb.AppendLine($"  Backstory: {card.Backstory}");
-                if (!string.IsNullOrWhiteSpace(card.GoalMotivation))
-                    sb.AppendLine($"  Goal/motivation: {card.GoalMotivation}");
-                if (!string.IsNullOrWhiteSpace(card.Arc))
-                    sb.AppendLine($"  Arc: {card.Arc}");
-            }
+                FormatCharacterCard(card, sb);
         }
 
         var threads = await Repo.GetPlotThreadsAsync(bookId);
@@ -544,6 +532,6 @@ public class ContinuityCheckerAgent : AgentBase
             }
         }
 
-        return sb.ToString();
+        return (sb.ToString(), bible);
     }
 }

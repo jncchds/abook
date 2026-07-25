@@ -2,7 +2,6 @@ using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Security.Claims;
 
 namespace ABook.Api.Controllers;
 
@@ -23,41 +22,29 @@ public class PlanningPhasesController : ControllerBase
 
     public PlanningPhasesController(IBookRepository repo) => _repo = repo;
 
-    private int? CurrentUserId =>
-        User.Identity?.IsAuthenticated == true
-            ? int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!)
-            : (int?)null;
-
     [HttpPost("{phase}/complete")]
-    public async Task<IActionResult> Complete(int bookId, string phase)
-    {
-        var book = await _repo.GetByIdAsync(bookId);
-        if (book is null) return NotFound();
-        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
-        if (!ApplyStatus(book, phase, PlanningPhaseStatus.Complete))
-            return BadRequest(new { message = $"Unknown planning phase: {phase}" });
-        await _repo.UpdateAsync(book);
-        return Ok();
-    }
+    public Task<IActionResult> Complete(int bookId, string phase) =>
+        SetPhaseStatusAsync(bookId, phase, PlanningPhaseStatus.Complete);
 
     [HttpPost("{phase}/reopen")]
-    public async Task<IActionResult> Reopen(int bookId, string phase)
+    public Task<IActionResult> Reopen(int bookId, string phase) =>
+        SetPhaseStatusAsync(bookId, phase, PlanningPhaseStatus.NotStarted);
+
+    private async Task<IActionResult> SetPhaseStatusAsync(int bookId, string phase, PlanningPhaseStatus status)
     {
-        var book = await _repo.GetByIdAsync(bookId);
-        if (book is null) return NotFound();
-        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
-        if (!ApplyStatus(book, phase, PlanningPhaseStatus.NotStarted))
+        var (error, book) = await this.RequireBookOwnershipAndLoadAsync(bookId, _repo);
+        if (error is not null) return error;
+        if (!ApplyStatus(book!, phase, status))
             return BadRequest(new { message = $"Unknown planning phase: {phase}" });
-        await _repo.UpdateAsync(book);
+        await _repo.UpdateAsync(book!);
         return Ok();
     }
 
     [HttpDelete("{phase}")]
     public async Task<IActionResult> Clear(int bookId, string phase)
     {
-        var book = await _repo.GetByIdAsync(bookId);
-        if (book is null) return NotFound();
-        if (book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
+        var (error, book) = await this.RequireBookOwnershipAndLoadAsync(bookId, _repo);
+        if (error is not null) return error;
 
         switch (phase.ToLowerInvariant())
         {
@@ -79,7 +66,7 @@ public class PlanningPhasesController : ControllerBase
                         });
                     }
                     await _repo.DeleteStoryBibleAsync(bookId);
-                    book.StoryBibleStatus = PlanningPhaseStatus.NotStarted;
+                    book!.StoryBibleStatus = PlanningPhaseStatus.NotStarted;
                     break;
                 }
             case "characters":
@@ -96,7 +83,7 @@ public class PlanningPhasesController : ControllerBase
                         });
                     }
                     await _repo.DeleteCharacterCardsAsync(bookId);
-                    book.CharactersStatus = PlanningPhaseStatus.NotStarted;
+                    book!.CharactersStatus = PlanningPhaseStatus.NotStarted;
                     break;
                 }
             case "plotthreads":
@@ -113,19 +100,19 @@ public class PlanningPhasesController : ControllerBase
                         });
                     }
                     await _repo.DeletePlotThreadsAsync(bookId);
-                    book.PlotThreadsStatus = PlanningPhaseStatus.NotStarted;
+                    book!.PlotThreadsStatus = PlanningPhaseStatus.NotStarted;
                     break;
                 }
             case "chapters":
                 // Archive chapters instead of hard-delete to preserve history
                 await _repo.ArchiveChaptersAsync(bookId);
-                book.ChaptersStatus = PlanningPhaseStatus.NotStarted;
+                book!.ChaptersStatus = PlanningPhaseStatus.NotStarted;
                 break;
             default:
                 return BadRequest(new { message = $"Unknown planning phase: {phase}" });
         }
 
-        await _repo.UpdateAsync(book);
+        await _repo.UpdateAsync(book!);
         return Ok();
     }
 

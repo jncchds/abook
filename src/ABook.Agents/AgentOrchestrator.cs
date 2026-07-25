@@ -52,36 +52,18 @@ public class AgentOrchestrator : IAgentOrchestrator
     }
 
     public Task StartPlanningAsync(int bookId, CancellationToken ct = default) =>
-        ExecuteAgentRunAsync(bookId, AgentRole.Planner, null, ct, async c =>
-        {
-            var book = await _repo.GetByIdAsync(bookId)
-                ?? throw new InvalidOperationException($"Book {bookId} not found.");
-
-            bool skipSb      = book.StoryBibleStatus   == PlanningPhaseStatus.Complete;
-            bool skipChars   = book.CharactersStatus   == PlanningPhaseStatus.Complete;
-            bool skipThreads = book.PlotThreadsStatus  == PlanningPhaseStatus.Complete;
-            bool skipChapters = book.ChaptersStatus    == PlanningPhaseStatus.Complete;
-
-            if (skipSb && skipChars && skipThreads && skipChapters)
-            {
-                await _notifier.NotifyWorkflowProgressAsync(bookId,
-                    "All planning phases are already complete. Use Reopen or Clear to reset a phase.", true, c);
-                return;
-            }
-
-            await RunPlanningPipelineAsync(bookId, skipSb, skipChars, skipThreads, skipChapters, c);
-        });
+        RunPlanningAsync(bookId, isContinue: false, ct);
 
     public Task ContinuePlanningAsync(int bookId, CancellationToken ct = default) =>
+        RunPlanningAsync(bookId, isContinue: true, ct);
+
+    private Task RunPlanningAsync(int bookId, bool isContinue, CancellationToken ct) =>
         ExecuteAgentRunAsync(bookId, AgentRole.Planner, null, ct, async c =>
         {
             var book = await _repo.GetByIdAsync(bookId)
                 ?? throw new InvalidOperationException($"Book {bookId} not found.");
 
-            bool skipSb = book.StoryBibleStatus == PlanningPhaseStatus.Complete;
-            bool skipChars = book.CharactersStatus == PlanningPhaseStatus.Complete;
-            bool skipThreads = book.PlotThreadsStatus == PlanningPhaseStatus.Complete;
-            bool skipChapters = book.ChaptersStatus == PlanningPhaseStatus.Complete;
+            var (skipSb, skipChars, skipThreads, skipChapters) = GetPlanningSkipFlags(book);
 
             if (skipSb && skipChars && skipThreads && skipChapters)
             {
@@ -90,7 +72,9 @@ public class AgentOrchestrator : IAgentOrchestrator
                 return;
             }
 
-            await _notifier.NotifyWorkflowProgressAsync(bookId, "Continuing planning...", false, c);
+            if (isContinue)
+                await _notifier.NotifyWorkflowProgressAsync(bookId, "Continuing planning...", false, c);
+
             await RunPlanningPipelineAsync(bookId, skipSb, skipChars, skipThreads, skipChapters, c);
         });
 
@@ -118,10 +102,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             var book = await _repo.GetByIdAsync(bookId)
                 ?? throw new InvalidOperationException($"Book {bookId} not found.");
 
-            bool skipSb      = book.StoryBibleStatus   == PlanningPhaseStatus.Complete;
-            bool skipChars   = book.CharactersStatus   == PlanningPhaseStatus.Complete;
-            bool skipThreads = book.PlotThreadsStatus  == PlanningPhaseStatus.Complete;
-            bool skipChapters = book.ChaptersStatus    == PlanningPhaseStatus.Complete;
+            var (skipSb, skipChars, skipThreads, skipChapters) = GetPlanningSkipFlags(book);
 
             var chapters = await RunPlanningPipelineAsync(bookId, skipSb, skipChars, skipThreads, skipChapters, c);
             await _notifier.NotifyWorkflowProgressAsync(bookId,
@@ -144,7 +125,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                     continue;
                 }
 
-                await ProcessChapterAsync(bookId, chapter, c, resumeFromStatus: chapter.Status);
+                await ProcessChapterAsync(bookId, chapter, c, book.HumanAssisted, resumeFromStatus: chapter.Status);
             }
 
             c.ThrowIfCancellationRequested();
@@ -161,6 +142,9 @@ public class AgentOrchestrator : IAgentOrchestrator
     public Task ContinueWorkflowAsync(int bookId, CancellationToken ct = default) =>
         ExecuteAgentRunAsync(bookId, AgentRole.Writer, null, ct, async c =>
         {
+            var book = await _repo.GetByIdAsync(bookId)
+                ?? throw new InvalidOperationException($"Book {bookId} not found.");
+
             // Pre-load all chapters in one query to get current status
             var allChapters = (await _repo.GetChaptersAsync(bookId)).OrderBy(ch => ch.Number).ToList();
             if (allChapters.Count == 0)
@@ -179,7 +163,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                     continue;
                 }
 
-                await ProcessChapterAsync(bookId, chapter, c, resumeFromStatus: chapter.Status);
+                await ProcessChapterAsync(bookId, chapter, c, book.HumanAssisted, resumeFromStatus: chapter.Status);
             }
 
             c.ThrowIfCancellationRequested();
@@ -281,15 +265,13 @@ public class AgentOrchestrator : IAgentOrchestrator
     /// </summary>
     private async Task ProcessChapterAsync(
         int bookId, Chapter chapter, CancellationToken ct,
+        bool humanAssisted,
         ChapterStatus? resumeFromStatus = null)
     {
         bool needsWrite = resumeFromStatus is null
             || resumeFromStatus == ChapterStatus.Outlined
             || resumeFromStatus == ChapterStatus.Writing
             || string.IsNullOrEmpty(chapter.Content);
-
-        var book = await _repo.GetByIdAsync(bookId)
-            ?? throw new InvalidOperationException($"Book {bookId} not found.");
 
         if (needsWrite)
         {
@@ -317,7 +299,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             // Optional human pause BEFORE checker — author guidance is fed into patch generation
             string humanPoints = string.Empty;
-            if (book.HumanAssisted)
+            if (humanAssisted)
             {
                 humanPoints = (await _questions.AskSingleOptionalAsync(
                     bookId, chapter.Id, AgentRole.ContinuityChecker,
@@ -493,36 +475,14 @@ public class AgentOrchestrator : IAgentOrchestrator
         }
     }
 
-    /// <summary>
-    /// Persists an error as a chat-visible SystemNote message AND fires the AgentError SignalR event.
-    /// </summary>
-    private async Task ReportAgentErrorAsync(int bookId, AgentRole role, int? chapterId, string message)
-    {
-        try
-        {
-            await _repo.AddMessageAsync(new AgentMessage
-            {
-                BookId = bookId,
-                ChapterId = chapterId,
-                AgentRole = role,
-                MessageType = MessageType.SystemNote,
-                Content = $"\u274c {message}",
-                IsResolved = true
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[Book {BookId}] Failed to persist error SystemNote for {Role}.", bookId, role);
-        }
-        try
-        {
-            await _notifier.NotifyAgentErrorAsync(bookId, role.ToString(), message, CancellationToken.None);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[Book {BookId}] Failed to notify AgentError via SignalR for {Role}.", bookId, role);
-        }
-    }
+    private static (bool skipSb, bool skipChars, bool skipThreads, bool skipChapters) GetPlanningSkipFlags(Book book) =>
+        (book.StoryBibleStatus  == PlanningPhaseStatus.Complete,
+         book.CharactersStatus  == PlanningPhaseStatus.Complete,
+         book.PlotThreadsStatus == PlanningPhaseStatus.Complete,
+         book.ChaptersStatus    == PlanningPhaseStatus.Complete);
+
+    private Task ReportAgentErrorAsync(int bookId, AgentRole role, int? chapterId, string message) =>
+        AgentBase.ReportAgentErrorCoreAsync(_repo, _notifier, _logger, bookId, role, chapterId, message);
 
     public async Task ResumeWithAnswerAsync(int messageId, string answer, CancellationToken ct = default)
     {

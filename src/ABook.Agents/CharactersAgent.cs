@@ -80,25 +80,22 @@ public class CharactersAgent : AgentBase
         }
 
         await Repo.DeleteCharacterCardsAsync(bookId);
-        foreach (var card in characters)
+        var savedCards = await Repo.AddCharacterCardsBatchAsync(characters);
+        await Repo.AddCharacterVersionsBatchAsync(savedCards.Select(card => new ABook.Core.Models.CharacterCardVersion
         {
-            await Repo.AddCharacterCardAsync(card);
-            await Repo.AddCharacterVersionAsync(new ABook.Core.Models.CharacterCardVersion
-            {
-                CharacterCardId = card.Id,
-                BookId = bookId,
-                Name = card.Name,
-                Role = card.Role,
-                PhysicalDescription = card.PhysicalDescription,
-                Personality = card.Personality,
-                Backstory = card.Backstory,
-                GoalMotivation = card.GoalMotivation,
-                Arc = card.Arc,
-                FirstAppearanceChapterNumber = card.FirstAppearanceChapterNumber,
-                Notes = card.Notes,
-                CreatedBy = "agent:Characters",
-            });
-        }
+            CharacterCardId = card.Id,
+            BookId = bookId,
+            Name = card.Name,
+            Role = card.Role,
+            PhysicalDescription = card.PhysicalDescription,
+            Personality = card.Personality,
+            Backstory = card.Backstory,
+            GoalMotivation = card.GoalMotivation,
+            Arc = card.Arc,
+            FirstAppearanceChapterNumber = card.FirstAppearanceChapterNumber,
+            Notes = card.Notes,
+            CreatedBy = AgentCreatedBy.Characters,
+        }));
 
         // Save the newly generated characters as a snapshot so they appear in history immediately
         await Repo.AddCharactersSnapshotAsync(new ABook.Core.Models.CharactersSnapshot

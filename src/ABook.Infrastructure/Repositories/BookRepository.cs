@@ -48,25 +48,24 @@ public class BookRepository : IBookRepository
 
     public async Task<IReadOnlyList<int>> GetAncestryBookIdsAsync(int bookId, CancellationToken ct = default)
     {
-        var chain = new List<int>();
-        var seen = new HashSet<int>();
-
-        int? cursor = bookId;
-        const int maxDepth = 50;
-
-        while (cursor.HasValue && chain.Count < maxDepth)
-        {
-            var id = cursor.Value;
-            if (!seen.Add(id)) break; // cycle guard
-            chain.Add(id);
-
-            cursor = await _db.Books
-                .Where(b => b.Id == id)
-                .Select(b => b.BaseBookId)
-                .FirstOrDefaultAsync(ct);
-        }
-
-        return chain;
+        // Single recursive CTE instead of one query per ancestor.
+        // LIMIT 50 acts as both a cycle guard and a depth cap.
+        var ids = await _db.Database
+            .SqlQuery<int>($"""
+                WITH RECURSIVE ancestry AS (
+                    SELECT "Id", "BaseBookId", 0 AS depth
+                    FROM "Books"
+                    WHERE "Id" = {bookId}
+                    UNION ALL
+                    SELECT b."Id", b."BaseBookId", a.depth + 1
+                    FROM "Books" b
+                    JOIN ancestry a ON b."Id" = a."BaseBookId"
+                    WHERE a."BaseBookId" IS NOT NULL AND a.depth < 49
+                )
+                SELECT "Id" FROM ancestry ORDER BY depth
+                """)
+            .ToListAsync(ct);
+        return ids;
     }
 
     public async Task<string> BuildAncestorPlanningReferenceAsync(int bookId, CancellationToken ct = default)
@@ -436,6 +435,10 @@ public class BookRepository : IBookRepository
             existing.Endpoint = config.Endpoint;
             existing.ApiKey = config.ApiKey;
             existing.EmbeddingModelName = config.EmbeddingModelName;
+            existing.Temperature = config.Temperature;
+            existing.MaxTokens = config.MaxTokens;
+            existing.ReasoningEffort = config.ReasoningEffort;
+            existing.TimeoutMs = config.TimeoutMs;
             config = existing;
         }
 
@@ -542,6 +545,17 @@ public class BookRepository : IBookRepository
         return card;
     }
 
+    public async Task<IReadOnlyList<CharacterCard>> AddCharacterCardsBatchAsync(IEnumerable<CharacterCard> cards)
+    {
+        var now = DateTime.UtcNow;
+        var list = cards.ToList();
+        foreach (var card in list)
+            card.CreatedAt = card.UpdatedAt = now;
+        _db.CharacterCards.AddRange(list);
+        await _db.SaveChangesAsync();
+        return list;
+    }
+
     public async Task UpdateCharacterCardAsync(CharacterCard card)
     {
         card.UpdatedAt = DateTime.UtcNow;
@@ -600,6 +614,18 @@ public class BookRepository : IBookRepository
         _db.CharacterCardVersions.Add(version);
         await _db.SaveChangesAsync();
         return version;
+    }
+
+    public async Task AddCharacterVersionsBatchAsync(IEnumerable<CharacterCardVersion> versions)
+    {
+        var now = DateTime.UtcNow;
+        foreach (var v in versions)
+        {
+            v.VersionNumber = 1; // agent batch-writes always produce the first version
+            v.CreatedAt = now;
+        }
+        _db.CharacterCardVersions.AddRange(versions);
+        await _db.SaveChangesAsync();
     }
 
     public async Task<IEnumerable<CharacterCardVersion>> GetCharacterVersionsAsync(int bookId, int cardId) =>
@@ -670,6 +696,17 @@ public class BookRepository : IBookRepository
         return thread;
     }
 
+    public async Task<IReadOnlyList<PlotThread>> AddPlotThreadsBatchAsync(IEnumerable<PlotThread> threads)
+    {
+        var now = DateTime.UtcNow;
+        var list = threads.ToList();
+        foreach (var t in list)
+            t.CreatedAt = t.UpdatedAt = now;
+        _db.PlotThreads.AddRange(list);
+        await _db.SaveChangesAsync();
+        return list;
+    }
+
     public async Task UpdatePlotThreadAsync(PlotThread thread)
     {
         thread.UpdatedAt = DateTime.UtcNow;
@@ -728,6 +765,18 @@ public class BookRepository : IBookRepository
         _db.PlotThreadVersions.Add(version);
         await _db.SaveChangesAsync();
         return version;
+    }
+
+    public async Task AddPlotThreadVersionsBatchAsync(IEnumerable<PlotThreadVersion> versions)
+    {
+        var now = DateTime.UtcNow;
+        foreach (var v in versions)
+        {
+            v.VersionNumber = 1; // agent batch-writes always produce the first version
+            v.CreatedAt = now;
+        }
+        _db.PlotThreadVersions.AddRange(versions);
+        await _db.SaveChangesAsync();
     }
 
     public async Task<IEnumerable<PlotThreadVersion>> GetPlotThreadVersionsAsync(int bookId, int threadId) =>

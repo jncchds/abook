@@ -61,19 +61,21 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     .AddScheme<AuthenticationSchemeOptions, ApiTokenAuthenticationHandler>("ApiToken", null);
 builder.Services.AddAuthorization();
 
+// Shared serializer settings used by both SignalR and MVC controllers
+void ConfigureJsonSerializer(System.Text.Json.JsonSerializerOptions opts)
+{
+    opts.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+    opts.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+}
+
 // ── SignalR ───────────────────────────────────────────────────────────────────
 builder.Services.AddSignalR()
-    .AddJsonProtocol(o =>
-    {
-        o.PayloadSerializerOptions.ReferenceHandler =
-            System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
-        o.PayloadSerializerOptions.Converters.Add(
-            new System.Text.Json.Serialization.JsonStringEnumConverter());
-    });
+    .AddJsonProtocol(o => ConfigureJsonSerializer(o.PayloadSerializerOptions));
 builder.Services.AddScoped<IBookNotifier, SignalRBookNotifier>();
 
 // ── Agents ────────────────────────────────────────────────────────────────────
 builder.Services.AddSingleton<ABook.Agents.AgentRunStateService>();
+builder.Services.AddSingleton<AgentRunnerService>();
 builder.Services.AddScoped<ABook.Agents.QuestionAgent>();
 builder.Services.AddScoped<ABook.Agents.StoryBibleAgent>();
 builder.Services.AddScoped<ABook.Agents.CharactersAgent>();
@@ -98,13 +100,7 @@ builder.Services.AddSingleton(new ABook.Api.Services.PublicModeOptions(isPublicM
 builder.Services.AddScoped<ABook.Api.Services.BookExportService>();
 // ── API ───────────────────────────────────────────────────────────────────────
 builder.Services.AddControllers()
-    .AddJsonOptions(o =>
-    {
-        o.JsonSerializerOptions.ReferenceHandler =
-            System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
-        o.JsonSerializerOptions.Converters.Add(
-            new System.Text.Json.Serialization.JsonStringEnumConverter());
-    });
+    .AddJsonOptions(o => ConfigureJsonSerializer(o.JsonSerializerOptions));
 
 var app = builder.Build();
 

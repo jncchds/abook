@@ -32,37 +32,6 @@ public class EditorAgent : AgentBase
         await Repo.UpdateChapterAsync(chapter);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Running", chapterId, ct);
 
-        var (client, config) = await GetChatClientAsync(bookId);
-
-        var synopsesBlock = await BuildChapterSynopsesAsync(bookId, chapter.Number, ct);
-
-        string charRag = string.Empty, locationRag = string.Empty, threadRag = string.Empty, phrasesRag = string.Empty;
-        if (chapter.Number > 1)
-        {
-            List<string> charNames;
-            try { charNames = JsonSerializer.Deserialize<List<string>>(chapter.CharactersInvolvedJson) ?? []; }
-            catch { charNames = []; }
-            var charQuery = charNames.Count > 0
-                ? $"character appearance description personality {string.Join(' ', charNames)}"
-                : "character appearance description personality backstory";
-
-            var locationQuery = $"location place setting description {chapter.Outline}";
-
-            List<string> threadNames;
-            try { threadNames = JsonSerializer.Deserialize<List<string>>(chapter.PlotThreadsJson) ?? []; }
-            catch { threadNames = []; }
-            var threadQuery = threadNames.Count > 0
-                ? $"plot thread events foreshadowing {string.Join(' ', threadNames)}"
-                : $"plot events sequence foreshadowing {chapter.Outline}";
-
-            var phrasesQuery = "repeated descriptions recurring phrases re-introduction established facts";
-
-            charRag     = await GetRagContextAsync(bookId, charQuery,     4, LlmFactory, config, chapter.Id, ct);
-            locationRag = await GetRagContextAsync(bookId, locationQuery, 3, LlmFactory, config, chapter.Id, ct);
-            threadRag   = await GetRagContextAsync(bookId, threadQuery,   3, LlmFactory, config, chapter.Id, ct);
-            phrasesRag  = await GetRagContextAsync(bookId, phrasesQuery,  4, LlmFactory, config, chapter.Id, ct);
-        }
-
         if (checkerResult is { HasIssues: true, Issues.Length: > 0 })
         {
             var patches = checkerResult.Issues.Where(i =>
@@ -84,7 +53,7 @@ public class EditorAgent : AgentBase
                 string contentToEdit = patchedVersion?.Content ?? chapter.Content;
                 string instructions = BuildRewriteInstructions(rewrites);
                 await EditWithLlmForRewrites(bookId, chapterId, contentToEdit, instructions,
-                    finalizeStatus, synopsesBlock.ToString(), rewrites, charRag, locationRag, threadRag, phrasesRag, ct);
+                    finalizeStatus, rewrites, ct);
             }
             else if (patches.Length == 0)
             {
@@ -146,22 +115,7 @@ public class EditorAgent : AgentBase
             IsResolved = true
         });
 
-        var patchVersion = new ChapterVersion
-        {
-            ChapterId = chapterId,
-            BookId = bookId,
-            Title = chapter.Title,
-            Outline = chapter.Outline,
-            Content = patchedContent,
-            Status = patchedStatus,
-            PovCharacter = chapter.PovCharacter,
-            CharactersInvolvedJson = chapter.CharactersInvolvedJson,
-            PlotThreadsJson = chapter.PlotThreadsJson,
-            ForeshadowingNotes = chapter.ForeshadowingNotes,
-            PayoffNotes = chapter.PayoffNotes,
-            CreatedBy = "agent:Editor",
-            HasEmbeddings = false,
-        };
+        var patchVersion = CreateChapterVersion(chapter, patchedContent, patchedStatus, AgentCreatedBy.Editor);
         await Repo.AddChapterVersionAsync(patchVersion);
 
         var (_, config) = await GetChatClientAsync(bookId);
@@ -287,22 +241,7 @@ public class EditorAgent : AgentBase
         var editedContent = StripLeadingChapterHeading(prose, chapter.Number, chapter.Title);
         var editedStatus = finalizeStatus ? ChapterStatus.Done : ChapterStatus.Review;
 
-        var version = new ChapterVersion
-        {
-            ChapterId = chapterId,
-            BookId = bookId,
-            Title = chapter.Title,
-            Outline = chapter.Outline,
-            Content = editedContent,
-            Status = editedStatus,
-            PovCharacter = chapter.PovCharacter,
-            CharactersInvolvedJson = chapter.CharactersInvolvedJson,
-            PlotThreadsJson = chapter.PlotThreadsJson,
-            ForeshadowingNotes = chapter.ForeshadowingNotes,
-            PayoffNotes = chapter.PayoffNotes,
-            CreatedBy = "agent:Editor",
-            HasEmbeddings = false,
-        };
+        var version = CreateChapterVersion(chapter, editedContent, editedStatus, AgentCreatedBy.Editor);
         await Repo.AddChapterVersionAsync(version);
 
         try { await IndexChapterAsync(bookId, chapterId, version.Id, config!, ct); }
@@ -343,9 +282,7 @@ public class EditorAgent : AgentBase
 
     private async Task EditWithLlmForRewrites(int bookId, int chapterId, string contentToEdit,
         string rewriteInstructions, bool finalizeStatus,
-        string synopsesBlockStr,
         List<CheckerIssue> rewrites,
-        string charRag, string locationRag, string threadRag, string phrasesRag,
         CancellationToken ct)
     {
         var book = await Repo.GetByIdAsync(bookId)
@@ -363,12 +300,42 @@ public class EditorAgent : AgentBase
         var messages = new List<LlmChatMessage>();
         messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
 
+        var synopsesBlock = await BuildChapterSynopsesAsync(bookId, chapter.Number, ct);
+
+        string charRag = string.Empty, locationRag = string.Empty;
+        string threadRag = string.Empty, phrasesRag = string.Empty;
+        if (chapter.Number > 1)
+        {
+            List<string> charNames;
+            try { charNames = JsonSerializer.Deserialize<List<string>>(chapter.CharactersInvolvedJson) ?? []; }
+            catch { charNames = []; }
+            var charQuery = charNames.Count > 0
+                ? $"character appearance description personality {string.Join(' ', charNames)}"
+                : "character appearance description personality backstory";
+
+            var locationQuery = $"location place setting description {chapter.Outline}";
+
+            List<string> threadNames;
+            try { threadNames = JsonSerializer.Deserialize<List<string>>(chapter.PlotThreadsJson) ?? []; }
+            catch { threadNames = []; }
+            var threadQuery = threadNames.Count > 0
+                ? $"plot thread events foreshadowing {string.Join(' ', threadNames)}"
+                : $"plot events sequence foreshadowing {chapter.Outline}";
+
+            var phrasesQuery = "repeated descriptions recurring phrases re-introduction established facts";
+
+            charRag     = await GetRagContextAsync(bookId, charQuery,     4, LlmFactory, config, chapter.Id, ct);
+            locationRag = await GetRagContextAsync(bookId, locationQuery, 3, LlmFactory, config, chapter.Id, ct);
+            threadRag   = await GetRagContextAsync(bookId, threadQuery,   3, LlmFactory, config, chapter.Id, ct);
+            phrasesRag  = await GetRagContextAsync(bookId, phrasesQuery,  4, LlmFactory, config, chapter.Id, ct);
+        }
+
         var sb = new System.Text.StringBuilder();
 
-        if (!string.IsNullOrWhiteSpace(synopsesBlockStr))
+        if (synopsesBlock.Length > 0)
         {
             sb.AppendLine("## Story So Far — Chapter Synopses");
-            sb.AppendLine(synopsesBlockStr);
+            sb.AppendLine(synopsesBlock);
             sb.AppendLine();
         }
         bool hasRagContext = !string.IsNullOrWhiteSpace(charRag) || !string.IsNullOrWhiteSpace(locationRag)
@@ -417,22 +384,7 @@ public class EditorAgent : AgentBase
         var editedContent = StripLeadingChapterHeading(prose, chapter.Number, chapter.Title);
         var editedStatus = finalizeStatus ? ChapterStatus.Done : ChapterStatus.Review;
 
-        var version = new ChapterVersion
-        {
-            ChapterId = chapterId,
-            BookId = bookId,
-            Title = chapter.Title,
-            Outline = chapter.Outline,
-            Content = editedContent,
-            Status = editedStatus,
-            PovCharacter = chapter.PovCharacter,
-            CharactersInvolvedJson = chapter.CharactersInvolvedJson,
-            PlotThreadsJson = chapter.PlotThreadsJson,
-            ForeshadowingNotes = chapter.ForeshadowingNotes,
-            PayoffNotes = chapter.PayoffNotes,
-            CreatedBy = "agent:Editor",
-            HasEmbeddings = false,
-        };
+        var version = CreateChapterVersion(chapter, editedContent, editedStatus, AgentCreatedBy.Editor);
         await Repo.AddChapterVersionAsync(version);
 
         try { await IndexChapterAsync(bookId, chapterId, version.Id, config!, ct); }
@@ -478,7 +430,8 @@ public class EditorAgent : AgentBase
     {
         if (positionHint.HasValue && positionHint.Value > 0)
         {
-            int windowIdx = FindInLineWindow(haystack, needle, positionHint.Value, window: 5);
+            var lines = haystack.Split('\n');
+            int windowIdx = FindInLineWindow(lines, needle, positionHint.Value, window: 5);
             if (windowIdx >= 0) return PatchMatch.Found(windowIdx);
         }
 
@@ -493,12 +446,12 @@ public class EditorAgent : AgentBase
             var lines = haystack.Split('\n');
             if (positionHint.Value <= lines.Length)
             {
-                int lineStart = GetLineStartOffset(haystack, positionHint.Value);
+                int lineStart = GetLineStartOffset(lines, positionHint.Value);
                 int localIdx = lines[positionHint.Value - 1].IndexOf(needle, StringComparison.Ordinal);
                 if (localIdx >= 0) return PatchMatch.Found(lineStart + localIdx);
             }
 
-            int targetOffset = GetLineStartOffset(haystack, positionHint.Value);
+            int targetOffset = GetLineStartOffset(lines, positionHint.Value);
             int best = -1, bestDist = int.MaxValue, idx = 0;
             while ((idx = haystack.IndexOf(needle, idx, StringComparison.Ordinal)) >= 0)
             {
@@ -512,17 +465,15 @@ public class EditorAgent : AgentBase
         return PatchMatch.Skipped("ambiguous — multiple matches and position did not confirm");
     }
 
-    private static int FindInLineWindow(string normalized, string needle, int lineNumber, int window = 3)
+    private static int FindInLineWindow(string[] lines, string needle, int lineNumber, int window = 3)
     {
-        var lines = normalized.Split('\n');
         int startLine = Math.Max(0, lineNumber - 1 - window);
         int endLine = Math.Min(lines.Length - 1, lineNumber - 1 + window);
 
         for (int i = startLine; i <= endLine; i++)
         {
-            int offset = GetLineStartOffset(normalized, i + 1);
-            string lineContent = lines[i];
-            int localIdx = lineContent.IndexOf(needle, StringComparison.Ordinal);
+            int offset = GetLineStartOffset(lines, i + 1);
+            int localIdx = lines[i].IndexOf(needle, StringComparison.Ordinal);
             if (localIdx >= 0) return offset + localIdx;
         }
 
@@ -549,9 +500,8 @@ public class EditorAgent : AgentBase
         return count;
     }
 
-    private static int GetLineStartOffset(string content, int lineNumber)
+    private static int GetLineStartOffset(string[] lines, int lineNumber)
     {
-        var lines = content.Split('\n');
         int offset = 0;
         for (int i = 0; i < lineNumber - 1 && i < lines.Length; i++)
             offset += lines[i].Length + 1;
@@ -608,6 +558,4 @@ public class EditorAgent : AgentBase
         public static PatchMatch Skipped(string reason) => new(-1, reason);
     }
 
-    private static string Capitalize(string s) => char.ToUpper(s[0]) + s[1..];
-    private static string EscapeMarkdown(string text) => text.Replace("`", "\\`");
 }

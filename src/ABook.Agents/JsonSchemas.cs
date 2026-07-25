@@ -55,9 +55,7 @@ internal static class JsonSchemas
               "status": { "type": "string" },
               "description": { "type": "string" },
               "introducedChapterNumber": { "type": ["integer", "null"] },
-              "relatedCharacters": { "type": "array", "items": { "type": "string" } },
-              "resolution": { "type": "string" },
-              "notes": { "type": "string" }
+              "resolvedChapterNumber": { "type": ["integer", "null"] }
             },
             "required": ["name", "type"],
             "additionalProperties": false
@@ -74,7 +72,9 @@ internal static class JsonSchemas
               "number": { "type": "integer" },
               "title": { "type": "string" },
               "outline": { "type": "string" },
-              "pointOfViewCharacter": { "type": ["string", "null"] },
+              "povCharacter": { "type": ["string", "null"] },
+              "charactersInvolved": { "type": "array", "items": { "type": "string" } },
+              "plotThreads": { "type": "array", "items": { "type": "string" } },
               "foreshadowingNotes": { "type": ["string", "null"] },
               "payoffNotes": { "type": ["string", "null"] }
             },

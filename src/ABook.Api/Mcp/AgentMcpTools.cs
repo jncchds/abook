@@ -1,11 +1,11 @@
 using ABook.Agents;
+using ABook.Api.Services;
 using ABook.Core.Interfaces;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System.ComponentModel;
 using System.Security.Claims;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace ABook.Api.Mcp;
 
@@ -14,20 +14,15 @@ public class AgentMcpTools : McpToolBase
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly AgentRunStateService _runState;
+    private readonly AgentRunnerService _runner;
     private readonly IBookRepository _repo;
 
-    private static readonly JsonSerializerOptions _json = new()
-    {
-        ReferenceHandler = ReferenceHandler.IgnoreCycles,
-        Converters = { new JsonStringEnumConverter() },
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
-
-    public AgentMcpTools(IServiceScopeFactory scopeFactory, AgentRunStateService runState, IBookRepository repo, IHttpContextAccessor http)
+    public AgentMcpTools(IServiceScopeFactory scopeFactory, AgentRunStateService runState, AgentRunnerService runner, IBookRepository repo, IHttpContextAccessor http)
         : base(http)
     {
         _scopeFactory = scopeFactory;
         _runState = runState;
+        _runner = runner;
         _repo = repo;
     }
 
@@ -45,19 +40,6 @@ public class AgentMcpTools : McpToolBase
             throw new McpException("Server is at maximum concurrent agent capacity. Please try again when a run completes.");
     }
 
-    private async Task RunInBackground(int bookId, Func<IAgentOrchestrator, CancellationToken, Task> action, CancellationToken ct = default)
-    {
-        using var scope = _scopeFactory.CreateScope();
-        var orchestrator = scope.ServiceProvider.GetRequiredService<IAgentOrchestrator>();
-        try { await action(orchestrator, ct); }
-        catch (OperationCanceledException) { /* stopped by user */ }
-        catch (Exception ex)
-        {
-            var logger = scope.ServiceProvider.GetRequiredService<ILogger<AgentMcpTools>>();
-            logger.LogError(ex, "Agent error for book {BookId}", bookId);
-        }
-    }
-
     // ── Planning ──────────────────────────────────────────────────────────────
 
     [McpServerTool(Name = "start_planning")]
@@ -68,8 +50,8 @@ public class AgentMcpTools : McpToolBase
         await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
         var ct = _runState.CreateRunCts(bookId);
-        _ = RunInBackground(bookId, (o, c) => o.StartPlanningAsync(bookId, c), ct);
-        return JsonSerializer.Serialize(new { started = true, bookId, phase = "planning" }, _json);
+        _ = _runner.RunAsync(bookId, (o, c) => o.StartPlanningAsync(bookId, c), ct);
+        return JsonSerializer.Serialize(new { started = true, bookId, phase = "planning" }, JsonOptions);
     }
 
     [McpServerTool(Name = "continue_planning")]
@@ -80,8 +62,8 @@ public class AgentMcpTools : McpToolBase
         await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
         var ct = _runState.CreateRunCts(bookId);
-        _ = RunInBackground(bookId, (o, c) => o.ContinuePlanningAsync(bookId, c), ct);
-        return JsonSerializer.Serialize(new { started = true, bookId, phase = "continue_planning" }, _json);
+        _ = _runner.RunAsync(bookId, (o, c) => o.ContinuePlanningAsync(bookId, c), ct);
+        return JsonSerializer.Serialize(new { started = true, bookId, phase = "continue_planning" }, JsonOptions);
     }
 
     // ── Full workflow ─────────────────────────────────────────────────────────
@@ -94,8 +76,8 @@ public class AgentMcpTools : McpToolBase
         await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
         var ct = _runState.CreateRunCts(bookId);
-        _ = RunInBackground(bookId, (o, c) => o.StartWorkflowAsync(bookId, c), ct);
-        return JsonSerializer.Serialize(new { started = true, bookId, phase = "full_workflow" }, _json);
+        _ = _runner.RunAsync(bookId, (o, c) => o.StartWorkflowAsync(bookId, c), ct);
+        return JsonSerializer.Serialize(new { started = true, bookId, phase = "full_workflow" }, JsonOptions);
     }
 
     [McpServerTool(Name = "continue_workflow")]
@@ -106,8 +88,8 @@ public class AgentMcpTools : McpToolBase
         await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
         var ct = _runState.CreateRunCts(bookId);
-        _ = RunInBackground(bookId, (o, c) => o.ContinueWorkflowAsync(bookId, c), ct);
-        return JsonSerializer.Serialize(new { started = true, bookId, phase = "continue_workflow" }, _json);
+        _ = _runner.RunAsync(bookId, (o, c) => o.ContinueWorkflowAsync(bookId, c), ct);
+        return JsonSerializer.Serialize(new { started = true, bookId, phase = "continue_workflow" }, JsonOptions);
     }
 
     [McpServerTool(Name = "stop_workflow")]
@@ -116,7 +98,7 @@ public class AgentMcpTools : McpToolBase
         [Description("The book ID.")] int bookId)
     {
         _runState.CancelRun(bookId);
-        return JsonSerializer.Serialize(new { stopped = true, bookId }, _json);
+        return JsonSerializer.Serialize(new { stopped = true, bookId }, JsonOptions);
     }
 
     // ── Per-chapter operations ────────────────────────────────────────────────
@@ -129,8 +111,8 @@ public class AgentMcpTools : McpToolBase
     {
         await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
-        _ = RunInBackground(bookId, (o, ct) => o.StartWritingAsync(bookId, chapterId, ct));
-        return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "writing" }, _json);
+        _ = _runner.RunAsync(bookId, (o, ct) => o.StartWritingAsync(bookId, chapterId, ct));
+        return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "writing" }, JsonOptions);
     }
 
     [McpServerTool(Name = "edit_chapter")]
@@ -141,8 +123,8 @@ public class AgentMcpTools : McpToolBase
     {
         await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
-        _ = RunInBackground(bookId, (o, ct) => o.StartEditingAsync(bookId, chapterId, ct));
-        return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "editing" }, _json);
+        _ = _runner.RunAsync(bookId, (o, ct) => o.StartEditingAsync(bookId, chapterId, ct));
+        return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "editing" }, JsonOptions);
     }
 
     [McpServerTool(Name = "run_continuity_check")]
@@ -153,8 +135,8 @@ public class AgentMcpTools : McpToolBase
     {
         await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
-        _ = RunInBackground(bookId, (o, ct) => o.StartContinuityCheckAsync(bookId, ct));
-        return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "continuity_check" }, _json);
+        _ = _runner.RunAsync(bookId, (o, ct) => o.StartContinuityCheckAsync(bookId, ct));
+        return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "continuity_check" }, JsonOptions);
     }
 
     // ── Human-in-the-loop ─────────────────────────────────────────────────────
@@ -171,6 +153,6 @@ public class AgentMcpTools : McpToolBase
         using var scope = _scopeFactory.CreateScope();
         var orchestrator = scope.ServiceProvider.GetRequiredService<IAgentOrchestrator>();
         await orchestrator.ResumeWithAnswerAsync(messageId, answer);
-        return JsonSerializer.Serialize(new { answered = true, messageId }, _json);
+        return JsonSerializer.Serialize(new { answered = true, messageId }, JsonOptions);
     }
 }
