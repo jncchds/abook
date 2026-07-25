@@ -2,6 +2,9 @@
 
 ## v0.1.21 — 2026-07-25
 
+- fix: MCP `get_chapter` now rejects archived chapters so external LLM agents cannot use archived content for writing
+- fix: removed redundant in-memory `IsArchived` filter in `BuildChapterSynopsesAsync` (DB query already excludes archived chapters)
+
 - refactor: extracted `refreshTokenStats` callback in `BookContext` to eliminate duplicated token-stat mapping logic
 - refactor: extracted `startAgentRun` helper in `BookContext` to collapse identical `handleWriteBook`/`handlePlanBook` bodies
 - refactor: `isPhaseComplete` now reuses `phaseStatusKey` map instead of repeating the same switch
