@@ -284,7 +284,7 @@ public abstract class AgentBase
         }
     }
 
-    protected static string StripLeadingChapterHeading(string content, int number, string title)
+    internal static string StripLeadingChapterHeading(string content, int number, string title)
     {
         var lines = content.TrimStart().Split('\n').ToList();
         while (lines.Count > 0)
@@ -308,7 +308,7 @@ public abstract class AgentBase
         return string.Join('\n', lines).TrimStart();
     }
 
-    protected static string InterpolateSystemPrompt(string prompt, Book book, ABook.Core.Models.StoryBible? bible = null, string? chapterSynopses = null)
+    internal static string InterpolateSystemPrompt(string prompt, Book book, ABook.Core.Models.StoryBible? bible = null, string? chapterSynopses = null)
     {
         var result = prompt
             .Replace(PromptPlaceholders.Title, book.Title ?? "")
@@ -374,7 +374,7 @@ public abstract class AgentBase
         catch { return string.Empty; }
     }
 
-    protected static string ExtractJson(string raw, char open, char close)
+    internal static string ExtractJson(string raw, char open, char close)
     {
         raw = raw.Trim();
         if (raw.StartsWith("```"))

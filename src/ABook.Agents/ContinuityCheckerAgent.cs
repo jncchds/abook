@@ -285,7 +285,7 @@ public class ContinuityCheckerAgent : AgentBase
         return result;
     }
 
-    private static string FormatCheckerReport(CheckerResult result)
+    internal static string FormatCheckerReport(CheckerResult result)
     {
         var sb = new System.Text.StringBuilder();
         var types = new[] { "continuity", "grammar", "repetition", "style", "rewrite" };
@@ -405,7 +405,7 @@ public class ContinuityCheckerAgent : AgentBase
             sb.AppendLine($"  Arc: {card.Arc}");
     }
 
-    private static string NumberLines(string content)
+    internal static string NumberLines(string content)
     {
         var lines = content.Split('\n');
         return string.Join("\n", lines.Select((line, i) => $"{i + 1} | {line}"));

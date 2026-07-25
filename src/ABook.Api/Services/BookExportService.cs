@@ -753,7 +753,7 @@ public class BookExportService
 
     // ── Markdown converters ───────────────────────────────────────────────────
 
-    private static string MarkdownToHtml(string md)
+    internal static string MarkdownToHtml(string md)
     {
         var sb = new StringBuilder();
         var inP = false;
@@ -818,7 +818,7 @@ public class BookExportService
         return sb.ToString();
     }
 
-    private static string InlineMd(string text)
+    internal static string InlineMd(string text)
     {
         text = text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
         text = Regex.Replace(text, @"\*\*\*(.+?)\*\*\*", "<strong><em>$1</em></strong>");

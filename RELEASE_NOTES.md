@@ -2,6 +2,9 @@
 
 ## v0.1.21 — 2026-07-25
 
+- test: added `ABook.Tests` xunit project with 66 unit tests covering `EditorAgent` patch-application logic, `AgentBase` static helpers, `ContinuityCheckerAgent` report formatting, `TextChunker` chunking, and `BookExportService` Markdown/filename utilities
+- ci: added `test` job to GitHub Actions workflow that runs unit tests before the Docker build
+
 - fix: MCP `get_chapter` now rejects archived chapters so external LLM agents cannot use archived content for writing
 - fix: removed redundant in-memory `IsArchived` filter in `BuildChapterSynopsesAsync` (DB query already excludes archived chapters)
 

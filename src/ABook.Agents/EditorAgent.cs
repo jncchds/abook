@@ -409,7 +409,7 @@ public class EditorAgent : AgentBase
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Done", chapterId, ct);
     }
 
-    private static PatchMatch FindPatchLocation(string content, CheckerIssue issue)
+    internal static PatchMatch FindPatchLocation(string content, CheckerIssue issue)
     {
         var normalized = NormalizeWhitespace(content);
         var normOriginal = NormalizeWhitespace(issue.OriginalText);
@@ -426,7 +426,7 @@ public class EditorAgent : AgentBase
         return PatchMatch.Skipped("text not found in chapter");
     }
 
-    private static PatchMatch TryLocate(string haystack, string needle, int? positionHint)
+    internal static PatchMatch TryLocate(string haystack, string needle, int? positionHint)
     {
         if (positionHint.HasValue && positionHint.Value > 0)
         {
@@ -465,7 +465,7 @@ public class EditorAgent : AgentBase
         return PatchMatch.Skipped("ambiguous — multiple matches and position did not confirm");
     }
 
-    private static int FindInLineWindow(string[] lines, string needle, int lineNumber, int window = 3)
+    internal static int FindInLineWindow(string[] lines, string needle, int lineNumber, int window = 3)
     {
         int startLine = Math.Max(0, lineNumber - 1 - window);
         int endLine = Math.Min(lines.Length - 1, lineNumber - 1 + window);
@@ -480,7 +480,7 @@ public class EditorAgent : AgentBase
         return -1;
     }
 
-    private static string NormalizeWhitespace(string text)
+    internal static string NormalizeWhitespace(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
         var lines = text.Split('\n');
@@ -489,18 +489,18 @@ public class EditorAgent : AgentBase
         return string.Join("\n", lines);
     }
 
-    private static string NormalizeQuotes(string text) =>
+    internal static string NormalizeQuotes(string text) =>
         text.Replace('‘', '\'').Replace('’', '\'')
             .Replace('“', '"').Replace('”', '"');
 
-    private static int CountOccurrences(string haystack, string needle)
+    internal static int CountOccurrences(string haystack, string needle)
     {
         int count = 0, idx = 0;
         while ((idx = haystack.IndexOf(needle, idx, StringComparison.Ordinal)) >= 0) { count++; idx += needle.Length; }
         return count;
     }
 
-    private static int GetLineStartOffset(string[] lines, int lineNumber)
+    internal static int GetLineStartOffset(string[] lines, int lineNumber)
     {
         int offset = 0;
         for (int i = 0; i < lineNumber - 1 && i < lines.Length; i++)
@@ -508,7 +508,7 @@ public class EditorAgent : AgentBase
         return offset;
     }
 
-    private static System.Text.StringBuilder BuildEditorialFeedback(
+    internal static System.Text.StringBuilder BuildEditorialFeedback(
         IEnumerable<CheckerIssue> applied, IEnumerable<(CheckerIssue Issue, string Reason)> skipped)
     {
         var sb = new System.Text.StringBuilder();
@@ -552,7 +552,7 @@ public class EditorAgent : AgentBase
         return sb;
     }
 
-    private sealed record PatchMatch(int Offset, string? Reason)
+    internal sealed record PatchMatch(int Offset, string? Reason)
     {
         public static PatchMatch Found(int offset) => new(offset, null);
         public static PatchMatch Skipped(string reason) => new(-1, reason);
