@@ -9,6 +9,13 @@
 - fix: embedding failures in `GetRagContextAsync` and `IndexChapterAsync` now record a failed `Embedder` row (previously swallowed with no accounting)
 - refactor: consolidated the five duplicated token-usage write sites in `AgentBase` into a single `RecordUsageAsync` helper
 - fix: replaced the mojibake character in the Token Stats "Archive" button label
+- feat: the three JSON planning agents (Characters, Plot Threads, Chapter Outlines) now keep whatever finished streaming when a run fails — the salvaged items are merged into the existing set, versioned, and snapshotted as `agent-partial`, so the content the author already watched appear on screen survives a timeout, a dropped connection, or Stop
+- feat: added `PartialJson` — recovers the complete elements of a truncated JSON array (string/escape aware, skips reasoning tags and bracketed prose) and reports whether the array was ever closed
+- feat: a re-run of any of the three agents now sends the already-saved (non-archived) characters, plot threads, or chapter outlines back to the LLM and asks it to refine and extend that set instead of starting from scratch
+- fix: archived characters, plot threads, and chapters are no longer deleted by an agent re-run or a snapshot restore — `DeleteCharacterCardsAsync`, `DeletePlotThreadsAsync`, and `ReplaceChaptersAsync` now only touch active rows
+- fix: a re-plan no longer wipes written prose — `ReplaceChaptersAsync` updates chapters matching by number in place, keeping their content, status, versions, and message links
+- fix: an empty or cut-off planning response no longer wipes the book's existing characters, plot threads, or outlines; it is reported as a failure with whatever was salvaged kept
+- test: 37 new unit tests covering partial-JSON salvage and the three planning parsers (103 total)
 
 ## v0.1.21 — 2026-07-25
 

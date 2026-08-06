@@ -16,8 +16,18 @@ public interface IBookRepository
     Task<IEnumerable<Chapter>> GetChaptersAsync(int bookId, bool includeArchived = false);
     Task<Chapter?> GetChapterAsync(int bookId, int chapterId);
     Task<Chapter> AddChapterAsync(Chapter chapter);
-    /// <summary>Delete all chapters for the book then add the new set in a single transaction.</summary>
-    Task ReplaceChaptersAsync(int bookId, IEnumerable<Chapter> chapters);
+    /// <summary>
+    /// Syncs the book's outlines to the given set in a single transaction: chapters matching by Number are
+    /// updated in place (prose, status and versions preserved), new numbers are inserted, and non-archived
+    /// chapters absent from the set are deleted. Archived chapters are never touched.
+    /// Returns the persisted rows, in the order given.
+    /// </summary>
+    Task<IReadOnlyList<Chapter>> ReplaceChaptersAsync(int bookId, IEnumerable<Chapter> chapters);
+    /// <summary>
+    /// Merges outlines by Number into the existing chapters without deleting anything, and returns the
+    /// affected rows. Used to keep the outlines salvaged from a run that failed mid-stream.
+    /// </summary>
+    Task<IReadOnlyList<Chapter>> MergeChapterOutlinesAsync(int bookId, IEnumerable<Chapter> chapters);
     Task UpdateChapterAsync(Chapter chapter);
     Task DeleteChaptersAsync(int bookId);
     Task ArchiveChapterAsync(int bookId, int chapterId);
@@ -61,7 +71,13 @@ public interface IBookRepository
     Task ArchiveCharacterCardAsync(int bookId, int cardId);
     Task UnarchiveCharacterCardAsync(int bookId, int cardId);
     Task DeleteCharacterCardAsync(int bookId, int cardId);
+    /// <summary>Deletes the book's active character cards. Archived cards are left untouched.</summary>
     Task DeleteCharacterCardsAsync(int bookId);
+    /// <summary>
+    /// Merges cards by Name into the active set without deleting anything, and returns the affected rows.
+    /// Used to keep the characters salvaged from a run that failed mid-stream.
+    /// </summary>
+    Task<IReadOnlyList<CharacterCard>> MergeCharacterCardsAsync(int bookId, IEnumerable<CharacterCard> cards);
 
     // Character Card versions
     Task<CharacterCardVersion> AddCharacterVersionAsync(CharacterCardVersion version);
@@ -80,7 +96,13 @@ public interface IBookRepository
     Task ArchivePlotThreadAsync(int bookId, int threadId);
     Task UnarchivePlotThreadAsync(int bookId, int threadId);
     Task DeletePlotThreadAsync(int bookId, int threadId);
+    /// <summary>Deletes the book's active plot threads. Archived threads are left untouched.</summary>
     Task DeletePlotThreadsAsync(int bookId);
+    /// <summary>
+    /// Merges threads by Name into the active set without deleting anything, and returns the affected rows.
+    /// Used to keep the plot threads salvaged from a run that failed mid-stream.
+    /// </summary>
+    Task<IReadOnlyList<PlotThread>> MergePlotThreadsAsync(int bookId, IEnumerable<PlotThread> threads);
 
     // Plot Thread versions
     Task<PlotThreadVersion> AddPlotThreadVersionAsync(PlotThreadVersion version);

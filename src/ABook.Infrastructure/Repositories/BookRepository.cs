@@ -204,33 +204,92 @@ public class BookRepository : IBookRepository
     }
 
     /// <summary>
-    /// Atomically replaces all chapters for a book inside a single transaction.
+    /// Atomically syncs the book's outlines to <paramref name="chapters"/> inside a single transaction:
+    /// chapters matching by Number are updated in place (keeping their prose, status, versions and
+    /// message links), missing numbers are inserted, and non-archived chapters absent from the new set
+    /// are removed. Archived chapters are never touched.
     /// Concurrency is guarded at the orchestrator level by AgentRunStateService.TryStartRun,
     /// which prevents a second run for the same book from starting while one is in progress.
     /// </summary>
-    public async Task ReplaceChaptersAsync(int bookId, IEnumerable<Chapter> chapters)
+    public async Task<IReadOnlyList<Chapter>> ReplaceChaptersAsync(int bookId, IEnumerable<Chapter> chapters)
     {
+        var incoming = chapters.ToList();
         await using var tx = await _db.Database.BeginTransactionAsync();
         try
         {
-            var existing = await _db.Chapters.Where(c => c.BookId == bookId).ToListAsync();
-            _db.Chapters.RemoveRange(existing);
+            var existing = await _db.Chapters
+                .Where(c => c.BookId == bookId && !c.IsArchived)
+                .ToListAsync();
 
-            var now = DateTime.UtcNow;
-            foreach (var ch in chapters)
-            {
-                ch.CreatedAt = ch.UpdatedAt = now;
-                _db.Chapters.Add(ch);
-            }
+            var incomingNumbers = incoming.Select(ch => ch.Number).ToHashSet();
+            _db.Chapters.RemoveRange(existing.Where(c => !incomingNumbers.Contains(c.Number)));
+
+            var saved = UpsertChapterOutlines(bookId, incoming, existing);
 
             await _db.SaveChangesAsync();
             await tx.CommitAsync();
+            return saved;
         }
         catch
         {
             await tx.RollbackAsync();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Merges outlines into the book's existing chapters without removing anything: matches by Number,
+    /// updates outline fields in place, and inserts numbers that do not exist yet. Used to persist the
+    /// chapters salvaged from a run that failed part-way through streaming.
+    /// </summary>
+    public async Task<IReadOnlyList<Chapter>> MergeChapterOutlinesAsync(int bookId, IEnumerable<Chapter> chapters)
+    {
+        var existing = await _db.Chapters
+            .Where(c => c.BookId == bookId && !c.IsArchived)
+            .ToListAsync();
+
+        var touched = UpsertChapterOutlines(bookId, chapters, existing);
+        await _db.SaveChangesAsync();
+        return touched;
+    }
+
+    /// <summary>
+    /// Copies outline fields from <paramref name="incoming"/> onto the matching row in
+    /// <paramref name="existing"/> (matched by Number) or adds a new row. Prose, status and archive
+    /// flag of an existing chapter are deliberately preserved. Returns the affected rows.
+    /// </summary>
+    private List<Chapter> UpsertChapterOutlines(int bookId, IEnumerable<Chapter> incoming, List<Chapter> existing)
+    {
+        var now = DateTime.UtcNow;
+        var byNumber = existing
+            .GroupBy(c => c.Number)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var touched = new List<Chapter>();
+        foreach (var ch in incoming)
+        {
+            if (byNumber.TryGetValue(ch.Number, out var row))
+            {
+                row.Title = ch.Title;
+                row.Outline = ch.Outline;
+                row.PovCharacter = ch.PovCharacter;
+                row.CharactersInvolvedJson = ch.CharactersInvolvedJson;
+                row.PlotThreadsJson = ch.PlotThreadsJson;
+                row.ForeshadowingNotes = ch.ForeshadowingNotes;
+                row.PayoffNotes = ch.PayoffNotes;
+                row.UpdatedAt = now;
+                touched.Add(row);
+            }
+            else
+            {
+                ch.BookId = bookId;
+                ch.CreatedAt = ch.UpdatedAt = now;
+                _db.Chapters.Add(ch);
+                byNumber[ch.Number] = ch;
+                touched.Add(ch);
+            }
+        }
+        return touched;
     }
 
     public async Task UpdateChapterAsync(Chapter chapter)
@@ -595,11 +654,58 @@ public class BookRepository : IBookRepository
         }
     }
 
+    /// <summary>Deletes the book's active character cards. Archived cards are left untouched.</summary>
     public async Task DeleteCharacterCardsAsync(int bookId)
     {
-        var cards = await _db.CharacterCards.Where(c => c.BookId == bookId).ToListAsync();
+        var cards = await _db.CharacterCards.Where(c => c.BookId == bookId && !c.IsArchived).ToListAsync();
         _db.CharacterCards.RemoveRange(cards);
         await _db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Merges cards into the book's active set without removing anything: matches on Name
+    /// (case-insensitive), overwrites the matched row's fields, and inserts unknown names.
+    /// Archived cards are never matched or modified. Returns the affected rows.
+    /// </summary>
+    public async Task<IReadOnlyList<CharacterCard>> MergeCharacterCardsAsync(int bookId, IEnumerable<CharacterCard> cards)
+    {
+        var existing = await _db.CharacterCards
+            .Where(c => c.BookId == bookId && !c.IsArchived)
+            .ToListAsync();
+
+        var byName = new Dictionary<string, CharacterCard>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in existing)
+            byName.TryAdd(c.Name, c);
+
+        var now = DateTime.UtcNow;
+        var touched = new List<CharacterCard>();
+        foreach (var card in cards)
+        {
+            if (byName.TryGetValue(card.Name, out var row))
+            {
+                row.Role = card.Role;
+                row.PhysicalDescription = card.PhysicalDescription;
+                row.Personality = card.Personality;
+                row.Backstory = card.Backstory;
+                row.GoalMotivation = card.GoalMotivation;
+                row.Arc = card.Arc;
+                row.FirstAppearanceChapterNumber = card.FirstAppearanceChapterNumber;
+                row.Notes = card.Notes;
+                row.UpdatedAt = now;
+                touched.Add(row);
+            }
+            else
+            {
+                card.BookId = bookId;
+                card.CreatedAt = card.UpdatedAt = now;
+                _db.CharacterCards.Add(card);
+                byName[card.Name] = card;
+                touched.Add(card);
+            }
+        }
+
+        await _db.SaveChangesAsync();
+        return touched;
     }
 
     // ── Character Card Versions ───────────────────────────────────────────────
@@ -746,11 +852,55 @@ public class BookRepository : IBookRepository
         }
     }
 
+    /// <summary>Deletes the book's active plot threads. Archived threads are left untouched.</summary>
     public async Task DeletePlotThreadsAsync(int bookId)
     {
-        var threads = await _db.PlotThreads.Where(p => p.BookId == bookId).ToListAsync();
+        var threads = await _db.PlotThreads.Where(p => p.BookId == bookId && !p.IsArchived).ToListAsync();
         _db.PlotThreads.RemoveRange(threads);
         await _db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Merges threads into the book's active set without removing anything: matches on Name
+    /// (case-insensitive), overwrites the matched row's fields, and inserts unknown names.
+    /// Archived threads are never matched or modified. Returns the affected rows.
+    /// </summary>
+    public async Task<IReadOnlyList<PlotThread>> MergePlotThreadsAsync(int bookId, IEnumerable<PlotThread> threads)
+    {
+        var existing = await _db.PlotThreads
+            .Where(p => p.BookId == bookId && !p.IsArchived)
+            .ToListAsync();
+
+        var byName = new Dictionary<string, PlotThread>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in existing)
+            byName.TryAdd(t.Name, t);
+
+        var now = DateTime.UtcNow;
+        var touched = new List<PlotThread>();
+        foreach (var thread in threads)
+        {
+            if (byName.TryGetValue(thread.Name, out var row))
+            {
+                row.Description = thread.Description;
+                row.Type = thread.Type;
+                row.IntroducedChapterNumber = thread.IntroducedChapterNumber;
+                row.ResolvedChapterNumber = thread.ResolvedChapterNumber;
+                row.Status = thread.Status;
+                row.UpdatedAt = now;
+                touched.Add(row);
+            }
+            else
+            {
+                thread.BookId = bookId;
+                thread.CreatedAt = thread.UpdatedAt = now;
+                _db.PlotThreads.Add(thread);
+                byName[thread.Name] = thread;
+                touched.Add(thread);
+            }
+        }
+
+        await _db.SaveChangesAsync();
+        return touched;
     }
 
     // ── Plot Thread Versions ──────────────────────────────────────────────────

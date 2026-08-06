@@ -145,6 +145,49 @@ public abstract class AgentBase
     }
 
     /// <summary>
+    /// Streams a JSON response without letting a failure discard what the author has already seen.
+    /// On success returns the full response and a null failure. On any error — provider timeout,
+    /// dropped connection, or user cancellation — returns the tokens accumulated so far together
+    /// with the exception, so the caller can salvage complete elements before rethrowing.
+    /// </summary>
+    protected async Task<(string Raw, Exception? Failure)> StreamJsonResponseAsync(
+        ILlmChatClient client, LlmConfiguration config, IReadOnlyList<LlmChatMessage> messages,
+        int bookId, int? chapterId, AgentRole role, string jsonSchema, CancellationToken ct)
+    {
+        try
+        {
+            var raw = await StreamResponseAsync(
+                client, config, messages, bookId, chapterId, role, ct, jsonSchema: jsonSchema);
+            return (raw, null);
+        }
+        catch (Exception ex)
+        {
+            var partial = StateService.GetStreamBufferContent(bookId, chapterId, role.ToString()) ?? string.Empty;
+            Logger.LogWarning(
+                "[Book {BookId}] [{Role}] streaming failed after {Chars} chars — attempting to salvage the partial response.",
+                bookId, role, partial.Length);
+            return (partial, ex);
+        }
+    }
+
+    /// <summary>Rethrows <paramref name="ex"/> preserving its original stack trace.</summary>
+    [System.Diagnostics.CodeAnalysis.DoesNotReturn]
+    protected static void Rethrow(Exception ex) =>
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex).Throw();
+
+    private static readonly System.Text.Json.JsonSerializerOptions PromptJsonOptions = new()
+    {
+        PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+        // Non-Latin scripts must stay readable in the prompt rather than being escaped to \uXXXX.
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        WriteIndented = false,
+    };
+
+    /// <summary>Serializes already-saved planning data for inclusion in a prompt, in the agent's own schema shape.</summary>
+    protected static string SerializeForPrompt<T>(IEnumerable<T> items) =>
+        System.Text.Json.JsonSerializer.Serialize(items, PromptJsonOptions);
+
+    /// <summary>
     /// Persists a token usage row (and pushes it over SignalR) for one LLM call. Never throws — bookkeeping must
     /// not break the run. Pass <paramref name="failureReason"/> to mark the call as failed.
     /// </summary>
