@@ -410,6 +410,18 @@ public abstract class AgentBase
         return result;
     }
 
+    /// <summary>
+    /// Guards an agent entry point against operating on an archived chapter. Archived chapters are
+    /// display-only history: they must never be read into a prompt, nor written to by an agent.
+    /// <see cref="Repo"/>'s <c>GetChapterAsync</c> deliberately serves archived rows so the UI can
+    /// render and restore them, so every agent that resolves a chapter by id must call this.
+    /// </summary>
+    protected internal static Chapter EnsureNotArchived(Chapter chapter) =>
+        chapter.IsArchived
+            ? throw new InvalidOperationException(
+                $"Chapter {chapter.Id} is archived and cannot take part in generation.")
+            : chapter;
+
     protected async Task<string> GetPreviousChapterEndingAsync(int bookId, int currentChapterNumber, int paragraphCount = 3)
     {
         if (currentChapterNumber <= 1) return string.Empty;

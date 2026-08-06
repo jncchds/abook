@@ -135,6 +135,8 @@ public class ContentMcpTools : McpToolBase
         await GetOwnedBookAsync(bookId, _repo);
         var card = await _repo.GetCharacterCardAsync(bookId, characterId)
             ?? throw new McpException($"Character {characterId} not found in book {bookId}.");
+        if (card.IsArchived)
+            throw new McpException($"Character {characterId} is archived and cannot be modified. Restore it first.");
         if (name != null) card.Name = name;
         if (role != null)
         {
@@ -223,6 +225,8 @@ public class ContentMcpTools : McpToolBase
         await GetOwnedBookAsync(bookId, _repo);
         var thread = await _repo.GetPlotThreadAsync(bookId, threadId)
             ?? throw new McpException($"Plot thread {threadId} not found in book {bookId}.");
+        if (thread.IsArchived)
+            throw new McpException($"Plot thread {threadId} is archived and cannot be modified. Restore it first.");
         if (name != null) thread.Name = name;
         if (description != null) thread.Description = description;
         if (type != null)
@@ -334,6 +338,8 @@ public class ContentMcpTools : McpToolBase
         await GetOwnedBookAsync(bookId, _repo);
         var chapter = await _repo.GetChapterAsync(bookId, chapterId)
             ?? throw new McpException($"Chapter {chapterId} not found in book {bookId}.");
+        if (chapter.IsArchived)
+            throw new McpException($"Chapter {chapterId} is archived and cannot be modified. Restore it first.");
         if (title != null) chapter.Title = title;
         if (outline != null) chapter.Outline = outline;
         if (content != null) chapter.Content = content;

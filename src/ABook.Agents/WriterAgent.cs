@@ -22,8 +22,8 @@ public class WriterAgent : AgentBase
     {
         var book = await Repo.GetByIdAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
-        var chapter = await Repo.GetChapterAsync(bookId, chapterId)
-            ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
+        var chapter = EnsureNotArchived(await Repo.GetChapterAsync(bookId, chapterId)
+            ?? throw new InvalidOperationException($"Chapter {chapterId} not found."));
 
         chapter.Status = ChapterStatus.Writing;
         await Repo.UpdateChapterAsync(chapter);

@@ -19,7 +19,8 @@ public class BookExportService
     /// <summary>Generates the requested export and returns (bytes, contentType, filename).</summary>
     public async Task<(byte[] Bytes, string ContentType, string Filename)> ExportAsync(int bookId, string format)
     {
-        var book = await _repo.GetByIdWithDetailsAsync(bookId)
+        // Active details only — archived chapters are display-only history and never ship in an export.
+        var book = await _repo.GetByIdWithActiveDetailsAsync(bookId)
             ?? throw new KeyNotFoundException($"Book {bookId} not found.");
 
         var bible    = await _repo.GetStoryBibleAsync(bookId);
@@ -127,7 +128,7 @@ public class BookExportService
     internal static string GenerateHtml(Book book)
     {
         var chapters = book.Chapters
-            .Where(c => !string.IsNullOrWhiteSpace(c.Content))
+            .Where(c => !c.IsArchived && !string.IsNullOrWhiteSpace(c.Content))
             .OrderBy(c => c.Number)
             .ToList();
 
@@ -312,7 +313,7 @@ public class BookExportService
         IEnumerable<TokenUsageRecord> tokenUsage)
     {
         var lang       = GetLang2(book.Language);
-        var chapters   = book.Chapters.OrderBy(c => c.Number).ToList();
+        var chapters   = book.Chapters.Where(c => !c.IsArchived).OrderBy(c => c.Number).ToList();
         var charList   = characters.OrderBy(c => c.Role).ToList();
         var threadList = plotThreads.ToList();
         var msgList    = messages.ToList();
@@ -583,7 +584,7 @@ public class BookExportService
     internal static string GenerateFb2(Book book, StoryBible? bible)
     {
         var chapters = book.Chapters
-            .Where(c => !string.IsNullOrWhiteSpace(c.Content))
+            .Where(c => !c.IsArchived && !string.IsNullOrWhiteSpace(c.Content))
             .OrderBy(c => c.Number)
             .ToList();
 
@@ -648,7 +649,7 @@ public class BookExportService
     internal static byte[] GenerateEpub(Book book, StoryBible? bible)
     {
         var chapters = book.Chapters
-            .Where(c => !string.IsNullOrWhiteSpace(c.Content))
+            .Where(c => !c.IsArchived && !string.IsNullOrWhiteSpace(c.Content))
             .OrderBy(c => c.Number)
             .ToList();
 

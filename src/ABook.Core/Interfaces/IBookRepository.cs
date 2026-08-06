@@ -6,7 +6,13 @@ public interface IBookRepository
 {
     Task<IEnumerable<Book>> GetAllAsync(int? userId = null);
     Task<Book?> GetByIdAsync(int id);
+    /// <summary>Loads a book with all chapters — archived included. For display only.</summary>
     Task<Book?> GetByIdWithDetailsAsync(int id);
+    /// <summary>
+    /// Loads a book whose chapter collection excludes archived chapters. Use this for anything that
+    /// feeds generation or export.
+    /// </summary>
+    Task<Book?> GetByIdWithActiveDetailsAsync(int id);
     Task<IReadOnlyList<int>> GetAncestryBookIdsAsync(int bookId, CancellationToken ct = default);
     Task<string> BuildAncestorPlanningReferenceAsync(int bookId, CancellationToken ct = default);
     Task<Book> AddAsync(Book book);

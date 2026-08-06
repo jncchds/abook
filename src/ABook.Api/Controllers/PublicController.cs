@@ -102,12 +102,12 @@ public class PublicController : ControllerBase
         if (!_mode.IsEnabled && CurrentUserId is null)
             return Unauthorized(new { message = "Authentication required in non-public mode." });
 
-        var book = await _repo.GetByIdWithDetailsAsync(id);
+        var book = await _repo.GetByIdWithActiveDetailsAsync(id);
         if (book is null) return NotFound();
         if (!_mode.IsEnabled && book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
 
         var chapters = (book.Chapters ?? Enumerable.Empty<ABook.Core.Models.Chapter>())
-            .Where(c => !c.IsArchived && !string.IsNullOrWhiteSpace(c.Content))
+            .Where(c => !string.IsNullOrWhiteSpace(c.Content))
             .OrderBy(c => c.Number)
             .Select(c => new
             {

@@ -363,7 +363,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         bool skipChapters,
         CancellationToken ct)
     {
-        var book = await _repo.GetByIdWithDetailsAsync(bookId)
+        var book = await _repo.GetByIdWithActiveDetailsAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
 
         await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, "Running", ct: ct);

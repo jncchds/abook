@@ -16,6 +16,11 @@
 - fix: a re-plan no longer wipes written prose — `ReplaceChaptersAsync` updates chapters matching by number in place, keeping their content, status, versions, and message links
 - fix: an empty or cut-off planning response no longer wipes the book's existing characters, plot threads, or outlines; it is reported as a failure with whatever was salvaged kept
 - test: 37 new unit tests covering partial-JSON salvage and the three planning parsers (103 total)
+- fix: archived chapters no longer reach the planning pipeline or the Continuity Checker — both now load the book via the new `GetByIdWithActiveDetailsAsync`, whose chapter collection excludes archived rows (`GetByIdWithDetailsAsync` still returns everything, for the UI's archived sections)
+- fix: archived chapters no longer appear in HTML, FB2, EPUB, or metadata exports, nor in the public book endpoint
+- fix: Writer, Editor, and the pre-write Continuity Check now refuse to run on an archived chapter (`AgentBase.EnsureNotArchived`); the `write`/`edit` REST endpoints and the `write_chapter`/`edit_chapter` MCP tools reject the request up front instead of failing inside a fire-and-forget run
+- fix: the `update_chapter`, `update_character`, and `update_plot_thread` MCP tools now refuse to modify archived rows
+- test: 6 new unit tests pinning archived exclusion in the four export generators and the agent guard (109 total)
 
 ## v0.1.21 — 2026-07-25
 

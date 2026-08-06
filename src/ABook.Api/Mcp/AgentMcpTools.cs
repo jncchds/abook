@@ -40,6 +40,18 @@ public class AgentMcpTools : McpToolBase
             throw new McpException("Server is at maximum concurrent agent capacity. Please try again when a run completes.");
     }
 
+    /// <summary>
+    /// Rejects a run targeting an archived chapter before it is scheduled — archived chapters are
+    /// display-only history and must never take part in generation.
+    /// </summary>
+    private async Task EnsureChapterNotArchivedAsync(int bookId, int chapterId)
+    {
+        var chapter = await _repo.GetChapterAsync(bookId, chapterId)
+            ?? throw new McpException($"Chapter {chapterId} not found in book {bookId}.");
+        if (chapter.IsArchived)
+            throw new McpException($"Chapter {chapterId} is archived and cannot be written or edited. Restore it first.");
+    }
+
     // ── Planning ──────────────────────────────────────────────────────────────
 
     [McpServerTool(Name = "start_planning")]
@@ -111,6 +123,7 @@ public class AgentMcpTools : McpToolBase
     {
         await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
+        await EnsureChapterNotArchivedAsync(bookId, chapterId);
         _ = _runner.RunAsync(bookId, (o, ct) => o.StartWritingAsync(bookId, chapterId, ct));
         return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "writing" }, JsonOptions);
     }
@@ -123,6 +136,7 @@ public class AgentMcpTools : McpToolBase
     {
         await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
+        await EnsureChapterNotArchivedAsync(bookId, chapterId);
         _ = _runner.RunAsync(bookId, (o, ct) => o.StartEditingAsync(bookId, chapterId, ct));
         return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "editing" }, JsonOptions);
     }

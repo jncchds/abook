@@ -12,11 +12,13 @@ public class AgentController : ControllerBase
 {
     private readonly AgentRunnerService _runner;
     private readonly AgentRunStateService _runState;
+    private readonly IBookRepository _repo;
 
-    public AgentController(AgentRunnerService runner, AgentRunStateService runState)
+    public AgentController(AgentRunnerService runner, AgentRunStateService runState, IBookRepository repo)
     {
         _runner = runner;
         _runState = runState;
+        _repo = repo;
     }
 
     private IActionResult? EnsureCanStart(int bookId)
@@ -28,6 +30,19 @@ public class AgentController : ControllerBase
         if (_runState.IsAtCapacity())
             return Conflict(new { message = "Server is at maximum concurrent agent capacity. Please try again when a run completes." });
 
+        return null;
+    }
+
+    /// <summary>
+    /// Rejects a run targeting an archived chapter up front, so the caller gets a 400 instead of a
+    /// fire-and-forget run that fails inside the agent. Archived chapters are display-only.
+    /// </summary>
+    private async Task<IActionResult?> EnsureChapterNotArchivedAsync(int bookId, int chapterId)
+    {
+        var chapter = await _repo.GetChapterAsync(bookId, chapterId);
+        if (chapter is null) return NotFound(new { message = $"Chapter {chapterId} not found." });
+        if (chapter.IsArchived)
+            return BadRequest(new { message = "This chapter is archived. Restore it before running an agent on it." });
         return null;
     }
 
@@ -50,18 +65,18 @@ public class AgentController : ControllerBase
     }
 
     [HttpPost("write/{chapterId:int}")]
-    public IActionResult Write(int bookId, int chapterId)
+    public async Task<IActionResult> Write(int bookId, int chapterId)
     {
-        var blocked = EnsureCanStart(bookId);
+        var blocked = EnsureCanStart(bookId) ?? await EnsureChapterNotArchivedAsync(bookId, chapterId);
         if (blocked is not null) return blocked;
         _ = _runner.RunAsync(bookId, (o, c) => o.StartWritingAsync(bookId, chapterId, c), _runState.CreateRunCts(bookId));
         return Accepted();
     }
 
     [HttpPost("edit/{chapterId:int}")]
-    public IActionResult Edit(int bookId, int chapterId)
+    public async Task<IActionResult> Edit(int bookId, int chapterId)
     {
-        var blocked = EnsureCanStart(bookId);
+        var blocked = EnsureCanStart(bookId) ?? await EnsureChapterNotArchivedAsync(bookId, chapterId);
         if (blocked is not null) return blocked;
         _ = _runner.RunAsync(bookId, (o, c) => o.StartEditingAsync(bookId, chapterId, c), _runState.CreateRunCts(bookId));
         return Accepted();

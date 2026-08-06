@@ -26,8 +26,8 @@ public class ContinuityCheckerAgent : AgentBase
     {
         var book = await Repo.GetByIdAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
-        var chapter = await Repo.GetChapterAsync(bookId, chapterId)
-            ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
+        var chapter = EnsureNotArchived(await Repo.GetChapterAsync(bookId, chapterId)
+            ?? throw new InvalidOperationException($"Chapter {chapterId} not found."));
 
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Running", chapterId, ct);
 
@@ -123,7 +123,7 @@ public class ContinuityCheckerAgent : AgentBase
     /// </summary>
     public async Task<CheckerResult> CheckAsync(int bookId, int? chapterId = null, CancellationToken ct = default, string? humanNotes = null)
     {
-        var book = await Repo.GetByIdWithDetailsAsync(bookId)
+        var book = await Repo.GetByIdWithActiveDetailsAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
 
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Running", chapterId, ct);

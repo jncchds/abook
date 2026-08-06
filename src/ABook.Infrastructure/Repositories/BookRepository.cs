@@ -35,13 +35,28 @@ public class BookRepository : IBookRepository
         await _db.Books.FindAsync(id);
 
     /// <summary>
-    /// Loads a book with its chapters, LLM config, and Story Bible.
+    /// Loads a book with all of its chapters (archived included), LLM config, and Story Bible.
     /// Uses AsSplitQuery to avoid the Cartesian explosion when a book has many chapters.
+    /// Intended for the UI, which renders archived chapters in their own section.
     /// </summary>
     public async Task<Book?> GetByIdWithDetailsAsync(int id) =>
         await _db.Books
             .Include(b => b.StoryBible)
             .Include(b => b.Chapters.OrderBy(c => c.Number))
+            .Include(b => b.LlmConfigurations)
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(b => b.Id == id);
+
+    /// <summary>
+    /// Same as <see cref="GetByIdWithDetailsAsync"/> but the chapter collection excludes archived
+    /// chapters. Use this everywhere the loaded book feeds generation or export — archived content
+    /// exists only to be displayed in the archived sections and must never reach a model or an
+    /// exported manuscript.
+    /// </summary>
+    public async Task<Book?> GetByIdWithActiveDetailsAsync(int id) =>
+        await _db.Books
+            .Include(b => b.StoryBible)
+            .Include(b => b.Chapters.Where(c => !c.IsArchived).OrderBy(c => c.Number))
             .Include(b => b.LlmConfigurations)
             .AsSplitQuery()
             .FirstOrDefaultAsync(b => b.Id == id);
