@@ -2,6 +2,17 @@
 
 ## v0.1.22 — 2026-08-06
 
+- feat: in human-assisted mode the per-chapter pause moved to where it is useful — after the Editor applies the mechanical patches, before the creative rewrite. The author now reads already-corrected prose instead of guessing what the Checker will find
+- feat: the creative rewrite pass only runs when the Checker raised `rewrite` issues or the author typed instructions during the pause — a clean chapter no longer costs a full-chapter LLM call
+- feat: author instructions from the pause are passed to the rewrite as a highest-priority block, and the rewrite re-reads the chapter from the DB, so edits made while the run was paused are the text being rewritten
+- feat: nothing is locked while an agent waits for an answer — the Overview, Chapters and Chapter views keep their edit, clear and archive controls, and both the chat panel and the chapter edit form say so
+- feat: chapter **content** is now editable from the UI (the edit form was title + outline only)
+- fix: hand-edited chapters no longer disappear from RAG — a manual edit creates a new active version, and `SearchAsync` only reads the active version's chunks, so the chapter had no chunks at all. Author edits and re-activated versions are now embedded in the background via the new `ChapterIndexingService`
+- fix: `ChapterVersion.HasEmbeddings` is actually set now — it was written as `false` at every call site and never updated, so the version history's indicator was always wrong
+- refactor: extracted the embedding routine into `ChapterIndexer.IndexVersionAsync`, shared by the agents and the API; `EditorAgent` split into `ApplyMechanicalFixesAsync` and `RewriteAsync` so the orchestrator can pause between them
+- refactor: dropped the unused `humanNotes` parameter from `ContinuityCheckerAgent.CheckAsync` — author guidance now reaches the Editor, not the Checker
+- feat: new `ToggleField` switch component replaces the bare native checkbox for "Human-assisted generation" on the new-book form, book settings and the book overview
+
 - feat: LLM calls that are cancelled or time out now record their token usage instead of vanishing — previously `OperationCanceledException` rethrew before anything was persisted
 - feat: added `TokenUsageRecord.FailureReason` (migration `AddTokenUsageFailureReason`) storing why a call failed — `Cancelled by user`, `Timed out after {n}ms`, HTTP status codes, or exception type + message
 - feat: Token Stats page gained a **Status** column (`❌ Failed` / `⏹ Cancelled`) with the failure reason shown inline beneath the row

@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useBookContext } from '../../contexts/BookContext'
 import { updateBook } from '../../api'
+import ToggleField from '../../components/ToggleField'
 
 export default function Overview() {
-  const { book, setBook, isRunning, isPhaseComplete, handleCompletePhase, handleReopenPhase, handleClearPhase } = useBookContext()
+  const { book, setBook, canEdit, isPhaseComplete, handleCompletePhase, handleReopenPhase, handleClearPhase } = useBookContext()
 
   const [editingBook, setEditingBook] = useState(false)
   const [bookEditTitle, setBookEditTitle] = useState('')
@@ -38,10 +39,12 @@ export default function Overview() {
           </label>
           <label>Target chapters<input type="number" min={1} value={bookEditTargetChapters} onChange={e => setBookEditTargetChapters(+e.target.value)} /></label>
           <label>Premise / Plot<textarea rows={6} value={bookEditPremise} onChange={e => setBookEditPremise(e.target.value)} /></label>
-          <label style={{ flexDirection: 'row', gap: '0.5rem', alignItems: 'center' }}>
-            <input type="checkbox" checked={bookEditHumanAssisted} onChange={e => setBookEditHumanAssisted(e.target.checked)} />
-            Human-assisted generation
-          </label>
+          <ToggleField
+            checked={bookEditHumanAssisted}
+            onChange={setBookEditHumanAssisted}
+            label="Human-assisted generation"
+            hint="Pauses after each planning phase, and after each chapter's mechanical fixes."
+          />
           <div className="book-edit-actions">
             <button onClick={handleSaveBookEdit}>Save</button>
             <button className="btn-ghost" onClick={() => setEditingBook(false)}>Cancel</button>
@@ -51,7 +54,7 @@ export default function Overview() {
         <>
           <div className="page-header">
             <h2>{book.title}</h2>
-            {!isRunning && (
+            {canEdit && (
               <button className="btn-edit-book" onClick={() => { setBookEditTitle(book.title); setBookEditPremise(book.premise); setBookEditGenre(book.genre); setBookEditTargetChapters(book.targetChapterCount); setBookEditHumanAssisted(book.humanAssisted ?? false); setEditingBook(true) }} title="Edit book details">✎ Edit</button>
             )}
           </div>

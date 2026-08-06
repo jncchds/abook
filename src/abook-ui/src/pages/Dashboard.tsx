@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { Book } from '../api'
 import { createBook, deleteBook, getBooks } from '../api'
+import ToggleField from '../components/ToggleField'
 
 export default function Dashboard() {
   const [books, setBooks] = useState<Book[]>([])
@@ -58,10 +59,12 @@ export default function Dashboard() {
           <label>Language<input value={form.language} onChange={e => setForm(f => ({ ...f, language: e.target.value }))} placeholder="English" /></label>
           <label>Target chapters<input type="number" min={1} max={100} value={form.targetChapterCount} onChange={e => setForm(f => ({ ...f, targetChapterCount: +e.target.value }))} /></label>
           <label>Premise<textarea rows={4} value={form.premise} onChange={e => setForm(f => ({ ...f, premise: e.target.value }))} required /></label>
-          <label style={{ flexDirection: 'row', gap: '0.5rem', alignItems: 'center' }}>
-            <input type="checkbox" checked={form.humanAssisted} onChange={e => setForm(f => ({ ...f, humanAssisted: e.target.checked }))} />
-            Human-assisted generation
-          </label>
+          <ToggleField
+            checked={form.humanAssisted}
+            onChange={v => setForm(f => ({ ...f, humanAssisted: v }))}
+            label="Human-assisted generation"
+            hint="Pauses for your input after each planning phase and after each chapter's mechanical fixes."
+          />
           <div className="actions">
             <button type="submit">Create</button>
             <button type="button" className="btn-ghost" onClick={() => setShowForm(false)}>Cancel</button>

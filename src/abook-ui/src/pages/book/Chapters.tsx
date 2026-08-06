@@ -15,7 +15,7 @@ export default function Chapters() {
 
   const {
     book, setBook,
-    isRunning,
+    isRunning, canEdit,
     plannerBuffer, setPlannerBuffer, runStatus,
   } = useBookContext()
 
@@ -165,7 +165,7 @@ export default function Chapters() {
                 )}
               </div>
               <div className="book-list-card-right">
-                {!isRunning && (
+                {canEdit && (
                   <>
                     <button className="btn-sm btn-ghost" title="Clear chapter content (keep outline)" onClick={() => handleClearChapter(c.id)}>🗑 Clear</button>
                     <button className="btn-archive" title="Archive chapter" onClick={() => handleArchive(c.id)}>🗄</button>

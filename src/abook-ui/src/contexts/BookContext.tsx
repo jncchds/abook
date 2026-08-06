@@ -43,6 +43,10 @@ interface BookContextValue {
   runStatus: AgentRunStatus | null
   setRunStatus: React.Dispatch<React.SetStateAction<AgentRunStatus | null>>
   isRunning: boolean
+  /** True while an agent is parked on a question. The run holds no lock on the data in this state. */
+  isWaitingForInput: boolean
+  /** Content is editable when nothing is running, or when a run is paused waiting for the author. */
+  canEdit: boolean
 
   plannerBuffer: string
   setPlannerBuffer: React.Dispatch<React.SetStateAction<string>>
@@ -348,7 +352,11 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     })
   }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, refreshBook, refreshMessages, refreshTokenStats, clearStreams, bookId, navigate])
 
-  const isRunning = runStatus?.state === 'Running' || runStatus?.state === 'WaitingForInput'
+  const isWaitingForInput = runStatus?.state === 'WaitingForInput'
+  const isRunning = runStatus?.state === 'Running' || isWaitingForInput
+  // While an agent waits for an answer nothing is being generated, so the author is free to
+  // revise the material the next step will read.
+  const canEdit = !isRunning || isWaitingForInput
 
   const startAgentRun = useCallback(async (apiCall: () => Promise<unknown>, initialRole: string) => {
     if (isRunning) return
@@ -455,7 +463,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
 
   const value: BookContextValue = {
     book, setBook, messages, setMessages, pendingQuestion, setPendingQuestion,
-    runStatus, setRunStatus, isRunning,
+    runStatus, setRunStatus, isRunning, isWaitingForInput, canEdit,
     plannerBuffer, setPlannerBuffer, streamBuffer, streamingChapterId,
     storyBibleStream, setStoryBibleStream, charactersStream, setCharactersStream,
     plotThreadsStream, setPlotThreadsStream, setStreamBuffer, setStreamingChapterId,

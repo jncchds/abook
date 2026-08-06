@@ -18,7 +18,7 @@ A self-hosted web application that uses AI agents to collaboratively write books
 
 ### Planning & guidance
 - **Guided planning Q&A** — agents ask clarifying questions up front before planning begins, then carry your answers through all four planning phases
-- **Human-assisted generation** — pauses after each planning phase and after each Checker pass so you can add optional notes; pending questions are restored after page refresh; supports **Ctrl+Enter** to submit
+- **Human-assisted generation** — pauses after each planning phase, and after each chapter's mechanical fixes so you can edit the book and steer the creative rewrite; pending questions are restored after page refresh; supports **Ctrl+Enter** to submit
 - **Flexible workflow controls** — **Plan Only**, **Write Book**, **Continue**, **Continue Planning**, and individual per-chapter agent buttons; **Stop** cancels any running agent cleanly
 - **Interrupted runs keep their output** — if a Characters, Plot Threads, or Chapter Outlines run times out, drops, or is stopped part-way, everything that finished streaming is saved instead of discarded; run the phase again to pick up where it left off
 - **Re-runs build on what exists** — regenerating a planning phase sends the current characters, plot threads, or outlines back to the model to refine and extend, rather than starting from a blank page; archived items stay out of it and are never overwritten
@@ -231,10 +231,15 @@ User creates book (title, premise, genre, target chapters)
          │
          ▼
   [Checker]  ── continuity + style review → structured JSON patches
-         │         (optional human pause in assisted mode)
+         │
          ▼
   [Editor]  ── applies patches mechanically (skipped if no issues)
          │
+         │  ← optional human pause in assisted mode: read the patched
+         │    chapter, edit anything, and steer the rewrite
+         ▼
+  [Editor]  ── creative rewrite — only when the Checker asked for one
+         │      or you gave instructions during the pause
          ▼
       Done ✓
 ```
@@ -251,7 +256,9 @@ Agents stream tokens via SignalR as they write.
 | **Continue Planning** | Re-runs only the incomplete planning phases |
 | **Stop** | Cancels any running agent cleanly |
 
-In **Human-assisted** mode the app also pauses after each planning phase and after each Checker pass to collect optional author notes.
+In **Human-assisted** mode the app also pauses after each planning phase, and once per chapter — after the Editor's mechanical fixes are applied but before the creative rewrite. While it is paused nothing is generating, so you are free to edit the chapter (title, outline and prose), the characters, the plot threads or the story bible; the next step re-reads all of it. Whatever you type in the answer box is passed to the rewrite as author instructions, and the rewrite is skipped altogether when the Checker found nothing to rewrite and you left the box empty.
+
+Chapter edits you make by hand are re-embedded in the background, so retrieval for later chapters sees your text rather than the version the agent wrote.
 
 For books created from a base book, chapter-level RAG retrieval includes embeddings from all ancestor books in the continuation chain.
 

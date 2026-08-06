@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import type { LlmConfig, LlmPreset, ProviderModel, Book, DefaultPrompts } from '../../api'
 import { getLlmConfig, updateLlmConfig, updateBook, getBook, getModels, getDefaultPrompts, getPresets, createPreset, updatePreset } from '../../api'
 import { PROVIDERS, PROVIDER_LABELS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, INITIAL_LLM_CONFIG } from '../../config/providers'
+import ToggleField from '../../components/ToggleField'
 
 export default function BookSettings() {
   const { bookId } = useParams<{ bookId: string }>()
@@ -363,14 +364,12 @@ export default function BookSettings() {
                 placeholder="English"
               />
             </label>
-            <label style={{ flexDirection: 'row', gap: '0.5rem', alignItems: 'center' }}>
-              <input
-                type="checkbox"
-                checked={bookForm.humanAssisted}
-                onChange={e => setBookForm(f => ({ ...f, humanAssisted: e.target.checked }))}
-              />
-              Human-assisted generation (pause for your input after each planning phase and after the first check)
-            </label>
+            <ToggleField
+              checked={bookForm.humanAssisted}
+              onChange={v => setBookForm(f => ({ ...f, humanAssisted: v }))}
+              label="Human-assisted generation"
+              hint="Pauses after each planning phase, and after each chapter's mechanical fixes are applied — so you can edit the book before the creative rewrite runs."
+            />
             <details>
               <summary>Custom Agent System Prompts (optional)</summary>
               <p className="hint">Leave blank to use agent defaults, or click "Load Defaults" to start editing from the defaults.</p>

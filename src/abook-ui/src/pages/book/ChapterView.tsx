@@ -10,11 +10,13 @@ import { useRestoreStream } from '../../hooks/useRestoreStream'
 export default function ChapterView() {
   const { chapterId } = useParams<{ chapterId: string }>()
   const navigate = useNavigate()
-  const { book, setBook, streamBuffer, streamingChapterId, isRunning, runStatus, setStreamBuffer, setStreamingChapterId } = useBookContext()
+  const { book, setBook, streamBuffer, streamingChapterId, isRunning, canEdit, isWaitingForInput, runStatus, setStreamBuffer, setStreamingChapterId } = useBookContext()
 
   const [editingChapter, setEditingChapter] = useState(false)
   const [chapterEditTitle, setChapterEditTitle] = useState('')
   const [chapterEditOutline, setChapterEditOutline] = useState('')
+  const [chapterEditContent, setChapterEditContent] = useState('')
+  const [savingChapter, setSavingChapter] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [versions, setVersions] = useState<ChapterVersionMeta[]>([])
   const [previewVersion, setPreviewVersion] = useState<ChapterVersionFull | null>(null)
@@ -40,15 +42,27 @@ export default function ChapterView() {
   const bookId = book.id
   const statusColor = chapterStatusColor
 
+  const startEditingChapter = () => {
+    setChapterEditTitle(chapter.title)
+    setChapterEditOutline(chapter.outline ?? '')
+    setChapterEditContent(chapter.content ?? '')
+    setEditingChapter(true)
+  }
+
   const handleSaveChapterEdit = async () => {
-    const r = await updateChapter(bookId, chapter.id, {
-      title: chapterEditTitle,
-      outline: chapterEditOutline,
-      content: chapter.content,
-      status: chapter.status as never,
-    })
-    setBook(prev => prev ? { ...prev, chapters: (prev.chapters ?? []).map(c => c.id === r.data.id ? r.data : c) } : prev)
-    setEditingChapter(false)
+    setSavingChapter(true)
+    try {
+      const r = await updateChapter(bookId, chapter.id, {
+        title: chapterEditTitle,
+        outline: chapterEditOutline,
+        content: chapterEditContent,
+        status: chapter.status as never,
+      })
+      setBook(prev => prev ? { ...prev, chapters: (prev.chapters ?? []).map(c => c.id === r.data.id ? r.data : c) } : prev)
+      setEditingChapter(false)
+    } finally {
+      setSavingChapter(false)
+    }
   }
 
   const handleClearChapter = async () => {
@@ -161,11 +175,17 @@ export default function ChapterView() {
     <div className="chapter-view">
       {editingChapter ? (
         <div className="chapter-edit-form">
+          {isWaitingForInput && (
+            <p className="edit-during-pause-hint">
+              ✎ The agent is paused — your saved changes are what the next step reads.
+            </p>
+          )}
           <label>Title<input value={chapterEditTitle} onChange={e => setChapterEditTitle(e.target.value)} /></label>
           <label>Outline<textarea rows={4} value={chapterEditOutline} onChange={e => setChapterEditOutline(e.target.value)} /></label>
+          <label>Content<textarea className="chapter-content-editor" rows={20} value={chapterEditContent} onChange={e => setChapterEditContent(e.target.value)} /></label>
           <div className="chapter-edit-actions">
-            <button onClick={handleSaveChapterEdit}>Save</button>
-            <button className="btn-ghost" onClick={() => setEditingChapter(false)}>Cancel</button>
+            <button disabled={savingChapter} onClick={handleSaveChapterEdit}>{savingChapter ? 'Saving…' : 'Save'}</button>
+            <button className="btn-ghost" disabled={savingChapter} onClick={() => setEditingChapter(false)}>Cancel</button>
           </div>
         </div>
       ) : (
@@ -174,15 +194,15 @@ export default function ChapterView() {
             <h2>Chapter {chapter.number}: {chapter.title}</h2>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-            {!isRunning && (
+            {canEdit && (
               <span className="phase-status-badge" style={{ background: chapter.status === 'Done' ? 'rgba(34,197,94,0.15)' : statusColor(chapter.status) + '22', color: chapter.status === 'Done' ? '#22c55e' : statusColor(chapter.status) }}>{chapter.status}</span>
             )}
             {chapter.isArchived && <span className="history-source-badge">archived</span>}
-            {!isRunning && !chapter.isArchived && (
-              <button className="btn-icon" onClick={() => { setChapterEditTitle(chapter.title); setChapterEditOutline(chapter.outline ?? ''); setEditingChapter(true) }} title="Edit chapter title and outline">✎ Edit</button>
+            {canEdit && !chapter.isArchived && (
+              <button className="btn-icon" onClick={startEditingChapter} title="Edit chapter title, outline and content">✎ Edit</button>
             )}
             <button className="btn-icon" onClick={handleOpenHistory} title="View version history">📜 History</button>
-            {!isRunning && !chapter.isArchived && (
+            {canEdit && !chapter.isArchived && (
               <button className="btn-archive" onClick={handleArchive} title="Archive this chapter">🗄 Archive</button>
             )}
             {chapter.isArchived && (

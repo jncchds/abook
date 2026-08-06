@@ -121,7 +121,7 @@ public class ContinuityCheckerAgent : AgentBase
     /// Returns a structured <see cref="CheckerResult"/> so the Editor can fix precise issues.
     /// The result is also saved as a formatted SystemNote for the chat panel.
     /// </summary>
-    public async Task<CheckerResult> CheckAsync(int bookId, int? chapterId = null, CancellationToken ct = default, string? humanNotes = null)
+    public async Task<CheckerResult> CheckAsync(int bookId, int? chapterId = null, CancellationToken ct = default)
     {
         var book = await Repo.GetByIdWithActiveDetailsAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
@@ -201,11 +201,6 @@ public class ContinuityCheckerAgent : AgentBase
             contextSections.AppendLine(ragContext);
         }
 
-        // Append author guidance as extra instructions when provided
-        var humanNotesSection = !string.IsNullOrWhiteSpace(humanNotes)
-            ? $"\n\n## Author Guidance (generate additional patches to address these notes)\n{humanNotes.Trim()}"
-            : string.Empty;
-
         string userMessage;
         if (currentChapter != null)
         {
@@ -228,7 +223,7 @@ public class ContinuityCheckerAgent : AgentBase
                 {prevSynopsis}
 
                 ## Chapter Under Review
-                {currentExcerpt}{humanNotesSection}
+                {currentExcerpt}
                 """;
         }
         else
@@ -237,7 +232,7 @@ public class ContinuityCheckerAgent : AgentBase
                 Review these chapters for continuity and style issues.
                 {contextSections}
                 ## Chapter Summaries
-                {synopsis}{humanNotesSection}
+                {synopsis}
                 """;
         }
         messages.Add(new LlmChatMessage(LlmChatRole.User, userMessage));

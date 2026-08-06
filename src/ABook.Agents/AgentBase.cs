@@ -475,44 +475,17 @@ public abstract class AgentBase
         return raw;
     }
 
-    protected async Task IndexChapterAsync(int bookId, int chapterId, int chapterVersionId, LlmConfiguration config, CancellationToken ct)
-    {
-        await VectorStore.EnsureCollectionAsync(bookId, ct);
-
-        var version = await Repo.GetChapterVersionAsync(chapterId, chapterVersionId);
-        if (version is null || string.IsNullOrEmpty(version.Content)) return;
-
-        var chapter = await Repo.GetChapterAsync(bookId, chapterId);
-        if (chapter is null) return;
-
-        await VectorStore.DeleteVersionChunksAsync(bookId, chapterVersionId, ct);
-
-        var chunks = TextChunker.Chunk(version.Content);
-        var embedder = LlmFactory.CreateEmbeddingGeneration(config);
-
-        int embeddedChars = 0;
-        try
-        {
-            for (int i = 0; i < chunks.Count; i++)
-            {
-                var embeddings = await embedder.GenerateAsync([chunks[i]], cancellationToken: ct);
-                var embedding = embeddings[0].Vector;
-                embeddedChars += chunks[i].Length;
-                await VectorStore.UpsertChunkAsync(bookId, chapterId, chapter.Number, i, chunks[i], embedding, ct, chapterVersionId);
-            }
-        }
-        catch (Exception ex)
-        {
-            // Still bill the chunks that were embedded before the failure.
-            await RecordUsageAsync(bookId, chapterId, AgentRole.Embedder, embeddedChars / 4, 0,
+    protected Task IndexChapterAsync(int bookId, int chapterId, int chapterVersionId, LlmConfiguration config, CancellationToken ct) =>
+        ChapterIndexer.IndexVersionAsync(
+            Repo, LlmFactory, VectorStore, config, bookId, chapterId, chapterVersionId,
+            (embeddedChars, ex) => RecordUsageAsync(
+                bookId, chapterId, AgentRole.Embedder, embeddedChars / 4, 0,
                 config.Endpoint, config.EmbeddingModelName,
-                DescribeFailure(ex, ex is OperationCanceledException && ct.IsCancellationRequested, config.TimeoutMs), ct);
-            throw;
-        }
-
-        await RecordUsageAsync(bookId, chapterId, AgentRole.Embedder, chunks.Sum(c => c.Length) / 4, 0,
-            config.Endpoint, config.EmbeddingModelName, failureReason: null, ct);
-    }
+                ex is null
+                    ? null
+                    : DescribeFailure(ex, ex is OperationCanceledException && ct.IsCancellationRequested, config.TimeoutMs),
+                ct),
+            ct);
 
     // ── Thinking / Reasoning helpers ────────────────────────────────────────────
 

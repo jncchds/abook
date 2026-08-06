@@ -624,6 +624,69 @@ button:disabled:hover { background: var(--accent); }
 .checkbox-label { display: flex; align-items: center; gap: 0.5rem; }
 .checkbox-label input[type=checkbox] { width: auto; margin-top: 0; }
 
+/* ── Switch-style boolean field (ToggleField) ── */
+.toggle-field {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.65rem 0.8rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.toggle-field:hover { border-color: var(--accent); }
+.toggle-field:has(.toggle-input:checked) { background: var(--accent-faint); border-color: var(--accent); }
+.toggle-field:has(.toggle-input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.toggle-field-disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* The real control stays in the DOM for keyboard and screen-reader use, visually replaced by the track. */
+.toggle-input {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: 0; padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.toggle-track {
+  position: relative;
+  flex-shrink: 0;
+  width: 2.2rem; height: 1.25rem;
+  margin-top: 0.1rem;
+  background: var(--border);
+  border-radius: 999px;
+  transition: background 0.15s;
+}
+.toggle-thumb {
+  position: absolute;
+  top: 0.175rem; left: 0.175rem;
+  width: 0.9rem; height: 0.9rem;
+  background: var(--surface);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+  transition: transform 0.15s;
+}
+.toggle-input:checked + .toggle-track { background: var(--accent); }
+.toggle-input:checked + .toggle-track .toggle-thumb { transform: translateX(0.95rem); }
+
+.toggle-text { display: flex; flex-direction: column; gap: 0.15rem; }
+.toggle-label { font-size: 0.875rem; line-height: 1.3; }
+.toggle-hint { font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; }
+
+/* Banner shown while an agent run is paused and the author may edit freely */
+.edit-during-pause-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: var(--accent-faint);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  line-height: 1.45;
+}
+.chapter-content-editor { font-family: inherit; line-height: 1.6; resize: vertical; }
+
 /* Current State view */
 .current-state-list { display: flex; flex-direction: column; gap: 0.4rem; }
 .workflow-step-item { display: flex; gap: 0.5rem; align-items: flex-start; padding: 0.45rem 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem; }

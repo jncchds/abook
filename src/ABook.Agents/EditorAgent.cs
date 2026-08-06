@@ -23,47 +23,68 @@ public class EditorAgent : AgentBase
     public async Task EditAsync(int bookId, int chapterId, CancellationToken ct = default,
         CheckerResult? checkerResult = null, string? humanAttentionPoints = null, bool finalizeStatus = true)
     {
-        var book = await Repo.GetByIdAsync(bookId)
-            ?? throw new InvalidOperationException($"Book {bookId} not found.");
+        await BeginEditAsync(bookId, chapterId, ct);
+
+        if (checkerResult is { HasIssues: true, Issues.Length: > 0 })
+        {
+            var patches = SelectPatches(checkerResult);
+            var rewrites = SelectRewrites(checkerResult);
+
+            if (patches.Length > 0)
+                await ApplyPatchesAsync(bookId, chapterId, new CheckerResult(true, patches, string.Empty), finalizeStatus, ct);
+
+            if (rewrites.Count > 0)
+                await EditWithLlmForRewrites(bookId, chapterId, rewrites, humanAttentionPoints, finalizeStatus, ct);
+            else if (patches.Length == 0)
+                await EditWithLlmAsync(bookId, chapterId, humanAttentionPoints, finalizeStatus, ct);
+        }
+        else
+        {
+            await EditWithLlmAsync(bookId, chapterId, humanAttentionPoints, finalizeStatus, ct);
+        }
+    }
+
+    /// <summary>Verbatim patches from a checker result — everything the Editor can apply without an LLM.</summary>
+    public static CheckerIssue[] SelectPatches(CheckerResult result) =>
+        result.Issues.Where(i => i.Type != "rewrite" && !string.IsNullOrEmpty(i.OriginalText)).ToArray();
+
+    /// <summary>Issues the checker flagged as needing a creative rewrite rather than a patch.</summary>
+    public static List<CheckerIssue> SelectRewrites(CheckerResult result) =>
+        result.Issues.Where(i => i.Type == "rewrite").ToList();
+
+    /// <summary>
+    /// Applies verbatim patches only — no LLM call. Split out from the rewrite pass so the
+    /// workflow can let the author read the mechanically corrected prose before deciding what
+    /// the creative pass should do.
+    /// </summary>
+    public async Task ApplyMechanicalFixesAsync(int bookId, int chapterId, CheckerResult result,
+        bool finalizeStatus, CancellationToken ct)
+    {
+        await BeginEditAsync(bookId, chapterId, ct);
+        await ApplyPatchesAsync(bookId, chapterId, result, finalizeStatus, ct);
+    }
+
+    /// <summary>
+    /// Creative pass over a chapter, driven by the checker's rewrite issues, the author's notes,
+    /// or both. The chapter is re-read from the DB, so any edit the author made while the run was
+    /// paused is the text being rewritten.
+    /// </summary>
+    public async Task RewriteAsync(int bookId, int chapterId, IReadOnlyList<CheckerIssue> rewrites,
+        string? authorNotes, bool finalizeStatus, CancellationToken ct)
+    {
+        await BeginEditAsync(bookId, chapterId, ct);
+        await EditWithLlmForRewrites(bookId, chapterId, rewrites, authorNotes, finalizeStatus, ct);
+    }
+
+    /// <summary>Marks the chapter as being edited and announces the Editor as the running agent.</summary>
+    private async Task BeginEditAsync(int bookId, int chapterId, CancellationToken ct)
+    {
         var chapter = EnsureNotArchived(await Repo.GetChapterAsync(bookId, chapterId)
             ?? throw new InvalidOperationException($"Chapter {chapterId} not found."));
 
         chapter.Status = ChapterStatus.Editing;
         await Repo.UpdateChapterAsync(chapter);
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Running", chapterId, ct);
-
-        if (checkerResult is { HasIssues: true, Issues.Length: > 0 })
-        {
-            var patches = checkerResult.Issues.Where(i =>
-                i.Type != "rewrite" && !string.IsNullOrEmpty(i.OriginalText)).ToArray();
-            var rewrites = checkerResult.Issues.Where(i => i.Type == "rewrite").ToList();
-
-            if (patches.Length > 0)
-                await ApplyPatchesAsync(bookId, chapterId, new CheckerResult(true, patches, string.Empty), finalizeStatus, ct);
-
-            if (rewrites.Count > 0)
-            {
-                ChapterVersion? patchedVersion = null;
-                if (patches.Length > 0)
-                {
-                    var versions = await Repo.GetChapterVersionsAsync(chapterId);
-                    patchedVersion = versions.OrderByDescending(v => v.CreatedAt).FirstOrDefault();
-                }
-
-                string contentToEdit = patchedVersion?.Content ?? chapter.Content;
-                string instructions = BuildRewriteInstructions(rewrites);
-                await EditWithLlmForRewrites(bookId, chapterId, contentToEdit, instructions,
-                    finalizeStatus, rewrites, ct);
-            }
-            else if (patches.Length == 0)
-            {
-                await EditWithLlmAsync(bookId, chapterId, humanAttentionPoints, finalizeStatus, ct);
-            }
-        }
-        else
-        {
-            await EditWithLlmAsync(bookId, chapterId, humanAttentionPoints, finalizeStatus, ct);
-        }
     }
 
     private async Task ApplyPatchesAsync(int bookId, int chapterId, CheckerResult result,
@@ -252,9 +273,23 @@ public class EditorAgent : AgentBase
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Done", chapterId, ct);
     }
 
-    private static string BuildRewriteInstructions(List<CheckerIssue> rewrites)
+    private static string BuildRewriteInstructions(IReadOnlyList<CheckerIssue> rewrites, string? authorNotes)
     {
         var sb = new System.Text.StringBuilder();
+
+        if (!string.IsNullOrWhiteSpace(authorNotes))
+        {
+            sb.AppendLine("## Author Instructions (highest priority — follow these exactly)\n");
+            sb.AppendLine(authorNotes.Trim());
+            sb.AppendLine();
+        }
+
+        if (rewrites.Count == 0)
+        {
+            sb.AppendLine("Apply the author's instructions above. Preserve all other prose exactly as written.");
+            return sb.ToString();
+        }
+
         sb.AppendLine("## Issues Requiring Creative Resolution\n");
 
         for (int n = 0; n < rewrites.Count; n++)
@@ -280,15 +315,18 @@ public class EditorAgent : AgentBase
         return sb.ToString();
     }
 
-    private async Task EditWithLlmForRewrites(int bookId, int chapterId, string contentToEdit,
-        string rewriteInstructions, bool finalizeStatus,
-        List<CheckerIssue> rewrites,
+    private async Task EditWithLlmForRewrites(int bookId, int chapterId,
+        IReadOnlyList<CheckerIssue> rewrites, string? authorNotes, bool finalizeStatus,
         CancellationToken ct)
     {
         var book = await Repo.GetByIdAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
+        // Read fresh: mechanical patches — and any author edit made during a human-assisted
+        // pause — are already synced onto the chapter row.
         var chapter = await Repo.GetChapterAsync(bookId, chapterId)
             ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
+        var contentToEdit = chapter.Content;
+        var rewriteInstructions = BuildRewriteInstructions(rewrites, authorNotes);
 
         var (client, config) = await GetChatClientAsync(bookId);
         var bible = await Repo.GetStoryBibleAsync(bookId);
@@ -392,9 +430,13 @@ public class EditorAgent : AgentBase
         catch { /* non-fatal */ }
 
         var noteSb = new System.Text.StringBuilder();
-        noteSb.AppendLine($"✏️ Creative edit — resolved {rewrites.Count} inconsistency issue(s):");
+        noteSb.AppendLine(rewrites.Count > 0
+            ? $"✏️ Creative edit — resolved {rewrites.Count} inconsistency issue(s):"
+            : "✏️ Creative edit — applied the author's instructions:");
         foreach (var issue in rewrites)
             noteSb.AppendLine($"  - {issue.Description}");
+        if (!string.IsNullOrWhiteSpace(authorNotes))
+            noteSb.AppendLine($"  - Author notes: {authorNotes.Trim()}");
         await Repo.AddMessageAsync(new AgentMessage
         {
             BookId = bookId,

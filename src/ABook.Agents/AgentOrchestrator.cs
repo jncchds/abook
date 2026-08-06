@@ -297,37 +297,50 @@ public class AgentOrchestrator : IAgentOrchestrator
         }
         if (freshChapter.Status != ChapterStatus.Done && !string.IsNullOrEmpty(freshChapter.Content))
         {
-            // Optional human pause BEFORE checker — author guidance is fed into patch generation
-            string humanPoints = string.Empty;
-            if (humanAssisted)
-            {
-                humanPoints = (await _questions.AskSingleOptionalAsync(
-                    bookId, chapter.Id, AgentRole.ContinuityChecker,
-                    "Chapter written. Any guidance before the quality check?", ct)).Trim();
-                ct.ThrowIfCancellationRequested();
-            }
-
-            // Quality check — produces verbatim patches; incorporates human notes
+            // Quality check — produces verbatim patches plus any issues needing a creative rewrite
             _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapter.Id);
             await _notifier.NotifyWorkflowProgressAsync(bookId,
                 $"Checking Chapter {chapter.Number}…", false, ct);
-            var checkerResult = await _continuity.CheckAsync(bookId, chapter.Id, ct,
-                humanPoints.Length > 0 ? humanPoints : null);
+            var checkerResult = await _continuity.CheckAsync(bookId, chapter.Id, ct);
             ct.ThrowIfCancellationRequested();
 
-            if (checkerResult.HasIssues)
+            var patches = checkerResult.HasIssues ? EditorAgent.SelectPatches(checkerResult) : [];
+            var rewrites = checkerResult.HasIssues ? EditorAgent.SelectRewrites(checkerResult) : [];
+
+            // Mechanical patches first — deterministic, no LLM call
+            if (patches.Length > 0)
             {
-                // Apply patches mechanically (no LLM streaming call needed)
                 _state.UpdateRunRole(bookId, AgentRole.Editor, chapter.Id);
                 await _notifier.NotifyWorkflowProgressAsync(bookId,
-                    $"Applying fixes to Chapter {chapter.Number}…", false, ct);
-                await _editor.EditAsync(bookId, chapter.Id, ct, checkerResult, finalizeStatus: false);
+                    $"Applying {patches.Length} mechanical fix(es) to Chapter {chapter.Number}…", false, ct);
+                await _editor.ApplyMechanicalFixesAsync(bookId, chapter.Id,
+                    new CheckerResult(true, patches, checkerResult.Summary), finalizeStatus: false, ct);
                 ct.ThrowIfCancellationRequested();
             }
-            else
+            else if (!checkerResult.HasIssues)
             {
                 await _notifier.NotifyWorkflowProgressAsync(bookId,
                     $"Chapter {chapter.Number} checks passed.", false, ct);
+            }
+
+            // Human pause AFTER the mechanical corrections and BEFORE the creative rewrite: the
+            // author reads the patched prose and may edit the chapter, characters or outlines —
+            // the rewrite re-reads everything from the DB, so those edits are what it works on.
+            var authorNotes = humanAssisted
+                ? await AskBeforeRewriteAsync(bookId, chapter, patches.Length, rewrites.Count, ct)
+                : string.Empty;
+            ct.ThrowIfCancellationRequested();
+
+            // The creative pass costs a full-chapter LLM call — only run it when the checker asked
+            // for one or the author gave instructions.
+            if (rewrites.Count > 0 || authorNotes.Length > 0)
+            {
+                _state.UpdateRunRole(bookId, AgentRole.Editor, chapter.Id);
+                await _notifier.NotifyWorkflowProgressAsync(bookId,
+                    $"Creative rewrite for Chapter {chapter.Number}…", false, ct);
+                await _editor.RewriteAsync(bookId, chapter.Id, rewrites,
+                    authorNotes.Length > 0 ? authorNotes : null, finalizeStatus: false, ct);
+                ct.ThrowIfCancellationRequested();
             }
             // No final check — patches are deterministic; any failures reported in the chat panel
         }
@@ -348,6 +361,31 @@ public class AgentOrchestrator : IAgentOrchestrator
 
         await _notifier.NotifyWorkflowProgressAsync(bookId,
             $"Chapter {chapter.Number} complete.", false, ct);
+    }
+
+    /// <summary>
+    /// Human-assisted pause between the mechanical fixes and the creative rewrite. Returns the
+    /// author's instructions for the rewrite, or an empty string when they skipped.
+    /// </summary>
+    private async Task<string> AskBeforeRewriteAsync(
+        int bookId, Chapter chapter, int patchCount, int rewriteCount, CancellationToken ct)
+    {
+        _state.UpdateRunRole(bookId, AgentRole.Editor, chapter.Id);
+
+        var applied = patchCount > 0
+            ? $"{patchCount} mechanical fix(es) applied"
+            : "no mechanical fixes were needed";
+        var next = rewriteCount > 0
+            ? $"{rewriteCount} issue(s) still need a creative rewrite, which runs next."
+            : "Nothing needs a creative rewrite — leave this blank to move on to the next chapter.";
+
+        var question =
+            $"Chapter {chapter.Number} (\"{chapter.Title}\") — {applied}. {next}\n\n" +
+            "You can edit the chapter, characters, plot threads or outlines right now; the next step " +
+            "reads them fresh. Anything you type here is passed to the rewrite as author instructions.";
+
+        return (await _questions.AskSingleOptionalAsync(
+            bookId, chapter.Id, AgentRole.Editor, question, ct)).Trim();
     }
 
     /// <summary>

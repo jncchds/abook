@@ -1,3 +1,4 @@
+using ABook.Api.Services;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -12,11 +13,13 @@ public class ChaptersController : ControllerBase
 {
     private readonly IBookRepository _repo;
     private readonly IVectorStoreService _vectorStore;
+    private readonly ChapterIndexingService _indexing;
 
-    public ChaptersController(IBookRepository repo, IVectorStoreService vectorStore)
+    public ChaptersController(IBookRepository repo, IVectorStoreService vectorStore, ChapterIndexingService indexing)
     {
         _repo = repo;
         _vectorStore = vectorStore;
+        _indexing = indexing;
     }
 
     [HttpGet]
@@ -79,7 +82,12 @@ public class ChaptersController : ControllerBase
                 CreatedBy = "user",
                 HasEmbeddings = false
             };
-            await _repo.AddChapterVersionAsync(version);
+            var saved = await _repo.AddChapterVersionAsync(version);
+            // The new version is now the active one, so the previous version's chunks no longer
+            // answer searches — embed the author's text in the background or the chapter drops
+            // out of RAG entirely.
+            if (contentChanged)
+                _indexing.QueueIndex(bookId, chapterId, saved.Id);
             // AddChapterVersionAsync already syncs fields to Chapter, so just return it
             var updated = await _repo.GetChapterAsync(bookId, chapterId);
             return Ok(updated);
@@ -164,6 +172,11 @@ public class ChaptersController : ControllerBase
         ChapterVersion version;
         try { version = await _repo.ActivateChapterVersionAsync(bookId, chapterId, versionId); }
         catch (InvalidOperationException) { return NotFound(); }
+
+        // A version that was never embedded (an author edit, or one saved before indexing existed)
+        // has no chunks of its own — index it now that it answers searches.
+        if (!version.HasEmbeddings && !string.IsNullOrEmpty(version.Content))
+            _indexing.QueueIndex(bookId, chapterId, version.Id);
 
         var updatedChapter = await _repo.GetChapterAsync(bookId, chapterId);
         return Ok(new { chapter = updatedChapter, version = new { version.Id, version.VersionNumber, version.IsActive, version.HasEmbeddings, version.CreatedBy, version.CreatedAt } });

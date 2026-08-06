@@ -73,6 +73,10 @@ export default function ChatPage() {
         <div style={{ borderTop: '1px solid var(--border)', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <p className="question-label">Agent is waiting for your answer:</p>
           <p className="question-text">{pendingQuestion.content}</p>
+          <p className="edit-during-pause-hint">
+            ✎ Nothing is generating right now — you can edit chapters, characters, plot threads and
+            the story bible before you answer. The next step reads them fresh.
+          </p>
           <textarea
             rows={3}
             value={answerText}
