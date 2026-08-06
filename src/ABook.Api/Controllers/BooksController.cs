@@ -175,6 +175,7 @@ public class BooksController : ControllerBase
             r.Endpoint,
             r.ModelName,
             r.Failed,
+            r.FailureReason,
             r.CreatedAt
         }));
     }

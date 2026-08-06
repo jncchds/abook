@@ -14,6 +14,10 @@ public class TokenUsageRecord
     public string? Endpoint { get; set; }
     public string? ModelName { get; set; }
     public bool Failed { get; set; }
+
+    /// <summary>Human-readable reason the call failed (exception type + message, or cancellation cause). Null when <see cref="Failed"/> is false.</summary>
+    public string? FailureReason { get; set; }
+
     public bool IsDeleted { get; set; }
     public DateTime CreatedAt { get; set; }
 

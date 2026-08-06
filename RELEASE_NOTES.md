@@ -1,5 +1,15 @@
 # Release Notes
 
+## v0.1.22 — 2026-08-06
+
+- feat: LLM calls that are cancelled or time out now record their token usage instead of vanishing — previously `OperationCanceledException` rethrew before anything was persisted
+- feat: added `TokenUsageRecord.FailureReason` (migration `AddTokenUsageFailureReason`) storing why a call failed — `Cancelled by user`, `Timed out after {n}ms`, HTTP status codes, or exception type + message
+- feat: Token Stats page gained a **Status** column (`❌ Failed` / `⏹ Cancelled`) with the failure reason shown inline beneath the row
+- feat: failed calls now push over SignalR, so the Token Stats page updates live instead of only after a manual refresh
+- fix: embedding failures in `GetRagContextAsync` and `IndexChapterAsync` now record a failed `Embedder` row (previously swallowed with no accounting)
+- refactor: consolidated the five duplicated token-usage write sites in `AgentBase` into a single `RecordUsageAsync` helper
+- fix: replaced the mojibake character in the Token Stats "Archive" button label
+
 ## v0.1.21 — 2026-07-25
 
 - test: added `ABook.Tests` xunit project with 66 unit tests covering `EditorAgent` patch-application logic, `AgentBase` static helpers, `ContinuityCheckerAgent` report formatting, `TextChunker` chunking, and `BookExportService` Markdown/filename utilities

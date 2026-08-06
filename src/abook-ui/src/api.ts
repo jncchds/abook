@@ -205,6 +205,7 @@ export interface TokenUsageRecord {
   endpoint?: string | null
   modelName?: string | null
   failed?: boolean
+  failureReason?: string | null
   createdAt: string
 }
 export const getTokenUsage = (bookId: number, signal?: AbortSignal) =>

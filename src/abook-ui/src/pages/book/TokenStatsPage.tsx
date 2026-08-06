@@ -1,9 +1,13 @@
+import { Fragment } from 'react'
 import { useBookContext } from '../../contexts/BookContext'
 
 export default function TokenStatsPage() {
   const { book, tokenStats, isRunning, clearTokenUsageForBook } = useBookContext()
 
   if (!book) return null
+
+  // Cancellations are expected (user pressed Stop); anything else is a real error.
+  const isCancelled = (reason?: string | null) => !!reason?.startsWith('Cancelled')
 
   const chapterLabel = (id: number | null) => {
     if (id === null) return '—'
@@ -16,7 +20,7 @@ export default function TokenStatsPage() {
       <div className="page-header">
         <h2>Token Stats</h2>
         {tokenStats.length > 0 && !isRunning && (
-          <button className="btn-sm btn-archive" onClick={clearTokenUsageForBook}>� Archive</button>
+          <button className="btn-sm btn-archive" onClick={clearTokenUsageForBook}>Archive</button>
         )}
       </div>
       {tokenStats.length === 0 ? (
@@ -51,34 +55,52 @@ export default function TokenStatsPage() {
                   <th>Chapter</th>
                   <th>Model</th>
                   <th>Endpoint</th>
+                  <th>Status</th>
                   <th style={{ textAlign: 'right' }}>Prompt</th>
                   <th style={{ textAlign: 'right' }}>Completion</th>
                   <th style={{ textAlign: 'right' }}>Total</th>
                 </tr>
               </thead>
               <tbody>
-                {tokenStats.map(s => (
-                  <tr key={s.id} style={s.failed ? { color: 'var(--error)', opacity: 0.85 } : undefined}>
-                    <td>{s.time}</td>
-                    <td title={s.failed ? 'LLM call failed — counts are partial' : undefined}>
-                      {s.failed ? '❌ ' : ''}{s.role}
-                    </td>
-                    <td>{chapterLabel(s.chapterId)}</td>
-                    <td>{s.modelName ?? '—'}</td>
-                    <td style={{ fontFamily: 'monospace', fontSize: '0.8em' }}>{s.endpoint ?? '—'}</td>
-                    <td style={{ textAlign: 'right' }}>{s.prompt.toLocaleString()}</td>
-                    <td style={{ textAlign: 'right' }} title={s.failed ? 'partial' : undefined}>
-                      {s.failed ? '~' : ''}{s.completion.toLocaleString()}
-                    </td>
-                    <td style={{ textAlign: 'right', fontWeight: 600 }}>
-                      {s.failed ? '~' : ''}{(s.prompt + s.completion).toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
+                {tokenStats.map(s => {
+                  const cancelled = isCancelled(s.failureReason)
+                  const reasonTitle = s.failureReason ?? 'LLM call did not complete — counts are partial'
+                  return (
+                    <Fragment key={s.id}>
+                      <tr style={s.failed ? { color: 'var(--error)', opacity: 0.85 } : undefined}>
+                        <td>{s.time}</td>
+                        <td>{s.role}</td>
+                        <td>{chapterLabel(s.chapterId)}</td>
+                        <td>{s.modelName ?? '—'}</td>
+                        <td style={{ fontFamily: 'monospace', fontSize: '0.8em' }}>{s.endpoint ?? '—'}</td>
+                        <td title={s.failed ? reasonTitle : undefined}>
+                          {s.failed ? (cancelled ? '⏹ Cancelled' : '❌ Failed') : '—'}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>{s.prompt.toLocaleString()}</td>
+                        <td style={{ textAlign: 'right' }} title={s.failed ? 'partial' : undefined}>
+                          {s.failed ? '~' : ''}{s.completion.toLocaleString()}
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                          {s.failed ? '~' : ''}{(s.prompt + s.completion).toLocaleString()}
+                        </td>
+                      </tr>
+                      {s.failed && s.failureReason && (
+                        <tr style={{ color: 'var(--error)', opacity: 0.7 }}>
+                          <td colSpan={9} title={s.failureReason} style={{
+                            paddingLeft: '1.5em', fontSize: '0.85em',
+                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 0,
+                          }}>
+                            ↳ {s.failureReason}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
               </tbody>
               <tfoot>
                 <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700 }}>
-                  <td colSpan={5}>Totals ({tokenStats.length} calls)</td>
+                  <td colSpan={6}>Totals ({tokenStats.length} calls)</td>
                   <td style={{ textAlign: 'right' }}>{totalPrompt.toLocaleString()}</td>
                   <td style={{ textAlign: 'right' }}>{totalCompletion.toLocaleString()}</td>
                   <td style={{ textAlign: 'right' }}>{totalAll.toLocaleString()}</td>
@@ -88,7 +110,7 @@ export default function TokenStatsPage() {
                     <td colSpan={3} style={{ paddingLeft: '1.5em', color: 'var(--text-muted)' }}>
                       {p.model}
                     </td>
-                    <td colSpan={2} style={{ fontFamily: 'monospace', fontSize: '0.9em', color: 'var(--text-muted)' }}>
+                    <td colSpan={3} style={{ fontFamily: 'monospace', fontSize: '0.9em', color: 'var(--text-muted)' }}>
                       {p.endpoint ?? '—'}
                     </td>
                     <td style={{ textAlign: 'right' }}>{p.prompt.toLocaleString()}</td>

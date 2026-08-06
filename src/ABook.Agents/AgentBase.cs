@@ -97,26 +97,21 @@ public abstract class AgentBase
                 }
             }
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException ex)
+        {
+            var reason = DescribeFailure(ex, ct.IsCancellationRequested, config.TimeoutMs);
+            Logger.LogWarning("[Book {BookId}] [{Role}] LLM streaming call ended after receiving {Chars} chars: {Reason}",
+                bookId, role, sb.Length, reason);
+            await RecordUsageAsync(bookId, chapterId, role, promptTokens, sb.Length / 4,
+                config.Endpoint, config.ModelName, reason, ct);
+            throw;
+        }
         catch (Exception ex)
         {
             Logger.LogError(ex, "[Book {BookId}] [{Role}] LLM streaming call failed after receiving {Chars} chars. Partial response:\n{Partial}",
                 bookId, role, sb.Length, sb.Length > 0 ? sb.ToString() : "(empty)");
-            try
-            {
-                await Repo.AddTokenUsageAsync(new TokenUsageRecord
-                {
-                    BookId = bookId,
-                    ChapterId = chapterId,
-                    AgentRole = role,
-                    PromptTokens = promptTokens,
-                    CompletionTokens = sb.Length / 4,
-                    Endpoint = config.Endpoint,
-                    ModelName = config.ModelName,
-                    Failed = true,
-                });
-            }
-            catch { /* non-fatal */ }
+            await RecordUsageAsync(bookId, chapterId, role, promptTokens, sb.Length / 4,
+                config.Endpoint, config.ModelName, DescribeFailure(ex, false, config.TimeoutMs), ct);
             throw;
         }
 
@@ -143,8 +138,23 @@ public abstract class AgentBase
             Logger.LogWarning("[Book {BookId}] [{Role}] LLM returned a suspiciously short response ({Chars} chars): {Response}",
                 bookId, role, result.Length, result.Trim());
 
-        int completionTokens = result.Length / 4;
-        try { await Notifier.NotifyTokenStatsAsync(bookId, chapterId, role.ToString(), promptTokens, completionTokens, ct); }
+        await RecordUsageAsync(bookId, chapterId, role, promptTokens, result.Length / 4,
+            config.Endpoint, config.ModelName, failureReason: null, ct);
+
+        return result;
+    }
+
+    /// <summary>
+    /// Persists a token usage row (and pushes it over SignalR) for one LLM call. Never throws — bookkeeping must
+    /// not break the run. Pass <paramref name="failureReason"/> to mark the call as failed.
+    /// </summary>
+    private async Task RecordUsageAsync(
+        int bookId, int? chapterId, AgentRole role, int promptTokens, int completionTokens,
+        string? endpoint, string? modelName, string? failureReason, CancellationToken ct)
+    {
+        // On the failure path ct is often already cancelled; don't let that suppress the notification.
+        var notifyCt = ct.IsCancellationRequested ? CancellationToken.None : ct;
+        try { await Notifier.NotifyTokenStatsAsync(bookId, chapterId, role.ToString(), promptTokens, completionTokens, notifyCt); }
         catch { /* non-fatal */ }
         try
         {
@@ -155,14 +165,41 @@ public abstract class AgentBase
                 AgentRole = role,
                 PromptTokens = promptTokens,
                 CompletionTokens = completionTokens,
-                Endpoint = config.Endpoint,
-                ModelName = config.ModelName,
+                Endpoint = endpoint,
+                ModelName = modelName,
+                Failed = failureReason is not null,
+                FailureReason = failureReason,
             });
         }
-        catch { /* non-fatal */ }
-
-        return result;
+        catch (Exception ex) { Logger.LogWarning(ex, "[Book {BookId}] Failed to persist token usage for {Role}.", bookId, role); }
     }
+
+    private const int MaxFailureReasonLength = 1000;
+
+    /// <summary>Builds the human-readable failure reason stored on <see cref="TokenUsageRecord.FailureReason"/>.</summary>
+    /// <param name="cancelledByUser">True when the agent's own cancellation token was signalled (Stop pressed), as opposed to a provider timeout.</param>
+    internal static string DescribeFailure(Exception ex, bool cancelledByUser, int? timeoutMs = null)
+    {
+        if (cancelledByUser) return "Cancelled by user";
+
+        var inner = Unwrap(ex);
+
+        if (inner is OperationCanceledException)
+            return timeoutMs is > 0 ? $"Timed out after {timeoutMs}ms" : "Timed out";
+
+        string text = inner is HttpRequestException { StatusCode: { } status }
+            ? $"HttpRequestException (HTTP {(int)status} {status}): {inner.Message}"
+            : $"{inner.GetType().Name}: {inner.Message}";
+
+        return text.Length > MaxFailureReasonLength ? text[..(MaxFailureReasonLength - 1)] + "…" : text;
+    }
+
+    private static Exception Unwrap(Exception ex) => ex switch
+    {
+        AggregateException agg when agg.InnerExceptions.Count == 1 => Unwrap(agg.InnerExceptions[0]),
+        { InnerException: OperationCanceledException inner } => inner,
+        _ => ex,
+    };
 
     protected async Task<AgentMessage> AskUserAsync(
         int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct, bool isOptional = false)
@@ -248,38 +285,36 @@ public abstract class AgentBase
             return string.Empty;
         }
 
+        int promptTokens = query.Length / 4;
+        bool usageRecorded = false;
+
         try
         {
             var embedder = factory.CreateEmbeddingGeneration(config);
             var embeddings = await embedder.GenerateAsync([query], cancellationToken: ct);
             var embedding = embeddings[0].Vector;
 
-            int promptTokens = query.Length / 4;
-            try { await Notifier.NotifyTokenStatsAsync(bookId, chapterId, AgentRole.Embedder.ToString(), promptTokens, 0, ct); }
-            catch { /* non-fatal */ }
-            try
-            {
-                await Repo.AddTokenUsageAsync(new TokenUsageRecord
-                {
-                    BookId = bookId,
-                    ChapterId = chapterId,
-                    AgentRole = AgentRole.Embedder,
-                    PromptTokens = promptTokens,
-                    CompletionTokens = 0,
-                    Endpoint = config.Endpoint,
-                    ModelName = config.EmbeddingModelName
-                });
-            }
-            catch { /* non-fatal */ }
+            await RecordUsageAsync(bookId, chapterId, AgentRole.Embedder, promptTokens, 0,
+                config.Endpoint, config.EmbeddingModelName, failureReason: null, ct);
+            usageRecorded = true;
 
             var ancestryIds = await Repo.GetAncestryBookIdsAsync(bookId, ct);
             var chunks = await VectorStore.SearchAsync(bookId, embedding, topK, ancestryIds, ct);
             return string.Join("\n\n---\n\n", chunks.Select(c => $"[Chapter {c.ChapterNumber}]\n{c.Text}"));
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException ex)
+        {
+            if (!usageRecorded)
+                await RecordUsageAsync(bookId, chapterId, AgentRole.Embedder, promptTokens, 0,
+                    config.Endpoint, config.EmbeddingModelName, DescribeFailure(ex, ct.IsCancellationRequested, config.TimeoutMs), ct);
+            throw;
+        }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "[Book {BookId}] RAG context retrieval failed — continuing without context.", bookId);
+            if (!usageRecorded)
+                await RecordUsageAsync(bookId, chapterId, AgentRole.Embedder, promptTokens, 0,
+                    config.Endpoint, config.EmbeddingModelName, DescribeFailure(ex, false, config.TimeoutMs), ct);
             return string.Empty;
         }
     }
@@ -400,30 +435,28 @@ public abstract class AgentBase
         var chunks = TextChunker.Chunk(version.Content);
         var embedder = LlmFactory.CreateEmbeddingGeneration(config);
 
-        for (int i = 0; i < chunks.Count; i++)
-        {
-            var embeddings = await embedder.GenerateAsync([chunks[i]], cancellationToken: ct);
-            var embedding = embeddings[0].Vector;
-            await VectorStore.UpsertChunkAsync(bookId, chapterId, chapter.Number, i, chunks[i], embedding, ct, chapterVersionId);
-        }
-
-        int indexPromptTokens = chunks.Sum(c => c.Length) / 4;
-        try { await Notifier.NotifyTokenStatsAsync(bookId, chapterId, AgentRole.Embedder.ToString(), indexPromptTokens, 0, ct); }
-        catch { /* non-fatal */ }
+        int embeddedChars = 0;
         try
         {
-            await Repo.AddTokenUsageAsync(new TokenUsageRecord
+            for (int i = 0; i < chunks.Count; i++)
             {
-                BookId = bookId,
-                ChapterId = chapterId,
-                AgentRole = AgentRole.Embedder,
-                PromptTokens = indexPromptTokens,
-                CompletionTokens = 0,
-                Endpoint = config.Endpoint,
-                ModelName = config.EmbeddingModelName
-            });
+                var embeddings = await embedder.GenerateAsync([chunks[i]], cancellationToken: ct);
+                var embedding = embeddings[0].Vector;
+                embeddedChars += chunks[i].Length;
+                await VectorStore.UpsertChunkAsync(bookId, chapterId, chapter.Number, i, chunks[i], embedding, ct, chapterVersionId);
+            }
         }
-        catch { /* non-fatal */ }
+        catch (Exception ex)
+        {
+            // Still bill the chunks that were embedded before the failure.
+            await RecordUsageAsync(bookId, chapterId, AgentRole.Embedder, embeddedChars / 4, 0,
+                config.Endpoint, config.EmbeddingModelName,
+                DescribeFailure(ex, ex is OperationCanceledException && ct.IsCancellationRequested, config.TimeoutMs), ct);
+            throw;
+        }
+
+        await RecordUsageAsync(bookId, chapterId, AgentRole.Embedder, chunks.Sum(c => c.Length) / 4, 0,
+            config.Endpoint, config.EmbeddingModelName, failureReason: null, ct);
     }
 
     // ── Thinking / Reasoning helpers ────────────────────────────────────────────

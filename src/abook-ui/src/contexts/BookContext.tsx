@@ -21,6 +21,7 @@ export interface TokenStat {
   endpoint?: string | null
   modelName?: string | null
   failed?: boolean
+  failureReason?: string | null
   persisted?: boolean
 }
 
@@ -156,6 +157,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         endpoint: rec.endpoint,
         modelName: rec.modelName,
         failed: rec.failed ?? false,
+        failureReason: rec.failureReason ?? null,
         persisted: true,
       })))
     }), [bookId])

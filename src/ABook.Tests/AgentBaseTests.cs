@@ -156,3 +156,69 @@ public class AgentBaseInterpolateTests
         Assert.Contains("1. Dawn — intro", result);
     }
 }
+
+public class AgentBaseDescribeFailureTests
+{
+    [Fact]
+    public void Describe_UserCancellation_ReportsCancelled()
+    {
+        var result = AgentBase.DescribeFailure(new OperationCanceledException(), cancelledByUser: true);
+        Assert.Equal("Cancelled by user", result);
+    }
+
+    [Fact]
+    public void Describe_TimeoutWithoutUserCancellation_ReportsTimedOut()
+    {
+        // HttpClient.Timeout surfaces as TaskCanceledException while the agent's own token is untouched.
+        var result = AgentBase.DescribeFailure(new TaskCanceledException(), cancelledByUser: false);
+        Assert.Equal("Timed out", result);
+    }
+
+    [Fact]
+    public void Describe_TimeoutWithConfiguredTimeout_IncludesDuration()
+    {
+        var result = AgentBase.DescribeFailure(new TaskCanceledException(), cancelledByUser: false, timeoutMs: 120_000);
+        Assert.Equal("Timed out after 120000ms", result);
+    }
+
+    [Fact]
+    public void Describe_HttpRequestException_IncludesStatusCode()
+    {
+        var ex = new HttpRequestException("Bad upstream", null, System.Net.HttpStatusCode.BadGateway);
+        var result = AgentBase.DescribeFailure(ex, cancelledByUser: false);
+        Assert.Contains("502", result);
+        Assert.Contains("BadGateway", result);
+        Assert.Contains("Bad upstream", result);
+    }
+
+    [Fact]
+    public void Describe_GenericException_UsesTypeAndMessage()
+    {
+        var result = AgentBase.DescribeFailure(new InvalidOperationException("model not loaded"), cancelledByUser: false);
+        Assert.Equal("InvalidOperationException: model not loaded", result);
+    }
+
+    [Fact]
+    public void Describe_SingleAggregateException_UnwrapsInner()
+    {
+        var ex = new AggregateException(new InvalidOperationException("inner boom"));
+        var result = AgentBase.DescribeFailure(ex, cancelledByUser: false);
+        Assert.Equal("InvalidOperationException: inner boom", result);
+    }
+
+    [Fact]
+    public void Describe_WrappedCancellation_StillReportsTimedOut()
+    {
+        var ex = new AggregateException(new TaskCanceledException());
+        var result = AgentBase.DescribeFailure(ex, cancelledByUser: false);
+        Assert.Equal("Timed out", result);
+    }
+
+    [Fact]
+    public void Describe_VeryLongMessage_TruncatedToColumnLimit()
+    {
+        var result = AgentBase.DescribeFailure(new Exception(new string('x', 5000)), cancelledByUser: false);
+        Assert.Equal(1000, result.Length);
+        Assert.EndsWith("…", result);
+    }
+}

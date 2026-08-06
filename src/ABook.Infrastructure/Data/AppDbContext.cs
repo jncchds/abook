@@ -131,6 +131,7 @@ public class AppDbContext : DbContext
             t.HasKey(x => x.Id);
             t.Property(x => x.AgentRole).HasConversion<string>();
             t.Property(x => x.IsDeleted).HasDefaultValue(false);
+            t.Property(x => x.FailureReason).HasMaxLength(1000);
             t.HasOne(x => x.Book)
              .WithMany()
              .HasForeignKey(x => x.BookId)
