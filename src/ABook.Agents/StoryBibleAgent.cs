@@ -49,12 +49,12 @@ public class StoryBibleAgent : AgentBase
         var raw = await StreamResponseAsync(client, config, messages, bookId, null, AgentRole.StoryBibleAgent, ct, jsonSchema: JsonSchemas.StoryBible);
 
         StoryBible bible;
-        try { bible = Parse(bookId, raw); }
+        try { bible = ParseStoryBible(bookId, raw); }
         catch (Exception ex)
         {
             Logger.LogError(ex, "[Book {BookId}] StoryBibleAgent: could not parse Story Bible JSON.", bookId);
             await ReportErrorAsync(bookId, null, AgentRole.StoryBibleAgent,
-                "Story Bible JSON could not be parsed. Try again or simplify the premise.", ct);
+                $"Story Bible JSON could not be parsed. Try again or simplify the premise. Reason: {ex.Message}", ct);
             throw;
         }
 
@@ -97,14 +97,11 @@ public class StoryBibleAgent : AgentBase
         return saved;
     }
 
-    private static StoryBible Parse(int bookId, string raw)
+    internal static StoryBible ParseStoryBible(int bookId, string raw)
     {
-        var json = ExtractJson(raw, '{', '}');
-        if (string.IsNullOrWhiteSpace(json))
-            throw new FormatException("Story Bible response contained no JSON data.");
-        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        using var doc = PlanningParse.OpenObject(raw, "Story Bible");
         var r = doc.RootElement;
-        string Get(string key) => r.TryGetProperty(key, out var v) ? v.GetString() ?? "" : "";
+        string Get(string key) => LenientJson.Text(r, key);
         return new StoryBible
         {
             BookId = bookId,

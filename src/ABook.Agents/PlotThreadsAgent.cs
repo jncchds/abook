@@ -73,8 +73,9 @@ public class PlotThreadsAgent : AgentBase
             client, config, messages, bookId, null, AgentRole.PlotThreadsAgent, JsonSchemas.PlotThreads, ct);
 
         List<PlotThread> threads = [];
+        List<string> skipped = [];
         Exception? parseError = null;
-        try { threads = Parse(bookId, raw); }
+        try { threads = Parse(bookId, raw, skipped); }
         catch (Exception ex)
         {
             parseError = ex;
@@ -94,6 +95,14 @@ public class PlotThreadsAgent : AgentBase
         {
             await KeepPartialAsync(bookId, threads, parseError);
             Rethrow(failure ?? parseError!);
+        }
+
+        if (skipped.Count > 0)
+        {
+            Logger.LogWarning("[Book {BookId}] PlotThreadsAgent: dropped {Count} unusable element(s): {Detail}",
+                bookId, skipped.Count, string.Join(" | ", skipped));
+            await ReportNoteAsync(bookId, null, AgentRole.PlotThreadsAgent,
+                PlanningParse.KeptSummary(skipped, threads.Count, "plot thread(s)"), ct);
         }
 
         // Snapshot existing plot threads before deleting so they are preserved in history
@@ -189,7 +198,8 @@ public class PlotThreadsAgent : AgentBase
             bookId, saved.Count);
         await ReportErrorAsync(bookId, null, AgentRole.PlotThreadsAgent,
             $"The Plot Threads run was interrupted. Kept the {saved.Count} thread{(saved.Count == 1 ? "" : "s")} " +
-            "received before the failure — run it again to complete the map.");
+            "received before the failure — run it again to complete the map." +
+            (parseError is not null ? $" Reason: {parseError.Message}" : ""));
         await Notifier.NotifyWorkflowProgressAsync(bookId,
             $"Planning: kept {saved.Count} plot thread{(saved.Count == 1 ? "" : "s")} from the interrupted run.",
             false, CancellationToken.None);
@@ -209,40 +219,50 @@ public class PlotThreadsAgent : AgentBase
             CreatedBy = AgentCreatedBy.PlotThreads,
         }));
 
-    internal static List<PlotThread> Parse(int bookId, string raw)
+    /// <param name="skipped">Receives one line per rejected element, naming the reason and the offending JSON.</param>
+    internal static List<PlotThread> Parse(int bookId, string raw, List<string>? skipped = null)
     {
         // Salvaging keeps every element that finished streaming and drops only a truncated tail,
         // so a response cut short still yields the threads the author already saw.
-        var json = PartialJson.SalvageArray(raw);
-        if (string.IsNullOrWhiteSpace(json))
-            throw new FormatException("Plot threads response contained no JSON data.");
-        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        using var doc = PlanningParse.OpenArray(raw, "Plot threads");
         var threads = new List<PlotThread>();
+        var skips = skipped ?? [];
+        var index = 0;
         foreach (var el in doc.RootElement.EnumerateArray())
         {
-            string Get(string k) => el.TryGetProperty(k, out var v) ? v.GetString() ?? "" : "";
-            var name = Get("name");
-            if (string.IsNullOrWhiteSpace(name)) continue;   // unusable without a merge key
-            var type = Enum.TryParse<PlotThreadType>(Get("type"), true, out var t) ? t : PlotThreadType.Subplot;
-            var status = Enum.TryParse<PlotThreadStatus>(Get("status"), true, out var s) ? s : PlotThreadStatus.Active;
-            int? introduced = el.TryGetProperty("introducedChapterNumber", out var iv)
-                && iv.ValueKind == System.Text.Json.JsonValueKind.Number ? iv.GetInt32() : null;
-            int? resolved = el.TryGetProperty("resolvedChapterNumber", out var rv)
-                && rv.ValueKind == System.Text.Json.JsonValueKind.Number ? rv.GetInt32() : null;
-            threads.Add(new PlotThread
+            index++;
+            // One malformed entry must not cost the author the whole map — drop it and say why.
+            try
             {
-                BookId = bookId,
-                Name = name,
-                Description = Get("description"),
-                Type = type,
-                IntroducedChapterNumber = introduced,
-                ResolvedChapterNumber = resolved,
-                Status = status
-            });
+                string Get(string k) => LenientJson.Text(el, k);
+                var name = Get("name");
+                if (string.IsNullOrWhiteSpace(name))   // unusable without a merge key
+                {
+                    skips.Add(PlanningParse.SkipNote("Plot thread", index, el, "no \"name\" field"));
+                    continue;
+                }
+                var type = Enum.TryParse<PlotThreadType>(Get("type"), true, out var t) ? t : PlotThreadType.Subplot;
+                var status = Enum.TryParse<PlotThreadStatus>(Get("status"), true, out var s) ? s : PlotThreadStatus.Active;
+                threads.Add(new PlotThread
+                {
+                    BookId = bookId,
+                    Name = name,
+                    Description = Get("description"),
+                    Type = type,
+                    IntroducedChapterNumber = LenientJson.Int(el, "introducedChapterNumber"),
+                    ResolvedChapterNumber = LenientJson.Int(el, "resolvedChapterNumber"),
+                    Status = status
+                });
+            }
+            catch (Exception ex)
+            {
+                skips.Add(PlanningParse.SkipNote("Plot thread", index, el, ex));
+            }
         }
         // An empty result must not be allowed to wipe the book's existing threads.
         if (threads.Count == 0)
-            throw new FormatException("Plot threads response contained no usable thread.");
+            throw new FormatException(
+                $"Plot threads response contained no usable thread. {PlanningParse.SkipSummary(skips, index, raw)}");
         return threads;
     }
 }

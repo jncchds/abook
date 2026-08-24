@@ -288,6 +288,31 @@ public abstract class AgentBase
     protected Task ReportErrorAsync(int bookId, int? chapterId, AgentRole role, string message, CancellationToken ct = default) =>
         ReportAgentErrorCoreAsync(Repo, Notifier, Logger, bookId, role, chapterId, message);
 
+    /// <summary>
+    /// Records a non-fatal note in the chat — the run produced usable output but something is worth
+    /// the author's attention. Unlike <see cref="ReportErrorAsync"/> this raises no error signal.
+    /// </summary>
+    protected async Task ReportNoteAsync(int bookId, int? chapterId, AgentRole role, string message, CancellationToken ct = default)
+    {
+        try
+        {
+            await Repo.AddMessageAsync(new AgentMessage
+            {
+                BookId = bookId,
+                ChapterId = chapterId,
+                AgentRole = role,
+                MessageType = MessageType.SystemNote,
+                Content = $"⚠️ {message}",
+                IsResolved = true
+            });
+            await Notifier.NotifyMessagesUpdatedAsync(bookId, ct);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "[Book {BookId}] Failed to persist warning SystemNote for {Role}.", bookId, role);
+        }
+    }
+
     internal static async Task ReportAgentErrorCoreAsync(
         IBookRepository repo, IBookNotifier notifier, ILogger logger,
         int bookId, AgentRole role, int? chapterId, string message)

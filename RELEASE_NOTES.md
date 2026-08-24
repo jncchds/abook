@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.1.23 — 2026-08-25
+
+- fix: planning agents no longer abort the whole run when an OpenAI-compatible endpoint (LM Studio, Ollama, vLLM) ignores the JSON schema types. Chapter numbers returned as `1.0`, `"3"` or `"Chapter 4"` are coerced instead of throwing `System.FormatException`, and text fields returned as arrays or numbers are flattened instead of throwing. Shared `LenientJson` reader used by `StoryBibleAgent`, `CharactersAgent`, `PlotThreadsAgent` and `PlannerAgent`
+- feat: planning failures are self-describing — the chat message names the agent and quotes what the model actually returned instead of showing a bare `System.FormatException`. New `PlanningParse` helper wraps every `JsonDocument.Parse` in the planning agents, so "no JSON", "invalid JSON" and "root was not an object" all arrive with a 300-character snippet of the response
+- feat: a single malformed entry no longer aborts a planning run — each array element is parsed on its own, unusable ones are dropped with a reason (index, cause, and the offending JSON), and the run continues. On success the agent posts a `⚠️` note listing what it dropped; when nothing survives, the error lists why each entry was rejected
+- feat: `AgentBase.ReportNoteAsync` posts a non-fatal `⚠️` SystemNote — used for drops that did not fail the run, so they no longer have to masquerade as errors
+- fix: keep-partial and Story Bible failure notes append the underlying `Reason:` instead of replacing it with generic advice ("Try again or simplify the premise")
+
 ## v0.1.22 — 2026-08-06
 
 - feat: in human-assisted mode the per-chapter pause moved to where it is useful — after the Editor applies the mechanical patches, before the creative rewrite. The author now reads already-corrected prose instead of guessing what the Checker will find

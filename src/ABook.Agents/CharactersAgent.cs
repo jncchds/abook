@@ -64,8 +64,9 @@ public class CharactersAgent : AgentBase
             client, config, messages, bookId, null, AgentRole.CharactersAgent, JsonSchemas.Characters, ct);
 
         List<CharacterCard> characters = [];
+        List<string> skipped = [];
         Exception? parseError = null;
-        try { characters = Parse(bookId, raw); }
+        try { characters = Parse(bookId, raw, skipped); }
         catch (Exception ex)
         {
             parseError = ex;
@@ -85,6 +86,14 @@ public class CharactersAgent : AgentBase
         {
             await KeepPartialAsync(bookId, characters, parseError);
             Rethrow(failure ?? parseError!);
+        }
+
+        if (skipped.Count > 0)
+        {
+            Logger.LogWarning("[Book {BookId}] CharactersAgent: dropped {Count} unusable element(s): {Detail}",
+                bookId, skipped.Count, string.Join(" | ", skipped));
+            await ReportNoteAsync(bookId, null, AgentRole.CharactersAgent,
+                PlanningParse.KeptSummary(skipped, characters.Count, "character(s)"), ct);
         }
 
         // Snapshot existing characters before deleting so they are preserved in history
@@ -183,7 +192,8 @@ public class CharactersAgent : AgentBase
             bookId, saved.Count);
         await ReportErrorAsync(bookId, null, AgentRole.CharactersAgent,
             $"The Characters run was interrupted. Kept the {saved.Count} profile{(saved.Count == 1 ? "" : "s")} " +
-            "received before the failure — run it again to complete the set.");
+            "received before the failure — run it again to complete the set." +
+            (parseError is not null ? $" Reason: {parseError.Message}" : ""));
         await Notifier.NotifyWorkflowProgressAsync(bookId,
             $"Planning: kept {saved.Count} character{(saved.Count == 1 ? "" : "s")} from the interrupted run.",
             false, CancellationToken.None);
@@ -206,41 +216,53 @@ public class CharactersAgent : AgentBase
             CreatedBy = AgentCreatedBy.Characters,
         }));
 
-    internal static List<CharacterCard> Parse(int bookId, string raw)
+    /// <param name="skipped">Receives one line per rejected element, naming the reason and the offending JSON.</param>
+    internal static List<CharacterCard> Parse(int bookId, string raw, List<string>? skipped = null)
     {
         // Salvaging keeps every element that finished streaming and drops only a truncated tail,
         // so a response cut short still yields the characters the author already saw.
-        var json = PartialJson.SalvageArray(raw);
-        if (string.IsNullOrWhiteSpace(json))
-            throw new FormatException("Character cards response contained no JSON data.");
-        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        using var doc = PlanningParse.OpenArray(raw, "Character cards");
         var cards = new List<CharacterCard>();
+        var skips = skipped ?? [];
+        var index = 0;
         foreach (var el in doc.RootElement.EnumerateArray())
         {
-            string Get(string k) => el.TryGetProperty(k, out var v) ? v.GetString() ?? "" : "";
-            var name = Get("name");
-            if (string.IsNullOrWhiteSpace(name)) continue;   // unusable without a merge key
-            var roleStr = Get("role");
-            var role = Enum.TryParse<CharacterRole>(roleStr, true, out var r) ? r : CharacterRole.Supporting;
-            int? firstCh = el.TryGetProperty("firstAppearanceChapterNumber", out var fv)
-                && fv.ValueKind == System.Text.Json.JsonValueKind.Number ? fv.GetInt32() : null;
-            cards.Add(new CharacterCard
+            index++;
+            // One malformed card must not cost the author the whole cast — drop it and say why.
+            try
             {
-                BookId = bookId,
-                Name = name,
-                Role = role,
-                PhysicalDescription = Get("physicalDescription"),
-                Personality = Get("personality"),
-                Backstory = Get("backstory"),
-                GoalMotivation = Get("goalMotivation"),
-                Arc = Get("arc"),
-                FirstAppearanceChapterNumber = firstCh,
-                Notes = Get("notes")
-            });
+                string Get(string k) => LenientJson.Text(el, k);
+                var name = Get("name");
+                if (string.IsNullOrWhiteSpace(name))   // unusable without a merge key
+                {
+                    skips.Add(PlanningParse.SkipNote("Character", index, el, "no \"name\" field"));
+                    continue;
+                }
+                var roleStr = Get("role");
+                var role = Enum.TryParse<CharacterRole>(roleStr, true, out var r) ? r : CharacterRole.Supporting;
+                cards.Add(new CharacterCard
+                {
+                    BookId = bookId,
+                    Name = name,
+                    Role = role,
+                    PhysicalDescription = Get("physicalDescription"),
+                    Personality = Get("personality"),
+                    Backstory = Get("backstory"),
+                    GoalMotivation = Get("goalMotivation"),
+                    Arc = Get("arc"),
+                    FirstAppearanceChapterNumber = LenientJson.Int(el, "firstAppearanceChapterNumber"),
+                    Notes = Get("notes")
+                });
+            }
+            catch (Exception ex)
+            {
+                skips.Add(PlanningParse.SkipNote("Character", index, el, ex));
+            }
         }
         // An empty result must not be allowed to wipe the book's existing cards.
         if (cards.Count == 0)
-            throw new FormatException("Character cards response contained no usable character.");
+            throw new FormatException(
+                $"Character cards response contained no usable character. {PlanningParse.SkipSummary(skips, index, raw)}");
         return cards;
     }
 }

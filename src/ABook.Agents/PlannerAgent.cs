@@ -79,8 +79,9 @@ public class PlannerAgent : AgentBase
             client, config, messages, bookId, null, AgentRole.ChaptersAgent, JsonSchemas.ChapterOutlines, ct);
 
         List<Chapter> chapters = [];
+        List<string> skipped = [];
         Exception? parseError = null;
-        try { chapters = ParseChapterOutlines(bookId, chapterRaw); }
+        try { chapters = ParseChapterOutlines(bookId, chapterRaw, skipped); }
         catch (Exception ex)
         {
             parseError = ex;
@@ -100,6 +101,14 @@ public class PlannerAgent : AgentBase
         {
             await KeepPartialAsync(bookId, chapters, parseError);
             Rethrow(failure ?? parseError!);
+        }
+
+        if (skipped.Count > 0)
+        {
+            Logger.LogWarning("[Book {BookId}] PlannerAgent: dropped {Count} unusable element(s): {Detail}",
+                bookId, skipped.Count, string.Join(" | ", skipped));
+            await ReportNoteAsync(bookId, null, AgentRole.ChaptersAgent,
+                PlanningParse.KeptSummary(skipped, chapters.Count, "chapter outline(s)"), ct);
         }
 
         // Sync existing chapters *after* a successful parse so a failed re-plan does not wipe the book.
@@ -167,7 +176,8 @@ public class PlannerAgent : AgentBase
             bookId, saved.Count);
         await ReportErrorAsync(bookId, null, AgentRole.ChaptersAgent,
             $"The Chapter Outlines run was interrupted. Kept the {saved.Count} outline{(saved.Count == 1 ? "" : "s")} " +
-            "received before the failure — run it again to complete the set.");
+            "received before the failure — run it again to complete the set." +
+            (parseError is not null ? $" Reason: {parseError.Message}" : ""));
         await Notifier.NotifyWorkflowProgressAsync(bookId,
             $"Planning: kept {saved.Count} chapter outline{(saved.Count == 1 ? "" : "s")} from the interrupted run.",
             false, CancellationToken.None);
@@ -175,44 +185,53 @@ public class PlannerAgent : AgentBase
 
     // JSON Parser
 
-    internal static List<Chapter> ParseChapterOutlines(int bookId, string raw)
+    /// <param name="skipped">Receives one line per rejected element, naming the reason and the offending JSON.</param>
+    internal static List<Chapter> ParseChapterOutlines(int bookId, string raw, List<string>? skipped = null)
     {
         // Salvaging keeps every element that finished streaming and drops only a truncated tail,
         // so a response cut short still yields the outlines the author already saw.
-        var json = PartialJson.SalvageArray(raw);
-        if (string.IsNullOrWhiteSpace(json))
-            throw new FormatException("Chapter outlines response contained no JSON data.");
-        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        using var doc = PlanningParse.OpenArray(raw, "Chapter outlines");
         var chapters = new List<Chapter>();
+        var skips = skipped ?? [];
+        var index = 0;
         foreach (var el in doc.RootElement.EnumerateArray())
         {
-            string Get(string k) => el.TryGetProperty(k, out var v) ? v.GetString() ?? "" : "";
-            string GetArray(string k)
+            index++;
+            // One malformed outline must not cost the author the whole plan — drop it and say why.
+            try
             {
-                if (!el.TryGetProperty(k, out var v)) return "[]";
-                if (v.ValueKind == System.Text.Json.JsonValueKind.Array)
-                    return v.GetRawText();
-                return "[]";
+                string Get(string k) => LenientJson.Text(el, k);
+                string GetArray(string k)
+                {
+                    if (el.ValueKind != System.Text.Json.JsonValueKind.Object
+                        || !el.TryGetProperty(k, out var v)) return "[]";
+                    if (v.ValueKind == System.Text.Json.JsonValueKind.Array)
+                        return v.GetRawText();
+                    return "[]";
+                }
+                chapters.Add(new Chapter
+                {
+                    BookId = bookId,
+                    Number = LenientJson.Int(el, "number") ?? chapters.Count + 1,
+                    Title = Get("title"),
+                    Outline = Get("outline"),
+                    PovCharacter = Get("povCharacter"),
+                    CharactersInvolvedJson = GetArray("charactersInvolved"),
+                    PlotThreadsJson = GetArray("plotThreads"),
+                    ForeshadowingNotes = Get("foreshadowingNotes"),
+                    PayoffNotes = Get("payoffNotes"),
+                    Status = ChapterStatus.Outlined
+                });
             }
-            chapters.Add(new Chapter
+            catch (Exception ex)
             {
-                BookId = bookId,
-                Number = el.TryGetProperty("number", out var nv)
-                    && nv.ValueKind == System.Text.Json.JsonValueKind.Number
-                        ? nv.GetInt32() : chapters.Count + 1,
-                Title = Get("title"),
-                Outline = Get("outline"),
-                PovCharacter = Get("povCharacter"),
-                CharactersInvolvedJson = GetArray("charactersInvolved"),
-                PlotThreadsJson = GetArray("plotThreads"),
-                ForeshadowingNotes = Get("foreshadowingNotes"),
-                PayoffNotes = Get("payoffNotes"),
-                Status = ChapterStatus.Outlined
-            });
+                skips.Add(PlanningParse.SkipNote("Chapter outline", index, el, ex));
+            }
         }
         // An empty result must not be allowed to wipe the book's existing chapters.
         if (chapters.Count == 0)
-            throw new FormatException("Chapter outlines response contained no usable chapter.");
+            throw new FormatException(
+                $"Chapter outlines response contained no usable chapter. {PlanningParse.SkipSummary(skips, index, raw)}");
         return chapters;
     }
 }
