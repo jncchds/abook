@@ -1,5 +1,11 @@
 # ABook — Copilot Workspace Instructions
 
+## Mandatory entrypoint
+
+Before inspecting or changing the repository, read [`ORCHESTRATOR.md`](../ORCHESTRATOR.md). It defines the required task-classification, repository-entry, execution, validation, safety, and MCP-operation workflow for every orchestrator. Then read `AGENTS.md` for the detailed architecture and current implementation decisions.
+
+Never skip the orchestrator entry protocol because a task appears small. Use the validation matrix for every subsystem touched, preserve pre-existing user changes, and stop/escalate only under the conditions defined there.
+
 ## Keep AGENTS.md Current
 
 After every change to this codebase — new files, renamed files, schema changes, dependency decisions, architectural decisions, technical gotchas discovered — update `AGENTS.md` immediately to reflect the new state. Do not wait to be asked.
@@ -54,9 +60,11 @@ Do not leave a codebase in a broken state. If a change introduces errors in file
 
 This project uses semantic versioning (`MAJOR.MINOR.PATCH`). The authoritative version lives in the `VERSION` file at the repo root.
 
-**Every commit that changes code or behaviour must:**
-1. Increment the **patch** number in `VERSION` (e.g. `0.1.3` → `0.1.4`).
-2. Add a bullet point describing the change under a new `## v{version} — {date}` heading in `RELEASE_NOTES.md`. Use today's date in `YYYY-MM-DD` format.
+**Before every commit that changes code or behaviour:**
+1. Check whether the current `VERSION` value has already been pushed to the target base history (for example with `git log origin/main..HEAD -- VERSION`).
+2. If that version is already published, increment the **patch** number (e.g. `0.1.3` → `0.1.4`) and create a matching `## v{version} — {date}` heading in `RELEASE_NOTES.md`.
+3. If that version has **not** yet been published, reuse the current version and append the new change under its existing release-note heading rather than bumping again.
+4. Documentation-only commits do not require a version bump.
 
 **Only when the user explicitly instructs it:**
 - Increment the **minor** number and reset patch to 0 (e.g. `0.1.4` → `0.2.0`) for new features or significant improvements.

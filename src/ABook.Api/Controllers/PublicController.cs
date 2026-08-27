@@ -111,7 +111,8 @@ public class PublicController : ControllerBase
             .OrderBy(c => c.Number)
             .Select(c => new
             {
-                c.Id, c.Number, c.Title, c.Outline, c.Content, status = c.Status.ToString()
+                c.Id, c.Number, c.Title, c.Outline, c.Content, status = c.Status.ToString(),
+                c.PovCharacter, c.ForeshadowingNotes, c.PayoffNotes
             })
             .ToList();
 

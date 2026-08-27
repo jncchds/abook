@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useBookContext } from '../../contexts/BookContext'
-import { createChapter, updateChapter, archiveChapter, restoreChapter, clearChapterContent, getChapterVersions, getChapterVersion } from '../../api'
+import { createChapter, archiveChapter, restoreChapter, clearChapterContent, getChapterVersions, getChapterVersion } from '../../api'
 import type { ChapterVersionMeta, ChapterVersionFull } from '../../api'
 import { parsePlanningStream } from '../../utils/streamParsers'
 import { chapterStatusColor } from '../../utils/chapterStatus'
@@ -99,8 +99,19 @@ export default function Chapters() {
     <div>
       <div className="page-header">
         <h2>Chapters ({activeChapters.length}{archivedChapters.length > 0 ? ' + ' + archivedChapters.length + ' archived' : ''})</h2>
-        <button className="btn-sm" onClick={() => setAddingChapter(true)}>+ Add</button>
+        {canEdit && <button className="btn-sm" onClick={() => setAddingChapter(true)}>+ Add</button>}
       </div>
+
+      {addingChapter && canEdit && (
+        <form className="card settings-form" style={{ marginBottom: '1rem' }} onSubmit={e => { e.preventDefault(); void handleAddChapter() }}>
+          <label>Title<input value={newTitle} onChange={e => setNewTitle(e.target.value)} autoFocus required /></label>
+          <label>Outline<textarea rows={4} value={newOutline} onChange={e => setNewOutline(e.target.value)} /></label>
+          <div className="book-edit-actions">
+            <button type="submit" disabled={!newTitle.trim()}>Add Chapter</button>
+            <button type="button" className="btn-ghost" onClick={() => { setAddingChapter(false); setNewTitle(''); setNewOutline('') }}>Cancel</button>
+          </div>
+        </form>
+      )}
 
       {/* Phase action bar */}
       <PhaseActionBar

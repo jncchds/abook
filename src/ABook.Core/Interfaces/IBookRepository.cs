@@ -53,7 +53,10 @@ public interface IBookRepository
     Task<AgentMessage> AddMessageAsync(AgentMessage message);
     Task UpdateMessageAsync(AgentMessage message);
 
+    /// <summary>Resolves the effective LLM configuration: book-specific → user default → global.</summary>
     Task<LlmConfiguration?> GetLlmConfigAsync(int? bookId, int? userId = null);
+    /// <summary>Returns only the configuration whose BookId/UserId exactly match the requested scope; never falls back.</summary>
+    Task<LlmConfiguration?> GetExactLlmConfigAsync(int? bookId, int? userId);
     Task<LlmConfiguration> UpsertLlmConfigAsync(LlmConfiguration config);
 
     Task<TokenUsageRecord> AddTokenUsageAsync(TokenUsageRecord record);

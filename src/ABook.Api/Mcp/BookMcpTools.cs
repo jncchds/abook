@@ -140,15 +140,17 @@ public class BookMcpTools : McpToolBase
     // ── Agent status ─────────────────────────────────────────────────────────
 
     [McpServerTool(Name = "get_agent_status", ReadOnly = true)]
-    [Description("Get the current status of any running agent for a book. Returns null if no agent is running. States: Running, WaitingForInput (agent needs an answer — use answer_agent_question).")]
-    public string GetAgentStatus(
+    [Description("Get the current agent-run status for a book. running=true only for Running or WaitingForInput; terminal states such as Completed, Failed, or Cancelled are returned with running=false.")]
+    public async Task<string> GetAgentStatus(
         [Description("The book ID to check agent status for.")] int bookId)
     {
+        await GetOwnedBookAsync(bookId, _repo);
         var status = _runState.GetStatus(bookId);
         if (status is null) return JsonSerializer.Serialize(new { running = false }, JsonOptions);
+        var running = status.State is "Running" or "WaitingForInput";
         return JsonSerializer.Serialize(new
         {
-            running = true,
+            running,
             role = status.Role.ToString(),
             state = status.State,
             chapterId = status.ChapterId

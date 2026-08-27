@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 
 const STORAGE_KEY = 'abook:notifications:enabled'
 
@@ -16,11 +16,6 @@ export function useNotifications() {
     return localStorage.getItem(STORAGE_KEY) === 'true'
   })
 
-  // Keep permission state in sync (e.g. user revokes in browser settings)
-  useEffect(() => {
-    if (!supported) return
-    setPermission(Notification.permission as NotificationPermissionState)
-  }, [supported])
 
   const requestPermission = async (): Promise<NotificationPermission> => {
     if (!supported) return 'denied'

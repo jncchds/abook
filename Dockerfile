@@ -6,7 +6,7 @@ RUN npm ci
 COPY src/abook-ui/ ./
 COPY VERSION /VERSION
 # Build to ./dist (override the dev outDir pointing to ASP.NET wwwroot)
-RUN npx vite build --outDir ./dist --emptyOutDir
+RUN npm run lint && npm run build -- --outDir ./dist --emptyOutDir
 
 # ── Stage 2: Build .NET API ───────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS api-build
@@ -26,6 +26,7 @@ RUN dotnet publish src/ABook.Api/ABook.Api.csproj -c Release -o /app/publish --n
 
 # ── Stage 3: Runtime ──────────────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends libgssapi-krb5-2 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=api-build /app/publish ./
 

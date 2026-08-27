@@ -87,7 +87,7 @@ public class AgentController : ControllerBase
     {
         var blocked = EnsureCanStart(bookId);
         if (blocked is not null) return blocked;
-        _ = _runner.RunAsync(bookId, (o, c) => o.StartContinuityCheckAsync(bookId, c), _runState.CreateRunCts(bookId));
+        _ = _runner.RunAsync(bookId, (o, c) => o.StartContinuityCheckAsync(bookId, null, c), _runState.CreateRunCts(bookId));
         return Accepted();
     }
 

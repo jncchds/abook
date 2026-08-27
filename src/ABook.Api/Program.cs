@@ -11,6 +11,8 @@ using ABook.Infrastructure.Repositories;
 using ABook.Infrastructure.VectorStore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
+using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Pgvector.EntityFrameworkCore;
@@ -40,6 +42,31 @@ builder.Services.AddScoped<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>();
 builder.Services.AddHttpClient("ollama");
 builder.Services.AddHttpContextAccessor();
 
+// ── Data Protection ───────────────────────────────────────────────────────────
+// Production cookie keys must survive container recreation and be encrypted at rest.
+// The key ring and certificate are supplied by the deployment, never baked into the image.
+var dataProtectionKeyPath = builder.Configuration["DataProtection:KeyPath"];
+if (!string.IsNullOrWhiteSpace(dataProtectionKeyPath))
+{
+    Directory.CreateDirectory(dataProtectionKeyPath);
+    var dataProtection = builder.Services.AddDataProtection()
+        .SetApplicationName("ABook")
+        .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyPath));
+
+    var certificatePath = builder.Configuration["DataProtection:CertificatePath"];
+    if (string.IsNullOrWhiteSpace(certificatePath) || !File.Exists(certificatePath))
+        throw new InvalidOperationException("DataProtection:CertificatePath must point to a readable PFX certificate when persistent keys are enabled.");
+
+    var passwordFile = builder.Configuration["DataProtection:CertificatePasswordFile"];
+    var certificatePassword = !string.IsNullOrWhiteSpace(passwordFile) && File.Exists(passwordFile)
+        ? File.ReadAllText(passwordFile).Trim()
+        : builder.Configuration["DataProtection:CertificatePassword"];
+
+    var certificate = X509CertificateLoader.LoadPkcs12FromFile(certificatePath, certificatePassword);
+    dataProtection.ProtectKeysWithCertificate(certificate);
+}
+// If no DataProtection key path is configured, retain ASP.NET Core's default behavior for backward compatibility.
+// Production deployments that need cookie continuity across container recreation should configure the options above.
 // ── Auth (cookie-based + ApiToken for MCP) ────────────────────────────────────
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(o =>

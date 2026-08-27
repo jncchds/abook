@@ -61,8 +61,8 @@ public class UserMcpTools : McpToolBase
     {
         var userId = CurrentUserId();
         // User-level default first, then global fallback
-        var config = await _repo.GetLlmConfigAsync(null, userId)
-                  ?? await _repo.GetLlmConfigAsync(null, null);
+        var config = await _repo.GetExactLlmConfigAsync(null, userId)
+                  ?? await _repo.GetExactLlmConfigAsync(null, null);
         if (config is null)
             return JsonSerializer.Serialize(new { exists = false }, JsonOptions);
         return JsonSerializer.Serialize(new
@@ -91,7 +91,7 @@ public class UserMcpTools : McpToolBase
             throw new McpException($"Unknown provider '{provider}'. Valid values: Ollama, OpenAI, GoogleAIStudio.");
 
         var userId = CurrentUserId();
-        var existing = await _repo.GetLlmConfigAsync(null, userId);
+        var existing = await _repo.GetExactLlmConfigAsync(null, userId);
         var config = existing ?? new LlmConfiguration { UserId = userId };
         config.Provider = providerEnum;
         config.ModelName = modelName;
@@ -141,7 +141,7 @@ public class UserMcpTools : McpToolBase
         if (preset is null || (preset.UserId is not null && preset.UserId != userId))
             throw new McpException($"Preset {presetId} not found.");
 
-        var existing = await _repo.GetLlmConfigAsync(null, userId);
+        var existing = await _repo.GetExactLlmConfigAsync(null, userId);
         var config = existing ?? new LlmConfiguration { UserId = userId };
         config.Provider = preset.Provider;
         config.ModelName = preset.ModelName;
@@ -174,6 +174,11 @@ public class UserMcpTools : McpToolBase
         [Description("Language for the book text (e.g. English, Spanish). Defaults to English.")] string language = "English")
     {
         var userId = CurrentUserId();
+
+        // Match the workflow tools: do not create an orphan book and claim the run started
+        // when the server is already at its concurrent-agent limit.
+        if (_runState.IsAtCapacity())
+            throw new McpException("Server is at maximum concurrent agent capacity. Please try again when a run completes.");
 
         // Create the book
         var book = await _repo.AddAsync(new Book
