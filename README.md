@@ -147,6 +147,9 @@ volumes:
 | `LlmDefaults__EmbeddingModelName` | — | Embedding model for RAG (optional; falls back to chat model) |
 | `AgentSettings__MaxConcurrentRuns` | `3` | Max simultaneous agent runs across all books/users |
 | `PublicMode` | `false` | Enable public library (anonymous access to published books) |
+| `DataProtection__KeyPath` | — | Optional persistent ASP.NET Data Protection key-ring directory; configure this to keep auth cookies valid across container recreation |
+| `DataProtection__CertificatePath` | — | PFX certificate used to encrypt a configured persistent key ring at rest |
+| `DataProtection__CertificatePasswordFile` | — | File containing the PFX password; preferred over placing the password directly in an environment variable |
 
 > Changing `AgentSettings__MaxConcurrentRuns` requires restarting the API process/container.
 
@@ -165,11 +168,14 @@ Configure the LLM backend in **Settings** or via the API:
 
 Configurations can be set globally, per-user, or per-book. The lookup order is: book-specific → user-default → global.
 
+> **Persistent login cookies in Docker:** set `DataProtection__KeyPath` to a mounted persistent directory. On Linux, also set `DataProtection__CertificatePath` and `DataProtection__CertificatePasswordFile` to keep the persisted key ring encrypted at rest. These settings are optional so existing deployments keep their current startup behavior.
+
 Local models often ignore the JSON schema the planning agents send — returning a chapter number as `1.0` or `"3"`, or a text field as a list. The parsers coerce those instead of failing, drop only the entries they genuinely cannot read, and post a `⚠️` note in the book's chat naming each dropped entry and the JSON behind it. If a planning phase does fail outright, the error in the chat quotes what the model actually returned.
 
 ### MCP Access
 
 ABook includes a built-in [Model Context Protocol](https://modelcontextprotocol.io/) server at `/mcp`. Any MCP-compatible client can connect to read and write book content and trigger agent workflows.
+MCP access is user-scoped: per-book status/control tools validate book ownership, agent questions can only be answered by the owner of their book, and `stop_workflow` cannot stop another user's run. Per-chapter Write/Edit/Checker runs use the same cancellation mechanism as the REST API, so `stop_workflow` cancels them consistently. `run_continuity_check` forwards an optional `chapterId` for focused checking. User-level LLM setters create or update the authenticated user's configuration without mutating the global fallback configuration.
 
 **Setup:**
 1. Open **Settings** → **MCP Access**

@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect -- Remote data effects intentionally drive request state. */
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getPublicConfig, getPublicGenres, getPublicBooks } from '../api'

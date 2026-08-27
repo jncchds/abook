@@ -4,7 +4,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 import fs from 'fs'
 import path from 'path'
 
-const appVersion = fs.readFileSync(path.resolve(__dirname, '../../VERSION'), 'utf-8').trim()
+const appVersion = fs.readFileSync(path.resolve(import.meta.dirname, '../../VERSION'), 'utf-8').trim()
 
 // https://vite.dev/config/
 export default defineConfig({

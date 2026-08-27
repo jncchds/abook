@@ -36,6 +36,8 @@ export default function Presets() {
     getPresets().then(r => setPresets(r.data)).catch(err => console.error('Failed to load presets', err))
   }, [])
 
+  // Provider changes should refresh automatically; endpoint/API-key edits use the explicit Refresh button.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchModels() }, [form.provider])
 
   const handleSubmit = async (e: React.FormEvent) => {

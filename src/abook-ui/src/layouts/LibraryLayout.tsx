@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect -- Remote data effects intentionally drive request state. */
 import { useState, useEffect, useRef } from 'react'
 import { Outlet, useParams, useNavigate, useLocation } from 'react-router-dom'
 import Sidebar, { SidebarBtn, SidebarDivider } from '../components/Sidebar'

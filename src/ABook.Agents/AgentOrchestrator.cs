@@ -86,9 +86,9 @@ public class AgentOrchestrator : IAgentOrchestrator
         ExecuteAgentRunAsync(bookId, AgentRole.Editor, chapterId, ct,
             c => _editor.EditAsync(bookId, chapterId, c));
 
-    public Task StartContinuityCheckAsync(int bookId, CancellationToken ct = default) =>
-        ExecuteAgentRunAsync(bookId, AgentRole.ContinuityChecker, null, ct,
-            async c => await _continuity.CheckAsync(bookId, ct: c));
+    public Task StartContinuityCheckAsync(int bookId, int? chapterId = null, CancellationToken ct = default) =>
+        ExecuteAgentRunAsync(bookId, AgentRole.ContinuityChecker, chapterId, ct,
+            async c => await _continuity.CheckAsync(bookId, chapterId, c));
 
     /// <summary>
     /// Full autonomous workflow: Plan → Write+Edit each chapter → Continuity check.

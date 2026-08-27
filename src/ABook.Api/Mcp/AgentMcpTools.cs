@@ -1,6 +1,7 @@
 using ABook.Agents;
 using ABook.Api.Services;
 using ABook.Core.Interfaces;
+using ABook.Core.Models;
 using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using System.ComponentModel;
@@ -106,9 +107,10 @@ public class AgentMcpTools : McpToolBase
 
     [McpServerTool(Name = "stop_workflow")]
     [Description("Stop any currently running agent for a book. The agent will finish its current LLM call before stopping.")]
-    public string StopWorkflow(
+    public async Task<string> StopWorkflow(
         [Description("The book ID.")] int bookId)
     {
+        await EnsureBookOwnershipAsync(bookId, _repo);
         _runState.CancelRun(bookId);
         return JsonSerializer.Serialize(new { stopped = true, bookId }, JsonOptions);
     }
@@ -124,7 +126,8 @@ public class AgentMcpTools : McpToolBase
         await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
         await EnsureChapterNotArchivedAsync(bookId, chapterId);
-        _ = _runner.RunAsync(bookId, (o, ct) => o.StartWritingAsync(bookId, chapterId, ct));
+        var ct = _runState.CreateRunCts(bookId);
+        _ = _runner.RunAsync(bookId, (o, c) => o.StartWritingAsync(bookId, chapterId, c), ct);
         return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "writing" }, JsonOptions);
     }
 
@@ -137,7 +140,8 @@ public class AgentMcpTools : McpToolBase
         await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
         await EnsureChapterNotArchivedAsync(bookId, chapterId);
-        _ = _runner.RunAsync(bookId, (o, ct) => o.StartEditingAsync(bookId, chapterId, ct));
+        var ct = _runState.CreateRunCts(bookId);
+        _ = _runner.RunAsync(bookId, (o, c) => o.StartEditingAsync(bookId, chapterId, c), ct);
         return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "editing" }, JsonOptions);
     }
 
@@ -149,7 +153,10 @@ public class AgentMcpTools : McpToolBase
     {
         await EnsureBookOwnershipAsync(bookId, _repo);
         EnsureCanStart(bookId);
-        _ = _runner.RunAsync(bookId, (o, ct) => o.StartContinuityCheckAsync(bookId, ct));
+        if (chapterId.HasValue)
+            await EnsureChapterNotArchivedAsync(bookId, chapterId.Value);
+        var ct = _runState.CreateRunCts(bookId);
+        _ = _runner.RunAsync(bookId, (o, c) => o.StartContinuityCheckAsync(bookId, chapterId, c), ct);
         return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "continuity_check" }, JsonOptions);
     }
 
@@ -163,6 +170,14 @@ public class AgentMcpTools : McpToolBase
     {
         if (string.IsNullOrWhiteSpace(answer))
             throw new McpException("Answer must not be empty.");
+
+        var message = await _repo.FindMessageByIdAsync(messageId)
+            ?? throw new McpException($"Question {messageId} not found.");
+        await EnsureBookOwnershipAsync(message.BookId, _repo);
+        if (message.IsDeleted || message.MessageType != MessageType.Question)
+            throw new McpException($"Question {messageId} not found.");
+        if (message.IsResolved)
+            throw new McpException($"Question {messageId} has already been answered.");
 
         using var scope = _scopeFactory.CreateScope();
         var orchestrator = scope.ServiceProvider.GetRequiredService<IAgentOrchestrator>();

@@ -7,7 +7,7 @@ public interface IAgentOrchestrator
     Task StartPlanningAsync(int bookId, CancellationToken ct = default);
     Task StartWritingAsync(int bookId, int chapterId, CancellationToken ct = default);
     Task StartEditingAsync(int bookId, int chapterId, CancellationToken ct = default);
-    Task StartContinuityCheckAsync(int bookId, CancellationToken ct = default);
+    Task StartContinuityCheckAsync(int bookId, int? chapterId = null, CancellationToken ct = default);
     Task StartWorkflowAsync(int bookId, CancellationToken ct = default);
     Task ContinueWorkflowAsync(int bookId, CancellationToken ct = default);
     Task ContinuePlanningAsync(int bookId, CancellationToken ct = default);

@@ -16,6 +16,11 @@ services:
       # - LlmDefaults__EmbeddingModelName=nomic-embed-text
       # ── Logging ───────────────────────────────────────────────────────────────
       # - LLM_DEBUG_LOGGING=true                # print full chat history + responses to app log
+      # ── Optional persistent Data Protection keys ─────────────────────────────
+      # Mount the referenced paths/volume before enabling these values.
+      # - DataProtection__KeyPath=/var/lib/abook/dataprotection-keys
+      # - DataProtection__CertificatePath=/run/secrets/abook-dataprotection.pfx
+      # - DataProtection__CertificatePasswordFile=/run/secrets/abook-dataprotection-password
     depends_on:
       postgres:
         condition: service_healthy

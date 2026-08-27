@@ -155,7 +155,7 @@ export default function GlobalSettings() {
             const total = obj.total ? ` (${Math.round(obj.completed / obj.total * 100)}%)` : ''
             setPullStatus(status + total)
             if (status === 'success') {
-              fetchModels(config.endpoint, config.provider, config.apiKey)
+              fetchModels(config.endpoint, config.provider, config.apiKey ?? undefined)
             }
           } catch { /* skip malformed */ }
         }
@@ -327,7 +327,7 @@ export default function GlobalSettings() {
                 : config.endpoint
               setConfig(c => ({ ...c, provider: prov, endpoint: newEndpoint }))
               setModels([])
-              fetchModels(newEndpoint, prov, config.apiKey)
+              fetchModels(newEndpoint, prov, config.apiKey ?? undefined)
             }}>
               {PROVIDERS.map(p => <option key={p} value={p}>{PROVIDER_LABELS[p]}</option>)}
             </select>
@@ -356,7 +356,7 @@ export default function GlobalSettings() {
                 type="button"
                 className="btn-secondary btn-sm"
                 title="Refresh model list from this endpoint"
-                onClick={() => fetchModels(config.endpoint, config.provider, config.apiKey)}
+                onClick={() => fetchModels(config.endpoint, config.provider, config.apiKey ?? undefined)}
                 disabled={modelsLoading}
               >{modelsLoading ? '…' : '↺ Refresh'}</button>
             </div>

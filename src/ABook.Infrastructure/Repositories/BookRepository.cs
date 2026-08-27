@@ -493,6 +493,9 @@ public class BookRepository : IBookRepository
         return await _db.LlmConfigurations.FirstOrDefaultAsync(l => l.BookId == null && l.UserId == null);
     }
 
+    public async Task<LlmConfiguration?> GetExactLlmConfigAsync(int? bookId, int? userId) =>
+        await _db.LlmConfigurations.FirstOrDefaultAsync(l => l.BookId == bookId && l.UserId == userId);
+
     public async Task<LlmConfiguration> UpsertLlmConfigAsync(LlmConfiguration config)
     {
         var existing = await _db.LlmConfigurations

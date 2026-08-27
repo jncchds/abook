@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -237,7 +237,7 @@ public class ContinuityCheckerAgent : AgentBase
         }
         messages.Add(new LlmChatMessage(LlmChatRole.User, userMessage));
 
-        var responseJson = await StreamResponseAsync(client, config, messages, bookId, (int?)null, AgentRole.ContinuityChecker, ct,
+        var responseJson = await StreamResponseAsync(client, config, messages, bookId, chapterId, AgentRole.ContinuityChecker, ct,
             jsonSchema: CheckerResultDto.JsonSchema);
 
         // Parse structured JSON result; gracefully degrade on parse failure

@@ -468,6 +468,9 @@ export interface PublicChapter {
   outline: string
   content: string
   status: string
+  povCharacter: string
+  foreshadowingNotes: string
+  payoffNotes: string
 }
 
 export interface PublicBookDetail {
