@@ -2,26 +2,34 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## START HERE
+
+Before doing any work, read [`ORCHESTRATOR.md`](ORCHESTRATOR.md), then use [`AGENTS.md`](AGENTS.md) for the detailed architecture and implementation decisions. `ORCHESTRATOR.md` is mandatory for repository-entry checks, task classification, validation gates, safety invariants, and the live-book MCP workflow.
+
+Do not treat the command snippets below as permission to bypass the orchestrator workflow. In particular, preserve existing changes, classify the task before mutation, and use the validation matrix appropriate to every touched subsystem.
+
 ## Commands
 
 ### Backend (.NET 10 — run from repo root)
 
 ```bash
-dotnet build                          # build all projects
-dotnet run --project src/ABook.Api    # start API (listens on http://localhost:5193)
+dotnet build
+dotnet test src/ABook.Tests/ABook.Tests.csproj
 ```
+
+Use these commands for compilation/tests only. **Do not start the application with `dotnet run`; runtime verification uses Docker Compose.**
 
 ### Frontend (run from `src/abook-ui/`)
 
 ```bash
 npm install
-npm run dev      # Vite dev server at http://localhost:5173, proxies /api and /hubs to http://localhost:5000
-npm run build    # TypeScript check + Vite build → outputs to src/ABook.Api/wwwroot/
+npm run build    # TypeScript check + Vite production build
 npm run lint     # ESLint
 npx tsc --noEmit # type-check only
+npm audit --json # dependency audit when dependencies/lockfile change
 ```
 
-> **Note:** the Vite dev server proxies to port 5000, but `launchSettings.json` runs the API on 5193 by default. Either change the proxy target in `vite.config.ts` to match, or run the API on 5000 (e.g. via `--urls http://localhost:5000`).
+Do not use `npm run dev` as the application runtime during agent tasks. Use the Compose stack so frontend, API, database, static-file serving, and deployment configuration are exercised together.
 
 ### Database migrations (from repo root)
 

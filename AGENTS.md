@@ -1,8 +1,14 @@
 # Plan: Agentic Book-Writing ASP.NET Core App
 
+## START HERE — mandatory orchestrator workflow
+
+**Before inspecting, editing, testing, deploying, or operating a book, read [`ORCHESTRATOR.md`](ORCHESTRATOR.md).** It is the operational entrypoint for all coding agents and autonomous orchestrators. It defines task classification, repository-entry checks, subsystem execution rules, validation gates, invariants, stop/escalation conditions, and the live-book MCP workflow.
+
+This file (`AGENTS.md`) remains the detailed architectural source of truth. `ORCHESTRATOR.md` defines how an agent must use that truth safely. If the two ever disagree, inspect current code/runtime evidence and update both in the same change.
+
 ## TL;DR
 
-Build a Docker-packaged ASP.NET Core 10 web app with a React (TypeScript/Vite) UI **served as static files from wwwroot** (NOT a separate Docker service) that uses Semantic Kernel to orchestrate four AI agents (Planner, Writer, Editor, Continuity Checker) for collaborative book writing. Agents stream progress via SignalR and can pause to ask the user plot-clarifying questions. PostgreSQL stores relational data; **pgvector** (PostgreSQL extension) stores chapter embeddings for RAG-based context retrieval. LLM provider is pluggable (Ollama by default, swappable to OpenAI/Azure via configuration). Multi-user with cookie-based authentication.
+ABook is a Docker-packaged ASP.NET Core 10 web app with a React (TypeScript/Vite) UI **served as static files from wwwroot** (NOT a separate Docker service). Semantic Kernel orchestrates seven specialized agents: Story Bible, Characters, Plot Threads, Chapter Outlines (Planner), Writer, Checker, and Editor. Agents stream progress via SignalR and can pause for human input. PostgreSQL stores relational data and **pgvector** chapter embeddings for RAG. LLM providers are pluggable: Ollama, OpenAI (including OpenAI-compatible endpoints), and Google AI Studio. Multi-user access uses cookie authentication plus per-user Bearer tokens for MCP.
 
 ---
 
@@ -50,22 +56,31 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 
 ## Agent Roles & Workflow
 
-### Planner Agent
-- Input: Book premise + user guidance
-- Output: Chapter outlines (title + synopsis per chapter)
-- Can ask: "Should the story have a subplot about X?" etc.
+### Planning pipeline
+1. **QuestionAgent** — one upfront clarification round; continuation runs reuse existing Q&A context instead of repeating established questions.
+2. **StoryBibleAgent** — setting, period/world rules, themes, tone/style, notes.
+3. **CharactersAgent** — character cards, roles, goals, personalities, backstories, arcs.
+4. **PlotThreadsAgent** — main/subplots, status, introduction/resolution intent.
+5. **PlannerAgent / Chapter Outlines** — ordered chapter titles, outlines, POV, involved characters/threads, foreshadowing and payoff notes.
 
-### Writer Agent
-- Input: Chapter outline + previous chapters' summaries (for context)
-- Output: Full chapter content in markdown
+Each planning phase persists its output, streams a live preview, creates the relevant snapshots/versions, and marks its phase Complete only on success. Partial JSON from interrupted Characters/Plot Threads/Chapter Outlines runs is salvaged and merged; a failed run remains Failed so the next idempotent run can continue.
 
-### Editor Agent
-- Input: Written chapter
-- Output: Edited chapter + list of suggested changes
+### Per-chapter writing pipeline
+For the autonomous workflow, `AgentOrchestrator.ProcessChapterAsync` performs:
 
-### Continuity Checker Agent
-- Input: All chapters written so far
-- Output: List of inconsistencies + suggested fixes
+`Pre-write Check -> Writer -> Checker -> mechanical fixes -> optional human pause -> creative rewrite when required -> Done`
+
+- **WriterAgent** writes the chapter in one streaming call using the outline, synopsis spine, previous ending, and targeted RAG context.
+- **ContinuityCheckerAgent (Checker)** produces structured issues. Focused calls receive the current `chapterId`; the final manuscript check omits it for cross-manuscript review.
+- **EditorAgent** applies patch-type issues mechanically without an LLM call, then performs a creative rewrite only when rewrite issues or explicit author instructions require it.
+- **Human-assisted mode** may pause between phases/steps so the author can edit saved state before the orchestrator continues; subsequent agents re-read persisted state.
+
+### Whole-book control
+- **Plan Only** runs the planning pipeline and stops for review.
+- **Write Book / Start Workflow** is idempotent: it skips completed planning phases and Done chapters.
+- **Continue Planning / Continue Workflow** are continuation aliases and must also be safe to re-run.
+- **Stop** cancels the current run through the run CTS and pending question TCS.
+- A full continuity check should be run after the manuscript is complete or when explicitly requested.
 
 ### Human-in-the-Loop Flow
 1. Agent encounters ambiguity → calls `AskUserAndWaitAsync` in `AgentBase`
@@ -186,6 +201,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 
 ## Relevant Files
 
+- `ORCHESTRATOR.md` — mandatory operational entrypoint for coding agents and MCP orchestrators: task classification, repository-entry sequence, validation matrix, invariants, stop/escalation rules, and live-book MCP workflow
 - `ABook.slnx` — Solution root (XML format)
 - `VERSION` — Plain-text `MAJOR.MINOR.PATCH` version; single source of truth for app version
 - `RELEASE_NOTES.md` — Per-version change log; one `## v{version} — {date}` heading per commit
