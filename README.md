@@ -160,7 +160,7 @@ Configure the LLM backend in **Settings** or via the API:
 |---|---|
 | **Ollama** | Default. Runs locally; `host.docker.internal` resolves to the host from inside Docker. |
 | **OpenAI** | Provide an API key and model name (e.g. `gpt-4o`). Leave endpoint blank for the real OpenAI API; set a custom endpoint for any OpenAI-compatible API (Groq, Together, LM Studio at `http://host.docker.internal:1234/v1`, etc.). |
-| **Google AI Studio** | Native Gemini connector. Requires an API key from [aistudio.google.com](https://aistudio.google.com/apikey). Suggested models: `gemini-2.0-flash`, `gemini-2.5-pro`. Embedding model: `text-embedding-004`. |
+| **Google AI Studio** | Gemini via Google's OpenAI-compatible endpoint. Requires an API key from [aistudio.google.com](https://aistudio.google.com/apikey). Suggested models: `gemini-2.5-flash`, `gemini-3.5-flash`. Embedding model: `text-embedding-004`. Gemma models are also served here but are not recommended — they are prone to runaway token repetition under structured output. |
 | **OpenAI Compatible** | For LM Studio, OpenRouter, vLLM and similar. Reads the stream directly, so non-standard fields such as `reasoning_content` are captured; `reasoning_effort` is never sent. API key optional. |
 
 Configurations can be set globally, per-user, or per-book. The lookup order is: book-specific → user-default → global.

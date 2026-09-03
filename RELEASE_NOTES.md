@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.1.24 — 2026-09-03
+
+- fix: long LLM calls no longer die at 100 seconds on the `OpenAI` and `GoogleAIStudio` providers. Both strategies ignored `LlmConfiguration.TimeoutMs` and inherited the OpenAI SDK's built-in 100 s `NetworkTimeout`, so a streaming chapter write or a whole-book continuity pass was cancelled mid-stream, retried four times, and failed the run — after the chapter had already been written. `OpenAIProviderHelpers` now sets `NetworkTimeout` from the configured timeout, defaulting to 300 000 ms to match `OpenAICompatibleProviderStrategy`
+- feat: `GoogleAIStudio` honours the Reasoning Effort setting, forwarding it as `reasoning_effort`. Gemini thinking models spend output tokens before emitting any text, so the control was load-bearing for this provider — it was previously accepted in the UI and silently dropped
+
 ## v0.1.23 — 2026-08-25
 
 - fix: planning agents no longer abort the whole run when an OpenAI-compatible endpoint (LM Studio, Ollama, vLLM) ignores the JSON schema types. Chapter numbers returned as `1.0`, `"3"` or `"Chapter 4"` are coerced instead of throwing `System.FormatException`, and text fields returned as arrays or numbers are flattened instead of throwing. Shared `LenientJson` reader used by `StoryBibleAgent`, `CharactersAgent`, `PlotThreadsAgent` and `PlannerAgent`
