@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.5.8 — 2026-11-04
+
+- fix: **long LLM calls no longer stop at 100 seconds on the OpenAI and Google AI Studio providers** — they ignored the configured timeout and used the OpenAI SDK's built-in 100 s, so a long chapter write or continuity pass could be cut off mid-stream and fail the run. They now use the preset's timeout, or 300 s when none is set (as OpenAI-compatible does)
+- fix: **Google AI Studio honours Reasoning Effort** — it is sent as `reasoning_effort` (Gemini thinking models spend output tokens on thinking first); it was accepted in the UI and silently dropped
+
 ## v0.5.7 — 2026-11-04
 
 - feat(telegram): **suggestion details open in place** — tapping *details* no longer posts a new message: the suggestions message itself shows that suggestion in full, with its Apply / Reject (or Undo) buttons, **‹ / ›** to page through the others and **☰ All changes** to go back to the list

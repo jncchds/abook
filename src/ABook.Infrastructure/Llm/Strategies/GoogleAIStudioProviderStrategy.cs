@@ -1,3 +1,4 @@
+#pragma warning disable OPENAI001
 using System.Runtime.CompilerServices;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
@@ -24,7 +25,7 @@ public class GoogleAIStudioProviderStrategy : ILlmProviderStrategy
             throw new InvalidOperationException("Google AI Studio requires an API key.");
         var embeddingModel = config.EmbeddingModelName ?? config.ModelName;
         var endpoint = string.IsNullOrWhiteSpace(config.Endpoint) ? DefaultEndpoint : config.Endpoint.TrimEnd('/');
-        return OpenAIProviderHelpers.CreateOpenAIClient(endpoint, config.ApiKey)
+        return OpenAIProviderHelpers.CreateOpenAIClient(endpoint, config.ApiKey, config.TimeoutMs)
             .GetEmbeddingClient(embeddingModel)
             .AsIEmbeddingGenerator();
     }
@@ -40,7 +41,8 @@ public class GoogleAIStudioProviderStrategy : ILlmProviderStrategy
                 throw new InvalidOperationException("Google AI Studio requires an API key.");
 
             var endpoint = string.IsNullOrWhiteSpace(config.Endpoint) ? DefaultEndpoint : config.Endpoint.TrimEnd('/');
-            var openAiClient = OpenAIProviderHelpers.CreateOpenAIClient(endpoint, config.ApiKey);
+            var openAiClient = OpenAIProviderHelpers.CreateOpenAIClient(
+                endpoint, config.ApiKey, options.TimeoutMs ?? config.TimeoutMs);
             var chatClient = openAiClient.GetChatClient(config.ModelName);
 
             var chatMessages = messages.Select<LlmChatMessage, OAIChatMessage>(m => m.Role switch
@@ -59,6 +61,10 @@ public class GoogleAIStudioProviderStrategy : ILlmProviderStrategy
                 chatOptions.ResponseFormat = OAIResponseFormat.CreateJsonSchemaFormat(
                     "structured_output",
                     BinaryData.FromString(options.JsonSchema));
+            // Gemini thinking models spend output tokens on reasoning; Google's OpenAI-compatible
+            // layer takes the same reasoning_effort values, so honour the book's setting.
+            if (!string.IsNullOrWhiteSpace(options.ReasoningEffort))
+                chatOptions.ReasoningEffortLevel = new ChatReasoningEffortLevel(options.ReasoningEffort);
 
             await foreach (var update in chatClient.CompleteChatStreamingAsync(chatMessages, chatOptions, ct))
             {

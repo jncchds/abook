@@ -22,10 +22,11 @@ public class OpenAIProviderStrategy : ILlmProviderStrategy
     {
         var embeddingModel = config.EmbeddingModelName ?? config.ModelName;
         if (string.IsNullOrWhiteSpace(config.Endpoint))
-            return new OpenAIClient(new ApiKeyCredential(config.ApiKey ?? ""))
+            return new OpenAIClient(new ApiKeyCredential(config.ApiKey ?? ""),
+                    OpenAIProviderHelpers.Options(config.TimeoutMs))
                 .GetEmbeddingClient(embeddingModel)
                 .AsIEmbeddingGenerator();
-        return OpenAIProviderHelpers.CreateOpenAIClient(config.Endpoint, config.ApiKey)
+        return OpenAIProviderHelpers.CreateOpenAIClient(config.Endpoint, config.ApiKey, config.TimeoutMs)
             .GetEmbeddingClient(embeddingModel)
             .AsIEmbeddingGenerator();
     }
@@ -37,9 +38,10 @@ public class OpenAIProviderStrategy : ILlmProviderStrategy
             LlmChatOptions options,
             [EnumeratorCancellation] CancellationToken ct = default)
         {
+            var timeoutMs = options.TimeoutMs ?? config.TimeoutMs;
             OpenAIClient openAiClient = string.IsNullOrWhiteSpace(config.Endpoint)
-                ? new OpenAIClient(new ApiKeyCredential(config.ApiKey ?? ""))
-                : OpenAIProviderHelpers.CreateOpenAIClient(config.Endpoint, config.ApiKey);
+                ? new OpenAIClient(new ApiKeyCredential(config.ApiKey ?? ""), OpenAIProviderHelpers.Options(timeoutMs))
+                : OpenAIProviderHelpers.CreateOpenAIClient(config.Endpoint, config.ApiKey, timeoutMs);
 
             var chatClient = openAiClient.GetChatClient(config.ModelName);
 
