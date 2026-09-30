@@ -70,6 +70,7 @@ public class UserMcpTools : McpToolBase
             config.Endpoint,
             hasApiKey = !string.IsNullOrEmpty(config.ApiKey),
             config.EmbeddingModelName,
+            image = ImageSettingsView(config),
             isUserDefault = config.UserId == userId,
             isGlobal = config.UserId == null && config.BookId == null
         }, JsonOptions);
@@ -82,7 +83,12 @@ public class UserMcpTools : McpToolBase
         [Description("Model name to use (e.g. llama3, gpt-4o, gemini-2.0-flash).")] string modelName,
         [Description("API endpoint URL. Required for Ollama; optional for OpenAI-compatible providers.")] string endpoint = "",
         [Description("API key. Required for OpenAI and GoogleAIStudio.")] string? apiKey = null,
-        [Description("Embedding model name (e.g. nomic-embed-text, text-embedding-3-small). Leave null to use the generation model.")] string? embeddingModelName = null)
+        [Description("Embedding model name (e.g. nomic-embed-text, text-embedding-3-small). Leave null to use the generation model.")] string? embeddingModelName = null,
+        [Description("Image generation (Z-Image) server URL, e.g. http://gpu-box:8000. Empty string disables image generation; null keeps the current value.")] string? imageEndpoint = null,
+        [Description("Visual style the illustration planner writes into every image prompt (e.g. 'moody watercolour, muted palette'). Null keeps the current value.")] string? imageVisualStyle = null,
+        [Description("Image sampling steps (Z-Image Turbo: 8). Null keeps the current value.")] int? imageSteps = null,
+        [Description("Image CFG scale (Z-Image Turbo: 1.0; negative prompts only take effect above 1). Null keeps the current value.")] double? imageCfg = null,
+        [Description("Unload the Ollama model before rendering images, to free VRAM. Null keeps the current value.")] bool? unloadLlmBeforeRender = null)
     {
         if (!Enum.TryParse<LlmProvider>(provider, ignoreCase: true, out var providerEnum))
             throw new McpException($"Unknown provider '{provider}'. Valid values: Ollama, OpenAI, GoogleAIStudio.");
@@ -95,15 +101,37 @@ public class UserMcpTools : McpToolBase
         config.Endpoint = endpoint;
         if (apiKey is not null) config.ApiKey = apiKey;
         if (embeddingModelName is not null) config.EmbeddingModelName = embeddingModelName;
+        if (imageEndpoint is not null)
+        {
+            config.ImageEndpoint = string.IsNullOrWhiteSpace(imageEndpoint) ? null : imageEndpoint.Trim();
+            config.ImageProvider ??= ImageProvider.ZImage;
+        }
+        if (imageVisualStyle is not null) config.ImageVisualStyle = imageVisualStyle;
+        if (imageSteps.HasValue) config.ImageSteps = imageSteps;
+        if (imageCfg.HasValue) config.ImageCfg = imageCfg;
+        if (unloadLlmBeforeRender.HasValue) config.UnloadLlmBeforeRender = unloadLlmBeforeRender.Value;
         await _repo.UpsertLlmConfigAsync(config);
         return JsonSerializer.Serialize(new
         {
             saved = true,
             Provider = config.Provider.ToString(),
             config.ModelName,
-            config.Endpoint
+            config.Endpoint,
+            image = ImageSettingsView(config)
         }, JsonOptions);
     }
+
+    private static object? ImageSettingsView(IImageGenSettings s) => s.HasImageGeneration()
+        ? new
+        {
+            provider = (s.ImageProvider ?? ImageProvider.ZImage).ToString(),
+            endpoint = s.ImageEndpoint,
+            steps = s.ImageSteps,
+            cfg = s.ImageCfg,
+            visualStyle = s.ImageVisualStyle,
+            s.UnloadLlmBeforeRender,
+        }
+        : null;
 
     // ── Presets ───────────────────────────────────────────────────────────────
 
@@ -122,6 +150,7 @@ public class UserMcpTools : McpToolBase
             p.Endpoint,
             hasApiKey = !string.IsNullOrEmpty(p.ApiKey),
             p.EmbeddingModelName,
+            image = ImageSettingsView(p),
             isOwned = p.UserId == userId,
             isGlobal = p.UserId == null
         });
@@ -149,6 +178,7 @@ public class UserMcpTools : McpToolBase
         config.TimeoutMs = preset.TimeoutMs;
         config.ReasoningEffort = preset.ReasoningEffort;
         config.MaxTokens = preset.MaxTokens;
+        config.CopyImageSettingsFrom(preset);
         await _repo.UpsertLlmConfigAsync(config);
         return JsonSerializer.Serialize(new
         {

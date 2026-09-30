@@ -13,4 +13,6 @@ public interface IBookNotifier
     Task NotifyTokenStatsAsync(int bookId, int? chapterId, string agentRole, int promptTokens, int completionTokens, CancellationToken ct = default);
     Task NotifyAgentErrorAsync(int bookId, string agentRole, string errorMessage, CancellationToken ct = default);
     Task NotifyMessagesUpdatedAsync(int bookId, CancellationToken ct = default);
+    /// <summary>An illustration was planned, edited or rendered; null <paramref name="illustrationId"/> means several changed.</summary>
+    Task NotifyIllustrationsUpdatedAsync(int bookId, int? illustrationId, CancellationToken ct = default);
 }

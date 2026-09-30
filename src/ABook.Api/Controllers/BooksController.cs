@@ -84,6 +84,8 @@ public class BooksController : ControllerBase
             book.WriterSystemPrompt = baseBook.WriterSystemPrompt;
             book.EditorSystemPrompt = baseBook.EditorSystemPrompt;
             book.ContinuityCheckerSystemPrompt = baseBook.ContinuityCheckerSystemPrompt;
+            book.IllustratorSystemPrompt = baseBook.IllustratorSystemPrompt;
+            book.IllustrationsEnabled = baseBook.IllustrationsEnabled;
         }
 
         var created = await _repo.AddAsync(book);
@@ -93,7 +95,7 @@ public class BooksController : ControllerBase
             var sourceConfig = await _repo.GetLlmConfigAsync(baseBook.Id, baseBook.UserId);
             if (sourceConfig is not null && sourceConfig.BookId == baseBook.Id)
             {
-                await _repo.UpsertLlmConfigAsync(new LlmConfiguration
+                var copy = new LlmConfiguration
                 {
                     BookId = created.Id,
                     UserId = created.UserId,
@@ -102,7 +104,9 @@ public class BooksController : ControllerBase
                     Endpoint = sourceConfig.Endpoint,
                     ApiKey = sourceConfig.ApiKey,
                     EmbeddingModelName = sourceConfig.EmbeddingModelName
-                });
+                };
+                copy.CopyImageSettingsFrom(sourceConfig);
+                await _repo.UpsertLlmConfigAsync(copy);
             }
         }
 
@@ -142,7 +146,9 @@ public class BooksController : ControllerBase
         book.WriterSystemPrompt = req.WriterSystemPrompt;
         book.EditorSystemPrompt = req.EditorSystemPrompt;
         book.ContinuityCheckerSystemPrompt = req.ContinuityCheckerSystemPrompt;
+        book.IllustratorSystemPrompt = req.IllustratorSystemPrompt;
         book.HumanAssisted = req.HumanAssisted;
+        if (req.IllustrationsEnabled is bool illustrate) book.IllustrationsEnabled = illustrate;
         await _repo.UpdateAsync(book);
         return Ok(book);
     }
@@ -212,6 +218,7 @@ public class BooksController : ControllerBase
             editorSystemPrompt = DefaultPrompts.Editor,
             // One override serves both check modes; the per-chapter prompt is the one used during writing.
             continuityCheckerSystemPrompt = DefaultPrompts.ContinuityCheckerPerChapter,
+            illustratorSystemPrompt = DefaultPrompts.Illustrator,
         });
     }
 
@@ -330,5 +337,7 @@ public record UpdateBookRequest(
     string? WriterSystemPrompt = null,
     string? EditorSystemPrompt = null,
     string? ContinuityCheckerSystemPrompt = null,
-    bool HumanAssisted = false);
+    bool HumanAssisted = false,
+    string? IllustratorSystemPrompt = null,
+    bool? IllustrationsEnabled = null);
 

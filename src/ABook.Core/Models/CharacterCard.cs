@@ -15,6 +15,12 @@ public class CharacterCard
     public string Arc { get; set; } = string.Empty;
     public int? FirstAppearanceChapterNumber { get; set; }
     public string Notes { get; set; } = string.Empty;
+    /// <summary>Canonical appearance wording for image prompts, written by the illustration planner; editable.</summary>
+    public string VisualPrompt { get; set; } = string.Empty;
+    /// <summary>Hash of the identity fields <see cref="VisualPrompt"/> was written from; a mismatch means it is stale.</summary>
+    public string? VisualPromptSourceHash { get; set; }
+    /// <summary>Seed shared by the character's portrait and every scene centred on them.</summary>
+    public long? ImageSeed { get; set; }
     public bool IsArchived { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

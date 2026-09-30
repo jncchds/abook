@@ -34,6 +34,8 @@ export interface Book {
   writerSystemPrompt?: string
   editorSystemPrompt?: string
   continuityCheckerSystemPrompt?: string
+  illustratorSystemPrompt?: string
+  illustrationsEnabled?: boolean
   storyBibleStatus?: string
   charactersStatus?: string
   plotThreadsStatus?: string
@@ -94,6 +96,18 @@ export interface LlmSettings {
   timeoutMs?: number | null
   reasoningEffort?: string | null
   maxTokens?: number | null
+  // Image generation (Z-Image) — part of the configuration and of presets
+  imageProvider?: string | null
+  imageEndpoint?: string | null
+  imageSteps?: number | null
+  imageCfg?: number | null
+  imagePortraitWidth?: number | null
+  imagePortraitHeight?: number | null
+  imageLandscapeWidth?: number | null
+  imageLandscapeHeight?: number | null
+  imageTimeoutMs?: number | null
+  imageVisualStyle?: string | null
+  unloadLlmBeforeRender?: boolean
 }
 export interface LlmConfig extends LlmSettings {
   id?: number
@@ -155,6 +169,7 @@ export interface DefaultPrompts {
   writerSystemPrompt: string
   editorSystemPrompt: string
   continuityCheckerSystemPrompt: string
+  illustratorSystemPrompt: string
 }
 export const getDefaultPrompts = (bookId: number) =>
   api.get<DefaultPrompts>(`/books/${bookId}/default-prompts`)
@@ -235,6 +250,9 @@ export const getStreamBuffer = (bookId: number, agentRole?: string, chapterId?: 
 export const getLlmConfig = (bookId?: number) =>
   api.get<LlmConfig>('/configuration', { params: { bookId } })
 export const updateLlmConfig = (data: LlmConfig) => api.put<LlmConfig>('/configuration', data)
+export interface ImageGenHealth { ready: boolean; status: string; detail?: string | null }
+export const getImageHealth = (endpoint: string, provider?: string | null) =>
+  api.get<ImageGenHealth>('/configuration/image-health', { params: { endpoint, provider: provider ?? undefined } })
 
 // Models
 // The key travels in a header, never the URL, so it can't end up in access logs.
@@ -276,6 +294,9 @@ export interface CharacterCard {
   firstAppearanceChapterNumber?: number | null
   notes: string
   isArchived?: boolean
+  /** Canonical appearance wording the illustrator repeats in every image prompt. */
+  visualPrompt?: string
+  imageSeed?: number | null
   createdAt?: string
   updatedAt?: string
 }
@@ -296,11 +317,12 @@ export interface CharacterCardVersion {
   createdBy: string
   createdAt: string
 }
+export type CharacterCardInput = Omit<CharacterCard, 'id' | 'bookId' | 'createdAt' | 'updatedAt' | 'visualPrompt' | 'imageSeed'>
 export const getCharacters = (bookId: number, includeArchived = false, signal?: AbortSignal) =>
   api.get<CharacterCard[]>(`/books/${bookId}/characters`, { params: includeArchived ? { includeArchived: true } : undefined, signal })
-export const createCharacter = (bookId: number, data: Omit<CharacterCard, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
+export const createCharacter = (bookId: number, data: CharacterCardInput) =>
   api.post<CharacterCard>(`/books/${bookId}/characters`, data)
-export const updateCharacter = (bookId: number, cardId: number, data: Omit<CharacterCard, 'id' | 'bookId' | 'createdAt' | 'updatedAt'>) =>
+export const updateCharacter = (bookId: number, cardId: number, data: CharacterCardInput) =>
   api.put<CharacterCard>(`/books/${bookId}/characters/${cardId}`, data)
 export const archiveCharacter = (bookId: number, cardId: number) =>
   api.post(`/books/${bookId}/characters/${cardId}/archive`)
@@ -501,6 +523,7 @@ export interface PublicBookDetail {
   createdAt: string
   updatedAt: string
   chapters: PublicChapter[]
+  illustrations?: Illustration[]
 }
 
 export const getPublicConfig = () =>
@@ -522,4 +545,64 @@ export const getPublicBooks = (params: PublicBooksParams = {}) =>
 
 export const getPublicBook = (id: number) =>
   api.get<PublicBookDetail>(`/public/books/${id}`)
+
+// Illustrations
+export type IllustrationKind = 'Scene' | 'Cover' | 'Portrait'
+export type IllustrationOrientation = 'Portrait' | 'Landscape' | 'Square'
+export type IllustrationStatus = 'Planned' | 'Rendered' | 'Failed'
+export interface Illustration {
+  id: number
+  chapterId: number | null
+  kind: IllustrationKind
+  characterCardId: number | null
+  paragraphNumber: number
+  /** 0-based paragraph the image follows in the current chapter text; -1 for covers and portraits. */
+  paragraphIndex: number
+  anchorText: string
+  caption: string
+  prompt: string
+  negativePrompt: string
+  orientation: IllustrationOrientation
+  focusCharacterId: number | null
+  characters: string[]
+  seed: number | null
+  /** Planned = needs rendering (an edited illustration keeps its previous image until then). */
+  status: IllustrationStatus
+  error: string | null
+  imageId: number | null
+  updatedAt: string
+}
+export interface IllustrationInput {
+  kind?: IllustrationKind
+  chapterId?: number | null
+  paragraphNumber?: number
+  caption?: string
+  prompt?: string
+  negativePrompt?: string
+  orientation?: IllustrationOrientation
+  /** 0 clears the focus character. */
+  focusCharacterId?: number
+  characters?: string[]
+}
+export type IllustrationPlanScope = 'Missing' | 'Chapter' | 'Cover' | 'Characters'
+export type RenderScope = 'All' | 'Portraits' | 'Chapter' | 'Character' | 'Single'
+
+export const getIllustrations = (bookId: number, params?: { chapterId?: number; kind?: IllustrationKind }, signal?: AbortSignal) =>
+  api.get<Illustration[]>(`/books/${bookId}/illustrations`, { params, signal })
+export const createIllustration = (bookId: number, data: IllustrationInput) =>
+  api.post<Illustration>(`/books/${bookId}/illustrations`, data)
+export const updateIllustration = (bookId: number, id: number, data: IllustrationInput) =>
+  api.put<Illustration>(`/books/${bookId}/illustrations/${id}`, data)
+export const deleteIllustration = (bookId: number, id: number) =>
+  api.delete(`/books/${bookId}/illustrations/${id}`)
+export const updateCharacterVisual = (bookId: number, cardId: number, visualPrompt: string) =>
+  api.put<{ id: number; visualPrompt: string; imageSeed: number | null; updatedIllustrations: number }>(
+    `/books/${bookId}/illustrations/characters/${cardId}/visual`, { visualPrompt })
+export const planIllustrations = (bookId: number, scope: IllustrationPlanScope, targetId?: number) =>
+  api.post(`/books/${bookId}/illustrations/plan`, { scope, targetId })
+export const renderIllustrations = (bookId: number, scope: RenderScope, targetId?: number, reroll = false) =>
+  api.post(`/books/${bookId}/illustrations/render`, { scope, targetId, reroll })
+/** Image URLs are immutable: a re-render produces a new image id. */
+export const bookImageUrl = (bookId: number, imageId: number) => `/api/books/${bookId}/images/${imageId}`
+export const publicBookImageUrl = (bookId: number, imageId: number) => `/api/public/books/${bookId}/images/${imageId}`
 

@@ -55,6 +55,12 @@ public static class PromptPlaceholders
     /// Resolved by agents that pass the value to <c>InterpolateSystemPrompt</c>.
     /// </summary>
     public const string ChapterSynopses = "{CHAPTER_SYNOPSES}";
+
+    /// <summary>
+    /// The visual style set in the image-generation settings (LLM configuration or preset).
+    /// Resolved by the illustration planner.
+    /// </summary>
+    public const string VisualStyle = "{VISUAL_STYLE}";
 }
 
 /// <summary>
@@ -150,6 +156,30 @@ public static class DefaultPrompts
         - Do NOT state explicit constraints about a location (e.g., "only one door") and then contradict
           them later in the same chapter.
         - Do NOT change a character's physical or emotional state mid-scene without describing the transition.
+        """;
+
+    public static readonly string Illustrator =
+        $"""
+        You are the art director and illustrator of a book. You write the prompts a text-to-image model
+        renders into the book's illustrations, its cover and reference portraits of its characters.
+        Book: {PromptPlaceholders.Title} | Genre: {PromptPlaceholders.Genre}
+        Premise: {PromptPlaceholders.Premise}
+        Setting: {PromptPlaceholders.Setting}
+        Tone & style: {PromptPlaceholders.Tone}
+        Visual style: {PromptPlaceholders.VisualStyle}
+
+        How to write image prompts:
+        - Write every prompt in English as flowing natural-language prose, not as a list of tags.
+        - Open with the visual style, then describe the subject and action, composition and camera framing,
+          setting, lighting, mood and colour palette. Be concrete and visual: the image model knows nothing
+          about the story, so never rely on names or plot references — describe only what is seen.
+        - Suit the imagery to the book's genre and tone. You decide what to depict, how it is depicted, and
+          what each negative prompt rules out.
+        - Keep the visual style identical in every prompt so the whole book reads as one set of illustrations.
+        - Character consistency: whenever a character is shown, include their canonical visual description
+          word for word and never contradict it. Change clothing only when the scene says so.
+        - The negative prompt lists what the image must not contain, written for that specific image.
+          It may be empty.
         """;
 
     public static readonly string Editor =
@@ -973,6 +1003,115 @@ public static class PromptTemplates
         var lines = content.Split('\n');
         return string.Join("\n", lines.Select((line, i) => $"{i + 1} | {line}"));
     }
+
+    // ── Illustrations ─────────────────────────────────────────────────────────
+
+    /// <summary>Stand-in for an unset visual style, so the planner still keeps one style across the book.</summary>
+    public const string VisualStyleUnset =
+        "not set — choose one that suits the genre and tone, and describe it the same way in every prompt";
+
+    /// <summary>The canonical appearance of each character, as the illustrator must repeat it.</summary>
+    public static string CharacterVisuals(IEnumerable<CharacterCard> characters)
+    {
+        var lines = characters
+            .Where(c => !string.IsNullOrWhiteSpace(c.VisualPrompt))
+            .Select(c => $"- {c.Name}: {c.VisualPrompt.Trim()}")
+            .ToList();
+        return lines.Count == 0 ? "(no character visuals yet)" : string.Join("\n", lines);
+    }
+
+    public static string CharacterVisualsUser(Book book, IEnumerable<CharacterCard> characters, string otherVisuals)
+    {
+        var sb = new StringBuilder();
+        foreach (var c in characters)
+        {
+            sb.AppendLine($"### {c.Name} ({c.Role})");
+            if (!string.IsNullOrWhiteSpace(c.PhysicalDescription)) sb.AppendLine($"Appearance: {c.PhysicalDescription}");
+            if (!string.IsNullOrWhiteSpace(c.Personality)) sb.AppendLine($"Personality: {c.Personality}");
+            if (!string.IsNullOrWhiteSpace(c.Backstory)) sb.AppendLine($"Backstory: {c.Backstory}");
+            if (!string.IsNullOrWhiteSpace(c.Notes)) sb.AppendLine($"Notes: {c.Notes}");
+            sb.AppendLine();
+        }
+        return $"""
+            Write the canonical visual description and a reference portrait prompt for each of these characters
+            of "{book.Title}" ({book.Genre}).
+
+            {sb.ToString().TrimEnd()}
+
+            Visual descriptions of the book's other characters, for contrast (do not return these):
+            {otherVisuals}
+
+            Return a JSON array with one object per character above, each with these exact fields:
+              "name" (string — exactly as given above),
+              "visualPrompt" (string — English prose describing only how the character looks: apparent age,
+                build, skin, face, hair, eyes, distinguishing features and usual clothing. No name, no art style,
+                no pose or background. It will be pasted word for word into every image showing this character,
+                so it must be self-contained and faithful to the character's description),
+              "portraitPrompt" (string — the full prompt for a reference portrait of the character in the book's
+                visual style, containing the visualPrompt word for word),
+              "portraitNegativePrompt" (string).
+            IMPORTANT: Output ONLY the raw JSON array. No markdown fences, no explanation outside the JSON.
+            """;
+    }
+
+    /// <summary>Numbers paragraphs "[N] text" so the planner can say where each image goes.</summary>
+    public static string NumberParagraphs(IReadOnlyList<string> paragraphs) =>
+        string.Join("\n\n", paragraphs.Select((p, i) => $"[{i + 1}] {p}"));
+
+    public static string ChapterIllustrationsUser(
+        Book book, Chapter chapter, IReadOnlyList<string> paragraphs, string characterVisuals, string otherIllustrations) =>
+        $"""
+        Plan the illustrations for Chapter {chapter.Number}: "{chapter.Title}" of "{book.Title}".
+        Decide how many illustrations this chapter deserves and which moments they show — none is a valid answer.
+        Each image is placed right after the paragraph it illustrates.
+
+        Characters' canonical visual descriptions (copy word for word into any prompt that shows them):
+        {characterVisuals}
+
+        Illustrations already planned for other chapters (avoid repeating the same image):
+        {otherIllustrations}
+
+        Chapter text, paragraphs numbered [N]:
+        {NumberParagraphs(paragraphs)}
+
+        Return a JSON object {"{"}"illustrations": [...]{"}"} where each element has these exact fields:
+          "paragraphNumber" (integer — the [N] of the paragraph the image follows),
+          "anchorText" (string — a short phrase copied exactly, character for character, from that paragraph),
+          "caption" (string — a one-line caption in {book.Language}),
+          "prompt" (string — the full image prompt),
+          "negativePrompt" (string),
+          "orientation" ("portrait" | "landscape" | "square"),
+          "focusCharacter" (string — name of the character the image centres on, or empty),
+          "characters" (array of strings — names of every character shown).
+        IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
+        """;
+
+    public static string OtherIllustrations(IEnumerable<(int ChapterNumber, string Caption)> illustrations)
+    {
+        var lines = illustrations.Select(i => $"- Chapter {i.ChapterNumber}: {i.Caption}").ToList();
+        return lines.Count == 0 ? "(none)" : string.Join("\n", lines);
+    }
+
+    public static string CoverUser(Book book, StoryBible? bible, string synopses, string characterVisuals) =>
+        $"""
+        Design the cover illustration of "{book.Title}" ({book.Genre}).
+        Premise: {book.Premise}
+        {(bible is null ? "" : $"Themes: {bible.Themes}\nTime period: {bible.TimePeriod}")}
+
+        Chapter synopses:
+        {synopses}
+
+        Characters' canonical visual descriptions (copy word for word into the prompt for anyone shown):
+        {characterVisuals}
+
+        Whether the cover shows the title lettering is your choice; if it does, spell it exactly "{book.Title}".
+        Return a JSON object with these exact fields:
+          "prompt" (string), "negativePrompt" (string),
+          "orientation" ("portrait" | "landscape" | "square"),
+          "focusCharacter" (string — name of the character the cover centres on, or empty),
+          "characters" (array of strings — names of every character shown).
+        IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
+        """;
 
     private static void AppendCharacterCard(CharacterCard card, StringBuilder sb)
     {

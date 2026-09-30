@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import type { LlmConfig, LlmPreset, ProviderModel, Book, DefaultPrompts } from '../../api'
 import { getLlmConfig, updateLlmConfig, updateBook, getBook, getModels, getDefaultPrompts, getPresets, createPreset, updatePreset } from '../../api'
-import { PROVIDERS, PROVIDER_LABELS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, INITIAL_LLM_CONFIG } from '../../config/providers'
+import { PROVIDERS, PROVIDER_LABELS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, INITIAL_LLM_CONFIG, pickImageSettings } from '../../config/providers'
+import ImageGenSettingsFields from '../../components/ImageGenSettingsFields'
 import ToggleField from '../../components/ToggleField'
 
 export default function BookSettings() {
@@ -14,9 +15,11 @@ export default function BookSettings() {
   const [bookForm, setBookForm] = useState({
     language: 'English',
     humanAssisted: false,
+    illustrationsEnabled: false,
     storyBibleSystemPrompt: '', charactersSystemPrompt: '',
     plotThreadsSystemPrompt: '', chapterOutlinesSystemPrompt: '',
-    writerSystemPrompt: '', editorSystemPrompt: '', continuityCheckerSystemPrompt: ''
+    writerSystemPrompt: '', editorSystemPrompt: '', continuityCheckerSystemPrompt: '',
+    illustratorSystemPrompt: '',
   })
   const [models, setModels] = useState<ProviderModel[]>([])
   const [modelsLoading, setModelsLoading] = useState(false)
@@ -54,6 +57,7 @@ export default function BookSettings() {
       setBookForm({
         language: r.data.language ?? 'English',
         humanAssisted: r.data.humanAssisted ?? false,
+        illustrationsEnabled: r.data.illustrationsEnabled ?? false,
         storyBibleSystemPrompt: r.data.storyBibleSystemPrompt ?? '',
         charactersSystemPrompt: r.data.charactersSystemPrompt ?? '',
         plotThreadsSystemPrompt: r.data.plotThreadsSystemPrompt ?? '',
@@ -61,6 +65,7 @@ export default function BookSettings() {
         writerSystemPrompt: r.data.writerSystemPrompt ?? '',
         editorSystemPrompt: r.data.editorSystemPrompt ?? '',
         continuityCheckerSystemPrompt: r.data.continuityCheckerSystemPrompt ?? '',
+        illustratorSystemPrompt: r.data.illustratorSystemPrompt ?? '',
       })
     })
     getDefaultPrompts(id).then(r => setDefaultPrompts(r.data)).catch(err => console.error('Failed to load default prompts', err))
@@ -89,6 +94,7 @@ export default function BookSettings() {
         ...book,
         language: bookForm.language,
         humanAssisted: bookForm.humanAssisted,
+        illustrationsEnabled: bookForm.illustrationsEnabled,
         storyBibleSystemPrompt: bookForm.storyBibleSystemPrompt || undefined,
         charactersSystemPrompt: bookForm.charactersSystemPrompt || undefined,
         plotThreadsSystemPrompt: bookForm.plotThreadsSystemPrompt || undefined,
@@ -96,6 +102,7 @@ export default function BookSettings() {
         writerSystemPrompt: bookForm.writerSystemPrompt || undefined,
         editorSystemPrompt: bookForm.editorSystemPrompt || undefined,
         continuityCheckerSystemPrompt: bookForm.continuityCheckerSystemPrompt || undefined,
+        illustratorSystemPrompt: bookForm.illustratorSystemPrompt || undefined,
       })
       setBookSaved(true)
       setTimeout(() => setBookSaved(false), 2000)
@@ -119,6 +126,7 @@ export default function BookSettings() {
       timeoutMs: config.timeoutMs || undefined,
       reasoningEffort: config.reasoningEffort || undefined,
       maxTokens: config.maxTokens || undefined,
+      ...pickImageSettings(config),
     }
     const existing = presets.find(p => p.userId !== null && p.name.toLowerCase() === name.toLowerCase())
     if (existing) {
@@ -147,6 +155,7 @@ export default function BookSettings() {
       timeoutMs: preset.timeoutMs ?? undefined,
       reasoningEffort: preset.reasoningEffort ?? undefined,
       maxTokens: preset.maxTokens ?? undefined,
+      ...pickImageSettings(preset),
     }
     setConfig(newConfig)
     fetchModels(newConfig.endpoint, newConfig.provider, newConfig.apiKey)
@@ -306,6 +315,7 @@ export default function BookSettings() {
               </label>
             </div>
           </details>
+          <ImageGenSettingsFields value={config} llmProvider={config.provider} onChange={patch => setConfig(c => ({ ...c, ...patch }))} />
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '0.25rem' }}>
             <button type="submit">Save LLM Config</button>
             {saved && <span className="saved-msg">✓ Saved</span>}
@@ -370,6 +380,12 @@ export default function BookSettings() {
               label="Human-assisted generation"
               hint="Pauses after each planning phase, and after each chapter's mechanical fixes are applied — so you can edit the book before the creative rewrite runs."
             />
+            <ToggleField
+              checked={bookForm.illustrationsEnabled}
+              onChange={v => setBookForm(f => ({ ...f, illustrationsEnabled: v }))}
+              label="Illustrate this book"
+              hint="The workflow plans illustrations (prompts and positions) for each finished chapter, and the cover once the book is written. You review them, then render everything from the Illustrations page — with the LLM unloaded if VRAM is short."
+            />
             <details>
               <summary>Custom Agent System Prompts (optional)</summary>
               <p className="hint">Leave blank to use agent defaults, or click "Load Defaults" to start editing from the defaults.</p>
@@ -379,6 +395,8 @@ export default function BookSettings() {
                 <code>{'{LANGUAGE}'}</code> <code>{'{CHAPTER_COUNT}'}</code>{' '}
                 <code>{'{SETTING}'}</code> <code>{'{THEMES}'}</code>{' '}
                 <code>{'{TONE}'}</code> <code>{'{WORLD_RULES}'}</code>
+                <br />
+                Illustrator only: <code>{'{VISUAL_STYLE}'}</code> (the visual style from the image generation settings).
                 <br />
                 Story Bible placeholders (<code>{'{SETTING}'}</code>, <code>{'{THEMES}'}</code>,{' '}
                 <code>{'{TONE}'}</code>, <code>{'{WORLD_RULES}'}</code>) are available once Phase 1 is complete.
@@ -399,6 +417,7 @@ export default function BookSettings() {
                     writerSystemPrompt: f.writerSystemPrompt || defaultPrompts.writerSystemPrompt,
                     editorSystemPrompt: f.editorSystemPrompt || defaultPrompts.editorSystemPrompt,
                     continuityCheckerSystemPrompt: f.continuityCheckerSystemPrompt || defaultPrompts.continuityCheckerSystemPrompt,
+                    illustratorSystemPrompt: f.illustratorSystemPrompt || defaultPrompts.illustratorSystemPrompt,
                   }))}
                 >
                   Load Defaults
@@ -412,6 +431,7 @@ export default function BookSettings() {
                 ['writer', 'Writer Agent'],
                 ['editor', 'Editor Agent'],
                 ['continuityChecker', 'Checker Agent'],
+                ['illustrator', 'Illustrator Agent'],
               ] as const).map(([role, label]) => {
                 const key = `${role}SystemPrompt` as keyof typeof bookForm
                 const defaultText = defaultPrompts?.[key as keyof DefaultPrompts]

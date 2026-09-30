@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { LlmPreset, ProviderModel } from '../api'
 import { getPresets, createPreset, updatePreset, deletePreset, getModels } from '../api'
-import { PROVIDERS, PROVIDER_LABELS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS } from '../config/providers'
+import { PROVIDERS, PROVIDER_LABELS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, pickImageSettings } from '../config/providers'
+import ImageGenSettingsFields from '../components/ImageGenSettingsFields'
 
 const emptyForm = {
   name: '', provider: 'Ollama', modelName: '', endpoint: '', apiKey: '', embeddingModelName: '',
@@ -9,6 +10,7 @@ const emptyForm = {
   timeoutMs: undefined as number | undefined,
   reasoningEffort: undefined as string | undefined,
   maxTokens: undefined as number | undefined,
+  ...pickImageSettings({}),
 }
 
 export default function Presets() {
@@ -66,6 +68,7 @@ export default function Presets() {
       timeoutMs: preset.timeoutMs ?? undefined,
       reasoningEffort: preset.reasoningEffort ?? undefined,
       maxTokens: preset.maxTokens ?? undefined,
+      ...pickImageSettings(preset),
     })
   }
 
@@ -230,6 +233,7 @@ export default function Presets() {
               </label>
             </div>
           </details>
+          <ImageGenSettingsFields value={form} llmProvider={form.provider} onChange={patch => setForm(f => ({ ...f, ...patch }))} />
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem' }}>
             <button type="submit">{editingId !== null ? 'Update Preset' : 'Save Preset'}</button>
             {editingId !== null && (

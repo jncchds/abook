@@ -1,7 +1,9 @@
 import { useEffect } from 'react'
 import { useParams, useNavigate, useOutletContext } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
 import type { LibraryOutletContext } from '../layouts/LibraryLayout'
+import ChapterContent from '../components/ChapterContent'
+import IllustrationFigure from '../components/IllustrationFigure'
+import { publicBookImageUrl } from '../api'
 
 /** Redirects to first chapter when navigating to /library/:bookId */
 export function PublicBookIndex() {
@@ -42,13 +44,25 @@ export default function PublicBookReader() {
 
   if (!currentChapter) return <p className="empty">Chapter not found.</p>
 
+  const scenes = (book.illustrations ?? []).filter(i => i.kind === 'Scene' && i.chapterId === currentChapter.id)
+  const cover = currentIndex === 0 ? (book.illustrations ?? []).find(i => i.kind === 'Cover') : undefined
+
   return (
     <div>
       <div className="page-header">
         <h2>Chapter {currentChapter.number}{currentChapter.title ? ': ' + currentChapter.title : ''}</h2>
       </div>
+      {cover && (
+        <IllustrationFigure bookId={id} illustration={cover} imageUrl={imageId => publicBookImageUrl(id, imageId)} />
+      )}
       <div className="chapter-content">
-        <ReactMarkdown>{currentChapter.content}</ReactMarkdown>
+        <ChapterContent
+          content={currentChapter.content}
+          illustrations={scenes}
+          renderFigure={ill => (
+            <IllustrationFigure bookId={id} illustration={ill} imageUrl={imageId => publicBookImageUrl(id, imageId)} />
+          )}
+        />
       </div>
       <div className="chapter-prev-next">
         {prevChapter ? (

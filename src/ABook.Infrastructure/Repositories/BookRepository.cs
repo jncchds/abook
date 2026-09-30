@@ -463,6 +463,7 @@ public class BookRepository : IBookRepository
             existing.MaxTokens = config.MaxTokens;
             existing.ReasoningEffort = config.ReasoningEffort;
             existing.TimeoutMs = config.TimeoutMs;
+            existing.CopyImageSettingsFrom(config);
             config = existing;
         }
 
@@ -671,6 +672,105 @@ public class BookRepository : IBookRepository
 
         await _db.SaveChangesAsync();
         return touched;
+    }
+
+    // ── Illustrations ─────────────────────────────────────────────────────────
+
+    public async Task<IReadOnlyList<Illustration>> GetIllustrationsAsync(int bookId, int? chapterId = null, IllustrationKind? kind = null)
+    {
+        var query = _db.Illustrations.Where(i => i.BookId == bookId);
+        if (chapterId.HasValue) query = query.Where(i => i.ChapterId == chapterId);
+        if (kind.HasValue) query = query.Where(i => i.Kind == kind);
+        return await query
+            .OrderBy(i => i.Kind).ThenBy(i => i.ChapterId).ThenBy(i => i.ParagraphNumber).ThenBy(i => i.SortOrder).ThenBy(i => i.Id)
+            .ToListAsync();
+    }
+
+    public async Task<Illustration?> GetIllustrationAsync(int bookId, int illustrationId) =>
+        await _db.Illustrations.FirstOrDefaultAsync(i => i.BookId == bookId && i.Id == illustrationId);
+
+    public async Task<Illustration> AddIllustrationAsync(Illustration illustration)
+    {
+        illustration.CreatedAt = illustration.UpdatedAt = DateTime.UtcNow;
+        _db.Illustrations.Add(illustration);
+        await _db.SaveChangesAsync();
+        return illustration;
+    }
+
+    public async Task UpdateIllustrationAsync(Illustration illustration)
+    {
+        illustration.UpdatedAt = DateTime.UtcNow;
+        _db.Illustrations.Update(illustration);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task DeleteIllustrationAsync(int bookId, int illustrationId)
+    {
+        var row = await _db.Illustrations.FirstOrDefaultAsync(i => i.BookId == bookId && i.Id == illustrationId);
+        if (row is null) return;
+        var imageId = row.ImageId;
+        _db.Illustrations.Remove(row);
+        await _db.SaveChangesAsync();
+        if (imageId.HasValue)
+            await _db.BookImages.Where(b => b.Id == imageId).ExecuteDeleteAsync();
+    }
+
+    public async Task<IReadOnlyList<Illustration>> ReplaceUnrenderedIllustrationsAsync(
+        int bookId, int? chapterId, IllustrationKind kind, IEnumerable<Illustration> planned)
+    {
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        var stale = await _db.Illustrations
+            .Where(i => i.BookId == bookId && i.ChapterId == chapterId && i.Kind == kind && i.ImageId == null)
+            .ToListAsync();
+        _db.Illustrations.RemoveRange(stale);
+
+        var now = DateTime.UtcNow;
+        var list = planned.ToList();
+        foreach (var i in list)
+        {
+            i.BookId = bookId;
+            i.ChapterId = chapterId;
+            i.Kind = kind;
+            i.CreatedAt = i.UpdatedAt = now;
+        }
+        _db.Illustrations.AddRange(list);
+        await _db.SaveChangesAsync();
+        await tx.CommitAsync();
+        return list;
+    }
+
+    public async Task<Illustration> SaveRenderedImageAsync(int bookId, int illustrationId, BookImage image)
+    {
+        var row = await _db.Illustrations.FirstOrDefaultAsync(i => i.BookId == bookId && i.Id == illustrationId)
+            ?? throw new InvalidOperationException($"Illustration {illustrationId} not found.");
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        var previousImageId = row.ImageId;
+        image.BookId = bookId;
+        image.CreatedAt = DateTime.UtcNow;
+        _db.BookImages.Add(image);
+        await _db.SaveChangesAsync();
+
+        row.ImageId = image.Id;
+        row.Status = IllustrationStatus.Rendered;
+        row.Error = null;
+        row.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        if (previousImageId.HasValue)
+            await _db.BookImages.Where(b => b.Id == previousImageId).ExecuteDeleteAsync();
+        await tx.CommitAsync();
+        // A render run saves many images through one context; don't keep their bytes tracked.
+        _db.Entry(image).State = EntityState.Detached;
+        return row;
+    }
+
+    public async Task<BookImage?> GetBookImageAsync(int bookId, int imageId) =>
+        await _db.BookImages.AsNoTracking().FirstOrDefaultAsync(b => b.BookId == bookId && b.Id == imageId);
+
+    public async Task<IReadOnlyList<BookImage>> GetBookImagesAsync(int bookId, IEnumerable<int> imageIds)
+    {
+        var ids = imageIds.Distinct().ToList();
+        if (ids.Count == 0) return [];
+        return await _db.BookImages.AsNoTracking().Where(b => b.BookId == bookId && ids.Contains(b.Id)).ToListAsync();
     }
 
     // ── Character Card Versions ───────────────────────────────────────────────

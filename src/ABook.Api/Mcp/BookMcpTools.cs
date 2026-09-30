@@ -94,9 +94,11 @@ public class BookMcpTools : McpToolBase
         [Description("New premise text (leave null to keep existing).")] string? premise = null,
         [Description("New genre (leave null to keep existing).")] string? genre = null,
         [Description("New target chapter count (leave null to keep existing).")] int? targetChapterCount = null,
-        [Description("New language (leave null to keep existing).")] string? language = null)
+        [Description("New language (leave null to keep existing).")] string? language = null,
+        [Description("Plan illustrations (image prompts and positions) for each chapter the workflow finishes, and the cover at the end (leave null to keep existing).")] bool? illustrationsEnabled = null)
     {
         var book = await GetOwnedBookAsync(bookId, _repo);
+        if (illustrationsEnabled.HasValue) book.IllustrationsEnabled = illustrationsEnabled.Value;
         if (title != null) book.Title = title;
         if (premise != null) book.Premise = premise;
         if (genre != null) book.Genre = genre;
@@ -104,7 +106,7 @@ public class BookMcpTools : McpToolBase
         if (language != null) book.Language = language;
         book.UpdatedAt = DateTime.UtcNow;
         await _repo.UpdateAsync(book);
-        return JsonSerializer.Serialize(new { book.Id, book.Title, book.Genre, book.Premise, book.Language, book.TargetChapterCount }, JsonOptions);
+        return JsonSerializer.Serialize(new { book.Id, book.Title, book.Genre, book.Premise, book.Language, book.TargetChapterCount, book.IllustrationsEnabled }, JsonOptions);
     }
 
     [McpServerTool(Name = "delete_book", Destructive = true)]

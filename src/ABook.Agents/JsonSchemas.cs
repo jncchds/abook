@@ -83,4 +83,64 @@ internal static class JsonSchemas
           }
         }
         """;
+
+    public const string CharacterVisuals = """
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "visualPrompt": { "type": "string" },
+              "portraitPrompt": { "type": "string" },
+              "portraitNegativePrompt": { "type": "string" }
+            },
+            "required": ["name", "visualPrompt", "portraitPrompt", "portraitNegativePrompt"],
+            "additionalProperties": false
+          }
+        }
+        """;
+
+    public const string ChapterIllustrations = """
+        {
+          "type": "object",
+          "properties": {
+            "illustrations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "paragraphNumber": { "type": "integer" },
+                  "anchorText": { "type": "string" },
+                  "caption": { "type": "string" },
+                  "prompt": { "type": "string" },
+                  "negativePrompt": { "type": "string" },
+                  "orientation": { "type": "string", "enum": ["portrait", "landscape", "square"] },
+                  "focusCharacter": { "type": "string" },
+                  "characters": { "type": "array", "items": { "type": "string" } }
+                },
+                "required": ["paragraphNumber", "anchorText", "caption", "prompt", "negativePrompt", "orientation", "focusCharacter", "characters"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["illustrations"],
+          "additionalProperties": false
+        }
+        """;
+
+    public const string Cover = """
+        {
+          "type": "object",
+          "properties": {
+            "prompt": { "type": "string" },
+            "negativePrompt": { "type": "string" },
+            "orientation": { "type": "string", "enum": ["portrait", "landscape", "square"] },
+            "focusCharacter": { "type": "string" },
+            "characters": { "type": "array", "items": { "type": "string" } }
+          },
+          "required": ["prompt", "negativePrompt", "orientation", "focusCharacter", "characters"],
+          "additionalProperties": false
+        }
+        """;
 }

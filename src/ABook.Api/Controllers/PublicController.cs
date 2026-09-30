@@ -127,8 +127,25 @@ public class PublicController : ControllerBase
             writtenChapterCount = chapters.Count,
             book.CreatedAt,
             book.UpdatedAt,
-            chapters
+            chapters,
+            illustrations = await IllustrationViews.LoadAsync(_repo, id, publicView: true)
         });
+    }
+
+    [HttpGet("books/{id:int}/images/{imageId:int}")]
+    public async Task<IActionResult> Image(int id, int imageId)
+    {
+        if (!_mode.IsEnabled && CurrentUserId is null)
+            return Unauthorized(new { message = "Authentication required in non-public mode." });
+
+        var book = await _repo.GetByIdAsync(id);
+        if (book is null) return NotFound();
+        if (!_mode.IsEnabled && book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
+
+        var image = await _repo.GetBookImageAsync(id, imageId);
+        if (image is null) return NotFound();
+        Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+        return File(image.Data, image.ContentType);
     }
 
     // -- Export ----------------------------------------------------------------

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
+using ABook.Core.Text;
 
 namespace ABook.Api.Services;
 
@@ -25,6 +26,7 @@ public class BookExportService
 
         var bible    = await _repo.GetStoryBibleAsync(bookId);
         var safeName = SafeFilename(book.Title);
+        var art      = await LoadArtAsync(book);
 
         if (format.Equals("metadata", StringComparison.OrdinalIgnoreCase))
         {
@@ -33,23 +35,88 @@ public class BookExportService
             var messages    = await _repo.GetMessagesAsync(bookId);
             var tokenUsage  = await _repo.GetTokenUsageAsync(bookId);
             return (
-                Encoding.UTF8.GetBytes(GenerateMetadataHtml(book, bible, characters, plotThreads, messages, tokenUsage)),
+                Encoding.UTF8.GetBytes(GenerateMetadataHtml(book, bible, characters, plotThreads, messages, tokenUsage, art)),
                 "text/html; charset=utf-8",
                 $"{safeName}-metadata.html");
         }
 
         return format.ToLowerInvariant() switch
         {
-            "fb2"  => (Encoding.UTF8.GetBytes(GenerateFb2(book, bible)),
+            "fb2"  => (Encoding.UTF8.GetBytes(GenerateFb2(book, bible, art)),
                       "application/x-fictionbook+xml; charset=utf-8",
                       $"{safeName}.fb2"),
-            "epub" => (GenerateEpub(book, bible),
+            "epub" => (GenerateEpub(book, bible, art),
                       "application/epub+zip",
                       $"{safeName}.epub"),
-            _      => (Encoding.UTF8.GetBytes(GenerateHtml(book)),
+            _      => (Encoding.UTF8.GetBytes(GenerateHtml(book, art)),
                       "text/html; charset=utf-8",
                       $"{safeName}.html"),
         };
+    }
+
+    // ── Illustrations ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Every illustration that has an image — including one whose plan was edited since and awaits a
+    /// re-render, which ships its previous image. Scenes of archived chapters are left out.
+    /// </summary>
+    private async Task<ExportArt> LoadArtAsync(Book book)
+    {
+        var illustrations = (await _repo.GetIllustrationsAsync(book.Id)).Where(i => i.ImageId.HasValue).ToList();
+        if (illustrations.Count == 0) return ExportArt.Empty;
+
+        var chapters = book.Chapters.Where(c => !c.IsArchived).ToDictionary(c => c.Id);
+        var images = (await _repo.GetBookImagesAsync(book.Id, illustrations.Select(i => i.ImageId!.Value)))
+            .ToDictionary(i => i.Id);
+
+        ExportImage? Image(Illustration i, int paragraphIndex) =>
+            images.TryGetValue(i.ImageId!.Value, out var img)
+                ? new ExportImage($"img-{i.Id}", i.Caption, img.Data, img.ContentType, paragraphIndex)
+                : null;
+
+        var scenes = new List<(int ChapterId, ExportImage Image)>();
+        foreach (var i in illustrations.Where(i => i.Kind == IllustrationKind.Scene))
+        {
+            if (i.ChapterId is not int chapterId || !chapters.TryGetValue(chapterId, out var chapter)) continue;
+            var index = ParagraphAnchors.Resolve(ParagraphAnchors.Split(chapter.Content), i.AnchorText, i.ParagraphNumber);
+            if (index >= 0 && Image(i, index) is { } image) scenes.Add((chapterId, image));
+        }
+
+        var cover = illustrations.FirstOrDefault(i => i.Kind == IllustrationKind.Cover) is { } c ? Image(c, -1) : null;
+        var portraits = illustrations
+            .Where(i => i.Kind == IllustrationKind.Portrait && i.CharacterCardId.HasValue)
+            .Select(i => (Id: i.CharacterCardId!.Value, Image: Image(i, -1)))
+            .Where(p => p.Image is not null)
+            .GroupBy(p => p.Id)
+            .ToDictionary(g => g.Key, g => g.First().Image!);
+
+        return new ExportArt(cover, scenes.ToLookup(s => s.ChapterId, s => s.Image), portraits);
+    }
+
+    internal sealed record ExportImage(string Key, string Caption, byte[] Data, string ContentType, int ParagraphIndex)
+    {
+        public string Extension => ContentType switch { "image/jpeg" => "jpg", "image/webp" => "webp", _ => "png" };
+        public string FileName => $"{Key}.{Extension}";
+        public string DataUri => $"data:{ContentType};base64,{Convert.ToBase64String(Data)}";
+    }
+
+    /// <param name="Portraits">Character portraits keyed by character id (metadata export only).</param>
+    internal sealed record ExportArt(
+        ExportImage? Cover, ILookup<int, ExportImage> Scenes, IReadOnlyDictionary<int, ExportImage> Portraits)
+    {
+        public static readonly ExportArt Empty =
+            new(null, Array.Empty<(int, ExportImage)>().ToLookup(x => x.Item1, x => x.Item2), new Dictionary<int, ExportImage>());
+
+        public IEnumerable<ExportImage> All =>
+            (Cover is null ? [] : new[] { Cover }).Concat(Scenes.SelectMany(g => g));
+
+        /// <summary>Emits the figures that follow a paragraph; null when the chapter has none.</summary>
+        public Func<int, string>? FiguresFor(int chapterId, Func<ExportImage, string> figure)
+        {
+            if (!Scenes.Contains(chapterId)) return null;
+            var byParagraph = Scenes[chapterId].ToLookup(i => i.ParagraphIndex);
+            return index => string.Concat(byParagraph[index].Select(figure));
+        }
     }
 
     // ── HTML ─────────────────────────────────────────────────────────────────
@@ -85,7 +152,11 @@ public class BookExportService
     .chapter strong { font-weight: 700; }
     .chapter em { font-style: italic; }
     .chapter code { font-family: 'Courier New', Courier, monospace; font-size: 0.88em; opacity: 0.85; }
-    .chapter del { text-decoration: line-through; opacity: 0.55; }";
+    .chapter del { text-decoration: line-through; opacity: 0.55; }
+    figure.illustration { margin: 2em auto; text-align: center; }
+    figure.illustration img { max-width: 100%; height: auto; border-radius: 4px; }
+    figure.illustration figcaption { font-size: 0.85em; font-style: italic; opacity: 0.7; margin-top: 0.5em; }
+    figure.cover img { max-width: min(100%, 560px); }";
 
     private static readonly string HtmlJs = @"    (function () {
       var presets = [
@@ -125,8 +196,9 @@ public class BookExportService
       } catch(e) {}
     })();";
 
-    internal static string GenerateHtml(Book book)
+    internal static string GenerateHtml(Book book, ExportArt? art = null)
     {
+        art ??= ExportArt.Empty;
         var chapters = book.Chapters
             .Where(c => !c.IsArchived && !string.IsNullOrWhiteSpace(c.Content))
             .OrderBy(c => c.Number)
@@ -145,7 +217,7 @@ public class BookExportService
             var suffix = c.Title.Length > 0 ? $": {EscHtml(c.Title)}" : "";
             return $"\n<section id=\"chapter-{c.Number}\" class=\"chapter\">\n" +
                    $"  <h2>Chapter {c.Number}{suffix}</h2>\n" +
-                   $"  {MarkdownToHtml(c.Content)}\n</section>\n";
+                   $"  {MarkdownToHtml(c.Content, art.FiguresFor(c.Id, HtmlFigure))}\n</section>\n";
         }));
 
         var presets = new (string bg, string fg, string border, string name)[]
@@ -184,6 +256,8 @@ public class BookExportService
         sb.Append("    <header class=\"book-header\">\n");
         sb.Append($"      <h1>{EscHtml(book.Title)}</h1>\n");
         sb.Append($"      <p class=\"meta\">{genreMeta}</p>\n");
+        if (art.Cover is { } cover)
+            sb.Append($"      <figure class=\"illustration cover\"><img src=\"{cover.DataUri}\" alt=\"{EscHtml(book.Title)}\"></figure>\n");
         sb.Append("    </header>\n    <nav id=\"toc\">\n      <h2>Contents</h2>\n      <ol>\n");
         sb.Append(toc);
         sb.Append("\n      </ol>\n    </nav>\n");
@@ -193,6 +267,10 @@ public class BookExportService
         sb.Append("\n  </script>\n</body>\n</html>\n");
         return sb.ToString();
     }
+
+    private static string HtmlFigure(ExportImage image) =>
+        $"<figure class=\"illustration\"><img src=\"{image.DataUri}\" alt=\"{EscHtml(image.Caption)}\">" +
+        (image.Caption.Length > 0 ? $"<figcaption>{EscHtml(image.Caption)}</figcaption>" : "") + "</figure>\n";
 
     // ── Metadata HTML ─────────────────────────────────────────────────────────
 
@@ -242,6 +320,8 @@ public class BookExportService
     .char-block { border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 14px; }
     .char-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
     .char-header strong { font-size: 1.05em; }
+    .char-block img.portrait { float: right; width: 160px; height: auto; margin: 0 0 12px 16px; border-radius: 6px; }
+    .char-block::after { content: ''; display: block; clear: both; }
     .badge-type { font-size: 0.72em; padding: 2px 8px; border-radius: 4px; background: rgba(99,102,241,0.12); color: var(--accent); font-weight: 600; }
     .badge-thread-status { font-size: 0.72em; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
     .badge-thread-status.status-active { background: rgba(34,197,94,0.15); color: #16a34a; border: 1px solid rgba(34,197,94,0.3); }
@@ -310,8 +390,10 @@ public class BookExportService
         IEnumerable<CharacterCard> characters,
         IEnumerable<PlotThread> plotThreads,
         IEnumerable<AgentMessage> messages,
-        IEnumerable<TokenUsageRecord> tokenUsage)
+        IEnumerable<TokenUsageRecord> tokenUsage,
+        ExportArt? art = null)
     {
+        art ??= ExportArt.Empty;
         var lang       = GetLang2(book.Language);
         var chapters   = book.Chapters.Where(c => !c.IsArchived).OrderBy(c => c.Number).ToList();
         var charList   = characters.OrderBy(c => c.Role).ToList();
@@ -400,7 +482,9 @@ public class BookExportService
                 return $@"
   <div class=""char-block"">
     <div class=""char-header""><strong>{EscHtml(ch.Name)}</strong><span class=""badge-role role-{roleLower}"">{EscHtml(ch.Role.ToString())}</span></div>
+    {(art.Portraits.TryGetValue(ch.Id, out var portrait) ? $"<img class=\"portrait\" src=\"{portrait.DataUri}\" alt=\"{EscHtml(ch.Name)}\">" : "")}
     <dl class=""prop-list"">
+      {(ch.VisualPrompt.Length > 0 ? $"<dt>Visual prompt</dt><dd>{EscHtml(ch.VisualPrompt)}</dd>" : "")}
       {(ch.PhysicalDescription.Length > 0 ? $"<dt>Appearance</dt><dd>{EscHtml(ch.PhysicalDescription)}</dd>" : "")}
       {(ch.Personality.Length > 0 ? $"<dt>Personality</dt><dd>{EscHtml(ch.Personality)}</dd>" : "")}
       {(ch.Backstory.Length > 0 ? $"<dt>Backstory</dt><dd>{EscHtml(ch.Backstory)}</dd>" : "")}
@@ -581,8 +665,9 @@ public class BookExportService
 
     // ── FB2 ───────────────────────────────────────────────────────────────────
 
-    internal static string GenerateFb2(Book book, StoryBible? bible)
+    internal static string GenerateFb2(Book book, StoryBible? bible, ExportArt? art = null)
     {
+        art ??= ExportArt.Empty;
         var chapters = book.Chapters
             .Where(c => !c.IsArchived && !string.IsNullOrWhiteSpace(c.Content))
             .OrderBy(c => c.Number)
@@ -614,7 +699,7 @@ public class BookExportService
             var suffix = c.Title.Length > 0 ? ": " + EscXml(c.Title) : "";
             return $"\n  <section id=\"chapter-{c.Number}\">\n" +
                    $"    <title><p>Chapter {c.Number}{suffix}</p></title>\n" +
-                   $"    {MarkdownToFb2(c.Content)}\n  </section>";
+                   $"    {MarkdownToFb2(c.Content, art.FiguresFor(c.Id, Fb2Figure))}\n  </section>";
         }));
 
         var sb = new StringBuilder();
@@ -625,6 +710,8 @@ public class BookExportService
         sb.AppendLine($"      <genre>{MapGenreToFb2(book.Genre)}</genre>");
         sb.AppendLine("      <author><nickname>ABook</nickname></author>");
         sb.AppendLine($"      <book-title>{EscXml(book.Title)}</book-title>");
+        if (art.Cover is { } cover)
+            sb.AppendLine($"      <coverpage><image l:href=\"#{cover.FileName}\"/></coverpage>");
         sb.AppendLine($"      <lang>{lang}</lang>");
         if (annotXml.Length > 0) sb.AppendLine($"      {annotXml}");
         if (kwXml.Length > 0)    sb.AppendLine($"      {kwXml}");
@@ -640,14 +727,21 @@ public class BookExportService
         sb.AppendLine("  </description>");
         sb.AppendLine($"  <body>{sections}");
         sb.AppendLine("  </body>");
+        foreach (var image in art.All)
+            sb.AppendLine($"  <binary id=\"{image.FileName}\" content-type=\"{image.ContentType}\">{Convert.ToBase64String(image.Data)}</binary>");
         sb.AppendLine("</FictionBook>");
         return sb.ToString();
     }
 
+    private static string Fb2Figure(ExportImage image) =>
+        $"<image l:href=\"#{image.FileName}\"/>\n" +
+        (image.Caption.Length > 0 ? $"<p><emphasis>{EscXml(image.Caption)}</emphasis></p>\n" : "");
+
     // ── EPUB ──────────────────────────────────────────────────────────────────
 
-    internal static byte[] GenerateEpub(Book book, StoryBible? bible)
+    internal static byte[] GenerateEpub(Book book, StoryBible? bible, ExportArt? art = null)
     {
+        art ??= ExportArt.Empty;
         var chapters = book.Chapters
             .Where(c => !c.IsArchived && !string.IsNullOrWhiteSpace(c.Content))
             .OrderBy(c => c.Number)
@@ -660,7 +754,9 @@ public class BookExportService
 
         const string chStyle =
             "body{font-family:serif;font-size:1em;line-height:1.6;margin:1em 2em}" +
-            "p{margin-bottom:.8em;text-align:justify}h2,h3,h4{font-family:sans-serif}";
+            "p{margin-bottom:.8em;text-align:justify}h2,h3,h4{font-family:sans-serif}" +
+            "figure{margin:1.5em 0;text-align:center}figure img{max-width:100%;height:auto}" +
+            "figcaption{font-size:.85em;font-style:italic;margin-top:.4em}";
 
         var subjects = new List<string>();
         if (!string.IsNullOrWhiteSpace(book.Genre)) subjects.Add(book.Genre);
@@ -680,6 +776,24 @@ public class BookExportService
         var spineItems   = new List<string>();
         var chapterFiles = new List<(string Name, string Content)>();
 
+        foreach (var image in art.All)
+            manifestItems.Add(
+                $"<item id=\"{image.Key}\" href=\"images/{image.FileName}\" media-type=\"{image.ContentType}\"" +
+                (image == art.Cover ? " properties=\"cover-image\"" : "") + "/>");
+        if (art.Cover is { } cover)
+        {
+            var coverXhtml =
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                "<!DOCTYPE html>" +
+                "<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\">" +
+                $"<head><meta charset=\"UTF-8\"/><title>{EscHtml(book.Title)}</title>" +
+                "<style>body{margin:0;text-align:center}img{max-width:100%;max-height:100vh}</style></head>" +
+                $"<body epub:type=\"cover\"><img src=\"images/{cover.FileName}\" alt=\"{EscHtml(book.Title)}\"/></body></html>";
+            chapterFiles.Add(("OEBPS/cover.xhtml", coverXhtml));
+            manifestItems.Add("<item id=\"cover\" href=\"cover.xhtml\" media-type=\"application/xhtml+xml\"/>");
+            spineItems.Add("<itemref idref=\"cover\" linear=\"no\"/>");
+        }
+
         foreach (var c in chapters)
         {
             var suffix  = c.Title.Length > 0 ? ": " + EscHtml(c.Title) : "";
@@ -690,7 +804,7 @@ public class BookExportService
                 "<html xmlns=\"http://www.w3.org/1999/xhtml\">" +
                 $"<head><meta charset=\"UTF-8\"/><title>{heading}</title>" +
                 $"<style>{chStyle}</style></head>" +
-                $"<body><h2>{heading}</h2>{MarkdownToXhtml(c.Content)}</body></html>";
+                $"<body><h2>{heading}</h2>{MarkdownToXhtml(c.Content, art.FiguresFor(c.Id, XhtmlFigure))}</body></html>";
             chapterFiles.Add(($"OEBPS/chapter-{c.Number}.xhtml", xhtml));
             manifestItems.Add($"<item id=\"c{c.Number}\" href=\"chapter-{c.Number}.xhtml\" media-type=\"application/xhtml+xml\"/>");
             spineItems.Add($"<itemref idref=\"c{c.Number}\"/>");
@@ -720,6 +834,7 @@ public class BookExportService
             $"<dc:date>{isoDate}</dc:date>" +
             $"{descTag}{subjectTags}" +
             $"<meta property=\"dcterms:modified\">{modified}</meta>" +
+            (art.Cover is { } coverMeta ? $"<meta name=\"cover\" content=\"{coverMeta.Key}\"/>" : "") +
             "</metadata>" +
             $"<manifest>{string.Concat(manifestItems)}</manifest>" +
             $"<spine>{string.Concat(spineItems)}</spine>" +
@@ -740,9 +855,20 @@ public class BookExportService
             AddZipEntry(zip, "OEBPS/nav.xhtml",        nav);
             foreach (var (name, content) in chapterFiles)
                 AddZipEntry(zip, name, content);
+            // Images are already compressed.
+            foreach (var image in art.All)
+            {
+                var entry = zip.CreateEntry($"OEBPS/images/{image.FileName}", CompressionLevel.NoCompression);
+                using var stream = entry.Open();
+                stream.Write(image.Data);
+            }
         }
         return ms.ToArray();
     }
+
+    private static string XhtmlFigure(ExportImage image) =>
+        $"<figure><img src=\"images/{image.FileName}\" alt=\"{EscHtml(image.Caption)}\"/>" +
+        (image.Caption.Length > 0 ? $"<figcaption>{EscHtml(image.Caption)}</figcaption>" : "") + "</figure>\n";
 
     private static void AddZipEntry(ZipArchive zip, string name, string content,
         CompressionLevel level = CompressionLevel.Optimal)
@@ -753,6 +879,33 @@ public class BookExportService
     }
 
     // ── Markdown converters ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// Converts paragraph by paragraph (<see cref="ParagraphAnchors.Split"/>) so figures can follow the
+    /// paragraph they illustrate. Paragraphs hold no blank lines, so the output is the same as converting
+    /// the whole text at once.
+    /// </summary>
+    private static string WithFigures(string md, Func<string, string> convert, Func<int, string>? afterParagraph)
+    {
+        if (afterParagraph is null) return convert(md);
+        var sb = new StringBuilder();
+        var paragraphs = ParagraphAnchors.Split(md);
+        for (int i = 0; i < paragraphs.Count; i++)
+        {
+            sb.Append(convert(paragraphs[i]));
+            sb.Append(afterParagraph(i));
+        }
+        return sb.ToString();
+    }
+
+    internal static string MarkdownToHtml(string md, Func<int, string>? afterParagraph) =>
+        WithFigures(md, MarkdownToHtml, afterParagraph);
+
+    private static string MarkdownToXhtml(string md, Func<int, string>? afterParagraph) =>
+        WithFigures(md, MarkdownToXhtml, afterParagraph);
+
+    private static string MarkdownToFb2(string md, Func<int, string>? afterParagraph) =>
+        WithFigures(md, MarkdownToFb2, afterParagraph);
 
     internal static string MarkdownToHtml(string md)
     {

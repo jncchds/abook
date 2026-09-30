@@ -18,6 +18,9 @@ public class Book
     public string? WriterSystemPrompt { get; set; }
     public string? EditorSystemPrompt { get; set; }
     public string? ContinuityCheckerSystemPrompt { get; set; }
+    public string? IllustratorSystemPrompt { get; set; }
+    /// <summary>When true, the workflow plans illustrations (prompts and positions) for each finished chapter and the cover.</summary>
+    public bool IllustrationsEnabled { get; set; } = false;
     public bool HumanAssisted { get; set; } = false;
     public PlanningPhaseStatus StoryBibleStatus { get; set; } = PlanningPhaseStatus.NotStarted;
     public PlanningPhaseStatus CharactersStatus { get; set; } = PlanningPhaseStatus.NotStarted;

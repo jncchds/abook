@@ -13,7 +13,40 @@ public interface IAgentOrchestrator
     Task ContinueWorkflowAsync(int bookId, CancellationToken ct = default);
     Task ContinuePlanningAsync(int bookId, CancellationToken ct = default);
     Task ResumeWithAnswerAsync(int messageId, string answer, CancellationToken ct = default);
+    /// <summary>LLM-only: writes illustration prompts and positions. Nothing is rendered.</summary>
+    Task StartIllustrationPlanningAsync(int bookId, IllustrationPlanRequest request, CancellationToken ct = default);
+    /// <summary>Image-model only: renders planned illustrations. Makes no LLM calls.</summary>
+    Task StartRenderAsync(int bookId, RenderRequest request, CancellationToken ct = default);
 }
+
+public enum IllustrationPlanScope
+{
+    /// <summary>Finished chapters without illustrations, then the cover once every chapter is finished.</summary>
+    Missing,
+    /// <summary>Re-plan one chapter (TargetId = chapter id).</summary>
+    Chapter,
+    Cover,
+    /// <summary>Rewrite every character's visual description and portrait prompt.</summary>
+    Characters,
+}
+
+public record IllustrationPlanRequest(IllustrationPlanScope Scope, int? TargetId = null);
+
+public enum RenderScope
+{
+    /// <summary>Everything not yet rendered: portraits, cover, then scenes in reading order.</summary>
+    All,
+    Portraits,
+    /// <summary>Unrendered scenes of one chapter (TargetId = chapter id).</summary>
+    Chapter,
+    /// <summary>Re-renders the portrait and every scene centred on one character (TargetId = character id).</summary>
+    Character,
+    /// <summary>Re-renders one illustration (TargetId = illustration id).</summary>
+    Single,
+}
+
+/// <param name="Reroll">Single scope only: render with a new random seed. For a portrait the new seed becomes the character's.</param>
+public record RenderRequest(RenderScope Scope, int? TargetId = null, bool Reroll = false);
 
 public enum RunStartResult
 {

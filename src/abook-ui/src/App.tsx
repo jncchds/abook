@@ -16,6 +16,7 @@ import Chapters from './pages/book/Chapters'
 import ChatPage from './pages/book/ChatPage'
 import TokenStatsPage from './pages/book/TokenStatsPage'
 import BookSettings from './pages/book/BookSettings'
+import Illustrations from './pages/book/Illustrations'
 import Library from './pages/Library'
 import PublicBookReader, { PublicBookIndex } from './pages/PublicBookReader'
 import { AuthProvider, useAuth } from './hooks/useAuth'
@@ -44,6 +45,7 @@ function ProtectedRoutes() {
         <Route path="chapters/:chapterId" element={<ChapterView />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="token-stats" element={<TokenStatsPage />} />
+        <Route path="illustrations" element={<Illustrations />} />
         <Route path="settings" element={<BookSettings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

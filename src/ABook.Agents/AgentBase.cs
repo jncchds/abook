@@ -184,12 +184,12 @@ public abstract class AgentBase
     /// </summary>
     protected async Task<(string Raw, Exception? Failure)> StreamJsonResponseAsync(
         ILlmChatClient client, LlmConfiguration config, IReadOnlyList<LlmChatMessage> messages,
-        int bookId, int? chapterId, AgentRole role, string jsonSchema, CancellationToken ct)
+        int bookId, int? chapterId, AgentRole role, string jsonSchema, CancellationToken ct, bool forwardToUi = true)
     {
         try
         {
             var raw = await StreamResponseAsync(
-                client, config, messages, bookId, chapterId, role, ct, jsonSchema: jsonSchema);
+                client, config, messages, bookId, chapterId, role, ct, jsonSchema: jsonSchema, forwardToUi: forwardToUi);
             return (raw, null);
         }
         catch (Exception ex)
@@ -478,7 +478,9 @@ public abstract class AgentBase
         return string.Join('\n', lines).TrimStart();
     }
 
-    internal static string InterpolateSystemPrompt(string prompt, Book book, ABook.Core.Models.StoryBible? bible = null, string? chapterSynopses = null)
+    internal static string InterpolateSystemPrompt(
+        string prompt, Book book, ABook.Core.Models.StoryBible? bible = null, string? chapterSynopses = null,
+        string? visualStyle = null)
     {
         var result = prompt
             .Replace(PromptPlaceholders.Title, book.Title ?? "")
@@ -498,6 +500,9 @@ public abstract class AgentBase
 
         if (chapterSynopses is not null)
             result = result.Replace(PromptPlaceholders.ChapterSynopses, chapterSynopses);
+
+        if (visualStyle is not null)
+            result = result.Replace(PromptPlaceholders.VisualStyle, visualStyle);
 
         return result;
     }

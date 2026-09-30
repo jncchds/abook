@@ -1,6 +1,6 @@
 namespace ABook.Core.Models;
 
-public class LlmPreset
+public class LlmPreset : IEditableImageGenSettings
 {
     public int Id { get; set; }
     public int? UserId { get; set; }
@@ -24,6 +24,19 @@ public class LlmPreset
     public string? ReasoningEffort { get; set; }
     /// <summary>Maximum output tokens. Null = provider default.</summary>
     public int? MaxTokens { get; set; }
+
+    // ── Image generation (see IImageGenSettings) ──────────────────────────────
+    public ImageProvider? ImageProvider { get; set; }
+    public string? ImageEndpoint { get; set; }
+    public int? ImageSteps { get; set; }
+    public double? ImageCfg { get; set; }
+    public int? ImagePortraitWidth { get; set; }
+    public int? ImagePortraitHeight { get; set; }
+    public int? ImageLandscapeWidth { get; set; }
+    public int? ImageLandscapeHeight { get; set; }
+    public int? ImageTimeoutMs { get; set; }
+    public string? ImageVisualStyle { get; set; }
+    public bool UnloadLlmBeforeRender { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

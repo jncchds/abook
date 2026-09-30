@@ -121,6 +121,25 @@ public interface IBookRepository
     Task<PlotThreadVersion?> GetPlotThreadVersionAsync(int bookId, int threadId, int versionId);
     Task<PlotThread> RestorePlotThreadVersionAsync(int bookId, int threadId, int versionId);
 
+    // Illustrations
+    /// <summary>Illustrations of the book, optionally narrowed to one chapter and/or kind, in reading order.</summary>
+    Task<IReadOnlyList<Illustration>> GetIllustrationsAsync(int bookId, int? chapterId = null, IllustrationKind? kind = null);
+    Task<Illustration?> GetIllustrationAsync(int bookId, int illustrationId);
+    Task<Illustration> AddIllustrationAsync(Illustration illustration);
+    Task UpdateIllustrationAsync(Illustration illustration);
+    /// <summary>Deletes the illustration and its rendered image.</summary>
+    Task DeleteIllustrationAsync(int bookId, int illustrationId);
+    /// <summary>
+    /// Replaces the never-rendered illustrations of one kind — scenes of a chapter, or the book's cover —
+    /// with <paramref name="planned"/>. Illustrations that have an image are kept.
+    /// </summary>
+    Task<IReadOnlyList<Illustration>> ReplaceUnrenderedIllustrationsAsync(
+        int bookId, int? chapterId, IllustrationKind kind, IEnumerable<Illustration> planned);
+    /// <summary>Stores a rendered image for the illustration, replacing (and deleting) its previous image.</summary>
+    Task<Illustration> SaveRenderedImageAsync(int bookId, int illustrationId, BookImage image);
+    Task<BookImage?> GetBookImageAsync(int bookId, int imageId);
+    Task<IReadOnlyList<BookImage>> GetBookImagesAsync(int bookId, IEnumerable<int> imageIds);
+
     // Agent Runs (durable run state for restart resilience)
     Task<AgentRun> CreateRunAsync(AgentRun run);
     Task<AgentRun?> GetRunByIdAsync(Guid runId);

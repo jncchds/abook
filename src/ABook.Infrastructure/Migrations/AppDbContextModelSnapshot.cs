@@ -18,7 +18,7 @@ namespace ABook.Infrastructure.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.10")
+                .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
@@ -196,6 +196,14 @@ namespace ABook.Infrastructure.Migrations
                     b.Property<bool>("HumanAssisted")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IllustrationsEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("IllustratorSystemPrompt")
+                        .HasColumnType("text");
+
                     b.Property<string>("Language")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -250,6 +258,45 @@ namespace ABook.Infrastructure.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("Books");
+                });
+
+            modelBuilder.Entity("ABook.Core.Models.BookImage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BookId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte[]>("Data")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("Seed")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BookId");
+
+                    b.ToTable("BookImages");
                 });
 
             modelBuilder.Entity("ABook.Core.Models.BookSnapshot", b =>
@@ -503,6 +550,9 @@ namespace ABook.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<long?>("ImageSeed")
+                        .HasColumnType("bigint");
+
                     b.Property<bool>("IsArchived")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -531,6 +581,16 @@ namespace ABook.Infrastructure.Migrations
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VisualPrompt")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("");
+
+                    b.Property<string>("VisualPromptSourceHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.HasKey("Id");
 
@@ -645,6 +705,99 @@ namespace ABook.Infrastructure.Migrations
                     b.ToTable("CharactersSnapshots");
                 });
 
+            modelBuilder.Entity("ABook.Core.Models.Illustration", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AnchorText")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("BookId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Caption")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("ChapterId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("CharacterCardId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CharacterNamesJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("[]");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("FocusCharacterId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ImageId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("NegativePrompt")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Orientation")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("ParagraphNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Prompt")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<long?>("Seed")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChapterId");
+
+                    b.HasIndex("CharacterCardId");
+
+                    b.HasIndex("FocusCharacterId");
+
+                    b.HasIndex("ImageId");
+
+                    b.HasIndex("BookId", "ChapterId");
+
+                    b.ToTable("Illustrations");
+                });
+
             modelBuilder.Entity("ABook.Core.Models.LlmConfiguration", b =>
                 {
                     b.Property<int>("Id")
@@ -667,6 +820,38 @@ namespace ABook.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<double?>("ImageCfg")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("ImageEndpoint")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int?>("ImageLandscapeHeight")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ImageLandscapeWidth")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ImagePortraitHeight")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ImagePortraitWidth")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ImageProvider")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int?>("ImageSteps")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ImageTimeoutMs")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ImageVisualStyle")
+                        .HasColumnType("text");
+
                     b.Property<int?>("MaxTokens")
                         .HasColumnType("integer");
 
@@ -687,6 +872,11 @@ namespace ABook.Infrastructure.Migrations
 
                     b.Property<int?>("TimeoutMs")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("UnloadLlmBeforeRender")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<int?>("UserId")
                         .HasColumnType("integer");
@@ -722,6 +912,38 @@ namespace ABook.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<double?>("ImageCfg")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("ImageEndpoint")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int?>("ImageLandscapeHeight")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ImageLandscapeWidth")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ImagePortraitHeight")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ImagePortraitWidth")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ImageProvider")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int?>("ImageSteps")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ImageTimeoutMs")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ImageVisualStyle")
+                        .HasColumnType("text");
+
                     b.Property<int?>("MaxTokens")
                         .HasColumnType("integer");
 
@@ -747,6 +969,11 @@ namespace ABook.Infrastructure.Migrations
 
                     b.Property<int?>("TimeoutMs")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("UnloadLlmBeforeRender")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1161,6 +1388,17 @@ namespace ABook.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("ABook.Core.Models.BookImage", b =>
+                {
+                    b.HasOne("ABook.Core.Models.Book", "Book")
+                        .WithMany()
+                        .HasForeignKey("BookId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Book");
+                });
+
             modelBuilder.Entity("ABook.Core.Models.Chapter", b =>
                 {
                     b.HasOne("ABook.Core.Models.Book", "Book")
@@ -1203,6 +1441,41 @@ namespace ABook.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("CharacterCard");
+                });
+
+            modelBuilder.Entity("ABook.Core.Models.Illustration", b =>
+                {
+                    b.HasOne("ABook.Core.Models.Book", "Book")
+                        .WithMany()
+                        .HasForeignKey("BookId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ABook.Core.Models.Chapter", "Chapter")
+                        .WithMany()
+                        .HasForeignKey("ChapterId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("ABook.Core.Models.CharacterCard", null)
+                        .WithMany()
+                        .HasForeignKey("CharacterCardId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("ABook.Core.Models.CharacterCard", null)
+                        .WithMany()
+                        .HasForeignKey("FocusCharacterId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("ABook.Core.Models.BookImage", "Image")
+                        .WithMany()
+                        .HasForeignKey("ImageId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Book");
+
+                    b.Navigation("Chapter");
+
+                    b.Navigation("Image");
                 });
 
             modelBuilder.Entity("ABook.Core.Models.LlmConfiguration", b =>

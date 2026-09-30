@@ -17,6 +17,8 @@ function agentCaption(role: string | undefined, state: string | undefined, chapt
     case 'Editor':              return `Editing${ch}…`
     case 'ContinuityChecker':   return `Checking${ch}…`
     case 'Embedder':            return `Indexing${ch}…`
+    case 'IllustrationPlanner': return `Planning illustrations${ch}…`
+    case 'Illustrator':         return 'Rendering illustrations…'
     default:                    return `${role ?? 'Agent'} running…`
   }
 }
@@ -120,6 +122,7 @@ function BookSidebar() {
       <SidebarBtn icon="🌍" label="Story Bible" active={isAt('story-bible')} onClick={() => navigate(`/books/${id}/story-bible`)} dot={isPhaseComplete('storybible')} />
       <SidebarBtn icon="👤" label="Characters" active={isAt('characters')} onClick={() => navigate(`/books/${id}/characters`)} dot={isPhaseComplete('characters')} />
       <SidebarBtn icon="🧵" label="Plot Threads" active={isAt('plot-threads')} onClick={() => navigate(`/books/${id}/plot-threads`)} dot={isPhaseComplete('plotthreads')} />
+      <SidebarBtn icon="🎨" label="Illustrations" active={isAt('illustrations')} onClick={() => navigate(`/books/${id}/illustrations`)} />
       <SidebarDivider />
       <SidebarBtn icon="💬" label="Agent Messages" active={isAt('chat')} onClick={() => navigate(`/books/${id}/chat`)} dot={!!pendingQuestion} dotColor={pendingQuestion ? 'var(--warning)' : undefined} />
       <SidebarBtn icon="🪙" label="Token Stats" active={isAt('token-stats')} onClick={() => navigate(`/books/${id}/token-stats`)} />

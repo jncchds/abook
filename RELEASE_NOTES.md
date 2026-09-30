@@ -2,6 +2,13 @@
 
 ## v0.2.0 — 2026-09-30
 
+### Illustrations
+- feat: AI book illustrations with a self-hosted Z-Image server. With **Illustrate this book** on, the LLM plans each finished chapter's illustrations (what they show, the paragraph they follow, positive and negative prompts chosen for the genre) and the cover once the book is written; nothing is rendered until you press **Illustrate book**, which runs the image model alone so the LLM can be unloaded first (automatic for Ollama)
+- feat: consistent characters — each character gets an LLM-written visual description, repeated word for word in every prompt that shows them, and a reference portrait whose seed is reused for the scenes centred on them; re-roll a portrait, then re-render that character's scenes
+- feat: new Illustrations page, figures inline in the chapter view and public reader, portraits and editable visual descriptions on the Characters page; every plan is editable, and an edited image keeps showing until re-rendered
+- feat: rendered illustrations and the cover are embedded in the HTML, EPUB and FB2 downloads; the metadata export shows portraits
+- feat: image endpoint, visual style, steps, CFG, sizes and timeout are part of the LLM configuration and presets (with Test connection); MCP gains `list_illustrations`, `update_illustration`, `plan_illustrations` and `render_illustrations`
+
 ### Security
 - fix: the agent endpoints (`/api/books/{id}/agent/*`) required no login and checked no ownership — anyone who could reach the server could start runs on any book (spending the owner's API credits), stop them, or read their stream. They now require sign-in and book ownership
 - fix: the SignalR hub required no login and let any connection join any book's group, receiving its full streamed text. It now requires sign-in and `JoinBook` checks ownership

@@ -19,6 +19,8 @@ public class AgentOrchestrator : IAgentOrchestrator
     private readonly WriterAgent _writer;
     private readonly EditorAgent _editor;
     private readonly ContinuityCheckerAgent _continuity;
+    private readonly IllustrationPlannerAgent _illustrationPlanner;
+    private readonly IllustrationRenderer _illustrationRenderer;
     private readonly AgentRunStateService _state;
     private readonly IBookNotifier _notifier;
     private readonly ILogger<AgentOrchestrator> _logger;
@@ -33,6 +35,8 @@ public class AgentOrchestrator : IAgentOrchestrator
         WriterAgent writer,
         EditorAgent editor,
         ContinuityCheckerAgent continuity,
+        IllustrationPlannerAgent illustrationPlanner,
+        IllustrationRenderer illustrationRenderer,
         AgentRunStateService state,
         IBookNotifier notifier,
         ILogger<AgentOrchestrator> logger)
@@ -46,6 +50,8 @@ public class AgentOrchestrator : IAgentOrchestrator
         _writer = writer;
         _editor = editor;
         _continuity = continuity;
+        _illustrationPlanner = illustrationPlanner;
+        _illustrationRenderer = illustrationRenderer;
         _state = state;
         _notifier = notifier;
         _logger = logger;
@@ -132,6 +138,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, null);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Running final continuity check…", false, c);
             await _continuity.CheckAsync(bookId, ct: c);
+            await PlanCoverIfEnabledAsync(bookId, c);
             // Terminal WorkflowProgress(isComplete=true) is emitted by ExecuteAgentRunAsync after this body returns.
         });
 
@@ -170,10 +177,49 @@ public class AgentOrchestrator : IAgentOrchestrator
             _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, null);
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Running continuity check…", false, c);
             await _continuity.CheckAsync(bookId, ct: c);
+            await PlanCoverIfEnabledAsync(bookId, c);
             // Terminal WorkflowProgress(isComplete=true) is emitted by ExecuteAgentRunAsync after this body returns.
         });
 
+    public Task StartIllustrationPlanningAsync(int bookId, IllustrationPlanRequest request, CancellationToken ct = default) =>
+        ExecuteAgentRunAsync(bookId, AgentRole.IllustrationPlanner, request.Scope == IllustrationPlanScope.Chapter ? request.TargetId : null, ct,
+            async c =>
+            {
+                switch (request.Scope)
+                {
+                    case IllustrationPlanScope.Chapter:
+                        await _illustrationPlanner.PlanChapterAsync(bookId,
+                            request.TargetId ?? throw new ArgumentException("A chapter id is required."), c);
+                        break;
+                    case IllustrationPlanScope.Cover:
+                        await _illustrationPlanner.PlanCoverAsync(bookId, c);
+                        break;
+                    case IllustrationPlanScope.Characters:
+                        await _illustrationPlanner.EnsureCharacterVisualsAsync(bookId, c, force: true);
+                        break;
+                    default:
+                        await _illustrationPlanner.PlanMissingAsync(bookId, c);
+                        break;
+                }
+            });
+
+    public Task StartRenderAsync(int bookId, RenderRequest request, CancellationToken ct = default) =>
+        ExecuteAgentRunAsync(bookId, AgentRole.Illustrator, null, ct,
+            c => _illustrationRenderer.RenderAsync(bookId, request, c));
+
     // ── Private helpers ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Plans the cover once the whole book is written, when the book has illustrations enabled.
+    /// A failure is reported as a note: the book itself is finished.
+    /// </summary>
+    private async Task PlanCoverIfEnabledAsync(int bookId, CancellationToken ct)
+    {
+        var book = await _repo.GetByIdAsync(bookId);
+        if (book is not { IllustrationsEnabled: true }) return;
+        _state.UpdateRunRole(bookId, AgentRole.IllustrationPlanner, null);
+        await _illustrationPlanner.PlanCoverOrNoteAsync(bookId, ct);
+    }
 
     /// <summary>
     /// Template for every public agent-run method: uniform error/cancellation handling and status
@@ -197,6 +243,8 @@ public class AgentOrchestrator : IAgentOrchestrator
             AgentRole.Writer => "write",
             AgentRole.Editor => "edit",
             AgentRole.ContinuityChecker => "continuity",
+            AgentRole.IllustrationPlanner => "illustrate-plan",
+            AgentRole.Illustrator => "illustrate",
             _ => "workflow"
         };
 
@@ -242,6 +290,8 @@ public class AgentOrchestrator : IAgentOrchestrator
             "edit"       => "Editing complete.",
             "continuity" => "Continuity check complete.",
             "plan"       => "Planning complete.",
+            "illustrate-plan" => "Illustration planning complete.",
+            "illustrate" => "Illustrating complete.",
             _            => "Workflow complete!",
         };
         await NotifySafelyAsync(bookId, () => _notifier.NotifyWorkflowProgressAsync(bookId, completionMsg, true, CancellationToken.None));
@@ -370,6 +420,14 @@ public class AgentOrchestrator : IAgentOrchestrator
 
         await _notifier.NotifyWorkflowProgressAsync(bookId,
             $"Chapter {chapter.Number} complete.", false, ct);
+
+        // Prompts and positions only — rendering is a separate run, so the text model can be unloaded first.
+        // Read fresh so the toggle can be switched while the workflow runs.
+        if ((await _repo.GetByIdAsync(bookId))?.IllustrationsEnabled == true)
+        {
+            _state.UpdateRunRole(bookId, AgentRole.IllustrationPlanner, chapter.Id);
+            await _illustrationPlanner.PlanChapterOrNoteAsync(bookId, chapter, ct);
+        }
     }
 
     /// <summary>

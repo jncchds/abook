@@ -30,8 +30,13 @@ A self-hosted web application that uses AI agents to collaboratively write books
 - **Archived means archived** — an archived chapter, character, or plot thread is kept purely so you can look at it or restore it. It is never sent to a model, never counted in planning or continuity checks, never included in an HTML/FB2/EPUB export or on the public reader page, and agents refuse to write to it
 - **Book continuation** — create a sequel that copies all settings and inherits ancestor context; RAG and planning reference the full base-book chain
 
+### Illustrations
+- **AI illustrations with Z-Image** — turn on **Illustrate this book** and the LLM plans illustrations for every finished chapter (what each image shows, where it goes, and its positive and negative prompts, chosen to suit the genre), plus the cover once the book is written. Review and edit the plan, then press **Illustrate book** to render everything in one image-model run — no LLM calls, so you can unload the LLM first (automatic for Ollama)
+- **Consistent characters** — each character gets a visual description written from their profile and a reference portrait; every image showing them repeats that description, and scenes centred on them reuse the portrait's seed. Re-roll a portrait until the look is right, then re-render their scenes
+- **Configurable** — image endpoint, steps, CFG, sizes and visual style live in the LLM configuration and presets, so applying a preset switches the text and image models together
+
 ### Exports & sharing
-- **Multiple export formats** — HTML (6 colour themes, adjustable font size), EPUB, FB2, and a Metadata document (book info, outlines, planning artifacts, agent messages, token stats)
+- **Multiple export formats** — HTML (6 colour themes, adjustable font size), EPUB, FB2, and a Metadata document (book info, outlines, planning artifacts, agent messages, token stats). Rendered illustrations and the cover are embedded in all of them
 - **Public Library** — browse and read published books without logging in (when public mode is enabled); each chapter has its own URL for bookmarking and sharing
 
 ### Infrastructure
@@ -147,6 +152,8 @@ volumes:
 | `LlmDefaults__Endpoint` | `http://host.docker.internal:11434` | Default LLM endpoint |
 | `LlmDefaults__ApiKey` | — | API key (required for OpenAI / GoogleAIStudio; optional for Ollama) |
 | `LlmDefaults__EmbeddingModelName` | — | Embedding model for RAG (optional; falls back to chat model) |
+| `LlmDefaults__ImageEndpoint` | — | Z-Image server URL for illustrations (e.g. `http://gpu-box:8000`); applied with `LlmDefaults__Provider` |
+| `LlmDefaults__ImageVisualStyle` | — | Default visual style for illustrations |
 | `AgentSettings__MaxConcurrentRuns` | `3` | Max simultaneous agent runs across all books/users |
 | `PublicMode` | `false` | Enable public library (anonymous access to published books) |
 
@@ -168,6 +175,21 @@ Configure the LLM backend in **Settings** or via the API:
 Configurations can be set globally, per-user, or per-book. The lookup order is: book-specific → user-default → global.
 
 Local models often ignore the JSON schema the planning agents send — returning a chapter number as `1.0` or `"3"`, or a text field as a list. The parsers coerce those instead of failing, drop only the entries they genuinely cannot read, and post a `⚠️` note in the book's chat naming each dropped entry and the JSON behind it. If a planning phase does fail outright, the error in the chat quotes what the model actually returned.
+
+### Image Generation (Illustrations)
+
+Illustrations are rendered by a self-hosted [Z-Image Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) server — the FastAPI server in the adate project's `compose/zimage` folder (`POST /generate`, `GET /images/{id}`, `GET /health`). Set its URL under **🎨 Image Generation** in the LLM settings (global, per book, or in a preset) and use **Test connection**.
+
+| Setting | Default | Notes |
+|---|---|---|
+| Endpoint | — | Blank disables rendering (illustrations can still be planned) |
+| Visual style | — | Written into every prompt by the LLM; blank lets it choose one for the genre |
+| Steps / CFG | 8 / 1.0 | Z-Image Turbo values. Negative prompts only take effect with CFG above 1.0 |
+| Portrait / landscape size | 768×1152 / 1152×768 | Square images use the portrait area |
+| Timeout | 300000 ms | Per image |
+| Unload the LLM before rendering | off | Ollama only (`keep_alive: 0`) |
+
+Workflow: enable **Illustrate this book** in the book settings → write the book → open **🎨 Illustrations**, review or edit the plan → **Render portraits** and re-roll any you don't like → **Illustrate book**.
 
 ### MCP Access
 

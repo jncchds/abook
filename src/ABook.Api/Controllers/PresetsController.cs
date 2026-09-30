@@ -44,6 +44,7 @@ public class PresetsController : ControllerBase
             ReasoningEffort = req.ReasoningEffort,
             MaxTokens = req.MaxTokens,
         };
+        preset.CopyImageSettingsFrom(req);
         var created = await _repo.CreatePresetAsync(preset);
         return CreatedAtAction(nameof(GetAll), new { id = created.Id }, created);
     }
@@ -68,6 +69,7 @@ public class PresetsController : ControllerBase
         existing.TimeoutMs = req.TimeoutMs;
         existing.ReasoningEffort = req.ReasoningEffort;
         existing.MaxTokens = req.MaxTokens;
+        existing.CopyImageSettingsFrom(req);
         await _repo.UpdatePresetAsync(existing);
         return Ok(existing);
     }
@@ -96,4 +98,15 @@ public record PresetRequest(
     float? Temperature = null,
     int? TimeoutMs = null,
     string? ReasoningEffort = null,
-    int? MaxTokens = null);
+    int? MaxTokens = null,
+    ImageProvider? ImageProvider = null,
+    string? ImageEndpoint = null,
+    int? ImageSteps = null,
+    double? ImageCfg = null,
+    int? ImagePortraitWidth = null,
+    int? ImagePortraitHeight = null,
+    int? ImageLandscapeWidth = null,
+    int? ImageLandscapeHeight = null,
+    int? ImageTimeoutMs = null,
+    string? ImageVisualStyle = null,
+    bool UnloadLlmBeforeRender = false) : IImageGenSettings;

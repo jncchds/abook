@@ -6,11 +6,17 @@ import { updateChapter, clearChapterContent, archiveChapter, restoreChapter, get
 import type { ChapterVersionMeta, ChapterVersionFull } from '../../api'
 import { chapterStatusColor } from '../../utils/chapterStatus'
 import { useRestoreStream } from '../../hooks/useRestoreStream'
+import ChapterContent from '../../components/ChapterContent'
+import IllustrationFigure from '../../components/IllustrationFigure'
+import { splitParagraphs } from '../../utils/paragraphs'
 
 export default function ChapterView() {
   const { chapterId } = useParams<{ chapterId: string }>()
   const navigate = useNavigate()
-  const { book, setBook, streamBuffer, streamingChapterId, isRunning, canEdit, isWaitingForInput, runStatus, setStreamBuffer, setStreamingChapterId } = useBookContext()
+  const {
+    book, setBook, streamBuffer, streamingChapterId, isRunning, canEdit, isWaitingForInput, runStatus, setStreamBuffer, setStreamingChapterId,
+    illustrations, characters, refreshIllustrations, handlePlanIllustrations, handleRenderIllustrations,
+  } = useBookContext()
 
   const [editingChapter, setEditingChapter] = useState(false)
   const [chapterEditTitle, setChapterEditTitle] = useState('')
@@ -41,6 +47,9 @@ export default function ChapterView() {
 
   const bookId = book.id
   const statusColor = chapterStatusColor
+  const scenes = illustrations.filter(i => i.kind === 'Scene' && i.chapterId === chapter.id)
+  const unrenderedScenes = scenes.filter(i => i.status !== 'Rendered').length
+  const paragraphCount = splitParagraphs(chapter.content).length
 
   const startEditingChapter = () => {
     setChapterEditTitle(chapter.title)
@@ -208,6 +217,18 @@ export default function ChapterView() {
             {canEdit && !chapter.isArchived && (
               <button className="btn-archive" onClick={handleArchive} title="Archive this chapter">🗄 Archive</button>
             )}
+            {!isRunning && !chapter.isArchived && chapter.content?.trim() && (
+              <button className="btn-icon" onClick={() => {
+                if (scenes.some(i => !i.imageId) && !confirm('Re-plan this chapter\'s illustrations? Planned ones that were never rendered are replaced.')) return
+                handlePlanIllustrations('Chapter', chapter.id)
+              }} title="Have the LLM plan this chapter's illustrations (prompts and positions)">🎨 Plan illustrations</button>
+            )}
+            {!isRunning && unrenderedScenes > 0 && (
+              <button className="btn-icon" onClick={() => handleRenderIllustrations('Chapter', chapter.id)}
+                title="Render this chapter's illustrations with the image model (unload the LLM first if VRAM is short)">
+                ▶ Render {unrenderedScenes} illustration{unrenderedScenes === 1 ? '' : 's'}
+              </button>
+            )}
             {chapter.isArchived && (
               <button className="btn-icon" onClick={handleRestoreChapter} title="Restore this chapter">♻ Restore</button>
             )}
@@ -226,7 +247,22 @@ export default function ChapterView() {
             {streamBuffer && streamingChapterId === chapter.id ? (
               <ReactMarkdown>{streamBuffer}</ReactMarkdown>
             ) : chapter.content ? (
-              <ReactMarkdown>{chapter.content}</ReactMarkdown>
+              <ChapterContent
+                content={chapter.content}
+                illustrations={scenes}
+                renderFigure={ill => (
+                  <IllustrationFigure
+                    bookId={bookId}
+                    illustration={ill}
+                    editable={canEdit && !chapter.isArchived}
+                    canRender={!isRunning}
+                    characters={characters}
+                    paragraphCount={paragraphCount}
+                    onRender={(i, reroll) => handleRenderIllustrations('Single', i.id, reroll)}
+                    onChanged={refreshIllustrations}
+                  />
+                )}
+              />
             ) : (
               <p className="empty">Waiting to be written by the agents…</p>
             )}

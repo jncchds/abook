@@ -1,13 +1,14 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
-import type { Book, AgentMessage, AgentRunStatus, StoryBible, CharacterCard, PlotThread } from '../api'
+import type { Book, AgentMessage, AgentRunStatus, StoryBible, CharacterCard, PlotThread, Illustration, IllustrationPlanScope, RenderScope } from '../api'
 import {
   getBook, getMessages, postAnswer, getAgentStatus,
   startPlanning, continuePlanning, completePlanningPhase, reopenPlanningPhase, clearPlanningPhase,
   startWorkflow, continueWorkflow, stopWorkflow,
   getTokenUsage, clearMessages, clearTokenUsage,
   getStoryBible, getCharacters, getPlotThreads, getChapters, getChapter,
+  getIllustrations, planIllustrations, renderIllustrations,
 } from '../api'
 import { useBookHub } from '../hooks/useBookHub'
 import { useNotifications } from '../hooks/useNotifications'
@@ -69,6 +70,14 @@ interface BookContextValue {
   plotThreads: PlotThread[]
   setPlotThreads: React.Dispatch<React.SetStateAction<PlotThread[]>>
 
+  /** Every illustration of the book: portraits, cover and chapter scenes. */
+  illustrations: Illustration[]
+  refreshIllustrations: () => Promise<void>
+  /** LLM run: writes image prompts and positions. */
+  handlePlanIllustrations: (scope: IllustrationPlanScope, targetId?: number) => Promise<void>
+  /** Image-model run: renders planned illustrations (no LLM calls). */
+  handleRenderIllustrations: (scope: RenderScope, targetId?: number, reroll?: boolean) => Promise<void>
+
   tokenStats: TokenStat[]
   setTokenStats: React.Dispatch<React.SetStateAction<TokenStat[]>>
   workflowSteps: WorkflowStep[]
@@ -125,6 +134,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   const [storyBible, setStoryBible] = useState<StoryBible | null>(null)
   const [characters, setCharacters] = useState<CharacterCard[]>([])
   const [plotThreads, setPlotThreads] = useState<PlotThread[]>([])
+  const [illustrations, setIllustrations] = useState<Illustration[]>([])
 
   const [tokenStats, setTokenStats] = useState<TokenStat[]>([])
   const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([])
@@ -134,7 +144,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   const [submittingAnswer, setSubmittingAnswer] = useState(false)
   const [answerError, setAnswerError] = useState<string | null>(null)
 
-  const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnReconnected } = useBookHub(bookId)
+  const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnIllustrationsUpdated, setOnReconnected } = useBookHub(bookId)
   const { notify } = useNotifications()
   const notifyRef = useRef(notify)
   useEffect(() => { notifyRef.current = notify })
@@ -153,6 +163,16 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       // The question may have been answered from another tab or device.
       setPendingQuestion(prev => prev && r.data.some(m => m.id === prev.id && m.isResolved) ? null : prev)
     }).catch(() => {})
+  }, [bookId])
+
+  // Renders report one image at a time; only the newest listing may win.
+  const illustrationsRequestSeq = useRef(0)
+  const refreshIllustrations = useCallback(async () => {
+    const seq = ++illustrationsRequestSeq.current
+    try {
+      const r = await getIllustrations(bookId)
+      if (seq === illustrationsRequestSeq.current) setIllustrations(r.data)
+    } catch { /* keep the current list */ }
   }, [bookId])
 
   const refreshTokenStats = useCallback((signal?: AbortSignal) =>
@@ -206,6 +226,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     getStoryBible(bookId, signal).then(r => { if (!signal.aborted) setStoryBible(r.data) }).catch(() => {})
     getCharacters(bookId, true, signal).then(r => { if (!signal.aborted) setCharacters(r.data) }).catch(() => {})
     getPlotThreads(bookId, true, signal).then(r => { if (!signal.aborted) setPlotThreads(r.data) }).catch(() => {})
+    getIllustrations(bookId, undefined, signal).then(r => { if (!signal.aborted) setIllustrations(r.data) }).catch(() => {})
 
     return () => { controller.abort() }
   }, [refreshBook, refreshTokenStats, bookId])
@@ -364,11 +385,17 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     setOnMessagesUpdated(() => {
       refreshMessages()
     })
+    setOnIllustrationsUpdated((_bId, illustrationId) => {
+      refreshIllustrations()
+      // A bulk change (planning) may also have rewritten the characters' visual descriptions.
+      if (illustrationId === null) getCharacters(bookId, true).then(r => setCharacters(r.data)).catch(() => {})
+    })
     setOnReconnected(() => {
       // Events sent while the connection was down are lost — re-read everything they would have updated.
       refreshMessages()
       refreshBook().catch(() => {})
       refreshTokenStats().catch(() => {})
+      refreshIllustrations()
       getAgentStatus(bookId).then(r => {
         const status = r.data
         if (status && (status.state === 'Running' || status.state === 'WaitingForInput')) {
@@ -386,7 +413,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         }
       }).catch(() => {})
     })
-  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnReconnected, refreshBook, refreshMessages, refreshTokenStats, clearStreams, bookId, navigate])
+  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnIllustrationsUpdated, setOnReconnected, refreshBook, refreshMessages, refreshTokenStats, refreshIllustrations, clearStreams, bookId, navigate])
 
   const isWaitingForInput = runStatus?.state === 'WaitingForInput'
   const isRunning = runStatus?.state === 'Running' || isWaitingForInput
@@ -408,6 +435,24 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
 
   const handleWriteBook = useCallback(() => startAgentRun(() => startWorkflow(bookId), 'Planner'), [startAgentRun, bookId])
   const handlePlanBook = useCallback(() => startAgentRun(() => startPlanning(bookId), 'Planner'), [startAgentRun, bookId])
+
+  // Unlike startAgentRun these report every refusal (no text yet, no image endpoint), not only 409.
+  const startIllustrationRun = useCallback(async (apiCall: () => Promise<unknown>, role: string) => {
+    if (isRunning) return
+    setWorkflowLog([])
+    try {
+      await apiCall()
+      setRunStatus({ role, state: 'Running' })
+    } catch (err: unknown) {
+      alert(axios.isAxiosError(err) ? (err.response?.data?.message ?? err.message) : String(err))
+    }
+  }, [isRunning])
+
+  const handlePlanIllustrations = useCallback((scope: IllustrationPlanScope, targetId?: number) =>
+    startIllustrationRun(() => planIllustrations(bookId, scope, targetId), 'IllustrationPlanner'), [startIllustrationRun, bookId])
+
+  const handleRenderIllustrations = useCallback((scope: RenderScope, targetId?: number, reroll = false) =>
+    startIllustrationRun(() => renderIllustrations(bookId, scope, targetId, reroll), 'Illustrator'), [startIllustrationRun, bookId])
 
   const handleStop = async () => {
     try { await stopWorkflow(bookId) } catch { /* ignore */ }
@@ -511,6 +556,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     storyBibleStream, setStoryBibleStream, charactersStream, setCharactersStream,
     plotThreadsStream, setPlotThreadsStream, setStreamBuffer, setStreamingChapterId,
     storyBible, setStoryBible, characters, setCharacters, plotThreads, setPlotThreads,
+    illustrations, refreshIllustrations, handlePlanIllustrations, handleRenderIllustrations,
     tokenStats, setTokenStats, workflowSteps, setWorkflowSteps, workflowLog,
     answerText, setAnswerText, submittingAnswer, answerError,
     refreshBook, refreshMessages,

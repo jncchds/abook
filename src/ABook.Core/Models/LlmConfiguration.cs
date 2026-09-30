@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace ABook.Core.Models;
 
-public class LlmConfiguration
+public class LlmConfiguration : IEditableImageGenSettings
 {
     public int Id { get; set; }
     public int? BookId { get; set; }
@@ -29,6 +29,19 @@ public class LlmConfiguration
     public string? ReasoningEffort { get; set; }
     /// <summary>Maximum output tokens. 0 or negative = provider default.</summary>
     public int? MaxTokens { get; set; }
+
+    // ── Image generation (see IImageGenSettings) ──────────────────────────────
+    public ImageProvider? ImageProvider { get; set; }
+    public string? ImageEndpoint { get; set; }
+    public int? ImageSteps { get; set; }
+    public double? ImageCfg { get; set; }
+    public int? ImagePortraitWidth { get; set; }
+    public int? ImagePortraitHeight { get; set; }
+    public int? ImageLandscapeWidth { get; set; }
+    public int? ImageLandscapeHeight { get; set; }
+    public int? ImageTimeoutMs { get; set; }
+    public string? ImageVisualStyle { get; set; }
+    public bool UnloadLlmBeforeRender { get; set; }
 
     [JsonIgnore] public Book? Book { get; set; }
     [JsonIgnore] public AppUser? User { get; set; }

@@ -14,6 +14,8 @@ services:
       # - LlmDefaults__Endpoint=http://host.docker.internal:11434
       # - LlmDefaults__ApiKey=
       # - LlmDefaults__EmbeddingModelName=nomic-embed-text
+      # - LlmDefaults__ImageEndpoint=http://gpu-box:8000   # Z-Image server for illustrations
+      # - LlmDefaults__ImageVisualStyle=painterly watercolour illustration
       # ── Logging ───────────────────────────────────────────────────────────────
       # - LLM_DEBUG_LOGGING=true                # print full chat history + responses to app log
     depends_on:

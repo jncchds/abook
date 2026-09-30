@@ -3,17 +3,18 @@ import { useBookContext } from '../../contexts/BookContext'
 import {
   createCharacter, updateCharacter, archiveCharacter, unarchiveCharacter,
   getCharacterHistory, restoreCharacterVersion,
-  getCharactersHistory, getCharactersSnapshot, restoreCharactersSnapshot,
+  getCharactersHistory, getCharactersSnapshot, restoreCharactersSnapshot, getCharacters,
 } from '../../api'
 import type { CharacterCard, CharacterCardVersion, CharactersSnapshotMeta } from '../../api'
 import { parseCharactersStream } from '../../utils/streamParsers'
 import PhaseActionBar from '../../components/PhaseActionBar'
 import { useRestoreStream } from '../../hooks/useRestoreStream'
+import CharacterVisualPanel from '../../components/CharacterVisualPanel'
 
 export default function Characters() {
   const {
     book, characters, setCharacters, charactersStream, setCharactersStream,
-    isRunning,
+    isRunning, canEdit, illustrations, refreshIllustrations, handleRenderIllustrations, handlePlanIllustrations,
   } = useBookContext()
 
   const [editingCharId, setEditingCharId] = useState<number | null>(null)
@@ -129,6 +130,16 @@ export default function Characters() {
         <button className="btn-sm" onClick={() => { setCharForm({}); setAddingChar(true); setEditingCharId(null) }}>+ Add</button>
       </div>
       <PhaseActionBar phase="characters" onClear={() => setCharacters([])} onHistory={handleOpenHistory} style={{ marginBottom: '1rem' }} />
+      {!isRunning && activeChars.length > 0 && (book.illustrationsEnabled || illustrations.length > 0) && (
+        <div style={{ marginBottom: '1rem' }}>
+          <button className="btn-sm btn-secondary" onClick={() => {
+            if (!confirm('Rewrite every character\'s visual description and portrait prompt? Prompts that quote the old descriptions are updated to match.')) return
+            handlePlanIllustrations('Characters')
+          }} title="Have the LLM rewrite each character's visual description and portrait prompt">
+            🎨 Rewrite visual descriptions
+          </button>
+        </div>
+      )}
 
       {addingChar && (
         <div className="card" style={{ maxWidth: 560, marginBottom: '1rem' }}>
@@ -213,6 +224,17 @@ export default function Characters() {
                   {ch.personality && <p className="blc-premise"><em>Personality:</em> {ch.personality}</p>}
                   {ch.goalMotivation && <p className="blc-premise"><em>Goal:</em> {ch.goalMotivation}</p>}
                   {ch.arc && <p className="blc-premise"><em>Arc:</em> {ch.arc}</p>}
+                  <CharacterVisualPanel
+                    key={`${ch.id}-${ch.visualPrompt ?? ''}`}
+                    bookId={bookId}
+                    character={ch}
+                    portrait={illustrations.find(i => i.kind === 'Portrait' && i.characterCardId === ch.id)}
+                    editable={canEdit}
+                    canRender={!isRunning}
+                    onRender={(i, reroll) => handleRenderIllustrations('Single', i.id, reroll)}
+                    onRenderScenes={id => handleRenderIllustrations('Character', id)}
+                    onChanged={() => { refreshIllustrations(); getCharacters(bookId, true).then(r => setCharacters(r.data)).catch(() => {}) }}
+                  />
                   {itemHistoryCardId === ch.id && (
                     <div className="item-history-panel">
                       <div className="history-panel-header" style={{ marginTop: '0.75rem' }}>

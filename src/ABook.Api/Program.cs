@@ -85,6 +85,10 @@ builder.Services.AddScoped<ABook.Agents.PlannerAgent>();
 builder.Services.AddScoped<ABook.Agents.WriterAgent>();
 builder.Services.AddScoped<ABook.Agents.EditorAgent>();
 builder.Services.AddScoped<ABook.Agents.ContinuityCheckerAgent>();
+builder.Services.AddScoped<ABook.Agents.IllustrationPlannerAgent>();
+builder.Services.AddScoped<ABook.Agents.IllustrationRenderer>();
+builder.Services.AddSingleton<IImageGeneratorFactory, ABook.Infrastructure.Imaging.ImageGeneratorFactory>();
+builder.Services.AddSingleton<ILlmModelUnloader, ABook.Infrastructure.Imaging.LlmModelUnloader>();
 builder.Services.AddScoped<IAgentOrchestrator, ABook.Agents.AgentOrchestrator>();
 builder.Services.AddHostedService<ABook.Api.HostedServices.RunRecoveryService>();
 
@@ -94,7 +98,8 @@ builder.Services.AddMcpServer()
     .WithTools<UserMcpTools>()
     .WithTools<BookMcpTools>()
     .WithTools<ContentMcpTools>()
-    .WithTools<AgentMcpTools>();
+    .WithTools<AgentMcpTools>()
+    .WithTools<IllustrationMcpTools>();
 // ── Public mode ───────────────────────────────────────────────────────────────
 var isPublicMode = builder.Configuration.GetValue<bool>("PublicMode");
 builder.Services.AddSingleton(new ABook.Api.Services.PublicModeOptions(isPublicMode));
@@ -140,6 +145,14 @@ using (var scope = app.Services.CreateScope())
         if (!string.IsNullOrWhiteSpace(apiKey)) config.ApiKey = apiKey;
         var embeddingModel = llmSection["EmbeddingModelName"];
         if (!string.IsNullOrWhiteSpace(embeddingModel)) config.EmbeddingModelName = embeddingModel;
+        var imageEndpoint = llmSection["ImageEndpoint"];
+        if (!string.IsNullOrWhiteSpace(imageEndpoint))
+        {
+            config.ImageEndpoint = imageEndpoint;
+            config.ImageProvider ??= Enum.TryParse<ImageProvider>(llmSection["ImageProvider"], true, out var ip) ? ip : ImageProvider.ZImage;
+        }
+        var imageStyle = llmSection["ImageVisualStyle"];
+        if (!string.IsNullOrWhiteSpace(imageStyle)) config.ImageVisualStyle = imageStyle;
         await repo.UpsertLlmConfigAsync(config);
         app.Logger.LogInformation(
             "LLM default config: provider={Provider} model={Model} endpoint={Endpoint}",

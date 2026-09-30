@@ -9,6 +9,7 @@ type WorkflowProgressHandler = (bookId: number, step: string, isComplete: boolea
 type TokenStatsHandler = (bookId: number, chapterId: number | null, agentRole: string, promptTokens: number, completionTokens: number) => void
 type AgentErrorHandler = (bookId: number, agentRole: string, errorMessage: string) => void
 type MessagesUpdatedHandler = (bookId: number) => void
+type IllustrationsUpdatedHandler = (bookId: number, illustrationId: number | null) => void
 type ReconnectedHandler = () => void
 
 const START_RETRY_MS = 5000
@@ -25,6 +26,7 @@ export function useBookHub(bookId: number | null) {
   const onTokenStats = useRef<TokenStatsHandler | null>(null)
   const onAgentError = useRef<AgentErrorHandler | null>(null)
   const onMessagesUpdated = useRef<MessagesUpdatedHandler | null>(null)
+  const onIllustrationsUpdated = useRef<IllustrationsUpdatedHandler | null>(null)
   const onReconnected = useRef<ReconnectedHandler | null>(null)
 
   useEffect(() => {
@@ -46,6 +48,7 @@ export function useBookHub(bookId: number | null) {
     conn.on('TokenStats', (bId, cId, role, prompt, completion) => onTokenStats.current?.(bId, cId, role, prompt, completion))
     conn.on('AgentError', (bId, role, msg) => onAgentError.current?.(bId, role, msg))
     conn.on('MessagesUpdated', (bId) => onMessagesUpdated.current?.(bId))
+    conn.on('IllustrationsUpdated', (bId, iId) => onIllustrationsUpdated.current?.(bId, iId ?? null))
 
     // A reconnect gets a new connection id, so the server-side group membership is gone:
     // rejoin, then let the consumer re-read whatever it missed while disconnected.
@@ -102,6 +105,7 @@ export function useBookHub(bookId: number | null) {
     setOnTokenStats: (fn: TokenStatsHandler) => { onTokenStats.current = fn },
     setOnAgentError: (fn: AgentErrorHandler) => { onAgentError.current = fn },
     setOnMessagesUpdated: (fn: MessagesUpdatedHandler) => { onMessagesUpdated.current = fn },
+    setOnIllustrationsUpdated: (fn: IllustrationsUpdatedHandler) => { onIllustrationsUpdated.current = fn },
     setOnReconnected: (fn: ReconnectedHandler) => { onReconnected.current = fn },
   }
 }

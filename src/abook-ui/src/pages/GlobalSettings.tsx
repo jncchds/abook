@@ -2,7 +2,8 @@ import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import type { LlmConfig, LlmPreset, ProviderModel } from '../api'
 import { getLlmConfig, updateLlmConfig, getModels, getPresets, createPreset, updatePreset, getApiToken, regenerateApiToken, updateProfile } from '../api'
-import { PROVIDERS, PROVIDER_LABELS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, INITIAL_LLM_CONFIG } from '../config/providers'
+import { PROVIDERS, PROVIDER_LABELS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, INITIAL_LLM_CONFIG, pickImageSettings } from '../config/providers'
+import ImageGenSettingsFields from '../components/ImageGenSettingsFields'
 import { useNotifications } from '../hooks/useNotifications'
 import { useAuth } from '../hooks/useAuth'
 
@@ -85,6 +86,7 @@ export default function GlobalSettings() {
       timeoutMs: config.timeoutMs || undefined,
       reasoningEffort: config.reasoningEffort || undefined,
       maxTokens: config.maxTokens || undefined,
+      ...pickImageSettings(config),
     }
     const existing = presets.find(p => p.userId !== null && p.name.toLowerCase() === name.toLowerCase())
     if (existing) {
@@ -113,6 +115,7 @@ export default function GlobalSettings() {
       timeoutMs: preset.timeoutMs ?? undefined,
       reasoningEffort: preset.reasoningEffort ?? undefined,
       maxTokens: preset.maxTokens ?? undefined,
+      ...pickImageSettings(preset),
     }
     setConfig(newConfig)
     fetchModels(newConfig.endpoint, newConfig.provider, newConfig.apiKey)
@@ -442,6 +445,7 @@ export default function GlobalSettings() {
               </label>
             </div>
           </details>
+          <ImageGenSettingsFields value={config} llmProvider={config.provider} onChange={patch => setConfig(c => ({ ...c, ...patch }))} />
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '0.25rem' }}>
             <button type="submit">Save LLM Config</button>
             {saved && <span className="saved-msg">✓ Saved</span>}

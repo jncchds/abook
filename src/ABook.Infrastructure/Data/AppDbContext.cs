@@ -35,6 +35,8 @@ public class AppDbContext : DbContext
     public DbSet<BookSnapshot> BookSnapshots => Set<BookSnapshot>();
     public DbSet<CharacterCardVersion> CharacterCardVersions => Set<CharacterCardVersion>();
     public DbSet<PlotThreadVersion> PlotThreadVersions => Set<PlotThreadVersion>();
+    public DbSet<Illustration> Illustrations => Set<Illustration>();
+    public DbSet<BookImage> BookImages => Set<BookImage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -58,6 +60,7 @@ public class AppDbContext : DbContext
             b.Property(x => x.Genre).HasMaxLength(100);
             b.Property(x => x.Status).HasConversion<string>();
             b.Property(x => x.Language).HasMaxLength(100).HasDefaultValue("English");
+            b.Property(x => x.IllustrationsEnabled).HasDefaultValue(false);
             b.HasMany(x => x.Chapters).WithOne(x => x.Book).HasForeignKey(x => x.BookId).OnDelete(DeleteBehavior.Cascade);
             b.HasMany(x => x.AgentMessages).WithOne(x => x.Book).HasForeignKey(x => x.BookId).OnDelete(DeleteBehavior.Cascade);
             b.HasMany(x => x.LlmConfigurations).WithOne(x => x.Book).HasForeignKey(x => x.BookId).OnDelete(DeleteBehavior.Cascade);
@@ -114,6 +117,9 @@ public class AppDbContext : DbContext
             l.Property(x => x.Provider).HasConversion<string>();
             l.Property(x => x.ModelName).IsRequired().HasMaxLength(200);
             l.Property(x => x.Endpoint).HasMaxLength(500);
+            l.Property(x => x.ImageProvider).HasConversion<string>().HasMaxLength(50);
+            l.Property(x => x.ImageEndpoint).HasMaxLength(500);
+            l.Property(x => x.UnloadLlmBeforeRender).HasDefaultValue(false);
             l.HasOne(x => x.Book)
              .WithMany(x => x.LlmConfigurations)
              .HasForeignKey(x => x.BookId)
@@ -159,6 +165,8 @@ public class AppDbContext : DbContext
             c.Property(x => x.Name).IsRequired().HasMaxLength(200);
             c.Property(x => x.Role).HasConversion<string>();
             c.Property(x => x.IsArchived).HasDefaultValue(false);
+            c.Property(x => x.VisualPrompt).HasDefaultValue(string.Empty);
+            c.Property(x => x.VisualPromptSourceHash).HasMaxLength(64);
             c.HasOne(x => x.Book)
              .WithMany(x => x.CharacterCards)
              .HasForeignKey(x => x.BookId)
@@ -212,6 +220,9 @@ public class AppDbContext : DbContext
             p.Property(x => x.Provider).HasConversion<string>();
             p.Property(x => x.ModelName).IsRequired().HasMaxLength(200);
             p.Property(x => x.Endpoint).HasMaxLength(500);
+            p.Property(x => x.ImageProvider).HasConversion<string>().HasMaxLength(50);
+            p.Property(x => x.ImageEndpoint).HasMaxLength(500);
+            p.Property(x => x.UnloadLlmBeforeRender).HasDefaultValue(false);
             p.HasOne(x => x.User)
              .WithMany()
              .HasForeignKey(x => x.UserId)
@@ -269,6 +280,51 @@ public class AppDbContext : DbContext
             e.HasIndex(x => new { x.BookId, x.ChapterVersionId, x.ChunkIndex }).IsUnique()
              .HasFilter("\"ChapterVersionId\" IS NOT NULL");
             e.HasIndex(x => x.BookId);
+        });
+
+        modelBuilder.Entity<Illustration>(i =>
+        {
+            i.HasKey(x => x.Id);
+            i.Property(x => x.Kind).HasConversion<string>().HasMaxLength(20);
+            i.Property(x => x.Orientation).HasConversion<string>().HasMaxLength(20);
+            i.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+            i.Property(x => x.CharacterNamesJson).HasDefaultValue("[]");
+            i.HasOne(x => x.Book)
+             .WithMany()
+             .HasForeignKey(x => x.BookId)
+             .OnDelete(DeleteBehavior.Cascade);
+            i.HasOne(x => x.Chapter)
+             .WithMany()
+             .HasForeignKey(x => x.ChapterId)
+             .OnDelete(DeleteBehavior.Cascade)
+             .IsRequired(false);
+            i.HasOne<CharacterCard>()
+             .WithMany()
+             .HasForeignKey(x => x.CharacterCardId)
+             .OnDelete(DeleteBehavior.Cascade)
+             .IsRequired(false);
+            i.HasOne<CharacterCard>()
+             .WithMany()
+             .HasForeignKey(x => x.FocusCharacterId)
+             .OnDelete(DeleteBehavior.SetNull)
+             .IsRequired(false);
+            i.HasOne(x => x.Image)
+             .WithMany()
+             .HasForeignKey(x => x.ImageId)
+             .OnDelete(DeleteBehavior.SetNull)
+             .IsRequired(false);
+            i.HasIndex(x => new { x.BookId, x.ChapterId });
+        });
+
+        modelBuilder.Entity<BookImage>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.ContentType).HasMaxLength(100);
+            b.HasOne(x => x.Book)
+             .WithMany()
+             .HasForeignKey(x => x.BookId)
+             .OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => x.BookId);
         });
 
         modelBuilder.Entity<StoryBibleSnapshot>(s =>
