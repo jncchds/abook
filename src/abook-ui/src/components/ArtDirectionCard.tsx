@@ -51,8 +51,21 @@ export default function ArtDirectionCard({ book, editable, canPlan, onRewrite, o
   }
 
   return (
-    <section className="illustrations-section card">
-      <h3>Art direction</h3>
+    <section className="illustrations-section">
+      <div className="illustrations-section-header">
+        <h3>1 · Art direction</h3>
+        {editable && !editing && (
+          <div className="illustrations-section-actions">
+            <button className="btn-sm btn-secondary" disabled={!canPlan} onClick={() => {
+              if (hasStyle && !confirm('Have the illustrator rewrite the art direction? Rendered images will need re-rendering.')) return
+              onRewrite()
+            }} title="LLM: write the art direction from the visual style in the image settings">
+              🎨 {hasStyle ? 'Rewrite' : 'Write'}
+            </button>
+            {hasStyle && <button className="btn-sm btn-ghost" onClick={startEdit}>✎ Edit</button>}
+          </div>
+        )}
+      </div>
       <p className="hint" style={{ marginBottom: '0.5rem' }}>
         Added word for word to every portrait, scene and the cover, so the whole book shares one style.
         Written by the illustrator from the visual style in the image settings; edit it freely.
@@ -82,17 +95,6 @@ export default function ArtDirectionCard({ book, editable, canPlan, onRewrite, o
         <p className="empty">Not written yet — it is created with the first illustration plan.</p>
       )}
       {notice && <p className="hint" style={{ marginTop: '0.4rem' }}>{notice}</p>}
-      {editable && !editing && (
-        <div className="illustrations-actions" style={{ marginTop: '0.5rem', marginBottom: 0 }}>
-          {hasStyle && <button className="btn-sm btn-ghost" onClick={startEdit}>✎ Edit</button>}
-          <button className="btn-sm btn-ghost" disabled={!canPlan} onClick={() => {
-            if (hasStyle && !confirm('Have the illustrator rewrite the art direction? Rendered images will need re-rendering.')) return
-            onRewrite()
-          }} title="LLM: write the art direction from the visual style in the image settings">
-            🎨 {hasStyle ? 'Rewrite' : 'Write'} with the illustrator
-          </button>
-        </div>
-      )}
     </section>
   )
 }

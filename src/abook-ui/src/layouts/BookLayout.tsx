@@ -32,6 +32,7 @@ function BookSidebar() {
     book, isRunning, runStatus, pendingQuestion,
     streamingChapterId,
     handleWriteBook, handlePlanBook, handleStop, isPhaseComplete,
+    illustrations, handleRenderIllustrations,
   } = useBookContext()
 
   const [showExportMenu, setShowExportMenu] = useState(false)
@@ -115,6 +116,22 @@ function BookSidebar() {
         <>
           <SidebarBtn icon="▶" label="Write Book" onClick={handleWriteBook} />
           <SidebarBtn icon="🗗" label="Plan Book" onClick={handlePlanBook} />
+          {(book.illustrationsEnabled || illustrations.length > 0) && (() => {
+            // Rendering is its own run (image model only), started once the book is written.
+            const liveChapters = new Set((book.chapters ?? []).filter(c => !c.isArchived).map(c => c.id))
+            const pending = illustrations.filter(i =>
+              i.status !== 'Rendered' && (i.kind !== 'Scene' || (i.chapterId !== null && liveChapters.has(i.chapterId)))).length
+            return (
+              <SidebarBtn
+                icon="🎨"
+                label={pending > 0 ? `Illustrate Book (${pending})` : 'Illustrate Book'}
+                title={pending > 0
+                  ? 'Render every planned illustration with the image model (no LLM calls)'
+                  : 'Nothing to render — open the Illustrations page'}
+                onClick={() => pending > 0 ? handleRenderIllustrations('All') : navigate(`/books/${id}/illustrations`)}
+              />
+            )
+          })()}
         </>
       )}
       <SidebarDivider />

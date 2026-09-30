@@ -12,6 +12,7 @@
 - feat: planned illustrations are saved one by one as the LLM streams them, so an interrupted planning run keeps what it already wrote
 - change: the illustrator plans one or two images per chapter unless a chapter genuinely needs more
 - change: illustrations never rely on negative prompts (Z-Image Turbo ignores them at CFG 1.0) — every request tells the LLM to make each image come out right from its prompt alone, and whether negatives take effect at the configured CFG
+- change: the Illustrations page follows the workflow — a whole-book Plan → Render bar, then Art direction, Characters, Chapters and Cover, each with its plan and render buttons in the same place; the sidebar gains **Illustrate Book** next to Write Book and Plan Book
 
 ### Security
 - fix: the agent endpoints (`/api/books/{id}/agent/*`) required no login and checked no ownership — anyone who could reach the server could start runs on any book (spending the owner's API credits), stop them, or read their stream. They now require sign-in and book ownership
