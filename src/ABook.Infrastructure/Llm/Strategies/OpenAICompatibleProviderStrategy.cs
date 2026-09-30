@@ -42,10 +42,8 @@ public class OpenAICompatibleProviderStrategy : ILlmProviderStrategy
             LlmChatOptions options,
             [EnumeratorCancellation] CancellationToken ct = default)
         {
-            using var httpClient = new HttpClient
-            {
-                Timeout = TimeSpan.FromMilliseconds(options.TimeoutMs ?? config.TimeoutMs ?? 300_000),
-            };
+            using var httpClient = LlmHttp.CreateClient(
+                TimeSpan.FromMilliseconds(options.TimeoutMs ?? config.TimeoutMs ?? 300_000));
 
             if (!string.IsNullOrWhiteSpace(config.ApiKey))
                 httpClient.DefaultRequestHeaders.Authorization =

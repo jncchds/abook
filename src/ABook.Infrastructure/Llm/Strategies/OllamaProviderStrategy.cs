@@ -30,11 +30,9 @@ public class OllamaProviderStrategy : ILlmProviderStrategy
             LlmChatOptions options,
             [EnumeratorCancellation] CancellationToken ct = default)
         {
-            using var httpClient = new HttpClient
-            {
-                BaseAddress = new Uri(config.Endpoint),
-                Timeout = TimeSpan.FromMilliseconds(options.TimeoutMs ?? config.TimeoutMs ?? 120_000),
-            };
+            using var httpClient = LlmHttp.CreateClient(
+                TimeSpan.FromMilliseconds(options.TimeoutMs ?? config.TimeoutMs ?? 120_000),
+                new Uri(config.Endpoint));
 
             var client = new OllamaApiClient(httpClient, config.ModelName);
 

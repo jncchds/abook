@@ -86,9 +86,9 @@ public class AgentOrchestrator : IAgentOrchestrator
         ExecuteAgentRunAsync(bookId, AgentRole.Editor, chapterId, ct,
             c => _editor.EditAsync(bookId, chapterId, c));
 
-    public Task StartContinuityCheckAsync(int bookId, CancellationToken ct = default) =>
-        ExecuteAgentRunAsync(bookId, AgentRole.ContinuityChecker, null, ct,
-            async c => await _continuity.CheckAsync(bookId, ct: c));
+    public Task StartContinuityCheckAsync(int bookId, int? chapterId = null, CancellationToken ct = default) =>
+        ExecuteAgentRunAsync(bookId, AgentRole.ContinuityChecker, chapterId, ct,
+            async c => await _continuity.CheckAsync(bookId, chapterId, c));
 
     /// <summary>
     /// Full autonomous workflow: Plan → Write+Edit each chapter → Continuity check.
@@ -176,19 +176,18 @@ public class AgentOrchestrator : IAgentOrchestrator
     // ── Private helpers ─────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Template for every public agent-run method. Handles the TryStartRun guard,
-    /// uniform error/cancellation handling, and status transitions so callers only
-    /// need to supply the actual business logic as <paramref name="body"/>.
+    /// Template for every public agent-run method: uniform error/cancellation handling and status
+    /// transitions, so callers only supply the business logic as <paramref name="body"/>.
+    /// The book's slot must already be claimed via <c>AgentRunnerService.TryStart</c>
+    /// (<see cref="AgentRunStateService.TryStartRun"/>), which also owns <paramref name="ct"/>.
     /// </summary>
     private async Task ExecuteAgentRunAsync(
         int bookId, AgentRole role, int? chapterId,
         CancellationToken ct, Func<CancellationToken, Task> body)
     {
-        var startResult = _state.TryStartRun(bookId, role, chapterId);
-        if (startResult == RunStartResult.BookBusy)
-            throw new InvalidOperationException("An agent is already running for this book.");
-        if (startResult == RunStartResult.AtCapacity)
-            throw new InvalidOperationException("Server is at maximum concurrent agent capacity. Please try again when a run completes.");
+        if (_state.GetStatus(bookId) is not { IsActive: true })
+            throw new InvalidOperationException(
+                $"Run for book {bookId} was not started through AgentRunnerService.TryStart.");
 
         // Determine run type from role for recovery service
         var runType = role switch
@@ -206,57 +205,67 @@ public class AgentOrchestrator : IAgentOrchestrator
         try
         {
             await body(ct);
-            _state.SetStatus(bookId, new AgentRunStatus(role, "Done", chapterId));
-            await _state.PersistRunFinishedAsync(bookId, AgentRunPersistStatus.Completed);
-            // Emit the unambiguous "run is fully done" terminal signal so the UI can reliably
-            // clear the running state regardless of which intermediate "Done" events were fired.
-            var completionMsg = runType switch
-            {
-                "write"      => "Writing complete.",
-                "edit"       => "Editing complete.",
-                "continuity" => "Continuity check complete.",
-                "plan"       => "Planning complete.",
-                _            => "Workflow complete!",
-            };
-            await _notifier.NotifyWorkflowProgressAsync(bookId, completionMsg, true, CancellationToken.None);
-            _logger.LogInformation("[Book {BookId}] {Role} finished.", bookId, role);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             var cur = _state.GetStatus(bookId);
             var cancelledRole = cur?.Role ?? role;
-            _state.SetStatus(bookId, new AgentRunStatus(cancelledRole, "Cancelled", cur?.ChapterId));
+            _state.SetStatus(bookId, new AgentRunStatus(cancelledRole, RunStates.Cancelled, cur?.ChapterId));
             await _state.PersistRunFinishedAsync(bookId, AgentRunPersistStatus.Cancelled);
-            await _notifier.NotifyStatusChangedAsync(bookId, cancelledRole, "Cancelled", cur?.ChapterId, CancellationToken.None);
-            await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow stopped.", true, CancellationToken.None);
+            await NotifySafelyAsync(bookId, () => _notifier.NotifyStatusChangedAsync(bookId, cancelledRole, RunStates.Cancelled, cur?.ChapterId, CancellationToken.None));
+            await NotifySafelyAsync(bookId, () => _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow stopped.", true, CancellationToken.None));
             _logger.LogWarning("[Book {BookId}] {Role} stopped by user.", bookId, role);
             throw;
         }
         catch (OperationCanceledException ex)
         {
-            var cur = _state.GetStatus(bookId);
-            var failedRole = cur?.Role ?? role;
-            _state.SetStatus(bookId, new AgentRunStatus(failedRole, "Failed", cur?.ChapterId));
-            await _state.PersistRunFinishedAsync(bookId, AgentRunPersistStatus.Failed);
-            await _notifier.NotifyStatusChangedAsync(bookId, failedRole, "Failed", cur?.ChapterId, CancellationToken.None);
-            await ReportAgentErrorAsync(bookId, failedRole, cur?.ChapterId,
-                $"Request cancelled unexpectedly — possible LLM timeout or connection issue. Detail: {ex.Message}");
-            await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow failed (request cancelled).", true, CancellationToken.None);
-            _logger.LogError(ex, "[Book {BookId}] {Role} failed due to unexpected cancellation.", bookId, role);
+            await FailRunAsync(bookId, role, ex,
+                $"Request cancelled unexpectedly — possible LLM timeout or connection issue. Detail: {ex.Message}",
+                "Workflow failed (request cancelled).");
             throw;
         }
         catch (Exception ex)
         {
-            var cur = _state.GetStatus(bookId);
-            var failedRole = cur?.Role ?? role;
-            _state.SetStatus(bookId, new AgentRunStatus(failedRole, "Failed", cur?.ChapterId));
-            await _state.PersistRunFinishedAsync(bookId, AgentRunPersistStatus.Failed);
-            await _notifier.NotifyStatusChangedAsync(bookId, failedRole, "Failed", cur?.ChapterId, CancellationToken.None);
-            await _notifier.NotifyWorkflowProgressAsync(bookId, "Workflow failed.", true, CancellationToken.None);
-            await ReportAgentErrorAsync(bookId, failedRole, cur?.ChapterId, $"{failedRole} failed: {ex.Message}");
-            _logger.LogError(ex, "[Book {BookId}] {Role} failed.", bookId, role);
+            var failedRole = _state.GetStatus(bookId)?.Role ?? role;
+            await FailRunAsync(bookId, role, ex, $"{failedRole} failed: {ex.Message}", "Workflow failed.");
             throw;
         }
+
+        // Success. Kept outside the try so a notification failure can never turn finished work into "Failed".
+        _state.SetStatus(bookId, new AgentRunStatus(role, RunStates.Done, chapterId));
+        await _state.PersistRunFinishedAsync(bookId, AgentRunPersistStatus.Completed);
+        // Emit the unambiguous "run is fully done" terminal signal so the UI can reliably
+        // clear the running state regardless of which intermediate "Done" events were fired.
+        var completionMsg = runType switch
+        {
+            "write"      => "Writing complete.",
+            "edit"       => "Editing complete.",
+            "continuity" => "Continuity check complete.",
+            "plan"       => "Planning complete.",
+            _            => "Workflow complete!",
+        };
+        await NotifySafelyAsync(bookId, () => _notifier.NotifyWorkflowProgressAsync(bookId, completionMsg, true, CancellationToken.None));
+        _logger.LogInformation("[Book {BookId}] {Role} finished.", bookId, role);
+    }
+
+    /// <summary>Moves the run to Failed, records the error in the chat and tells the UI the run is over.</summary>
+    private async Task FailRunAsync(int bookId, AgentRole role, Exception ex, string errorMessage, string progressMessage)
+    {
+        var cur = _state.GetStatus(bookId);
+        var failedRole = cur?.Role ?? role;
+        _state.SetStatus(bookId, new AgentRunStatus(failedRole, RunStates.Failed, cur?.ChapterId));
+        await _state.PersistRunFinishedAsync(bookId, AgentRunPersistStatus.Failed);
+        await NotifySafelyAsync(bookId, () => _notifier.NotifyStatusChangedAsync(bookId, failedRole, RunStates.Failed, cur?.ChapterId, CancellationToken.None));
+        await ReportAgentErrorAsync(bookId, failedRole, cur?.ChapterId, errorMessage);
+        await NotifySafelyAsync(bookId, () => _notifier.NotifyWorkflowProgressAsync(bookId, progressMessage, true, CancellationToken.None));
+        _logger.LogError(ex, "[Book {BookId}] {Role} failed.", bookId, role);
+    }
+
+    /// <summary>Runs a best-effort UI notification: a failure is logged, never allowed to break the run's bookkeeping.</summary>
+    private async Task NotifySafelyAsync(int bookId, Func<Task> notify)
+    {
+        try { await notify(); }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Book {BookId}] UI notification failed.", bookId); }
     }
 
     /// <summary>
@@ -404,7 +413,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         var book = await _repo.GetByIdWithActiveDetailsAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
 
-        await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, "Running", ct: ct);
+        await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, RunStates.Running, ct: ct);
 
         bool isContinuation = skipStoryBible || skipCharacters || skipPlotThreads || skipChapters;
 
@@ -415,10 +424,8 @@ public class AgentOrchestrator : IAgentOrchestrator
 
         if (!isContinuation)
         {
-            var ancestorRef = await _repo.BuildAncestorPlanningReferenceAsync(bookId, ct);
-            var bkCtx = $"Title: {book.Title}\nGenre: {book.Genre}\nPremise: {book.Premise}\nTarget chapters: {book.TargetChapterCount}";
-            if (!string.IsNullOrEmpty(ancestorRef))
-                bkCtx += $"\n\n{ancestorRef}";
+            var ancestorRef = PromptTemplates.AncestorReference(await _repo.GetAncestorPlanningContextAsync(bookId, ct));
+            var bkCtx = PromptTemplates.QuestionGatheringUser(book, ancestorRef);
             var questions = await _questions.GatherQuestionsAsync(bookId, bkCtx, book.Language, ct);
             if (questions.Count > 0)
                 await _questions.AskQuestionsAsync(bookId, questions, qaContext, ct);
@@ -491,7 +498,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                 "Chapter Outlines", qaContext, ct);
         }
 
-        await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, "Done", ct: ct);
+        await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, RunStates.Done, ct: ct);
         return chapters;
     }
 
@@ -509,7 +516,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             bookId, null, role, question, ct)).Trim();
         if (!string.IsNullOrEmpty(note))
         {
-            qaContext.AppendLine($"\n[User note after {label}]: {note}");
+            qaContext.AppendLine(PromptTemplates.UserNoteAfterPhase(label, note));
         }
     }
 
@@ -553,6 +560,9 @@ public class AgentOrchestrator : IAgentOrchestrator
             Content = answer,
             IsResolved = true
         });
+
+        // Other open tabs/devices still show the question box until they re-read the messages.
+        await NotifySafelyAsync(message.BookId, () => _notifier.NotifyMessagesUpdatedAsync(message.BookId, CancellationToken.None));
 
         // Unblock the waiting agent (in-process path — works normally or after rehydration)
         var resolved = _state.TryResolvePending(message.BookId, messageId, answer);

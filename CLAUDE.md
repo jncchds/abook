@@ -74,7 +74,13 @@ React is built at image-build time and served from `wwwroot/` — there is no se
 
 **Agent orchestration** — `AgentOrchestrator` runs fire-and-forget via `IServiceScopeFactory`. `AgentRunStateService` (singleton) tracks in-memory state; `AgentRun` entity persists run lifecycle to the DB for restart resilience. All LLM calls use `StreamResponseAsync` — there is no non-streaming path.
 
-**Human-in-the-loop** — `AgentBase.AskUserAndWaitAsync` creates a `TaskCompletionSource<string>`, sets run state to `WaitingForInput`, and awaits. `AgentOrchestrator.ResumeWithAnswerAsync` unblocks it. `RunRecoveryService` (hosted service) rehydrates `WaitingForInput` runs on startup.
+**Human-in-the-loop** — `AgentBase.AskUserAndWaitAsync` creates a `TaskCompletionSource<string>`, sets run state to `WaitingForInput`, and awaits. `AgentOrchestrator.ResumeWithAnswerAsync` unblocks it. A paused run cannot survive a restart (its call stack is gone), so `RunRecoveryService` (hosted service) marks leftover `Running` and `WaitingForInput` runs `Orphaned` on startup and tells the author to use Continue.
+
+**Starting runs** — always through `AgentRunnerService.TryStart`, which atomically claims the book + a concurrency slot and creates the run's cancellation token (`AgentRunStateService.TryStartRun`) before starting the orchestrator in the background. Never call orchestrator run methods directly.
+
+**Prompts** — every piece of text sent to an LLM lives in `src/ABook.Agents/AgentPrompts.cs` (`DefaultPrompts`, `PromptTemplates`, `RagQueries`). Agents gather data and call the templates; do not build prompt text anywhere else.
+
+**Streaming** — only book content (story bible, characters, plot threads, chapter outlines, chapter prose) is streamed to the UI. Reasoning/thinking output is never streamed; it is saved as a "💭 Thinking" chat message when each LLM call ends. Pass `forwardToUi: false` to `StreamResponseAsync` for any call whose output is not content.
 
 **Checker → mechanical patch apply** — `ContinuityCheckerAgent` outputs structured JSON (`CheckerResult`) with `originalText`, `replacementText`, and optional `position` (1-indexed line hint). `EditorAgent.ApplyPatchesAsync` locates patches via `IndexOf` with whitespace normalization and applies them end-first — no LLM call for the edit step.
 

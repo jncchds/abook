@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
+import axios from 'axios'
 import type { Book, AgentMessage, AgentRunStatus, StoryBible, CharacterCard, PlotThread } from '../api'
 import {
   getBook, getMessages, postAnswer, getAgentStatus,
@@ -77,11 +78,14 @@ interface BookContextValue {
   answerText: string
   setAnswerText: React.Dispatch<React.SetStateAction<string>>
   submittingAnswer: boolean
+  /** Why the last answer could not be sent; cleared on the next attempt. */
+  answerError: string | null
 
   refreshBook: () => Promise<void>
   refreshMessages: () => void
 
-  handleAnswer: () => Promise<void>
+  /** Sends the typed answer, or `text` when given (Skip passes ''). */
+  handleAnswer: (text?: string) => Promise<void>
   handleWriteBook: () => Promise<void>
   handlePlanBook: () => Promise<void>
   handleStop: () => Promise<void>
@@ -128,8 +132,9 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
 
   const [answerText, setAnswerText] = useState('')
   const [submittingAnswer, setSubmittingAnswer] = useState(false)
+  const [answerError, setAnswerError] = useState<string | null>(null)
 
-  const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated } = useBookHub(bookId)
+  const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnReconnected } = useBookHub(bookId)
   const { notify } = useNotifications()
   const notifyRef = useRef(notify)
   useEffect(() => { notifyRef.current = notify })
@@ -137,8 +142,17 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   const refreshBook = useCallback(() =>
     getBook(bookId).then(r => setBook(r.data)), [bookId])
 
+  // Several events can trigger a refresh in quick succession; only the newest response may win,
+  // otherwise a slower, older response overwrites messages that arrived after it.
+  const messagesRequestSeq = useRef(0)
   const refreshMessages = useCallback(() => {
-    getMessages(bookId).then(r => setMessages(r.data)).catch(() => {})
+    const seq = ++messagesRequestSeq.current
+    getMessages(bookId).then(r => {
+      if (seq !== messagesRequestSeq.current) return
+      setMessages(r.data)
+      // The question may have been answered from another tab or device.
+      setPendingQuestion(prev => prev && r.data.some(m => m.id === prev.id && m.isResolved) ? null : prev)
+    }).catch(() => {})
   }, [bookId])
 
   const refreshTokenStats = useCallback((signal?: AbortSignal) =>
@@ -350,7 +364,29 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     setOnMessagesUpdated(() => {
       refreshMessages()
     })
-  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, refreshBook, refreshMessages, refreshTokenStats, clearStreams, bookId, navigate])
+    setOnReconnected(() => {
+      // Events sent while the connection was down are lost — re-read everything they would have updated.
+      refreshMessages()
+      refreshBook().catch(() => {})
+      refreshTokenStats().catch(() => {})
+      getAgentStatus(bookId).then(r => {
+        const status = r.data
+        if (status && (status.state === 'Running' || status.state === 'WaitingForInput')) {
+          setRunStatus(prev => ({ ...status, chapterId: status.chapterId ?? prev?.chapterId }))
+          if (status.state === 'WaitingForInput') {
+            getMessages(bookId).then(m => {
+              const q = [...m.data].reverse().find(msg => msg.messageType === 'Question' && !msg.isResolved)
+              if (q) setPendingQuestion(q)
+            }).catch(() => {})
+          }
+        } else {
+          setRunStatus(null)
+          setPendingQuestion(null)
+          clearStreams()
+        }
+      }).catch(() => {})
+    })
+  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnReconnected, refreshBook, refreshMessages, refreshTokenStats, clearStreams, bookId, navigate])
 
   const isWaitingForInput = runStatus?.state === 'WaitingForInput'
   const isRunning = runStatus?.state === 'Running' || isWaitingForInput
@@ -428,16 +464,23 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     if (key) setBook(prev => prev ? { ...prev, [key]: 'NotStarted' } : prev)
   }
 
-  const handleAnswer = async () => {
+  // `text` overrides the typed answer — Skip passes '' (setAnswerText('') would not be visible yet here).
+  const handleAnswer = async (text: string = answerText) => {
     if (!pendingQuestion) return
-    if (!pendingQuestion.isOptional && !answerText.trim()) return
+    const answer = text.trim()
+    if (!pendingQuestion.isOptional && !answer) return
     if (submittingAnswer) return
     setSubmittingAnswer(true)
+    setAnswerError(null)
     try {
-      await postAnswer(bookId, pendingQuestion.id, answerText.trim())
+      await postAnswer(bookId, pendingQuestion.id, answer)
       setAnswerText('')
       setPendingQuestion(null)
       refreshMessages()
+    } catch (err) {
+      // Keep the question and the typed text so the author can retry.
+      const message = axios.isAxiosError(err) ? (err.response?.data?.message ?? err.message) : String(err)
+      setAnswerError(`Could not send the answer: ${message}`)
     } finally {
       setSubmittingAnswer(false)
     }
@@ -469,7 +512,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     plotThreadsStream, setPlotThreadsStream, setStreamBuffer, setStreamingChapterId,
     storyBible, setStoryBible, characters, setCharacters, plotThreads, setPlotThreads,
     tokenStats, setTokenStats, workflowSteps, setWorkflowSteps, workflowLog,
-    answerText, setAnswerText, submittingAnswer,
+    answerText, setAnswerText, submittingAnswer, answerError,
     refreshBook, refreshMessages,
     handleAnswer, handleWriteBook, handlePlanBook, handleStop, handleContinue,
     handleCompletePhase, handleReopenPhase, handleClearPhase, isPhaseComplete,

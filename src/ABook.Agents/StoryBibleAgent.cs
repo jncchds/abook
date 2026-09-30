@@ -24,27 +24,19 @@ public class StoryBibleAgent : AgentBase
     {
         var bookId = book.Id;
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 1/4 - Story Bible...", false, ct);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.StoryBibleAgent, "Running", ct: ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.StoryBibleAgent, RunStates.Running, ct: ct);
 
         var (client, config) = await GetChatClientAsync(bookId);
         var messages = new List<LlmChatMessage>();
-        var ancestorReference = await Repo.BuildAncestorPlanningReferenceAsync(bookId, ct);
+        var ancestorReference = await BuildAncestorReferenceAsync(bookId, ct);
 
         var systemPrompt = !string.IsNullOrWhiteSpace(book.StoryBibleSystemPrompt)
             ? InterpolateSystemPrompt(book.StoryBibleSystemPrompt, book)
             : InterpolateSystemPrompt(DefaultPrompts.StoryBible, book);
 
         messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
-        messages.Add(new LlmChatMessage(LlmChatRole.User, $"""
-            Book title: {book.Title}
-            Genre: {book.Genre}
-            Premise: {book.Premise}
-            Target chapter count: {book.TargetChapterCount}
-            {(qaContext.Length > 0 ? $"\nAuthor guidance:\n{qaContext}" : "")}
-            {(ancestorReference.Length > 0 ? $"\n{ancestorReference}" : "")}
-
-            Create the Story Bible for this book.
-            """));
+        messages.Add(new LlmChatMessage(LlmChatRole.User,
+            PromptTemplates.StoryBibleUser(book, qaContext, ancestorReference)));
 
         var raw = await StreamResponseAsync(client, config, messages, bookId, null, AgentRole.StoryBibleAgent, ct, jsonSchema: JsonSchemas.StoryBible);
 
@@ -92,7 +84,7 @@ public class StoryBibleAgent : AgentBase
 
         book.StoryBibleStatus = PlanningPhaseStatus.Complete;
         await Repo.UpdateAsync(book);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.StoryBibleAgent, "Done", ct: ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.StoryBibleAgent, RunStates.Done, ct: ct);
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Story Bible saved. (complete)", false, ct);
         return saved;
     }

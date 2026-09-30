@@ -1,3 +1,4 @@
+using ABook.Agents;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -190,30 +191,27 @@ public class BooksController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// The built-in system prompts the agents use when a book has no override. They are returned as
+    /// templates with their {PLACEHOLDER} tokens intact — an override copied from them is interpolated
+    /// at run time exactly like the default, so it stays in sync with the book's current details.
+    /// </summary>
     [HttpGet("{id:int}/default-prompts")]
     public async Task<IActionResult> GetDefaultPrompts(int id)
     {
-        var ownershipResult = await ControllerExtensions.RequireBookOwnershipAndLoadAsync(this, id, _repo);
-        if (ownershipResult.Error is not null) return ownershipResult.Error;
-        var book = ownershipResult.Book!;
-
-        var lang = string.IsNullOrWhiteSpace(book.Language) ? "English" : book.Language;
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, id, _repo);
+        if (ownershipError is not null) return ownershipError;
 
         return Ok(new
         {
-            storyBibleSystemPrompt = $"You are a world-building expert creating a Story Bible for a book project.\nOutput a JSON object with fields: \"settingDescription\", \"timePeriod\", \"themes\", \"toneAndStyle\", \"worldRules\", \"notes\".\nOutput ONLY the JSON object, no additional text.\nWrite all content in {lang}.",
-
-            charactersSystemPrompt = $"You are a character development expert creating character profiles.\nOutput a JSON array where each element has: \"name\", \"role\" (Protagonist|Antagonist|Supporting|Minor),\n\"physicalDescription\", \"personality\", \"backstory\", \"goalMotivation\", \"arc\",\n\"firstAppearanceChapterNumber\" (int or null), \"notes\".\nOutput ONLY the JSON array, no additional text.\nWrite all content in {lang}.",
-
-            plotThreadsSystemPrompt = $"You are a story structure expert mapping all plot threads for a book.\nOutput a JSON array where each element has: \"name\", \"description\",\n\"type\" (MainPlot|Subplot|CharacterArc|Mystery|Foreshadowing|WorldBuilding|ThematicThread),\n\"introducedChapterNumber\" (int or null), \"resolvedChapterNumber\" (int or null),\n\"status\" (Active|Resolved|Dormant).\nOutput ONLY the JSON array, no additional text.\nWrite all content in {lang}.",
-
-            chapterOutlinesSystemPrompt = $"You are a creative writing Planner outlining each chapter of a book.\nOutput a JSON array where each element has:\n  \"number\" (int), \"title\" (string),\n  \"outline\" (string - 3-6 sentence synopsis including key events and decisions),\n  \"povCharacter\" (string), \"charactersInvolved\" (array of strings),\n  \"plotThreads\" (array of strings),\n  \"foreshadowingNotes\" (string), \"payoffNotes\" (string).\nOutput ONLY the JSON array, no additional text.\nWrite all content in {lang}.",
-
-            writerSystemPrompt = $"You are a creative fiction Writer. Write compelling, immersive prose in markdown.\nBook title: {book.Title}\nGenre: {book.Genre}\nPremise: {book.Premise}\nWrite all content in {lang}.",
-
-            editorSystemPrompt = $"You are a professional fiction Editor. Your job is to improve prose quality, fix grammar,\nenhance pacing, and strengthen character voice. Preserve the author's style.\nOutput the complete improved chapter in markdown, followed by a brief\n\"## Editorial Notes\" section listing key changes made.\nBook: {book.Title} | Genre: {book.Genre} | Language: {lang}",
-
-            continuityCheckerSystemPrompt = $"You are a quality checker for fiction manuscripts. Review the chapter for both continuity and style issues.\nReturn a JSON object with: \"hasIssues\" (bool), \"continuityIssues\" (string[]), \"styleIssues\" (string[]), \"summary\" (string).\nOutput ONLY the raw JSON object.\nBook: {book.Title} | Genre: {book.Genre} | Language: {lang}"
+            storyBibleSystemPrompt = DefaultPrompts.StoryBible,
+            charactersSystemPrompt = DefaultPrompts.Characters,
+            plotThreadsSystemPrompt = DefaultPrompts.PlotThreads,
+            chapterOutlinesSystemPrompt = DefaultPrompts.ChapterOutlines,
+            writerSystemPrompt = DefaultPrompts.Writer,
+            editorSystemPrompt = DefaultPrompts.Editor,
+            // One override serves both check modes; the per-chapter prompt is the one used during writing.
+            continuityCheckerSystemPrompt = DefaultPrompts.ContinuityCheckerPerChapter,
         });
     }
 

@@ -31,7 +31,7 @@ export default function BookSettings() {
   const [saveAsPresetName, setSaveAsPresetName] = useState('')
   const [presetSaved, setPresetSaved] = useState(false)
 
-  const fetchModels = (endpoint: string, provider?: string, apiKey?: string) => {
+  const fetchModels = (endpoint: string, provider?: string, apiKey?: string | null) => {
     const prov = provider ?? config.provider
     if (!MODEL_LIST_PROVIDERS.has(prov)) { setModels([]); return }
     setModelsLoading(true)

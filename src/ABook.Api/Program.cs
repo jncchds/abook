@@ -103,6 +103,10 @@ builder.Services.AddScoped<ABook.Api.Services.BookExportService>();
 builder.Services.AddControllers()
     .AddJsonOptions(o => ConfigureJsonSerializer(o.JsonSerializerOptions));
 
+// ── Health (for container orchestration / uptime checks) ──────────────────────
+builder.Services.AddHealthChecks()
+    .AddCheck<ABook.Api.Services.DatabaseHealthCheck>("database");
+
 var app = builder.Build();
 
 var configuredMaxConcurrentRuns = app.Configuration.GetValue<int?>("AgentSettings:MaxConcurrentRuns") ?? 3;
@@ -149,6 +153,7 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapControllers();
 app.MapHub<BookHub>("/hubs/book");
+app.MapHealthChecks("/health").AllowAnonymous();
 
 // ── MCP endpoint (authenticated via ApiToken Bearer or session cookie) ────────
 app.MapMcp("/mcp")

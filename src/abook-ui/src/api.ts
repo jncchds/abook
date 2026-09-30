@@ -2,6 +2,21 @@ import axios from 'axios'
 
 const api = axios.create({ baseURL: '/api', withCredentials: true })
 
+/**
+ * Calls `handler` whenever a request fails with 401 (session expired or signed out elsewhere),
+ * so the app can drop the user instead of every call failing silently. Returns an unsubscribe.
+ * The sign-in probes are excluded — a 401 there just means "not signed in yet" / "wrong password".
+ */
+const SIGN_IN_PROBES = new Set(['/auth/me', '/auth/login', '/auth/register', '/auth/setup'])
+export function onUnauthorized(handler: () => void): () => void {
+  const id = api.interceptors.response.use(undefined, (error) => {
+    if (axios.isAxiosError(error) && error.response?.status === 401 && !SIGN_IN_PROBES.has(error.config?.url ?? ''))
+      handler()
+    return Promise.reject(error)
+  })
+  return () => api.interceptors.response.eject(id)
+}
+
 export interface Book {
   id: number
   baseBookId?: number | null
@@ -222,8 +237,12 @@ export const getLlmConfig = (bookId?: number) =>
 export const updateLlmConfig = (data: LlmConfig) => api.put<LlmConfig>('/configuration', data)
 
 // Models
-export const getModels = (endpoint?: string, provider?: string, apiKey?: string) =>
-  api.get<ProviderModel[]>('/models', { params: { endpoint, provider, apiKey } })
+// The key travels in a header, never the URL, so it can't end up in access logs.
+export const getModels = (endpoint?: string | null, provider?: string | null, apiKey?: string | null) =>
+  api.get<ProviderModel[]>('/models', {
+    params: { endpoint: endpoint ?? undefined, provider: provider ?? undefined },
+    headers: apiKey ? { 'X-Api-Key': apiKey } : undefined,
+  })
 
 // Story Bible
 export interface StoryBible {

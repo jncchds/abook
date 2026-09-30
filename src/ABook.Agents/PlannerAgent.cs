@@ -32,48 +32,23 @@ public class PlannerAgent : AgentBase
         CancellationToken ct = default)
     {
         var bookId = book.Id;
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ChaptersAgent, "Running", ct: ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ChaptersAgent, RunStates.Running, ct: ct);
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 4/4 - Chapter Outlines...", false, ct);
 
         var (client, config) = await GetChatClientAsync(bookId);
-        var ancestorReference = await Repo.BuildAncestorPlanningReferenceAsync(bookId, ct);
+        var ancestorReference = await BuildAncestorReferenceAsync(bookId, ct);
 
         // Archived chapters are excluded — they must never reach the model or be overwritten.
         var existing = (await Repo.GetChaptersAsync(bookId)).OrderBy(c => c.Number).ToList();
 
-        var charSumForChapters = string.Join("\n", characters.Select(c =>
-            $"- {c.Name} ({c.Role}): {c.GoalMotivation}. Arc: {c.Arc}"));
-        var threadSummary = string.Join("\n", threads.Select(t =>
-            $"- {t.Name} ({t.Type}, introduced ch.{t.IntroducedChapterNumber?.ToString() ?? "?"}): {t.Description}"));
 
         var messages = new List<LlmChatMessage>();
         var systemPrompt = !string.IsNullOrWhiteSpace(book.ChapterOutlinesSystemPrompt)
             ? InterpolateSystemPrompt(book.ChapterOutlinesSystemPrompt, book, bible)
             : InterpolateSystemPrompt(DefaultPrompts.ChapterOutlines, book, bible);
         messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
-        messages.Add(new LlmChatMessage(LlmChatRole.User, $"""
-            Book title: {book.Title}
-            Genre: {book.Genre}
-            Premise: {book.Premise}
-            Target chapter count: {book.TargetChapterCount}
-
-            Story Bible:
-            Setting: {bible.SettingDescription}
-            Time period: {bible.TimePeriod}
-            Themes: {bible.Themes}
-            Tone & style: {bible.ToneAndStyle}
-            World rules: {bible.WorldRules}
-
-            Characters:
-            {charSumForChapters}
-
-            Plot Threads:
-            {threadSummary}
-            {(qaContext.Length > 0 ? $"\nAuthor guidance:\n{qaContext}" : "")}
-            {(ancestorReference.Length > 0 ? $"\n{ancestorReference}" : "")}
-            {BuildExistingBlock(existing)}
-            Create {book.TargetChapterCount} detailed chapter outlines for this book.
-            """));
+        messages.Add(new LlmChatMessage(LlmChatRole.User,
+            PromptTemplates.ChapterOutlinesUser(book, bible, characters, threads, qaContext, ancestorReference, BuildExistingBlock(existing))));
 
         var (chapterRaw, failure) = await StreamJsonResponseAsync(
             client, config, messages, bookId, null, AgentRole.ChaptersAgent, JsonSchemas.ChapterOutlines, ct);
@@ -141,17 +116,7 @@ public class PlannerAgent : AgentBase
             alreadyWritten = !string.IsNullOrWhiteSpace(c.Content),
         }));
 
-        return $"""
-
-            These chapter outlines are already saved for this book:
-            {json}
-
-            Return the complete, updated outline set: repeat every chapter you are keeping (unchanged or
-            revised, keeping its exact "number" so it can be matched), and add any chapter that is missing.
-            Chapters you leave out will be removed. A chapter marked "alreadyWritten": true has its prose
-            written — do not change its premise, only correct outright errors in its outline.
-
-            """;
+        return PromptTemplates.ExistingChapterOutlines(json);
     }
 
     /// <summary>

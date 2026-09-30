@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useBookContext } from '../../contexts/BookContext'
-import { createChapter, updateChapter, archiveChapter, restoreChapter, clearChapterContent, getChapterVersions, getChapterVersion } from '../../api'
+import { createChapter, archiveChapter, restoreChapter, clearChapterContent, getChapterVersions, getChapterVersion } from '../../api'
 import type { ChapterVersionMeta, ChapterVersionFull } from '../../api'
 import { parsePlanningStream } from '../../utils/streamParsers'
 import { chapterStatusColor } from '../../utils/chapterStatus'
@@ -109,6 +109,29 @@ export default function Chapters() {
         clearLabel="🗑 Clear All"
         style={{ marginBottom: '1rem' }}
       />
+
+      {addingChapter && (
+        <div className="card" style={{ maxWidth: 560, marginBottom: '1rem' }}>
+          <h3>Add Chapter</h3>
+          <label>
+            Title
+            <input
+              autoFocus
+              value={newTitle}
+              onChange={e => setNewTitle(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAddChapter()}
+            />
+          </label>
+          <label>
+            Outline
+            <textarea rows={3} value={newOutline} onChange={e => setNewOutline(e.target.value)} />
+          </label>
+          <div className="actions">
+            <button onClick={handleAddChapter} disabled={!newTitle.trim()}>Add</button>
+            <button className="btn-ghost" onClick={() => { setAddingChapter(false); setNewTitle(''); setNewOutline('') }}>Cancel</button>
+          </div>
+        </div>
+      )}
 
       {/* Live planning stream preview */}
       {runStatus?.role === 'ChaptersAgent' && plannerBuffer && planningChapters.length > 0 && (

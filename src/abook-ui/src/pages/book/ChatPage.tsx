@@ -17,7 +17,7 @@ function cleanHeader(text: string): string {
 export default function ChatPage() {
   const {
     messages, pendingQuestion, answerText, setAnswerText,
-    handleAnswer, isRunning, clearMessagesForBook, submittingAnswer,
+    handleAnswer, isRunning, clearMessagesForBook, submittingAnswer, answerError,
   } = useBookContext()
 
   const chatBottomRef = useRef<HTMLDivElement>(null)
@@ -84,12 +84,13 @@ export default function ChatPage() {
             onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); handleAnswer() } }}
             placeholder={pendingQuestion.isOptional ? 'Optional — leave blank to skip…' : 'Type your answer…'}
           />
+          {answerError && <p className="error-msg" role="alert">{answerError}</p>}
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button onClick={handleAnswer} disabled={submittingAnswer}>
+            <button onClick={() => handleAnswer()} disabled={submittingAnswer}>
               {submittingAnswer ? 'Sending…' : 'Send Answer'}
             </button>
             {pendingQuestion.isOptional && (
-              <button className="btn-sm btn-ghost" disabled={submittingAnswer} onClick={() => { setAnswerText(''); handleAnswer() }}>Skip</button>
+              <button className="btn-sm btn-ghost" disabled={submittingAnswer} onClick={() => handleAnswer('')}>Skip</button>
             )}
           </div>
         </div>

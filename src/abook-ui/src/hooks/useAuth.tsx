@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode, type Dispatch, type SetStateAction } from 'react'
 import type { AppUser } from '../api'
-import { authMe } from '../api'
+import { authMe, onUnauthorized } from '../api'
 
 interface AuthCtx {
   user: AppUser | null
@@ -20,6 +20,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => setUser(null))
       .finally(() => setLoading(false))
   }, [])
+
+  // Session expired (or signed out in another tab): drop the user so the protected routes redirect.
+  useEffect(() => onUnauthorized(() => setUser(null)), [])
 
   return (
     <AuthContext.Provider value={{ user, loading, setUser }}>

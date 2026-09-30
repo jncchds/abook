@@ -1,4 +1,3 @@
-using System.Text.Json;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -84,7 +83,7 @@ public class EditorAgent : AgentBase
 
         chapter.Status = ChapterStatus.Editing;
         await Repo.UpdateChapterAsync(chapter);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Running", chapterId, ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, RunStates.Running, chapterId, ct);
     }
 
     private async Task ApplyPatchesAsync(int bookId, int chapterId, CheckerResult result,
@@ -148,8 +147,13 @@ public class EditorAgent : AgentBase
         }
 
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Done", chapterId, ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, RunStates.Done, chapterId, ct);
     }
+
+    private static string EditorSystemPrompt(Book book, StoryBible? bible) =>
+        InterpolateSystemPrompt(
+            !string.IsNullOrWhiteSpace(book.EditorSystemPrompt) ? book.EditorSystemPrompt : DefaultPrompts.Editor,
+            book, bible);
 
     private async Task EditWithLlmAsync(int bookId, int chapterId, string? humanAttentionPoints,
         bool finalizeStatus, CancellationToken ct)
@@ -163,76 +167,13 @@ public class EditorAgent : AgentBase
         var bible = await Repo.GetStoryBibleAsync(bookId);
 
         var synopsesBlock = await BuildChapterSynopsesAsync(bookId, chapter.Number, ct);
+        var rag = await GetChapterRagAsync(bookId, chapter, config, includeRepeatedPhrases: true, ct);
 
-        string charRag = string.Empty, locationRag = string.Empty;
-        string threadRag = string.Empty, phrasesRag = string.Empty;
-        if (chapter.Number > 1)
+        var messages = new List<LlmChatMessage>
         {
-            List<string> charNames;
-            try { charNames = JsonSerializer.Deserialize<List<string>>(chapter.CharactersInvolvedJson) ?? []; }
-            catch { charNames = []; }
-            var charQuery = charNames.Count > 0
-                ? $"character appearance description personality {string.Join(' ', charNames)}"
-                : "character appearance description personality backstory";
-
-            var locationQuery = $"location place setting description {chapter.Outline}";
-
-            List<string> threadNames;
-            try { threadNames = JsonSerializer.Deserialize<List<string>>(chapter.PlotThreadsJson) ?? []; }
-            catch { threadNames = []; }
-            var threadQuery = threadNames.Count > 0
-                ? $"plot thread events foreshadowing {string.Join(' ', threadNames)}"
-                : $"plot events sequence foreshadowing {chapter.Outline}";
-
-            var phrasesQuery = "repeated descriptions recurring phrases re-introduction established facts";
-
-            charRag     = await GetRagContextAsync(bookId, charQuery,     4, LlmFactory, config, chapter.Id, ct);
-            locationRag = await GetRagContextAsync(bookId, locationQuery, 3, LlmFactory, config, chapter.Id, ct);
-            threadRag   = await GetRagContextAsync(bookId, threadQuery,   3, LlmFactory, config, chapter.Id, ct);
-            phrasesRag  = await GetRagContextAsync(bookId, phrasesQuery,  4, LlmFactory, config, chapter.Id, ct);
-        }
-
-        var messages = new List<LlmChatMessage>();
-
-        var systemPrompt = !string.IsNullOrWhiteSpace(book.EditorSystemPrompt)
-            ? InterpolateSystemPrompt(book.EditorSystemPrompt, book, bible)
-            : InterpolateSystemPrompt(DefaultPrompts.Editor, book, bible);
-        messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
-
-        var sb = new System.Text.StringBuilder();
-
-        if (synopsesBlock.Length > 0)
-        {
-            sb.AppendLine("## Story So Far — Chapter Synopses");
-            sb.AppendLine(synopsesBlock);
-            sb.AppendLine();
-        }
-        bool hasRagContext = !string.IsNullOrWhiteSpace(charRag) || !string.IsNullOrWhiteSpace(locationRag)
-                          || !string.IsNullOrWhiteSpace(threadRag) || !string.IsNullOrWhiteSpace(phrasesRag);
-        if (hasRagContext)
-        {
-            sb.AppendLine("## Prior Chapter Passages (use to identify re-introductions and repeated content)");
-            if (!string.IsNullOrWhiteSpace(charRag))     { sb.AppendLine("\n### Character Details");                             sb.AppendLine(charRag); }
-            if (!string.IsNullOrWhiteSpace(locationRag)) { sb.AppendLine("\n### Location & Setting Details");                    sb.AppendLine(locationRag); }
-            if (!string.IsNullOrWhiteSpace(threadRag))   { sb.AppendLine("\n### Plot Thread Context");                           sb.AppendLine(threadRag); }
-            if (!string.IsNullOrWhiteSpace(phrasesRag))  { sb.AppendLine("\n### Potentially Repeated Phrases & Descriptions");  sb.AppendLine(phrasesRag); }
-            sb.AppendLine();
-        }
-
-        sb.AppendLine($"Please fix Chapter {chapter.Number}: {chapter.Title}");
-
-        if (!string.IsNullOrWhiteSpace(humanAttentionPoints))
-        {
-            sb.AppendLine("\n**Additional attention points from the author:**");
-            sb.AppendLine(humanAttentionPoints.Trim());
-        }
-        else
-        {
-            sb.AppendLine("\nNo specific issues listed — make only minor polish corrections if needed.");
-        }
-
-        sb.AppendLine($"\nOriginal content:\n{chapter.Content}");
-        messages.Add(new LlmChatMessage(LlmChatRole.User, sb.ToString()));
+            new(LlmChatRole.System, EditorSystemPrompt(book, bible)),
+            new(LlmChatRole.User, PromptTemplates.EditorPolishUser(chapter, synopsesBlock, rag, humanAttentionPoints)),
+        };
 
         var edited = await StreamResponseAsync(client, config, messages, bookId, chapterId, AgentRole.Editor, ct,
             stopStreamingAt: _notesHeadingRegex);
@@ -270,49 +211,7 @@ public class EditorAgent : AgentBase
         catch { /* non-fatal */ }
 
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Done", chapterId, ct);
-    }
-
-    private static string BuildRewriteInstructions(IReadOnlyList<CheckerIssue> rewrites, string? authorNotes)
-    {
-        var sb = new System.Text.StringBuilder();
-
-        if (!string.IsNullOrWhiteSpace(authorNotes))
-        {
-            sb.AppendLine("## Author Instructions (highest priority — follow these exactly)\n");
-            sb.AppendLine(authorNotes.Trim());
-            sb.AppendLine();
-        }
-
-        if (rewrites.Count == 0)
-        {
-            sb.AppendLine("Apply the author's instructions above. Preserve all other prose exactly as written.");
-            return sb.ToString();
-        }
-
-        sb.AppendLine("## Issues Requiring Creative Resolution\n");
-
-        for (int n = 0; n < rewrites.Count; n++)
-        {
-            var issue = rewrites[n];
-            sb.AppendLine($"**Issue {n + 1}:** {issue.Description}");
-            if (!string.IsNullOrWhiteSpace(issue.Problem))
-                sb.AppendLine($"   Problem: {issue.Problem}");
-            if (!string.IsNullOrWhiteSpace(issue.CanonicalFact))
-                sb.AppendLine($"   Canonical fact: {issue.CanonicalFact}");
-            if (!string.IsNullOrWhiteSpace(issue.Location))
-                sb.AppendLine($"   Location: {issue.Location}");
-            if (!string.IsNullOrWhiteSpace(issue.SuggestedRewrite))
-                sb.AppendLine($"   Suggested approach: {issue.SuggestedRewrite}");
-            sb.AppendLine();
-        }
-
-        sb.AppendLine("Fix ALL of the above issues by rewriting the affected passages. Maintain consistency " +
-                      "throughout the chapter — if a character's appearance, state, or a location detail " +
-                      "contradicts itself across paragraphs, choose one version and apply it everywhere " +
-                      "the affected element appears. Preserve all other prose exactly as written.");
-
-        return sb.ToString();
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, RunStates.Done, chapterId, ct);
     }
 
     private async Task EditWithLlmForRewrites(int bookId, int chapterId,
@@ -325,74 +224,18 @@ public class EditorAgent : AgentBase
         // pause — are already synced onto the chapter row.
         var chapter = await Repo.GetChapterAsync(bookId, chapterId)
             ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
-        var contentToEdit = chapter.Content;
-        var rewriteInstructions = BuildRewriteInstructions(rewrites, authorNotes);
 
         var (client, config) = await GetChatClientAsync(bookId);
         var bible = await Repo.GetStoryBibleAsync(bookId);
 
-        var systemPrompt = !string.IsNullOrWhiteSpace(book.EditorSystemPrompt)
-            ? InterpolateSystemPrompt(book.EditorSystemPrompt, book, bible)
-            : InterpolateSystemPrompt(DefaultPrompts.Editor, book, bible);
-
-        var messages = new List<LlmChatMessage>();
-        messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
-
         var synopsesBlock = await BuildChapterSynopsesAsync(bookId, chapter.Number, ct);
+        var rag = await GetChapterRagAsync(bookId, chapter, config, includeRepeatedPhrases: true, ct);
 
-        string charRag = string.Empty, locationRag = string.Empty;
-        string threadRag = string.Empty, phrasesRag = string.Empty;
-        if (chapter.Number > 1)
+        var messages = new List<LlmChatMessage>
         {
-            List<string> charNames;
-            try { charNames = JsonSerializer.Deserialize<List<string>>(chapter.CharactersInvolvedJson) ?? []; }
-            catch { charNames = []; }
-            var charQuery = charNames.Count > 0
-                ? $"character appearance description personality {string.Join(' ', charNames)}"
-                : "character appearance description personality backstory";
-
-            var locationQuery = $"location place setting description {chapter.Outline}";
-
-            List<string> threadNames;
-            try { threadNames = JsonSerializer.Deserialize<List<string>>(chapter.PlotThreadsJson) ?? []; }
-            catch { threadNames = []; }
-            var threadQuery = threadNames.Count > 0
-                ? $"plot thread events foreshadowing {string.Join(' ', threadNames)}"
-                : $"plot events sequence foreshadowing {chapter.Outline}";
-
-            var phrasesQuery = "repeated descriptions recurring phrases re-introduction established facts";
-
-            charRag     = await GetRagContextAsync(bookId, charQuery,     4, LlmFactory, config, chapter.Id, ct);
-            locationRag = await GetRagContextAsync(bookId, locationQuery, 3, LlmFactory, config, chapter.Id, ct);
-            threadRag   = await GetRagContextAsync(bookId, threadQuery,   3, LlmFactory, config, chapter.Id, ct);
-            phrasesRag  = await GetRagContextAsync(bookId, phrasesQuery,  4, LlmFactory, config, chapter.Id, ct);
-        }
-
-        var sb = new System.Text.StringBuilder();
-
-        if (synopsesBlock.Length > 0)
-        {
-            sb.AppendLine("## Story So Far — Chapter Synopses");
-            sb.AppendLine(synopsesBlock);
-            sb.AppendLine();
-        }
-        bool hasRagContext = !string.IsNullOrWhiteSpace(charRag) || !string.IsNullOrWhiteSpace(locationRag)
-                          || !string.IsNullOrWhiteSpace(threadRag) || !string.IsNullOrWhiteSpace(phrasesRag);
-        if (hasRagContext)
-        {
-            sb.AppendLine("## Prior Chapter Passages (for context — do not re-introduce or restate)");
-            if (!string.IsNullOrWhiteSpace(charRag))     { sb.AppendLine("\n### Character Details");                             sb.AppendLine(charRag); }
-            if (!string.IsNullOrWhiteSpace(locationRag)) { sb.AppendLine("\n### Location & Setting Details");                    sb.AppendLine(locationRag); }
-            if (!string.IsNullOrWhiteSpace(threadRag))   { sb.AppendLine("\n### Plot Thread Context");                           sb.AppendLine(threadRag); }
-            if (!string.IsNullOrWhiteSpace(phrasesRag))  { sb.AppendLine("\n### Potentially Repeated Phrases & Descriptions");  sb.AppendLine(phrasesRag); }
-            sb.AppendLine();
-        }
-
-        sb.AppendLine($"Please fix Chapter {chapter.Number}: {chapter.Title}");
-        sb.AppendLine(rewriteInstructions);
-        sb.AppendLine($"\nChapter content (already mechanically patched — only resolve the creative issues above):");
-        sb.AppendLine(contentToEdit);
-        messages.Add(new LlmChatMessage(LlmChatRole.User, sb.ToString()));
+            new(LlmChatRole.System, EditorSystemPrompt(book, bible)),
+            new(LlmChatRole.User, PromptTemplates.EditorRewriteUser(chapter, synopsesBlock, rag, rewrites, authorNotes)),
+        };
 
         var edited = await StreamResponseAsync(client, config, messages, bookId, chapterId, AgentRole.Editor, ct,
             stopStreamingAt: _notesHeadingRegex);
@@ -448,7 +291,7 @@ public class EditorAgent : AgentBase
         });
 
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, "Done", chapterId, ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, RunStates.Done, chapterId, ct);
     }
 
     internal static PatchMatch FindPatchLocation(string content, CheckerIssue issue)

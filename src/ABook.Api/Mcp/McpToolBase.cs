@@ -41,12 +41,6 @@ public abstract class McpToolBase
         return book;
     }
 
-    /// <summary>Same as <see cref="GetOwnedBookAsync"/>, but throws a more specific message.</summary>
-    protected async Task EnsureBookOwnershipAsync(int bookId, IBookRepository repo)
-    {
-        var userId = CurrentUserId();
-        var book = await repo.GetByIdAsync(bookId);
-        if (book is null || book.UserId != userId)
-            throw new McpException($"Book {bookId} not found.");
-    }
+    /// <summary>Same as <see cref="GetOwnedBookAsync"/> when the book itself is not needed.</summary>
+    protected Task EnsureBookOwnershipAsync(int bookId, IBookRepository repo) => GetOwnedBookAsync(bookId, repo);
 }

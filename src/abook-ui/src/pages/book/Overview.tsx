@@ -4,7 +4,7 @@ import { updateBook } from '../../api'
 import ToggleField from '../../components/ToggleField'
 
 export default function Overview() {
-  const { book, setBook, canEdit, isPhaseComplete, handleCompletePhase, handleReopenPhase, handleClearPhase } = useBookContext()
+  const { book, setBook, canEdit } = useBookContext()
 
   const [editingBook, setEditingBook] = useState(false)
   const [bookEditTitle, setBookEditTitle] = useState('')

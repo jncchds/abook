@@ -20,6 +20,7 @@ import Library from './pages/Library'
 import PublicBookReader, { PublicBookIndex } from './pages/PublicBookReader'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import PwaUpdatePrompt from './components/PwaUpdatePrompt'
+import ErrorBoundary from './components/ErrorBoundary'
 
 function ProtectedRoutes() {
   const { user, loading } = useAuth()
@@ -55,15 +56,17 @@ export default function App() {
     <BrowserRouter>
       <AuthProvider>
         <PwaUpdatePrompt />
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/library" element={<LibraryLayout />}>
-            <Route index element={<Library />} />
-            <Route path=":bookId" element={<PublicBookIndex />} />
-            <Route path=":bookId/chapters/:chapterId" element={<PublicBookReader />} />
-          </Route>
-          <Route path="/*" element={<ProtectedRoutes />} />
-        </Routes>
+        <ErrorBoundary>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/library" element={<LibraryLayout />}>
+              <Route index element={<Library />} />
+              <Route path=":bookId" element={<PublicBookIndex />} />
+              <Route path=":bookId/chapters/:chapterId" element={<PublicBookReader />} />
+            </Route>
+            <Route path="/*" element={<ProtectedRoutes />} />
+          </Routes>
+        </ErrorBoundary>
       </AuthProvider>
     </BrowserRouter>
   )

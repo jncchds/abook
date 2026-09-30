@@ -32,42 +32,22 @@ public class PlotThreadsAgent : AgentBase
     {
         var bookId = book.Id;
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 3/4 - Plot Threads...", false, ct);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.PlotThreadsAgent, "Running", ct: ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.PlotThreadsAgent, RunStates.Running, ct: ct);
 
         var (client, config) = await GetChatClientAsync(bookId);
         var messages = new List<LlmChatMessage>();
-        var ancestorReference = await Repo.BuildAncestorPlanningReferenceAsync(bookId, ct);
+        var ancestorReference = await BuildAncestorReferenceAsync(bookId, ct);
 
         // Archived threads are excluded — they must never reach the model or be overwritten.
         var existing = (await Repo.GetPlotThreadsAsync(bookId)).ToList();
-
-        var characterSummary = string.Join("\n", characters.Select(c =>
-            $"- {c.Name} ({c.Role}): {c.GoalMotivation}. Arc: {c.Arc}"));
 
         var systemPrompt = !string.IsNullOrWhiteSpace(book.PlotThreadsSystemPrompt)
             ? InterpolateSystemPrompt(book.PlotThreadsSystemPrompt, book, bible)
             : InterpolateSystemPrompt(DefaultPrompts.PlotThreads, book, bible);
 
         messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
-        messages.Add(new LlmChatMessage(LlmChatRole.User, $"""
-            Book title: {book.Title}
-            Genre: {book.Genre}
-            Premise: {book.Premise}
-            Target chapter count: {book.TargetChapterCount}
-
-            Story Bible:
-            Setting: {bible.SettingDescription}
-            Time period: {bible.TimePeriod}
-            Themes: {bible.Themes}
-            World rules: {bible.WorldRules}
-
-            Characters:
-            {characterSummary}
-            {(qaContext.Length > 0 ? $"\nAuthor guidance so far:\n{qaContext}" : "")}
-            {(ancestorReference.Length > 0 ? $"\n{ancestorReference}" : "")}
-            {BuildExistingBlock(existing)}
-            Create the plot thread map for this book.
-            """));
+        messages.Add(new LlmChatMessage(LlmChatRole.User,
+            PromptTemplates.PlotThreadsUser(book, bible, characters, qaContext, ancestorReference, BuildExistingBlock(existing))));
 
         var (raw, failure) = await StreamJsonResponseAsync(
             client, config, messages, bookId, null, AgentRole.PlotThreadsAgent, JsonSchemas.PlotThreads, ct);
@@ -132,7 +112,7 @@ public class PlotThreadsAgent : AgentBase
 
         book.PlotThreadsStatus = PlanningPhaseStatus.Complete;
         await Repo.UpdateAsync(book);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.PlotThreadsAgent, "Done", ct: ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.PlotThreadsAgent, RunStates.Done, ct: ct);
         await Notifier.NotifyWorkflowProgressAsync(bookId,
             $"Planning: {threads.Count} plot thread{(threads.Count == 1 ? "" : "s")} saved. (complete)", false, ct);
         return threads;
@@ -156,16 +136,7 @@ public class PlotThreadsAgent : AgentBase
             status = t.Status.ToString(),
         }));
 
-        return $"""
-
-            These plot threads are already saved for this book:
-            {json}
-
-            Return the complete, updated map: repeat every thread you are keeping (unchanged or revised,
-            keeping its exact "name" so it can be matched), and add any thread the story still needs.
-            Threads you leave out will be removed.
-
-            """;
+        return PromptTemplates.ExistingPlotThreads(json);
     }
 
     /// <summary>

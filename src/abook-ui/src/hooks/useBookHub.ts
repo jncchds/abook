@@ -9,6 +9,9 @@ type WorkflowProgressHandler = (bookId: number, step: string, isComplete: boolea
 type TokenStatsHandler = (bookId: number, chapterId: number | null, agentRole: string, promptTokens: number, completionTokens: number) => void
 type AgentErrorHandler = (bookId: number, agentRole: string, errorMessage: string) => void
 type MessagesUpdatedHandler = (bookId: number) => void
+type ReconnectedHandler = () => void
+
+const START_RETRY_MS = 5000
 
 export function useBookHub(bookId: number | null) {
   const connRef = useRef<HubConnection | null>(null)
@@ -22,9 +25,12 @@ export function useBookHub(bookId: number | null) {
   const onTokenStats = useRef<TokenStatsHandler | null>(null)
   const onAgentError = useRef<AgentErrorHandler | null>(null)
   const onMessagesUpdated = useRef<MessagesUpdatedHandler | null>(null)
+  const onReconnected = useRef<ReconnectedHandler | null>(null)
 
   useEffect(() => {
     if (!bookId) return
+    let disposed = false
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
 
     const conn = new HubConnectionBuilder()
       .withUrl('/hubs/book')
@@ -41,16 +47,45 @@ export function useBookHub(bookId: number | null) {
     conn.on('AgentError', (bId, role, msg) => onAgentError.current?.(bId, role, msg))
     conn.on('MessagesUpdated', (bId) => onMessagesUpdated.current?.(bId))
 
-    conn.start()
-      .then(() => {
-        conn.invoke('JoinBook', String(bookId))
+    // A reconnect gets a new connection id, so the server-side group membership is gone:
+    // rejoin, then let the consumer re-read whatever it missed while disconnected.
+    conn.onreconnecting(() => setConnected(false))
+    conn.onreconnected(async () => {
+      try {
+        await conn.invoke('JoinBook', String(bookId))
         setConnected(true)
-      })
-      .catch(console.error)
+        onReconnected.current?.()
+      } catch (err) {
+        console.error(err)
+      }
+    })
+    conn.onclose(() => {
+      // Automatic reconnect gave up — fall back to periodic full restarts.
+      setConnected(false)
+      if (!disposed) retryTimer = setTimeout(() => { void start(true) }, START_RETRY_MS)
+    })
+
+    // withAutomaticReconnect only covers connections that were once established, so the
+    // initial start (e.g. while the server is still booting) is retried here.
+    const start = async (isRestart: boolean) => {
+      try {
+        await conn.start()
+        if (disposed) return
+        await conn.invoke('JoinBook', String(bookId))
+        setConnected(true)
+        if (isRestart) onReconnected.current?.()
+      } catch (err) {
+        console.error(err)
+        if (!disposed) retryTimer = setTimeout(() => { void start(isRestart) }, START_RETRY_MS)
+      }
+    }
+    void start(false)
 
     connRef.current = conn
 
     return () => {
+      disposed = true
+      clearTimeout(retryTimer)
       conn.invoke('LeaveBook', String(bookId)).catch(() => {})
       conn.stop()
       setConnected(false)
@@ -67,5 +102,6 @@ export function useBookHub(bookId: number | null) {
     setOnTokenStats: (fn: TokenStatsHandler) => { onTokenStats.current = fn },
     setOnAgentError: (fn: AgentErrorHandler) => { onAgentError.current = fn },
     setOnMessagesUpdated: (fn: MessagesUpdatedHandler) => { onMessagesUpdated.current = fn },
+    setOnReconnected: (fn: ReconnectedHandler) => { onReconnected.current = fn },
   }
 }

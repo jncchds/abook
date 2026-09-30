@@ -15,17 +15,8 @@ public static class ControllerExtensions
     /// Returns null on success, or a ready-to-return IActionResult (NotFound / Forbid).
     /// </summary>
     public static async Task<IActionResult?> RequireBookOwnershipAsync(
-        this ControllerBase controller, int bookId, IBookRepository repo)
-    {
-        var currentUserId = controller.User.Identity?.IsAuthenticated == true
-            ? int.Parse(controller.User.FindFirstValue(ClaimTypes.NameIdentifier)!)
-            : (int?)null;
-
-        var book = await repo.GetByIdAsync(bookId);
-        if (book is null) return controller.NotFound();
-        if (book.UserId is not null && book.UserId != currentUserId) return controller.Forbid();
-        return null;
-    }
+        this ControllerBase controller, int bookId, IBookRepository repo) =>
+        (await controller.RequireBookOwnershipAndLoadAsync(bookId, repo)).Error;
 
     /// <summary>
     /// Same as <see cref="RequireBookOwnershipAsync"/>, but also returns the loaded <see cref="ABook.Core.Models.Book"/>

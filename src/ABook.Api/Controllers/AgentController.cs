@@ -2,12 +2,14 @@ using ABook.Agents;
 using ABook.Api.Services;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ABook.Api.Controllers;
 
 [ApiController]
 [Route("api/books/{bookId:int}/agent")]
+[Authorize]
 public class AgentController : ControllerBase
 {
     private readonly AgentRunnerService _runner;
@@ -21,104 +23,70 @@ public class AgentController : ControllerBase
         _repo = repo;
     }
 
-    private IActionResult? EnsureCanStart(int bookId)
-    {
-        var current = _runState.GetStatus(bookId);
-        if (current is { State: "Running" or "WaitingForInput" })
-            return Conflict(new { message = "An agent run is already in progress for this book." });
-
-        if (_runState.IsAtCapacity())
-            return Conflict(new { message = "Server is at maximum concurrent agent capacity. Please try again when a run completes." });
-
-        return null;
-    }
-
     /// <summary>
-    /// Rejects a run targeting an archived chapter up front, so the caller gets a 400 instead of a
-    /// fire-and-forget run that fails inside the agent. Archived chapters are display-only.
+    /// Checks ownership (and, for chapter runs, that the chapter exists and is not archived — archived
+    /// chapters are display-only), then claims the book and starts the run in the background.
     /// </summary>
-    private async Task<IActionResult?> EnsureChapterNotArchivedAsync(int bookId, int chapterId)
+    private async Task<IActionResult> StartAsync(
+        int bookId, AgentRole role, int? chapterId, Func<IAgentOrchestrator, CancellationToken, Task> action)
     {
-        var chapter = await _repo.GetChapterAsync(bookId, chapterId);
-        if (chapter is null) return NotFound(new { message = $"Chapter {chapterId} not found." });
-        if (chapter.IsArchived)
-            return BadRequest(new { message = "This chapter is archived. Restore it before running an agent on it." });
-        return null;
+        var denied = await this.RequireBookOwnershipAsync(bookId, _repo);
+        if (denied is not null) return denied;
+
+        if (chapterId is int id)
+        {
+            var chapter = await _repo.GetChapterAsync(bookId, id);
+            if (chapter is null) return NotFound(new { message = $"Chapter {id} not found." });
+            if (chapter.IsArchived)
+                return BadRequest(new { message = "This chapter is archived. Restore it before running an agent on it." });
+        }
+
+        var result = _runner.TryStart(bookId, role, chapterId, action);
+        return result == RunStartResult.Success ? Accepted() : Conflict(new { message = result.ToMessage() });
     }
 
     [HttpPost("plan")]
-    public IActionResult Plan(int bookId)
-    {
-        var blocked = EnsureCanStart(bookId);
-        if (blocked is not null) return blocked;
-        _ = _runner.RunAsync(bookId, (o, c) => o.StartPlanningAsync(bookId, c), _runState.CreateRunCts(bookId));
-        return Accepted();
-    }
+    public Task<IActionResult> Plan(int bookId) =>
+        StartAsync(bookId, AgentRole.Planner, null, (o, c) => o.StartPlanningAsync(bookId, c));
 
     [HttpPost("plan/continue")]
-    public IActionResult ContinuePlanning(int bookId)
-    {
-        var blocked = EnsureCanStart(bookId);
-        if (blocked is not null) return blocked;
-        _ = _runner.RunAsync(bookId, (o, c) => o.ContinuePlanningAsync(bookId, c), _runState.CreateRunCts(bookId));
-        return Accepted();
-    }
+    public Task<IActionResult> ContinuePlanning(int bookId) =>
+        StartAsync(bookId, AgentRole.Planner, null, (o, c) => o.ContinuePlanningAsync(bookId, c));
 
     [HttpPost("write/{chapterId:int}")]
-    public async Task<IActionResult> Write(int bookId, int chapterId)
-    {
-        var blocked = EnsureCanStart(bookId) ?? await EnsureChapterNotArchivedAsync(bookId, chapterId);
-        if (blocked is not null) return blocked;
-        _ = _runner.RunAsync(bookId, (o, c) => o.StartWritingAsync(bookId, chapterId, c), _runState.CreateRunCts(bookId));
-        return Accepted();
-    }
+    public Task<IActionResult> Write(int bookId, int chapterId) =>
+        StartAsync(bookId, AgentRole.Writer, chapterId, (o, c) => o.StartWritingAsync(bookId, chapterId, c));
 
     [HttpPost("edit/{chapterId:int}")]
-    public async Task<IActionResult> Edit(int bookId, int chapterId)
-    {
-        var blocked = EnsureCanStart(bookId) ?? await EnsureChapterNotArchivedAsync(bookId, chapterId);
-        if (blocked is not null) return blocked;
-        _ = _runner.RunAsync(bookId, (o, c) => o.StartEditingAsync(bookId, chapterId, c), _runState.CreateRunCts(bookId));
-        return Accepted();
-    }
+    public Task<IActionResult> Edit(int bookId, int chapterId) =>
+        StartAsync(bookId, AgentRole.Editor, chapterId, (o, c) => o.StartEditingAsync(bookId, chapterId, c));
 
     [HttpPost("continuity")]
-    public IActionResult Continuity(int bookId)
-    {
-        var blocked = EnsureCanStart(bookId);
-        if (blocked is not null) return blocked;
-        _ = _runner.RunAsync(bookId, (o, c) => o.StartContinuityCheckAsync(bookId, c), _runState.CreateRunCts(bookId));
-        return Accepted();
-    }
+    public Task<IActionResult> Continuity(int bookId) =>
+        StartAsync(bookId, AgentRole.ContinuityChecker, null, (o, c) => o.StartContinuityCheckAsync(bookId, null, c));
 
     [HttpPost("workflow/start")]
-    public IActionResult StartWorkflow(int bookId)
-    {
-        var blocked = EnsureCanStart(bookId);
-        if (blocked is not null) return blocked;
-        _ = _runner.RunAsync(bookId, (o, c) => o.StartWorkflowAsync(bookId, c), _runState.CreateRunCts(bookId));
-        return Accepted();
-    }
+    public Task<IActionResult> StartWorkflow(int bookId) =>
+        StartAsync(bookId, AgentRole.Planner, null, (o, c) => o.StartWorkflowAsync(bookId, c));
 
     [HttpPost("workflow/continue")]
-    public IActionResult ContinueWorkflow(int bookId)
-    {
-        var blocked = EnsureCanStart(bookId);
-        if (blocked is not null) return blocked;
-        _ = _runner.RunAsync(bookId, (o, c) => o.ContinueWorkflowAsync(bookId, c), _runState.CreateRunCts(bookId));
-        return Accepted();
-    }
+    public Task<IActionResult> ContinueWorkflow(int bookId) =>
+        StartAsync(bookId, AgentRole.Writer, null, (o, c) => o.ContinueWorkflowAsync(bookId, c));
 
     [HttpPost("workflow/stop")]
-    public IActionResult StopWorkflow(int bookId)
+    public async Task<IActionResult> StopWorkflow(int bookId)
     {
+        var denied = await this.RequireBookOwnershipAsync(bookId, _repo);
+        if (denied is not null) return denied;
         _runState.CancelRun(bookId);
         return Ok();
     }
 
     [HttpGet("status")]
-    public IActionResult Status(int bookId)
+    public async Task<IActionResult> Status(int bookId)
     {
+        var denied = await this.RequireBookOwnershipAsync(bookId, _repo);
+        if (denied is not null) return denied;
         var status = _runState.GetStatus(bookId);
         return status is null ? NoContent() : Ok(status);
     }
@@ -129,11 +97,11 @@ public class AgentController : ControllerBase
     /// Returns { content: "" } when there is no active buffer.
     /// </summary>
     [HttpGet("stream-buffer")]
-    public IActionResult StreamBuffer(int bookId, [FromQuery] string? agentRole, [FromQuery] int? chapterId)
+    public async Task<IActionResult> StreamBuffer(int bookId, [FromQuery] string? agentRole, [FromQuery] int? chapterId)
     {
+        var denied = await this.RequireBookOwnershipAsync(bookId, _repo);
+        if (denied is not null) return denied;
         var content = _runState.GetStreamBufferContent(bookId, chapterId, agentRole) ?? string.Empty;
         return Ok(new { content });
     }
-
 }
-

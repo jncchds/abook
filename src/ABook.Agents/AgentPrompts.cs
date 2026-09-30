@@ -1,4 +1,16 @@
+using System.Text;
+using ABook.Core.Models;
+
 namespace ABook.Agents;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Single home for every piece of text sent to an LLM (and for the RAG search queries).
+//   • PromptPlaceholders — tokens usable in per-book system prompt overrides
+//   • DefaultPrompts     — overridable system prompts, one per agent
+//   • PromptTemplates    — fixed system prompts, user-message templates and context blocks
+//   • RagQueries         — embedding search queries used to retrieve prior-chapter passages
+// Agents gather data and call into these; they must not build prompt text themselves.
+// ─────────────────────────────────────────────────────────────────────────────
 
 /// <summary>
 /// Placeholder tokens supported in every agent system prompt.
@@ -164,25 +176,6 @@ public static class DefaultPrompts
         IMPORTANT: The entire output (prose and editorial notes) must be written in {PromptPlaceholders.Language}.
         """;
 
-    /// <summary>
-    /// System prompt used by the Editor when applying specific checker-identified fixes.
-    /// Instructs the LLM to be surgical: apply ONLY the listed fixes, change nothing else.
-    /// </summary>
-    public static readonly string EditorSurgical =
-        $"""
-        You are a precise copy editor. Your ONLY job is to apply the listed fixes to the chapter.
-        - Apply each numbered fix exactly as described. Do not interpret or expand on any fix.
-        - Do NOT change any other word, sentence, paragraph, or punctuation beyond what is required to apply the listed fixes.
-        - Do NOT improve phrasing, restructure sentences, or make any stylistic adjustments.
-        - Do NOT add, remove, or reorder any scenes, characters, or events.
-        - Preserve the author's voice, style, rhythm, and all narrative content exactly.
-        Output the complete corrected chapter in markdown — do NOT include a chapter heading.
-        After the prose, add a section headed exactly "## Editorial Notes" listing each fix that was applied
-        as a numbered list matching the original fix numbers.
-        Book: {PromptPlaceholders.Title} | Genre: {PromptPlaceholders.Genre}
-        IMPORTANT: The entire output (prose and editorial notes) must be written in {PromptPlaceholders.Language}.
-        """;
-
     public static readonly string ContinuityCheckerPerChapter =
         $"""
         You are a quality checker for fiction manuscripts. Review the chapter under review for
@@ -334,4 +327,702 @@ public static class DefaultPrompts
         Book: {PromptPlaceholders.Title} | Genre: {PromptPlaceholders.Genre}
         IMPORTANT: Write all string values in {PromptPlaceholders.Language}.
         """;
+}
+
+/// <summary>
+/// Fixed (non-overridable) prompt text: user-message templates, context blocks and the system prompts
+/// of the helper calls (question gathering, pre-write outline check). Methods take already-loaded data
+/// and only format it.
+/// </summary>
+public static class PromptTemplates
+{
+    // ── Shared blocks ──────────────────────────────────────────────────────────
+
+    private static string AuthorGuidance(string qaContext, string label) =>
+        qaContext.Length > 0 ? $"\n{label}:\n{qaContext}" : "";
+
+    private static string Ancestor(string ancestorReference) =>
+        ancestorReference.Length > 0 ? $"\n{ancestorReference}" : "";
+
+    /// <summary>One line per chapter: "N. **Title** — Outline". Used for the synopsis spine.</summary>
+    public static string ChapterSynopses(IEnumerable<Chapter> chapters) =>
+        string.Join("\n", chapters.Select(c => $"{c.Number}. **{c.Title}** — {c.Outline}"));
+
+    /// <summary>The closing paragraphs of the previous chapter, handed to the Writer for continuity.</summary>
+    public static string PreviousChapterEnding(Chapter previous, IEnumerable<string> tailParagraphs) =>
+        $"[End of Chapter {previous.Number}: {previous.Title}]\n\n" + string.Join("\n\n", tailParagraphs);
+
+    /// <summary>Joins retrieved RAG chunks into one passage block.</summary>
+    public static string RagPassages(IEnumerable<(int ChapterNumber, string Text)> chunks) =>
+        string.Join("\n\n---\n\n", chunks.Select(c => $"[Chapter {c.ChapterNumber}]\n{c.Text}"));
+
+    /// <summary>Joins passage blocks retrieved by separate RAG queries.</summary>
+    public static string JoinRagGroups(IEnumerable<string> groups) => string.Join("\n\n===\n\n", groups);
+
+    /// <summary>Bookkeeping line appended to the Q&amp;A context after a human-assisted planning pause.</summary>
+    public static string UserNoteAfterPhase(string phaseLabel, string note) =>
+        $"\n[User note after {phaseLabel}]: {note}";
+
+    /// <summary>One answered clarifying question, as carried through the planning phases.</summary>
+    public static string QuestionAndAnswer(string question, string answer) =>
+        $"Q: {question}\nA: {answer}\n";
+
+    /// <summary>
+    /// Established facts of the earlier books in a series, for planning a continuation. Lists are
+    /// capped to keep the token budget: 12 characters and threads per book, and all chapter synopses
+    /// only for the direct parent (the last 5 for older ancestors).
+    /// </summary>
+    public static string AncestorReference(IReadOnlyList<AncestorBookContext> ancestors)
+    {
+        if (ancestors.Count == 0) return string.Empty;
+
+        var sb = new StringBuilder();
+        sb.AppendLine("Continuation context from previous books (reference only — do not copy verbatim):");
+
+        foreach (var a in ancestors)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"### Prior Book: {a.Book.Title} (Id: {a.Book.Id})");
+            sb.AppendLine($"- Genre: {a.Book.Genre}");
+            sb.AppendLine($"- Premise: {a.Book.Premise}");
+
+            if (a.Bible is { } bible)
+            {
+                sb.AppendLine("- Story Bible:");
+                if (!string.IsNullOrWhiteSpace(bible.SettingDescription)) sb.AppendLine($"  - Setting: {bible.SettingDescription}");
+                if (!string.IsNullOrWhiteSpace(bible.TimePeriod)) sb.AppendLine($"  - Time Period: {bible.TimePeriod}");
+                if (!string.IsNullOrWhiteSpace(bible.Themes)) sb.AppendLine($"  - Themes: {bible.Themes}");
+                if (!string.IsNullOrWhiteSpace(bible.ToneAndStyle)) sb.AppendLine($"  - Tone & Style: {bible.ToneAndStyle}");
+                if (!string.IsNullOrWhiteSpace(bible.WorldRules)) sb.AppendLine($"  - World Rules: {bible.WorldRules}");
+            }
+
+            if (a.Characters.Count > 0)
+            {
+                sb.AppendLine("- Key Characters:");
+                foreach (var c in a.Characters.Take(12))
+                {
+                    sb.Append($"  - {c.Name} ({c.Role})");
+                    if (!string.IsNullOrWhiteSpace(c.GoalMotivation)) sb.Append($": {c.GoalMotivation}");
+                    if (!string.IsNullOrWhiteSpace(c.Personality)) sb.Append($" | Personality: {c.Personality}");
+                    if (!string.IsNullOrWhiteSpace(c.Arc)) sb.Append($" | Arc: {c.Arc}");
+                    sb.AppendLine();
+                }
+            }
+
+            if (a.PlotThreads.Count > 0)
+            {
+                sb.AppendLine("- Plot Threads:");
+                foreach (var t in a.PlotThreads.Take(12))
+                    sb.AppendLine($"  - {t.Name} ({t.Type}, {t.Status}): {t.Description}");
+            }
+
+            if (a.Chapters.Count > 0)
+            {
+                sb.AppendLine("- Chapter Synopses:");
+                var chapters = a.IsDirectParent ? a.Chapters : a.Chapters.TakeLast(5);
+                foreach (var ch in chapters)
+                    if (!string.IsNullOrWhiteSpace(ch.Outline))
+                        sb.AppendLine($"  - Ch.{ch.Number} \"{ch.Title}\": {ch.Outline}");
+            }
+        }
+
+        return sb.ToString().Trim();
+    }
+
+    // ── Question gathering ────────────────────────────────────────────────────
+
+    public static string QuestionGatheringSystem(string language) =>
+        $"""
+        You are helping plan a book. Given the book premise below, determine if there is anything
+        genuinely unclear that an author decision would meaningfully change the story plan.
+        If so, list those questions as a numbered list (e.g. "1. Question here?").
+        IMPORTANT: Ask all questions in {language}.
+        Keep the number of questions to an absolute minimum — only ask when truly necessary.
+        If everything is clear from the premise, respond with exactly: None.
+
+        If the premise includes "Continuation context from previous books":
+        - Do NOT re-ask worldbuilding questions already established by the prior book.
+        - Focus on continuation decisions only: e.g. where this book picks up after the prior book's
+          ending, what happened to key characters between books, or what this book's unique focus is.
+        - Treat all facts from the prior book as established — only ask about genuine ambiguities.
+        """;
+
+    public static string QuestionGatheringUser(Book book, string ancestorReference)
+    {
+        var context = $"Title: {book.Title}\nGenre: {book.Genre}\nPremise: {book.Premise}\nTarget chapters: {book.TargetChapterCount}";
+        return string.IsNullOrEmpty(ancestorReference) ? context : $"{context}\n\n{ancestorReference}";
+    }
+
+    // ── Planning phases ───────────────────────────────────────────────────────
+
+    public static string StoryBibleUser(Book book, string qaContext, string ancestorReference) =>
+        $"""
+        Book title: {book.Title}
+        Genre: {book.Genre}
+        Premise: {book.Premise}
+        Target chapter count: {book.TargetChapterCount}
+        {AuthorGuidance(qaContext, "Author guidance")}
+        {Ancestor(ancestorReference)}
+
+        Create the Story Bible for this book.
+        """;
+
+    public static string CharactersUser(Book book, StoryBible bible, string qaContext, string ancestorReference, string existingBlock) =>
+        $"""
+        Book title: {book.Title}
+        Genre: {book.Genre}
+        Premise: {book.Premise}
+        Target chapter count: {book.TargetChapterCount}
+
+        Story Bible:
+        Setting: {bible.SettingDescription}
+        Time period: {bible.TimePeriod}
+        Themes: {bible.Themes}
+        Tone & style: {bible.ToneAndStyle}
+        World rules: {bible.WorldRules}
+        {AuthorGuidance(qaContext, "Author guidance so far")}
+        {Ancestor(ancestorReference)}
+        {existingBlock}
+        Create detailed character profiles for this book.
+        """;
+
+    /// <summary>Re-run block listing the saved profiles (as JSON) the model must keep, revise or extend.</summary>
+    public static string ExistingCharacters(string json) =>
+        $"""
+
+        These character profiles are already saved for this book:
+        {json}
+
+        Return the complete, updated set: repeat every profile you are keeping (unchanged or revised,
+        keeping its exact "name" so it can be matched), and add any character the story still needs.
+        Profiles you leave out will be removed.
+
+        """;
+
+    public static string CharacterSummary(IEnumerable<CharacterCard> characters) =>
+        string.Join("\n", characters.Select(c => $"- {c.Name} ({c.Role}): {c.GoalMotivation}. Arc: {c.Arc}"));
+
+    public static string PlotThreadsUser(
+        Book book, StoryBible bible, IEnumerable<CharacterCard> characters,
+        string qaContext, string ancestorReference, string existingBlock) =>
+        $"""
+        Book title: {book.Title}
+        Genre: {book.Genre}
+        Premise: {book.Premise}
+        Target chapter count: {book.TargetChapterCount}
+
+        Story Bible:
+        Setting: {bible.SettingDescription}
+        Time period: {bible.TimePeriod}
+        Themes: {bible.Themes}
+        World rules: {bible.WorldRules}
+
+        Characters:
+        {CharacterSummary(characters)}
+        {AuthorGuidance(qaContext, "Author guidance so far")}
+        {Ancestor(ancestorReference)}
+        {existingBlock}
+        Create the plot thread map for this book.
+        """;
+
+    /// <summary>Re-run block listing the saved threads (as JSON) the model must keep, revise or extend.</summary>
+    public static string ExistingPlotThreads(string json) =>
+        $"""
+
+        These plot threads are already saved for this book:
+        {json}
+
+        Return the complete, updated map: repeat every thread you are keeping (unchanged or revised,
+        keeping its exact "name" so it can be matched), and add any thread the story still needs.
+        Threads you leave out will be removed.
+
+        """;
+
+    public static string ChapterOutlinesUser(
+        Book book, StoryBible bible, IEnumerable<CharacterCard> characters, IEnumerable<PlotThread> threads,
+        string qaContext, string ancestorReference, string existingBlock)
+    {
+        var threadSummary = string.Join("\n", threads.Select(t =>
+            $"- {t.Name} ({t.Type}, introduced ch.{t.IntroducedChapterNumber?.ToString() ?? "?"}): {t.Description}"));
+        return $"""
+            Book title: {book.Title}
+            Genre: {book.Genre}
+            Premise: {book.Premise}
+            Target chapter count: {book.TargetChapterCount}
+
+            Story Bible:
+            Setting: {bible.SettingDescription}
+            Time period: {bible.TimePeriod}
+            Themes: {bible.Themes}
+            Tone & style: {bible.ToneAndStyle}
+            World rules: {bible.WorldRules}
+
+            Characters:
+            {CharacterSummary(characters)}
+
+            Plot Threads:
+            {threadSummary}
+            {AuthorGuidance(qaContext, "Author guidance")}
+            {Ancestor(ancestorReference)}
+            {existingBlock}
+            Create {book.TargetChapterCount} detailed chapter outlines for this book.
+            """;
+    }
+
+    /// <summary>Re-run block listing the saved outlines (as JSON) the model must keep, revise or extend.</summary>
+    public static string ExistingChapterOutlines(string json) =>
+        $"""
+
+        These chapter outlines are already saved for this book:
+        {json}
+
+        Return the complete, updated outline set: repeat every chapter you are keeping (unchanged or
+        revised, keeping its exact "number" so it can be matched), and add any chapter that is missing.
+        Chapters you leave out will be removed. A chapter marked "alreadyWritten": true has its prose
+        written — do not change its premise, only correct outright errors in its outline.
+
+        """;
+
+    // ── Writer ────────────────────────────────────────────────────────────────
+
+    /// <summary>Appends the per-chapter context to the (possibly overridden) Writer system prompt.</summary>
+    public static string WriterSystem(string basePrompt, Book book, Chapter chapter, string contextBlock, string previousEnding) =>
+        $"""
+        {basePrompt}
+        Current chapter: {chapter.Number} of {book.TargetChapterCount} — "{chapter.Title}"
+        {contextBlock}
+        {(previousEnding.Length > 0 ? $"\nThe previous chapter ended with:\n{previousEnding}\nContinue the story naturally from this point." : "")}
+        """;
+
+    public static string WriterUser(Chapter chapter, string synopsesBlock) =>
+        $"""
+        {(synopsesBlock.Length > 0 ? $"## Story So Far — Chapter Synopses\nRefer to this to avoid re-introducing or restating anything already established in prior chapters.\n{synopsesBlock}\n\n" : "")}Write the full content for:
+        Chapter {chapter.Number}: {chapter.Title}
+        Outline: {chapter.Outline}
+        {(chapter.PovCharacter.Length > 0 ? $"Point of view: {chapter.PovCharacter}" : "")}
+        {(chapter.ForeshadowingNotes.Length > 0 ? $"Plant in this chapter (foreshadowing): {chapter.ForeshadowingNotes}" : "")}
+        {(chapter.PayoffNotes.Length > 0 ? $"Pay off in this chapter: {chapter.PayoffNotes}" : "")}
+
+        Write at least 1000 words of narrative prose. Output markdown only. Do NOT include a chapter heading.
+        """;
+
+    /// <summary>Story Bible, relevant character cards and plot threads, plus retrieved prior-chapter passages.</summary>
+    public static string WriterContext(
+        StoryBible? bible, IReadOnlyList<CharacterCard> cards, IReadOnlyList<PlotThread> threads, ChapterRag rag)
+    {
+        var sb = new StringBuilder();
+
+        if (bible is not null)
+        {
+            sb.AppendLine("\n## Story Bible");
+            if (!string.IsNullOrWhiteSpace(bible.ToneAndStyle))
+                sb.AppendLine($"Tone & style: {bible.ToneAndStyle}");
+            if (!string.IsNullOrWhiteSpace(bible.WorldRules))
+                sb.AppendLine($"World rules: {bible.WorldRules}");
+            if (!string.IsNullOrWhiteSpace(bible.SettingDescription))
+                sb.AppendLine($"Setting: {bible.SettingDescription}");
+        }
+
+        if (cards.Count > 0)
+        {
+            sb.AppendLine("\n## Character Profiles (canonical — do not contradict)");
+            foreach (var card in cards)
+            {
+                sb.AppendLine($"\n**{card.Name}** ({card.Role})");
+                if (!string.IsNullOrWhiteSpace(card.PhysicalDescription))
+                    sb.AppendLine($"  Appearance: {card.PhysicalDescription}");
+                if (!string.IsNullOrWhiteSpace(card.Personality))
+                    sb.AppendLine($"  Personality: {card.Personality}");
+                if (!string.IsNullOrWhiteSpace(card.GoalMotivation))
+                    sb.AppendLine($"  Goal/motivation: {card.GoalMotivation}");
+                if (!string.IsNullOrWhiteSpace(card.Arc))
+                    sb.AppendLine($"  Arc: {card.Arc}");
+            }
+        }
+
+        if (threads.Count > 0)
+        {
+            sb.AppendLine("\n## Active Plot Threads");
+            foreach (var t in threads)
+                sb.AppendLine($"- **{t.Name}** ({t.Type}): {t.Description}");
+        }
+
+        if (rag.HasAny)
+        {
+            sb.AppendLine("\n## Prior Chapter Passages (for consistency — do not re-introduce or restate)");
+            if (!string.IsNullOrWhiteSpace(rag.Characters))
+            {
+                sb.AppendLine("\n### Character Details from Prior Chapters");
+                sb.AppendLine(rag.Characters);
+            }
+            if (!string.IsNullOrWhiteSpace(rag.Locations))
+            {
+                sb.AppendLine("\n### Location & Setting Details from Prior Chapters");
+                sb.AppendLine(rag.Locations);
+            }
+            if (!string.IsNullOrWhiteSpace(rag.Threads))
+            {
+                sb.AppendLine("\n### Plot Thread Context from Prior Chapters");
+                sb.AppendLine(rag.Threads);
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    // ── Editor ────────────────────────────────────────────────────────────────
+
+    private static void AppendEditorContext(StringBuilder sb, string synopsesBlock, ChapterRag rag, string passagesHeading)
+    {
+        if (synopsesBlock.Length > 0)
+        {
+            sb.AppendLine("## Story So Far — Chapter Synopses");
+            sb.AppendLine(synopsesBlock);
+            sb.AppendLine();
+        }
+        if (rag.HasAny)
+        {
+            sb.AppendLine(passagesHeading);
+            if (!string.IsNullOrWhiteSpace(rag.Characters)) { sb.AppendLine("\n### Character Details");                             sb.AppendLine(rag.Characters); }
+            if (!string.IsNullOrWhiteSpace(rag.Locations))  { sb.AppendLine("\n### Location & Setting Details");                    sb.AppendLine(rag.Locations); }
+            if (!string.IsNullOrWhiteSpace(rag.Threads))    { sb.AppendLine("\n### Plot Thread Context");                           sb.AppendLine(rag.Threads); }
+            if (!string.IsNullOrWhiteSpace(rag.Phrases))    { sb.AppendLine("\n### Potentially Repeated Phrases & Descriptions");  sb.AppendLine(rag.Phrases); }
+            sb.AppendLine();
+        }
+    }
+
+    /// <summary>Stand-alone Editor pass: polish the chapter, optionally following the author's attention points.</summary>
+    public static string EditorPolishUser(Chapter chapter, string synopsesBlock, ChapterRag rag, string? attentionPoints)
+    {
+        var sb = new StringBuilder();
+        AppendEditorContext(sb, synopsesBlock, rag,
+            "## Prior Chapter Passages (use to identify re-introductions and repeated content)");
+
+        sb.AppendLine($"Please fix Chapter {chapter.Number}: {chapter.Title}");
+
+        if (!string.IsNullOrWhiteSpace(attentionPoints))
+        {
+            sb.AppendLine("\n**Additional attention points from the author:**");
+            sb.AppendLine(attentionPoints.Trim());
+        }
+        else
+        {
+            sb.AppendLine("\nNo specific issues listed — make only minor polish corrections if needed.");
+        }
+
+        sb.AppendLine($"\nOriginal content:\n{chapter.Content}");
+        return sb.ToString();
+    }
+
+    /// <summary>Creative rewrite pass: resolve the checker's rewrite issues and/or the author's instructions.</summary>
+    public static string EditorRewriteUser(
+        Chapter chapter, string synopsesBlock, ChapterRag rag, IReadOnlyList<CheckerIssue> rewrites, string? authorNotes)
+    {
+        var sb = new StringBuilder();
+        AppendEditorContext(sb, synopsesBlock, rag,
+            "## Prior Chapter Passages (for context — do not re-introduce or restate)");
+
+        sb.AppendLine($"Please fix Chapter {chapter.Number}: {chapter.Title}");
+        sb.AppendLine(RewriteInstructions(rewrites, authorNotes));
+        sb.AppendLine($"\nChapter content (already mechanically patched — only resolve the creative issues above):");
+        sb.AppendLine(chapter.Content);
+        return sb.ToString();
+    }
+
+    internal static string RewriteInstructions(IReadOnlyList<CheckerIssue> rewrites, string? authorNotes)
+    {
+        var sb = new StringBuilder();
+
+        if (!string.IsNullOrWhiteSpace(authorNotes))
+        {
+            sb.AppendLine("## Author Instructions (highest priority — follow these exactly)\n");
+            sb.AppendLine(authorNotes.Trim());
+            sb.AppendLine();
+        }
+
+        if (rewrites.Count == 0)
+        {
+            sb.AppendLine("Apply the author's instructions above. Preserve all other prose exactly as written.");
+            return sb.ToString();
+        }
+
+        sb.AppendLine("## Issues Requiring Creative Resolution\n");
+
+        for (int n = 0; n < rewrites.Count; n++)
+        {
+            var issue = rewrites[n];
+            sb.AppendLine($"**Issue {n + 1}:** {issue.Description}");
+            if (!string.IsNullOrWhiteSpace(issue.Problem))
+                sb.AppendLine($"   Problem: {issue.Problem}");
+            if (!string.IsNullOrWhiteSpace(issue.CanonicalFact))
+                sb.AppendLine($"   Canonical fact: {issue.CanonicalFact}");
+            if (!string.IsNullOrWhiteSpace(issue.Location))
+                sb.AppendLine($"   Location: {issue.Location}");
+            if (!string.IsNullOrWhiteSpace(issue.SuggestedRewrite))
+                sb.AppendLine($"   Suggested approach: {issue.SuggestedRewrite}");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("Fix ALL of the above issues by rewriting the affected passages. Maintain consistency " +
+                      "throughout the chapter — if a character's appearance, state, or a location detail " +
+                      "contradicts itself across paragraphs, choose one version and apply it everywhere " +
+                      "the affected element appears. Preserve all other prose exactly as written.");
+
+        return sb.ToString();
+    }
+
+    // ── Pre-write outline check (Continuity Checker) ──────────────────────────
+
+    public const string PreWriteNoIssuesMarker = "No issues found";
+
+    public static string PreWriteDetectSystem(Book book) =>
+        $"""
+        You are a story continuity expert. Your task is to evaluate a single chapter outline
+        against the established facts of a book and identify any contradictions.
+        If the outline is consistent, respond with exactly the text: {PreWriteNoIssuesMarker}.
+        Otherwise list each contradiction on a numbered line. Be specific: name the
+        established fact it conflicts with and what the outline says instead.
+        Book: {book.Title} | Genre: {book.Genre} | Language: {book.Language}
+        """;
+
+    public static string PreWriteDetectUser(string establishedFacts, Chapter chapter) =>
+        $"""
+        ## Established Facts
+        {establishedFacts}
+
+        ## Chapter Outline Under Review
+        Chapter {chapter.Number}: {chapter.Title}
+        Outline: {chapter.Outline}
+        {(chapter.PovCharacter.Length > 0 ? $"POV: {chapter.PovCharacter}" : "")}
+        {(chapter.ForeshadowingNotes.Length > 0 ? $"Foreshadowing notes: {chapter.ForeshadowingNotes}" : "")}
+        {(chapter.PayoffNotes.Length > 0 ? $"Payoff notes: {chapter.PayoffNotes}" : "")}
+
+        Are there any contradictions between this outline and the established facts above?
+        """;
+
+    public static string PreWriteFixSystem(Book book) =>
+        $"""
+        You are a story editor. Your task is to rewrite a chapter outline to resolve
+        all listed contradictions with the established facts, while preserving the
+        chapter's narrative purpose and key events.
+        Output ONLY the corrected outline text — no headings, no explanations.
+        Write in {book.Language}.
+        """;
+
+    public static string PreWriteFixUser(string establishedFacts, Chapter chapter, string contradictions) =>
+        $"""
+        ## Established Facts
+        {establishedFacts}
+
+        ## Original Chapter Outline
+        Chapter {chapter.Number}: {chapter.Title}
+        {chapter.Outline}
+
+        ## Contradictions to Resolve
+        {contradictions}
+
+        Rewrite the outline to resolve all contradictions above.
+        """;
+
+    /// <summary>World rules, relevant character cards and plot threads, and prior chapter synopses.</summary>
+    public static string EstablishedFacts(
+        StoryBible? bible, IReadOnlyList<CharacterCard> cards, IReadOnlyList<PlotThread> threads,
+        IReadOnlyList<Chapter> priorChapters)
+    {
+        var sb = new StringBuilder();
+
+        if (bible is not null && !string.IsNullOrWhiteSpace(bible.WorldRules))
+        {
+            sb.AppendLine("### World Rules");
+            sb.AppendLine(bible.WorldRules);
+        }
+
+        if (cards.Count > 0)
+        {
+            sb.AppendLine("\n### Character Profiles (canonical)");
+            foreach (var card in cards)
+                AppendCharacterCard(card, sb);
+        }
+
+        if (threads.Count > 0)
+        {
+            sb.AppendLine("\n### Plot Threads");
+            foreach (var t in threads)
+            {
+                sb.Append($"\n**{t.Name}** ({t.Type}, {t.Status})");
+                if (t.IntroducedChapterNumber.HasValue)
+                    sb.Append($" — introduced ch.{t.IntroducedChapterNumber}");
+                if (t.ResolvedChapterNumber.HasValue)
+                    sb.Append($", resolved ch.{t.ResolvedChapterNumber}");
+                sb.AppendLine();
+                sb.AppendLine($"  {t.Description}");
+            }
+        }
+
+        if (priorChapters.Count > 0)
+        {
+            sb.AppendLine("\n### Prior Chapter Synopses");
+            foreach (var c in priorChapters)
+                sb.AppendLine($"- Ch.{c.Number} \"{c.Title}\": {c.Outline}");
+        }
+
+        return sb.ToString();
+    }
+
+    // ── Quality check (Continuity Checker) ────────────────────────────────────
+
+    /// <summary>Added to the default per-chapter checker prompt so only issues introduced by this chapter are reported.</summary>
+    public static string CheckerPerChapterFocus(Chapter chapter) =>
+        $"\nIMPORTANT: Do NOT report issues that exist solely between previous chapters. " +
+        $"Focus only on continuity or style problems introduced by Chapter {chapter.Number} (\"{chapter.Title}\").";
+
+    /// <summary>Story Bible plus every character card and plot thread.</summary>
+    public static string CheckerStructuredContext(
+        StoryBible? bible, IReadOnlyList<CharacterCard> cards, IReadOnlyList<PlotThread> threads)
+    {
+        var sb = new StringBuilder();
+
+        if (bible is not null)
+        {
+            sb.AppendLine("## Story Bible");
+            if (!string.IsNullOrWhiteSpace(bible.SettingDescription))
+                sb.AppendLine($"Setting: {bible.SettingDescription}");
+            if (!string.IsNullOrWhiteSpace(bible.WorldRules))
+                sb.AppendLine($"World rules: {bible.WorldRules}");
+            if (!string.IsNullOrWhiteSpace(bible.Themes))
+                sb.AppendLine($"Themes: {bible.Themes}");
+        }
+
+        if (cards.Count > 0)
+        {
+            sb.AppendLine("\n## Character Profiles (canonical)");
+            foreach (var card in cards)
+                AppendCharacterCard(card, sb);
+        }
+
+        if (threads.Count > 0)
+        {
+            sb.AppendLine("\n## Plot Threads");
+            foreach (var t in threads)
+            {
+                sb.AppendLine($"\n**{t.Name}** ({t.Type}, {t.Status})");
+                sb.AppendLine($"  {t.Description}");
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static string ChapterDigest(Chapter c, int excerptChars) =>
+        $"Chapter {c.Number}: {c.Title}\nOutline: {c.Outline}\nContent excerpt: {c.Content?[..Math.Min(excerptChars, c.Content?.Length ?? 0)]}...";
+
+    private static string CheckerContextSections(string structuredContext, string ragContext)
+    {
+        var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(structuredContext))
+            sb.AppendLine(structuredContext);
+        if (!string.IsNullOrWhiteSpace(ragContext))
+        {
+            sb.AppendLine("\n## Detailed Passages (retrieved for review)");
+            sb.AppendLine(ragContext);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Per-chapter check: preceding chapters as established facts, the chapter under review line-numbered.</summary>
+    public static string CheckerChapterUser(
+        Chapter current, IReadOnlyList<Chapter> previousChapters, string structuredContext, string ragContext)
+    {
+        var prevSynopsis = previousChapters.Count > 0
+            ? string.Join("\n\n", previousChapters.Select(c => ChapterDigest(c, 600)))
+            : "(No preceding chapters yet.)";
+
+        var currentExcerpt =
+            $"Chapter {current.Number}: {current.Title}\n" +
+            $"Outline: {current.Outline}\n" +
+            $"Content (each line is prefixed with its 1-indexed line number — do NOT include the \"N | \" prefix in originalText):\n" +
+            NumberLines(current.Content ?? string.Empty);
+
+        return $"""
+            Check Chapter {current.Number} ("{current.Title}") for continuity issues.
+            Do NOT report problems between the preceding chapters — only issues introduced by this chapter.
+            {CheckerContextSections(structuredContext, ragContext)}
+            ## Preceding Chapters (established facts)
+            {prevSynopsis}
+
+            ## Chapter Under Review
+            {currentExcerpt}
+            """;
+    }
+
+    /// <summary>Full-manuscript check over digests of every chapter.</summary>
+    public static string CheckerFullUser(IReadOnlyList<Chapter> chapters, string structuredContext, string ragContext)
+    {
+        var synopsis = string.Join("\n\n", chapters.Select(c => ChapterDigest(c, 800)));
+        return $"""
+            Review these chapters for continuity and style issues.
+            {CheckerContextSections(structuredContext, ragContext)}
+            ## Chapter Summaries
+            {synopsis}
+            """;
+    }
+
+    /// <summary>Prefixes each line with its 1-indexed number ("N | ") so the checker can give position hints.</summary>
+    public static string NumberLines(string content)
+    {
+        var lines = content.Split('\n');
+        return string.Join("\n", lines.Select((line, i) => $"{i + 1} | {line}"));
+    }
+
+    private static void AppendCharacterCard(CharacterCard card, StringBuilder sb)
+    {
+        sb.AppendLine($"\n**{card.Name}** ({card.Role})");
+        if (!string.IsNullOrWhiteSpace(card.PhysicalDescription))
+            sb.AppendLine($"  Appearance: {card.PhysicalDescription}");
+        if (!string.IsNullOrWhiteSpace(card.Personality))
+            sb.AppendLine($"  Personality: {card.Personality}");
+        if (!string.IsNullOrWhiteSpace(card.Backstory))
+            sb.AppendLine($"  Backstory: {card.Backstory}");
+        if (!string.IsNullOrWhiteSpace(card.GoalMotivation))
+            sb.AppendLine($"  Goal/motivation: {card.GoalMotivation}");
+        if (!string.IsNullOrWhiteSpace(card.Arc))
+            sb.AppendLine($"  Arc: {card.Arc}");
+    }
+}
+
+/// <summary>Passages retrieved from prior chapters for one chapter, grouped by what they were searched for.</summary>
+public sealed record ChapterRag(string Characters, string Locations, string Threads, string Phrases)
+{
+    public static readonly ChapterRag Empty = new("", "", "", "");
+
+    public bool HasAny =>
+        !string.IsNullOrWhiteSpace(Characters) || !string.IsNullOrWhiteSpace(Locations)
+        || !string.IsNullOrWhiteSpace(Threads) || !string.IsNullOrWhiteSpace(Phrases);
+}
+
+/// <summary>Embedding search queries used to retrieve prior-chapter passages (RAG).</summary>
+public static class RagQueries
+{
+    public static string Characters(IReadOnlyList<string> characterNames) =>
+        characterNames.Count > 0
+            ? $"character appearance description personality {string.Join(' ', characterNames)}"
+            : "character appearance description personality backstory";
+
+    public static string Locations(string outline) =>
+        $"location place setting description {outline}";
+
+    public static string Threads(IReadOnlyList<string> threadNames, string outline) =>
+        threadNames.Count > 0
+            ? $"plot thread events foreshadowing {string.Join(' ', threadNames)}"
+            : $"plot events sequence foreshadowing {outline}";
+
+    public const string RepeatedPhrases = "repeated descriptions recurring phrases re-introduction established facts";
+
+    /// <summary>Queries the quality checker runs to find passages that commonly hold contradictions.</summary>
+    public static readonly string[] Checker =
+    [
+        "character physical description appearance age name backstory",
+        "timeline dates past future sequence of events",
+        "location place setting description",
+    ];
 }

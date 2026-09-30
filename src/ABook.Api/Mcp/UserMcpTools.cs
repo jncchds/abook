@@ -15,20 +15,17 @@ public class UserMcpTools : McpToolBase
 {
     private readonly IBookRepository _repo;
     private readonly IUserRepository _users;
-    private readonly AgentRunStateService _runState;
     private readonly AgentRunnerService _runner;
 
     public UserMcpTools(
         IBookRepository repo,
         IUserRepository users,
-        AgentRunStateService runState,
         AgentRunnerService runner,
         IHttpContextAccessor http)
         : base(http)
     {
         _repo = repo;
         _users = users;
-        _runState = runState;
         _runner = runner;
     }
 
@@ -186,9 +183,9 @@ public class UserMcpTools : McpToolBase
             UserId = userId
         });
 
-        // Start the full workflow in background
-        var ct = _runState.CreateRunCts(book.Id);
-        _ = _runner.RunAsync(book.Id, (o, c) => o.StartWorkflowAsync(book.Id, c), ct);
+        // Start the full workflow in background (a brand-new book can only be refused for capacity)
+        var start = _runner.TryStart(book.Id, AgentRole.Planner, null, (o, c) => o.StartWorkflowAsync(book.Id, c));
+        var workflowStarted = start == RunStartResult.Success;
 
         return JsonSerializer.Serialize(new
         {
@@ -198,8 +195,10 @@ public class UserMcpTools : McpToolBase
             book.Premise,
             book.Language,
             book.TargetChapterCount,
-            workflowStarted = true,
-            message = $"Book created with ID {book.Id}. Full workflow started. Use get_agent_status with bookId={book.Id} to monitor progress. The agent will pause at WaitingForInput state when it needs clarification — use answer_agent_question to respond."
+            workflowStarted,
+            message = workflowStarted
+                ? $"Book created with ID {book.Id}. Full workflow started. Use get_agent_status with bookId={book.Id} to monitor progress. The agent will pause at WaitingForInput state when it needs clarification — use answer_agent_question to respond."
+                : $"Book created with ID {book.Id}, but the workflow was not started: {start.ToMessage()} Start it later with start_workflow."
         }, JsonOptions);
     }
 

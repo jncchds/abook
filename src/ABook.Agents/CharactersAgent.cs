@@ -28,11 +28,11 @@ public class CharactersAgent : AgentBase
     {
         var bookId = book.Id;
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 2/4 - Characters...", false, ct);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.CharactersAgent, "Running", ct: ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.CharactersAgent, RunStates.Running, ct: ct);
 
         var (client, config) = await GetChatClientAsync(bookId);
         var messages = new List<LlmChatMessage>();
-        var ancestorReference = await Repo.BuildAncestorPlanningReferenceAsync(bookId, ct);
+        var ancestorReference = await BuildAncestorReferenceAsync(bookId, ct);
 
         // Archived cards are excluded — they must never reach the model or be overwritten.
         var existing = (await Repo.GetCharacterCardsAsync(bookId)).ToList();
@@ -42,23 +42,8 @@ public class CharactersAgent : AgentBase
             : InterpolateSystemPrompt(DefaultPrompts.Characters, book, bible);
 
         messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
-        messages.Add(new LlmChatMessage(LlmChatRole.User, $"""
-            Book title: {book.Title}
-            Genre: {book.Genre}
-            Premise: {book.Premise}
-            Target chapter count: {book.TargetChapterCount}
-
-            Story Bible:
-            Setting: {bible.SettingDescription}
-            Time period: {bible.TimePeriod}
-            Themes: {bible.Themes}
-            Tone & style: {bible.ToneAndStyle}
-            World rules: {bible.WorldRules}
-            {(qaContext.Length > 0 ? $"\nAuthor guidance so far:\n{qaContext}" : "")}
-            {(ancestorReference.Length > 0 ? $"\n{ancestorReference}" : "")}
-            {BuildExistingBlock(existing)}
-            Create detailed character profiles for this book.
-            """));
+        messages.Add(new LlmChatMessage(LlmChatRole.User,
+            PromptTemplates.CharactersUser(book, bible, qaContext, ancestorReference, BuildExistingBlock(existing))));
 
         var (raw, failure) = await StreamJsonResponseAsync(
             client, config, messages, bookId, null, AgentRole.CharactersAgent, JsonSchemas.Characters, ct);
@@ -123,7 +108,7 @@ public class CharactersAgent : AgentBase
 
         book.CharactersStatus = PlanningPhaseStatus.Complete;
         await Repo.UpdateAsync(book);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.CharactersAgent, "Done", ct: ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.CharactersAgent, RunStates.Done, ct: ct);
         await Notifier.NotifyWorkflowProgressAsync(bookId,
             $"Planning: {characters.Count} character{(characters.Count == 1 ? "" : "s")} saved. (complete)", false, ct);
         return characters;
@@ -150,16 +135,7 @@ public class CharactersAgent : AgentBase
             notes = c.Notes,
         }));
 
-        return $"""
-
-            These character profiles are already saved for this book:
-            {json}
-
-            Return the complete, updated set: repeat every profile you are keeping (unchanged or revised,
-            keeping its exact "name" so it can be matched), and add any character the story still needs.
-            Profiles you leave out will be removed.
-
-            """;
+        return PromptTemplates.ExistingCharacters(json);
     }
 
     /// <summary>

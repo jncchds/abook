@@ -20,7 +20,7 @@ public class ContinuityCheckerAgent : AgentBase
     /// Pre-write two-step check: detects outline contradictions in a single chapter against
     /// established facts (CharacterCards, PlotThreads, prior chapter synopses), then
     /// automatically fixes the outline if issues are found.
-    /// Never blocks the workflow â€” always returns so writing can proceed.
+    /// Never blocks the workflow — always returns so writing can proceed.
     /// </summary>
     public async Task PreWriteCheckAndFixAsync(int bookId, int chapterId, CancellationToken ct = default)
     {
@@ -29,67 +29,36 @@ public class ContinuityCheckerAgent : AgentBase
         var chapter = EnsureNotArchived(await Repo.GetChapterAsync(bookId, chapterId)
             ?? throw new InvalidOperationException($"Chapter {chapterId} not found."));
 
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Running", chapterId, ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, RunStates.Running, chapterId, ct);
 
         var (client, config) = await GetChatClientAsync(bookId);
         var establishedFacts = await BuildEstablishedFactsAsync(bookId, chapter);
 
-        // â”€â”€ Step 1: Detect â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        var detectHistory = new List<LlmChatMessage>();
-        detectHistory.Add(new LlmChatMessage(LlmChatRole.System, $"""
-            You are a story continuity expert. Your task is to evaluate a single chapter outline
-            against the established facts of a book and identify any contradictions.
-            If the outline is consistent, respond with exactly the text: No issues found.
-            Otherwise list each contradiction on a numbered line. Be specific: name the
-            established fact it conflicts with and what the outline says instead.
-            Book: {book.Title} | Genre: {book.Genre} | Language: {book.Language}
-            """));
-        detectHistory.Add(new LlmChatMessage(LlmChatRole.User, $"""
-            ## Established Facts
-            {establishedFacts}
-
-            ## Chapter Outline Under Review
-            Chapter {chapter.Number}: {chapter.Title}
-            Outline: {chapter.Outline}
-            {(chapter.PovCharacter.Length > 0 ? $"POV: {chapter.PovCharacter}" : "")}
-            {(chapter.ForeshadowingNotes.Length > 0 ? $"Foreshadowing notes: {chapter.ForeshadowingNotes}" : "")}
-            {(chapter.PayoffNotes.Length > 0 ? $"Payoff notes: {chapter.PayoffNotes}" : "")}
-
-            Are there any contradictions between this outline and the established facts above?
-            """));
-
-        var detectResponse = await StreamResponseAsync(client, config, detectHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct);
-
-        if (detectResponse.Trim().StartsWith("No issues found", StringComparison.OrdinalIgnoreCase))
+        // ── Step 1: Detect ────────────────────────────────────────────────────
+        var detectHistory = new List<LlmChatMessage>
         {
-            await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", chapterId, ct);
+            new(LlmChatRole.System, PromptTemplates.PreWriteDetectSystem(book)),
+            new(LlmChatRole.User, PromptTemplates.PreWriteDetectUser(establishedFacts, chapter)),
+        };
+
+        var detectResponse = await StreamResponseAsync(client, config, detectHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct,
+            forwardToUi: false);
+
+        if (detectResponse.Trim().StartsWith(PromptTemplates.PreWriteNoIssuesMarker, StringComparison.OrdinalIgnoreCase))
+        {
+            await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, RunStates.Done, chapterId, ct);
             return;
         }
 
-        // â”€â”€ Step 2: Fix â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        var fixHistory = new List<LlmChatMessage>();
-        fixHistory.Add(new LlmChatMessage(LlmChatRole.System, $"""
-            You are a story editor. Your task is to rewrite a chapter outline to resolve
-            all listed contradictions with the established facts, while preserving the
-            chapter's narrative purpose and key events.
-            Output ONLY the corrected outline text â€” no headings, no explanations.
-            Write in {book.Language}.
-            """));
-        fixHistory.Add(new LlmChatMessage(LlmChatRole.User, $"""
-            ## Established Facts
-            {establishedFacts}
+        // ── Step 2: Fix ───────────────────────────────────────────────────────
+        var fixHistory = new List<LlmChatMessage>
+        {
+            new(LlmChatRole.System, PromptTemplates.PreWriteFixSystem(book)),
+            new(LlmChatRole.User, PromptTemplates.PreWriteFixUser(establishedFacts, chapter, detectResponse)),
+        };
 
-            ## Original Chapter Outline
-            Chapter {chapter.Number}: {chapter.Title}
-            {chapter.Outline}
-
-            ## Contradictions to Resolve
-            {detectResponse}
-
-            Rewrite the outline to resolve all contradictions above.
-            """));
-
-        var fixedOutline = await StreamResponseAsync(client, config, fixHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct);
+        var fixedOutline = await StreamResponseAsync(client, config, fixHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct,
+            forwardToUi: false);
 
         if (!string.IsNullOrWhiteSpace(fixedOutline))
         {
@@ -105,14 +74,14 @@ public class ContinuityCheckerAgent : AgentBase
                 ChapterId = chapterId,
                 AgentRole = AgentRole.ContinuityChecker,
                 MessageType = MessageType.SystemNote,
-                Content = $"â„¹ï¸ Pre-write review auto-corrected the outline for Chapter {chapter.Number}.\n\n" +
+                Content = $"ℹ️ Pre-write review auto-corrected the outline for Chapter {chapter.Number}.\n\n" +
                           $"**Issues found:**\n{detectResponse}\n\n" +
                           $"**Original outline:**\n{originalOutline}",
                 IsResolved = true
             });
         }
 
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", chapterId, ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, RunStates.Done, chapterId, ct);
     }
 
     /// <summary>
@@ -126,14 +95,14 @@ public class ContinuityCheckerAgent : AgentBase
         var book = await Repo.GetByIdWithActiveDetailsAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
 
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Running", chapterId, ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, RunStates.Running, chapterId, ct);
 
         var (client, config) = await GetChatClientAsync(bookId);
         var doneChapters = book.Chapters.Where(c => c.Status == ChapterStatus.Done || c.Status == ChapterStatus.Review).ToList();
 
         if (doneChapters.Count == 0)
         {
-            await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", chapterId, ct);
+            await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, RunStates.Done, chapterId, ct);
             return new CheckerResult(false, [], "No chapters to review.");
         }
 
@@ -147,98 +116,43 @@ public class ContinuityCheckerAgent : AgentBase
             ? doneChapters.Where(c => c.Number <= currentChapter.Number).ToList()
             : doneChapters;
 
-        var synopsis = string.Join("\n\n", chaptersToSummarise.Select(c =>
-            $"Chapter {c.Number}: {c.Title}\nOutline: {c.Outline}\nContent excerpt: {c.Content?[..Math.Min(800, c.Content?.Length ?? 0)]}..."));
-
         // Structured context from planning artifacts (also returns the bible to avoid a second fetch)
         var (structuredContext, bible) = await BuildStructuredContextAsync(bookId);
 
         // RAG passages
         var ragContext = string.Empty;
         {
-            var ragQueries = new[]
-            {
-                "character physical description appearance age name backstory",
-                "timeline dates past future sequence of events",
-                "location place setting description",
-            };
             var ragParts = new List<string>();
-            foreach (var q in ragQueries)
+            foreach (var q in RagQueries.Checker)
             {
                 var part = await GetRagContextAsync(bookId, q, 4, LlmFactory, config, chapterId, ct);
                 if (!string.IsNullOrWhiteSpace(part)) ragParts.Add(part);
             }
             if (ragParts.Count > 0)
-                ragContext = string.Join("\n\n===\n\n", ragParts);
+                ragContext = PromptTemplates.JoinRagGroups(ragParts);
         }
-
-        var messages = new List<LlmChatMessage>();
 
         string systemPrompt;
         if (!string.IsNullOrWhiteSpace(book.ContinuityCheckerSystemPrompt))
-        {
             systemPrompt = InterpolateSystemPrompt(book.ContinuityCheckerSystemPrompt, book, bible);
-        }
         else if (currentChapter != null)
-        {
-            systemPrompt = InterpolateSystemPrompt(DefaultPrompts.ContinuityCheckerPerChapter, book, bible) +
-                $"\nIMPORTANT: Do NOT report issues that exist solely between previous chapters. " +
-                $"Focus only on continuity or style problems introduced by Chapter {currentChapter.Number} (\"{currentChapter.Title}\").";
-        }
+            systemPrompt = InterpolateSystemPrompt(DefaultPrompts.ContinuityCheckerPerChapter, book, bible)
+                + PromptTemplates.CheckerPerChapterFocus(currentChapter);
         else
-        {
             systemPrompt = InterpolateSystemPrompt(DefaultPrompts.ContinuityCheckerFull, book, bible);
-        }
-        messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
 
-        // Build user message
-        var contextSections = new System.Text.StringBuilder();
-        if (!string.IsNullOrWhiteSpace(structuredContext))
-            contextSections.AppendLine(structuredContext);
-        if (!string.IsNullOrWhiteSpace(ragContext))
+        var userMessage = currentChapter != null
+            ? PromptTemplates.CheckerChapterUser(currentChapter, previousChapters, structuredContext, ragContext)
+            : PromptTemplates.CheckerFullUser(chaptersToSummarise, structuredContext, ragContext);
+
+        var messages = new List<LlmChatMessage>
         {
-            contextSections.AppendLine("\n## Detailed Passages (retrieved for review)");
-            contextSections.AppendLine(ragContext);
-        }
-
-        string userMessage;
-        if (currentChapter != null)
-        {
-            var prevSynopsis = previousChapters.Count > 0
-                ? string.Join("\n\n", previousChapters.Select(c =>
-                    $"Chapter {c.Number}: {c.Title}\nOutline: {c.Outline}\nContent excerpt: {c.Content?[..Math.Min(600, c.Content?.Length ?? 0)]}..."))
-                : "(No preceding chapters yet.)";
-
-            var currentExcerpt =
-                $"Chapter {currentChapter.Number}: {currentChapter.Title}\n" +
-                $"Outline: {currentChapter.Outline}\n" +
-                $"Content (each line is prefixed with its 1-indexed line number — do NOT include the \"N | \" prefix in originalText):\n" +
-                NumberLines(currentChapter.Content ?? string.Empty);
-
-            userMessage = $"""
-                Check Chapter {currentChapter.Number} ("{currentChapter.Title}") for continuity issues.
-                Do NOT report problems between the preceding chapters â€” only issues introduced by this chapter.
-                {contextSections}
-                ## Preceding Chapters (established facts)
-                {prevSynopsis}
-
-                ## Chapter Under Review
-                {currentExcerpt}
-                """;
-        }
-        else
-        {
-            userMessage = $"""
-                Review these chapters for continuity and style issues.
-                {contextSections}
-                ## Chapter Summaries
-                {synopsis}
-                """;
-        }
-        messages.Add(new LlmChatMessage(LlmChatRole.User, userMessage));
+            new(LlmChatRole.System, systemPrompt),
+            new(LlmChatRole.User, userMessage),
+        };
 
         var responseJson = await StreamResponseAsync(client, config, messages, bookId, (int?)null, AgentRole.ContinuityChecker, ct,
-            jsonSchema: CheckerResultDto.JsonSchema);
+            jsonSchema: CheckerResultDto.JsonSchema, forwardToUi: false);
 
         // Parse structured JSON result; gracefully degrade on parse failure
         CheckerResult result;
@@ -276,7 +190,7 @@ public class ContinuityCheckerAgent : AgentBase
             IsResolved = false
         });
 
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, "Done", chapterId, ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, RunStates.Done, chapterId, ct);
         return result;
     }
 
@@ -383,28 +297,7 @@ public class ContinuityCheckerAgent : AgentBase
     }
 
 
-    // â”€â”€ Private Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-    private static void FormatCharacterCard(CharacterCard card, System.Text.StringBuilder sb)
-    {
-        sb.AppendLine($"\n**{card.Name}** ({card.Role})");
-        if (!string.IsNullOrWhiteSpace(card.PhysicalDescription))
-            sb.AppendLine($"  Appearance: {card.PhysicalDescription}");
-        if (!string.IsNullOrWhiteSpace(card.Personality))
-            sb.AppendLine($"  Personality: {card.Personality}");
-        if (!string.IsNullOrWhiteSpace(card.Backstory))
-            sb.AppendLine($"  Backstory: {card.Backstory}");
-        if (!string.IsNullOrWhiteSpace(card.GoalMotivation))
-            sb.AppendLine($"  Goal/motivation: {card.GoalMotivation}");
-        if (!string.IsNullOrWhiteSpace(card.Arc))
-            sb.AppendLine($"  Arc: {card.Arc}");
-    }
-
-    internal static string NumberLines(string content)
-    {
-        var lines = content.Split('\n');
-        return string.Join("\n", lines.Select((line, i) => $"{i + 1} | {line}"));
-    }
+    // ── Private Helpers ───────────────────────────────────────────────────────
 
     /// <summary>
     /// Builds a compact "established facts" block for a specific chapter's pre-write check:
@@ -412,80 +305,28 @@ public class ContinuityCheckerAgent : AgentBase
     /// </summary>
     private async Task<string> BuildEstablishedFactsAsync(int bookId, Chapter chapter)
     {
-        var sb = new System.Text.StringBuilder();
-
-        // Story Bible (world rules are canonical)
         var bible = await Repo.GetStoryBibleAsync(bookId);
-        if (bible is not null && !string.IsNullOrWhiteSpace(bible.WorldRules))
-        {
-            sb.AppendLine("### World Rules");
-            sb.AppendLine(bible.WorldRules);
-        }
 
-        // Character Cards relevant to this chapter
         var allCards = await Repo.GetCharacterCardsAsync(bookId);
-        if (allCards.Any())
-        {
-            List<string> names;
-            try { names = JsonSerializer.Deserialize<List<string>>(chapter.CharactersInvolvedJson) ?? []; }
-            catch { names = []; }
+        var names = ParseNameList(chapter.CharactersInvolvedJson);
+        var cards = names.Count > 0
+            ? allCards.Where(c => names.Contains(c.Name, StringComparer.OrdinalIgnoreCase)).ToList()
+            : allCards.ToList();
 
-            var cards = names.Count > 0
-                ? allCards.Where(c => names.Contains(c.Name, StringComparer.OrdinalIgnoreCase)).ToList()
-                : allCards.ToList();
-
-            if (cards.Count > 0)
-            {
-                sb.AppendLine("\n### Character Profiles (canonical)");
-                foreach (var card in cards)
-                    FormatCharacterCard(card, sb);
-            }
-        }
-
-        // Plot Threads relevant to this chapter
         var allThreads = await Repo.GetPlotThreadsAsync(bookId);
-        if (allThreads.Any())
-        {
-            List<string> threadNames;
-            try { threadNames = JsonSerializer.Deserialize<List<string>>(chapter.PlotThreadsJson) ?? []; }
-            catch { threadNames = []; }
-
-            var threads = threadNames.Count > 0
-                ? allThreads.Where(t => threadNames.Contains(t.Name, StringComparer.OrdinalIgnoreCase)).ToList()
-                : allThreads.ToList();
-
-            if (threads.Count > 0)
-            {
-                sb.AppendLine("\n### Plot Threads");
-                foreach (var t in threads)
-                {
-                    sb.Append($"\n**{t.Name}** ({t.Type}, {t.Status})");
-                    if (t.IntroducedChapterNumber.HasValue)
-                        sb.Append($" â€” introduced ch.{t.IntroducedChapterNumber}");
-                    if (t.ResolvedChapterNumber.HasValue)
-                        sb.Append($", resolved ch.{t.ResolvedChapterNumber}");
-                    sb.AppendLine();
-                    sb.AppendLine($"  {t.Description}");
-                }
-            }
-        }
+        var threadNames = ParseNameList(chapter.PlotThreadsJson);
+        var threads = threadNames.Count > 0
+            ? allThreads.Where(t => threadNames.Contains(t.Name, StringComparer.OrdinalIgnoreCase)).ToList()
+            : allThreads.ToList();
 
         // Synopses of done/review chapters before this one
-        var chapters = await Repo.GetChaptersAsync(bookId);
-        var priorChapters = chapters
+        var priorChapters = (await Repo.GetChaptersAsync(bookId))
             .Where(c => c.Number < chapter.Number
                 && (c.Status == ChapterStatus.Done || c.Status == ChapterStatus.Review))
             .OrderBy(c => c.Number)
             .ToList();
 
-        if (priorChapters.Count > 0)
-        {
-            sb.AppendLine("\n### Prior Chapter Synopses");
-            foreach (var c in priorChapters)
-                sb.AppendLine($"- Ch.{c.Number} \"{c.Title}\": {c.Outline}");
-        }
-
-        return sb.ToString();
+        return PromptTemplates.EstablishedFacts(bible, cards, threads, priorChapters);
     }
 
     /// <summary>
@@ -494,39 +335,9 @@ public class ContinuityCheckerAgent : AgentBase
     /// </summary>
     private async Task<(string context, StoryBible? bible)> BuildStructuredContextAsync(int bookId)
     {
-        var sb = new System.Text.StringBuilder();
-
         var bible = await Repo.GetStoryBibleAsync(bookId);
-        if (bible is not null)
-        {
-            sb.AppendLine("## Story Bible");
-            if (!string.IsNullOrWhiteSpace(bible.SettingDescription))
-                sb.AppendLine($"Setting: {bible.SettingDescription}");
-            if (!string.IsNullOrWhiteSpace(bible.WorldRules))
-                sb.AppendLine($"World rules: {bible.WorldRules}");
-            if (!string.IsNullOrWhiteSpace(bible.Themes))
-                sb.AppendLine($"Themes: {bible.Themes}");
-        }
-
-        var cards = await Repo.GetCharacterCardsAsync(bookId);
-        if (cards.Any())
-        {
-            sb.AppendLine("\n## Character Profiles (canonical)");
-            foreach (var card in cards)
-                FormatCharacterCard(card, sb);
-        }
-
-        var threads = await Repo.GetPlotThreadsAsync(bookId);
-        if (threads.Any())
-        {
-            sb.AppendLine("\n## Plot Threads");
-            foreach (var t in threads)
-            {
-                sb.AppendLine($"\n**{t.Name}** ({t.Type}, {t.Status})");
-                sb.AppendLine($"  {t.Description}");
-            }
-        }
-
-        return (sb.ToString(), bible);
+        var cards = (await Repo.GetCharacterCardsAsync(bookId)).ToList();
+        var threads = (await Repo.GetPlotThreadsAsync(bookId)).ToList();
+        return (PromptTemplates.CheckerStructuredContext(bible, cards, threads), bible);
     }
 }

@@ -14,7 +14,11 @@ public interface IBookRepository
     /// </summary>
     Task<Book?> GetByIdWithActiveDetailsAsync(int id);
     Task<IReadOnlyList<int>> GetAncestryBookIdsAsync(int bookId, CancellationToken ct = default);
-    Task<string> BuildAncestorPlanningReferenceAsync(int bookId, CancellationToken ct = default);
+    /// <summary>
+    /// Planning data (bible, non-archived characters, threads and chapters) of every ancestor of a
+    /// continuation book, nearest ancestor first. Empty for a book with no base book.
+    /// </summary>
+    Task<IReadOnlyList<AncestorBookContext>> GetAncestorPlanningContextAsync(int bookId, CancellationToken ct = default);
     Task<Book> AddAsync(Book book);
     Task UpdateAsync(Book book);
     Task DeleteAsync(int id);

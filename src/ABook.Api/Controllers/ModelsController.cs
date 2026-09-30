@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using System.Text;
@@ -5,8 +6,13 @@ using System.Text.Json;
 
 namespace ABook.Api.Controllers;
 
+/// <summary>
+/// Lists provider models and pulls Ollama models. Signed-in users only: both make the server issue
+/// requests (the model list to a caller-supplied endpoint, the pull a potentially huge download).
+/// </summary>
 [ApiController]
 [Route("api")]
+[Authorize]
 public class ModelsController : ControllerBase
 {
     private readonly IHttpClientFactory _httpClientFactory;
@@ -23,12 +29,18 @@ public class ModelsController : ControllerBase
     private string OllamaEndpoint =>
         _config["Ollama:Endpoint"] ?? "http://host.docker.internal:11434";
 
+    /// <remarks>
+    /// The API key is read from the <c>X-Api-Key</c> header so it stays out of URLs and access logs;
+    /// the <c>apiKey</c> query parameter is still accepted for older clients.
+    /// </remarks>
     [HttpGet("models")]
     public async Task<IActionResult> GetModels(
         [FromQuery] string? endpoint,
         [FromQuery] string? provider,
-        [FromQuery] string? apiKey)
+        [FromHeader(Name = "X-Api-Key")] string? apiKeyHeader,
+        [FromQuery(Name = "apiKey")] string? apiKeyQuery)
     {
+        var apiKey = string.IsNullOrWhiteSpace(apiKeyHeader) ? apiKeyQuery : apiKeyHeader;
         var baseUrl = (endpoint ?? OllamaEndpoint).TrimEnd('/');
         try
         {

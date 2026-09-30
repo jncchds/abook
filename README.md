@@ -36,7 +36,9 @@ A self-hosted web application that uses AI agents to collaboratively write books
 
 ### Infrastructure
 - **Pluggable LLM backend** — Ollama (default, local), OpenAI (or any OpenAI-compatible API), or Google AI Studio; configurable globally, per-user, or per-book
-- **Real-time streaming** — watch chapters being written token by token via SignalR; planning phases stream with live progressive JSON previews
+- **Real-time streaming** — watch chapters being written token by token via SignalR; planning phases stream with live progressive JSON previews. Only book content streams — a reasoning model's thinking is saved to the chat as one "💭 Thinking" message when each step finishes (even when it fails), and the live view reconnects by itself after a network drop
+- **Fail-safe runs** — a stalled LLM connection times out instead of hanging the book; double-clicking a start button can't launch two runs; runs interrupted by a server restart are closed out with a note telling you to use **Continue**
+- **Health endpoint** — `GET /health` reports whether the database is reachable (for Docker/uptime checks)
 - **Token usage statistics** — per-agent prompt and completion token counts, persisted to the database and displayed in a collapsible panel. Calls that error, time out, or are cancelled are recorded too, with a Status column and the failure reason shown next to their partial counts
 - **MCP server** — built-in Model Context Protocol server at `/mcp`; connect Claude Desktop, VS Code Copilot, or any MCP client using a per-user API token
 - **Multi-user** — cookie-based authentication with admin role for user management

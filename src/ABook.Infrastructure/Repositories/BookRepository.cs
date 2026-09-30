@@ -83,11 +83,11 @@ public class BookRepository : IBookRepository
         return ids;
     }
 
-    public async Task<string> BuildAncestorPlanningReferenceAsync(int bookId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<AncestorBookContext>> GetAncestorPlanningContextAsync(int bookId, CancellationToken ct = default)
     {
         var chain = await GetAncestryBookIdsAsync(bookId, ct);
         var ancestorIds = chain.Skip(1).ToArray();
-        if (ancestorIds.Length == 0) return string.Empty;
+        if (ancestorIds.Length == 0) return [];
 
         var books = await _db.Books
             .Where(b => ancestorIds.Contains(b.Id))
@@ -112,67 +112,17 @@ public class BookRepository : IBookRepository
             .GroupBy(c => c.BookId)
             .ToDictionaryAsync(g => g.Key, g => g.OrderBy(x => x.Number).ToList(), ct);
 
-        var sb = new StringBuilder();
-        sb.AppendLine("Continuation context from previous books (reference only — do not copy verbatim):");
-
-        bool isDirectParent = true; // first ancestor in chain is the direct parent
-        foreach (var ancestorId in ancestorIds)
-        {
-            if (!books.TryGetValue(ancestorId, out var ancestor)) continue;
-
-            sb.AppendLine();
-            sb.AppendLine($"### Prior Book: {ancestor.Title} (Id: {ancestor.Id})");
-            sb.AppendLine($"- Genre: {ancestor.Genre}");
-            sb.AppendLine($"- Premise: {ancestor.Premise}");
-
-            if (bibles.TryGetValue(ancestorId, out var bible))
-            {
-                sb.AppendLine("- Story Bible:");
-                if (!string.IsNullOrWhiteSpace(bible.SettingDescription)) sb.AppendLine($"  - Setting: {bible.SettingDescription}");
-                if (!string.IsNullOrWhiteSpace(bible.TimePeriod)) sb.AppendLine($"  - Time Period: {bible.TimePeriod}");
-                if (!string.IsNullOrWhiteSpace(bible.Themes)) sb.AppendLine($"  - Themes: {bible.Themes}");
-                if (!string.IsNullOrWhiteSpace(bible.ToneAndStyle)) sb.AppendLine($"  - Tone & Style: {bible.ToneAndStyle}");
-                if (!string.IsNullOrWhiteSpace(bible.WorldRules)) sb.AppendLine($"  - World Rules: {bible.WorldRules}");
-            }
-
-            if (charactersByBook.TryGetValue(ancestorId, out var cards) && cards.Count > 0)
-            {
-                sb.AppendLine("- Key Characters:");
-                foreach (var c in cards.Take(12))
-                {
-                    sb.Append($"  - {c.Name} ({c.Role})");
-                    if (!string.IsNullOrWhiteSpace(c.GoalMotivation)) sb.Append($": {c.GoalMotivation}");
-                    if (!string.IsNullOrWhiteSpace(c.Personality)) sb.Append($" | Personality: {c.Personality}");
-                    if (!string.IsNullOrWhiteSpace(c.Arc)) sb.Append($" | Arc: {c.Arc}");
-                    sb.AppendLine();
-                }
-            }
-
-            if (threadsByBook.TryGetValue(ancestorId, out var threads) && threads.Count > 0)
-            {
-                sb.AppendLine("- Plot Threads:");
-                foreach (var t in threads.Take(12))
-                {
-                    sb.AppendLine($"  - {t.Name} ({t.Type}, {t.Status}): {t.Description}");
-                }
-            }
-
-            if (chaptersByBook.TryGetValue(ancestorId, out var chapters) && chapters.Count > 0)
-            {
-                sb.AppendLine("- Chapter Synopses:");
-                // Direct parent: all chapters; grandparent+: last 5 (token budget)
-                var chapsToShow = isDirectParent ? chapters : chapters.TakeLast(5).ToList();
-                foreach (var ch in chapsToShow)
-                {
-                    if (!string.IsNullOrWhiteSpace(ch.Outline))
-                        sb.AppendLine($"  - Ch.{ch.Number} \"{ch.Title}\": {ch.Outline}");
-                }
-            }
-
-            isDirectParent = false;
-        }
-
-        return sb.ToString().Trim();
+        // The first id after the book itself is its direct parent.
+        return ancestorIds
+            .Where(books.ContainsKey)
+            .Select(id => new AncestorBookContext(
+                books[id],
+                bibles.GetValueOrDefault(id),
+                charactersByBook.GetValueOrDefault(id) ?? [],
+                threadsByBook.GetValueOrDefault(id) ?? [],
+                chaptersByBook.GetValueOrDefault(id) ?? [],
+                IsDirectParent: id == ancestorIds[0]))
+            .ToList();
     }
 
     public async Task<Book> AddAsync(Book book)

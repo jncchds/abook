@@ -31,24 +31,16 @@ public class QuestionAgent : AgentBase
 
         var (client, config) = await GetChatClientAsync(bookId);
         var messages = new List<LlmChatMessage>();
-        messages.Add(new LlmChatMessage(LlmChatRole.System, $"""
-            You are helping plan a book. Given the book premise below, determine if there is anything
-            genuinely unclear that an author decision would meaningfully change the story plan.
-            If so, list those questions as a numbered list (e.g. "1. Question here?").
-            IMPORTANT: Ask all questions in {language}.
-            Keep the number of questions to an absolute minimum — only ask when truly necessary.
-            If everything is clear from the premise, respond with exactly: None.
-
-            If the premise includes "Continuation context from previous books":
-            - Do NOT re-ask worldbuilding questions already established by the prior book.
-            - Focus on continuation decisions only: e.g. where this book picks up after the prior book's
-              ending, what happened to key characters between books, or what this book's unique focus is.
-            - Treat all facts from the prior book as established — only ask about genuine ambiguities.
-            """));
+        messages.Add(new LlmChatMessage(LlmChatRole.System, PromptTemplates.QuestionGatheringSystem(language)));
         messages.Add(new LlmChatMessage(LlmChatRole.User, bookContext));
 
         string response;
-        try { response = await StreamResponseAsync(client, config, messages, bookId, (int?)null, AgentRole.Planner, ct); }
+        try
+        {
+            // Not book content — keep it out of the UI stream (it would land in the chapter-outline preview).
+            response = await StreamResponseAsync(client, config, messages, bookId, (int?)null, AgentRole.Planner, ct,
+                forwardToUi: false);
+        }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
@@ -71,10 +63,6 @@ public class QuestionAgent : AgentBase
     }
 
     /// <summary>
-    /// Presents each question to the author one at a time via <see cref="AskUserAndWaitAsync"/>
-    /// and appends Q&amp;A pairs to the shared context string builder.
-    /// </summary>
-    /// <summary>
     /// Posts a single preview message listing all upcoming questions, then presents each
     /// one to the author individually via <see cref="AskUserAndWaitAsync"/> and appends Q&amp;A pairs
     /// to the shared context string builder.
@@ -82,23 +70,24 @@ public class QuestionAgent : AgentBase
     public async Task AskQuestionsAsync(
         int bookId, List<string> questions, StringBuilder qaContext, CancellationToken ct)
     {
-        // Post a single overview message so the user knows what's coming
-        var overview = await Repo.AddMessageAsync(new AgentMessage
+        // An informational note, not a Question: nothing answers it, so as a Question it would stay
+        // "open" in the chat forever and could be offered as the pending question.
+        await Repo.AddMessageAsync(new AgentMessage
         {
             BookId = bookId,
             ChapterId = null,
             AgentRole = AgentRole.Planner,
-            MessageType = MessageType.Question,
+            MessageType = MessageType.SystemNote,
             Content = $"The planner has {questions.Count} question(s) to clarify the plan:\n\n{string.Join("\n", questions.Select((q, i) => ($"{i + 1}. {q}")))}",
-            IsResolved = false
+            IsResolved = true
         });
-        await Notifier.NotifyQuestionAsync(bookId, overview, ct);
+        await Notifier.NotifyMessagesUpdatedAsync(bookId, ct);
 
         foreach (var question in questions)
         {
             var answer = await AskUserAndWaitAsync(bookId, null, AgentRole.Planner, question, ct);
             if (!string.IsNullOrWhiteSpace(answer))
-                qaContext.AppendLine($"Q: {question}\nA: {answer}\n");
+                qaContext.AppendLine(PromptTemplates.QuestionAndAnswer(question, answer));
         }
     }
 
@@ -129,7 +118,7 @@ public class QuestionAgent : AgentBase
             var a = messages[i + 1];
             if (q.MessageType == MessageType.Question && a.MessageType == MessageType.Answer)
             {
-                sb.AppendLine($"Q: {q.Content}\nA: {a.Content}\n");
+                sb.AppendLine(PromptTemplates.QuestionAndAnswer(q.Content, a.Content));
                 i++;
             }
         }

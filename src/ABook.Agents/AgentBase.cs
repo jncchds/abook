@@ -15,6 +15,12 @@ public abstract class AgentBase
     protected readonly AgentRunStateService StateService;
     protected readonly ILogger Logger;
 
+    /// <summary>Longest silence tolerated between streamed chunks when the config sets no TimeoutMs.</summary>
+    private const int DefaultStreamIdleTimeoutMs = 300_000;
+
+    /// <summary>Characters at the end of the buffer searched for a <c>stopStreamingAt</c> heading.</summary>
+    private const int StopPatternWindow = 512;
+
     private static readonly bool DebugLoggingEnabled =
         string.Equals(Environment.GetEnvironmentVariable("LLM_DEBUG_LOGGING"), "true", StringComparison.OrdinalIgnoreCase);
 
@@ -45,11 +51,17 @@ public abstract class AgentBase
     /// <summary>Streams LLM tokens to the book's SignalR group and accumulates the full response.</summary>
     /// <param name="suspiciousThreshold">Minimum response length before a 'suspiciously short' warning is emitted. Pass 0 to suppress.</param>
     /// <param name="stopStreamingAt">Optional regex. Once matched against the accumulated buffer, further tokens are still accumulated but no longer forwarded to the SignalR stream.</param>
+    /// <param name="forwardToUi">False for calls whose output is not book content (questions, checker reports): the response is accumulated but never streamed.</param>
+    /// <remarks>
+    /// Reasoning — whether delivered on the provider's reasoning channel or inline as &lt;think&gt; tags —
+    /// is never streamed; it is saved as a single "Thinking" chat message when the call ends, successfully or not.
+    /// </remarks>
     protected async Task<string> StreamResponseAsync(
         ILlmChatClient client, LlmConfiguration config, IReadOnlyList<LlmChatMessage> messages,
         int bookId, int? chapterId, AgentRole role, CancellationToken ct,
         int suspiciousThreshold = 50,
-        System.Text.RegularExpressions.Regex? stopStreamingAt = null, string? jsonSchema = null)
+        System.Text.RegularExpressions.Regex? stopStreamingAt = null, string? jsonSchema = null,
+        bool forwardToUi = true)
     {
         var options = new LlmChatOptions
         {
@@ -74,58 +86,78 @@ public abstract class AgentBase
             Logger.LogInformation("{LlmRequest}", req.ToString());
         }
 
+        // sb only ever holds content: inline <think> sections are split off as they arrive, so the
+        // UI stream, the refresh-restore buffer and partial-JSON salvage never see reasoning text.
         var thinkingSb = new System.Text.StringBuilder();
+        var splitter = new InlineThinkSplitter();
+        bool stopStreaming = !forwardToUi;
+
+        async Task AppendAsync((string Content, string Thinking) part, bool forward)
+        {
+            thinkingSb.Append(part.Thinking);
+            if (part.Content.Length == 0) return;
+            sb.Append(part.Content);
+            if (!forward || stopStreaming) return;
+            // The stop patterns are line-anchored headings, so the last few lines are enough —
+            // matching the whole buffer on every chunk would be quadratic in the chapter length.
+            if (stopStreamingAt is not null && stopStreamingAt.IsMatch(sb.TailFromLineStart(StopPatternWindow)))
+                stopStreaming = true;
+            else
+                await Notifier.StreamTokenAsync(bookId, chapterId, role, part.Content, ct);
+        }
+
+        // Fail-safe for a stream that stalls: HttpClient timeouts only cover the wait for the response
+        // headers (and some providers ignore TimeoutMs), so a connection that goes silent mid-response
+        // would otherwise hang the run — and its concurrency slot — forever.
+        var idleTimeoutMs = config.TimeoutMs is > 0 ? config.TimeoutMs.Value : DefaultStreamIdleTimeoutMs;
+        using var idleCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        idleCts.CancelAfter(idleTimeoutMs);
 
         try
         {
-            bool stopStreaming = false;
-            await foreach (var chunk in client.StreamAsync(messages, options, ct))
+            await foreach (var chunk in client.StreamAsync(messages, options, idleCts.Token))
             {
+                idleCts.CancelAfter(idleTimeoutMs);
+
                 if (chunk.Reasoning?.Length > 0)
                     thinkingSb.Append(chunk.Reasoning);
 
                 if (chunk.Content?.Length > 0)
-                {
-                    sb.Append(chunk.Content);
-                    if (!stopStreaming)
-                    {
-                        if (stopStreamingAt is not null && stopStreamingAt.IsMatch(sb.ToString()))
-                            stopStreaming = true;
-                        else
-                            await Notifier.StreamTokenAsync(bookId, chapterId, role, chunk.Content, ct);
-                    }
-                }
+                    await AppendAsync(splitter.Feed(chunk.Content), forward: true);
             }
+            await AppendAsync(splitter.Flush(), forward: true);
         }
         catch (OperationCanceledException ex)
         {
-            var reason = DescribeFailure(ex, ct.IsCancellationRequested, config.TimeoutMs);
+            await AppendAsync(splitter.Flush(), forward: false);
+            var reason = DescribeFailure(ex, ct.IsCancellationRequested, idleTimeoutMs);
             Logger.LogWarning("[Book {BookId}] [{Role}] LLM streaming call ended after receiving {Chars} chars: {Reason}",
                 bookId, role, sb.Length, reason);
             await RecordUsageAsync(bookId, chapterId, role, promptTokens, sb.Length / 4,
                 config.Endpoint, config.ModelName, reason, ct);
+            await SaveThinkingAsync(bookId, chapterId, role, thinkingSb.ToString());
             throw;
         }
         catch (Exception ex)
         {
+            await AppendAsync(splitter.Flush(), forward: false);
             Logger.LogError(ex, "[Book {BookId}] [{Role}] LLM streaming call failed after receiving {Chars} chars. Partial response:\n{Partial}",
                 bookId, role, sb.Length, sb.Length > 0 ? sb.ToString() : "(empty)");
             await RecordUsageAsync(bookId, chapterId, role, promptTokens, sb.Length / 4,
                 config.Endpoint, config.ModelName, DescribeFailure(ex, false, config.TimeoutMs), ct);
+            await SaveThinkingAsync(bookId, chapterId, role, thinkingSb.ToString());
             throw;
         }
 
         var result = sb.ToString();
 
-        var (inlineThinking, cleanedResult) = ExtractThinkingTags(result);
-        var fullThinking = MergeThinking(thinkingSb.ToString(), inlineThinking);
-        if (!string.IsNullOrWhiteSpace(fullThinking))
+        var fullThinking = thinkingSb.ToString();
+        if (splitter.SawThinking || !string.IsNullOrWhiteSpace(fullThinking))
         {
-            result = cleanedResult;
-            sb.Clear();
-            sb.Append(result);
-            try { await SaveThinkingAsync(bookId, chapterId, role, fullThinking, ct); }
-            catch { /* non-fatal */ }
+            // Content after a </think> tag usually starts with blank lines.
+            result = result.Trim();
+            sb.Set(result);
+            await SaveThinkingAsync(bookId, chapterId, role, fullThinking);
         }
 
         if (DebugLoggingEnabled)
@@ -271,16 +303,16 @@ public abstract class AgentBase
         ct.Register(() => tcs.TrySetCanceled());
 
         StateService.SetPending(bookId, msg.Id, tcs);
-        StateService.SetStatus(bookId, new AgentRunStatus(role, "WaitingForInput", chapterId));
-        await Notifier.NotifyStatusChangedAsync(bookId, role, "WaitingForInput", chapterId, ct);
+        StateService.SetStatus(bookId, new AgentRunStatus(role, RunStates.WaitingForInput, chapterId));
+        await Notifier.NotifyStatusChangedAsync(bookId, role, RunStates.WaitingForInput, chapterId, ct);
 
         await StateService.PersistRunPausedAsync(bookId, msg.Id);
 
         var answer = await tcs.Task;
 
-        StateService.SetStatus(bookId, new AgentRunStatus(role, "Running", chapterId));
+        StateService.SetStatus(bookId, new AgentRunStatus(role, RunStates.Running, chapterId));
         await StateService.PersistRunResumedAsync(bookId);
-        await Notifier.NotifyStatusChangedAsync(bookId, role, "Running", chapterId, ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, role, RunStates.Running, chapterId, ct);
 
         return answer;
     }
@@ -368,7 +400,7 @@ public abstract class AgentBase
 
             var ancestryIds = await Repo.GetAncestryBookIdsAsync(bookId, ct);
             var chunks = await VectorStore.SearchAsync(bookId, embedding, topK, ancestryIds, ct);
-            return string.Join("\n\n---\n\n", chunks.Select(c => $"[Chapter {c.ChapterNumber}]\n{c.Text}"));
+            return PromptTemplates.RagPassages(chunks.Select(c => (c.ChapterNumber, c.Text)));
         }
         catch (OperationCanceledException ex)
         {
@@ -385,6 +417,41 @@ public abstract class AgentBase
                     config.Endpoint, config.EmbeddingModelName, DescribeFailure(ex, false, config.TimeoutMs), ct);
             return string.Empty;
         }
+    }
+
+    /// <summary>
+    /// Retrieves prior-chapter passages relevant to <paramref name="chapter"/>: characters involved,
+    /// locations, plot threads and — when <paramref name="includeRepeatedPhrases"/> — likely repetitions.
+    /// Chapter 1 has no prior chapters, so it gets <see cref="ChapterRag.Empty"/>.
+    /// </summary>
+    protected async Task<ChapterRag> GetChapterRagAsync(
+        int bookId, Chapter chapter, LlmConfiguration config, bool includeRepeatedPhrases, CancellationToken ct)
+    {
+        if (chapter.Number <= 1) return ChapterRag.Empty;
+
+        var charNames = ParseNameList(chapter.CharactersInvolvedJson);
+        var threadNames = ParseNameList(chapter.PlotThreadsJson);
+
+        var characters = await GetRagContextAsync(bookId, RagQueries.Characters(charNames), 4, LlmFactory, config, chapter.Id, ct);
+        var locations  = await GetRagContextAsync(bookId, RagQueries.Locations(chapter.Outline), 3, LlmFactory, config, chapter.Id, ct);
+        var threads    = await GetRagContextAsync(bookId, RagQueries.Threads(threadNames, chapter.Outline), 3, LlmFactory, config, chapter.Id, ct);
+        var phrases    = includeRepeatedPhrases
+            ? await GetRagContextAsync(bookId, RagQueries.RepeatedPhrases, 4, LlmFactory, config, chapter.Id, ct)
+            : string.Empty;
+
+        return new ChapterRag(characters, locations, threads, phrases);
+    }
+
+    /// <summary>Established facts of the earlier books in the series; empty for a book with no base book.</summary>
+    protected async Task<string> BuildAncestorReferenceAsync(int bookId, CancellationToken ct) =>
+        PromptTemplates.AncestorReference(await Repo.GetAncestorPlanningContextAsync(bookId, ct));
+
+    /// <summary>Parses a chapter's JSON list of names (characters involved / plot threads); malformed JSON yields an empty list.</summary>
+    protected internal static List<string> ParseNameList(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? []; }
+        catch (System.Text.Json.JsonException) { return []; }
     }
 
     internal static string StripLeadingChapterHeading(string content, int number, string title)
@@ -463,8 +530,7 @@ public abstract class AgentBase
                 .Where(p => !string.IsNullOrWhiteSpace(p))
                 .ToArray();
 
-            var tail = paras.TakeLast(paragraphCount);
-            return $"[End of Chapter {prev.Number}: {prev.Title}]\n\n" + string.Join("\n\n", tail);
+            return PromptTemplates.PreviousChapterEnding(prev, paras.TakeLast(paragraphCount));
         }
         catch { return string.Empty; }
     }
@@ -483,8 +549,7 @@ public abstract class AgentBase
 
             if (relevant.Count == 0) return string.Empty;
 
-            return string.Join("\n", relevant.Select(c =>
-                $"{c.Number}. **{c.Title}** — {c.Outline}"));
+            return PromptTemplates.ChapterSynopses(relevant);
         }
         catch { return string.Empty; }
     }
@@ -514,29 +579,6 @@ public abstract class AgentBase
 
     // ── Thinking / Reasoning helpers ────────────────────────────────────────────
 
-    private static readonly System.Text.RegularExpressions.Regex ThinkTagRegex =
-        new(@"<think(?:ing)?>(.*?)</think(?:ing)?>",
-            System.Text.RegularExpressions.RegexOptions.Singleline |
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
-            System.Text.RegularExpressions.RegexOptions.Compiled);
-
-    private static (string thinking, string cleaned) ExtractThinkingTags(string text)
-    {
-        var matches = ThinkTagRegex.Matches(text);
-        if (matches.Count == 0) return (string.Empty, text);
-
-        var thinking = string.Join("\n\n", matches.Select(m => m.Groups[1].Value.Trim()));
-        var cleaned = ThinkTagRegex.Replace(text, string.Empty).Trim();
-        return (thinking, cleaned);
-    }
-
-    private static string MergeThinking(string metaThinking, string inlineThinking)
-    {
-        if (string.IsNullOrWhiteSpace(metaThinking)) return inlineThinking;
-        if (string.IsNullOrWhiteSpace(inlineThinking)) return metaThinking;
-        return metaThinking + "\n\n" + inlineThinking;
-    }
-
     protected static string Capitalize(string s) => char.ToUpper(s[0]) + s[1..];
     protected static string EscapeMarkdown(string text) => text.Replace("`", "\\`");
 
@@ -559,18 +601,30 @@ public abstract class AgentBase
             HasEmbeddings = false,
         };
 
-    private async Task SaveThinkingAsync(int bookId, int? chapterId, AgentRole role, string thinking, CancellationToken ct)
+    /// <summary>
+    /// Saves the model's reasoning as a chat message and tells the UI to refresh its messages. Never
+    /// throws and ignores cancellation — it also runs on the failure path, where the reasoning is
+    /// often the only clue to what went wrong.
+    /// </summary>
+    private async Task SaveThinkingAsync(int bookId, int? chapterId, AgentRole role, string thinking)
     {
-        await Repo.AddMessageAsync(new AgentMessage
+        if (string.IsNullOrWhiteSpace(thinking)) return;
+        try
         {
-            BookId = bookId,
-            ChapterId = chapterId,
-            AgentRole = role,
-            MessageType = MessageType.SystemNote,
-            Content = $"💭 Thinking\n\n{thinking}",
-            IsResolved = true
-        });
-        try { await Notifier.NotifyMessagesUpdatedAsync(bookId, ct); }
-        catch { /* non-fatal */ }
+            await Repo.AddMessageAsync(new AgentMessage
+            {
+                BookId = bookId,
+                ChapterId = chapterId,
+                AgentRole = role,
+                MessageType = MessageType.SystemNote,
+                Content = $"💭 Thinking\n\n{thinking.Trim()}",
+                IsResolved = true
+            });
+            await Notifier.NotifyMessagesUpdatedAsync(bookId, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "[Book {BookId}] Failed to save thinking output for {Role}.", bookId, role);
+        }
     }
 }

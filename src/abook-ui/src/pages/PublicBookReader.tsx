@@ -47,13 +47,6 @@ export default function PublicBookReader() {
       <div className="page-header">
         <h2>Chapter {currentChapter.number}{currentChapter.title ? ': ' + currentChapter.title : ''}</h2>
       </div>
-      {(currentChapter.povCharacter || currentChapter.foreshadowingNotes || currentChapter.payoffNotes) && (
-        <div className="chapter-meta-fields">
-          {currentChapter.povCharacter && <span className="ch-meta-item"><strong>POV:</strong> {currentChapter.povCharacter}</span>}
-          {currentChapter.foreshadowingNotes && <span className="ch-meta-item"><strong>Foreshadowing:</strong> {currentChapter.foreshadowingNotes}</span>}
-          {currentChapter.payoffNotes && <span className="ch-meta-item"><strong>Payoff:</strong> {currentChapter.payoffNotes}</span>}
-        </div>
-      )}
       <div className="chapter-content">
         <ReactMarkdown>{currentChapter.content}</ReactMarkdown>
       </div>

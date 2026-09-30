@@ -1,5 +1,45 @@
 # Release Notes
 
+## v0.2.0 — 2026-09-30
+
+### Security
+- fix: the agent endpoints (`/api/books/{id}/agent/*`) required no login and checked no ownership — anyone who could reach the server could start runs on any book (spending the owner's API credits), stop them, or read their stream. They now require sign-in and book ownership
+- fix: the SignalR hub required no login and let any connection join any book's group, receiving its full streamed text. It now requires sign-in and `JoinBook` checks ownership
+- fix: `GET /api/models` and `POST /api/ollama/pull` were anonymous (an open proxy to caller-supplied URLs, and unauthenticated multi-GB downloads). Both now require sign-in; the model-list API key moved from the URL (`?apiKey=`, which lands in access logs) to an `X-Api-Key` header
+- fix: MCP `stop_workflow`, `answer_agent_question` and `get_agent_status` did not check book ownership
+
+### Stability
+- fix: double-clicking a start button (or a UI and an MCP client starting together) could launch the run, then mark the *running* run Failed, dispose its cancellation token (Stop stopped working) and let a third run start. Runs now start only through `AgentRunnerService.TryStart`, which claims the book, the concurrency slot and the cancellation token in one locked step
+- fix: a server restart while an agent was waiting for an answer locked the book for good — the answer resolved nothing, every new run was refused as "already in progress", and the next restart repeated it. Such runs are now closed out like interrupted running ones: the question is resolved and a chat note says to use Continue
+- fix: Stop now always frees a book — a status left active with no live run is forced to Cancelled
+- fix: runs started over MCP had no cancellation token, so Stop did nothing for them
+- fix: an LLM stream that stalled mid-response hung the run and its concurrency slot forever (`HttpClient.Timeout` only covers the response headers, and the OpenAI/Google clients ignore `TimeoutMs`). An idle timeout between chunks now fails the call (`TimeoutMs`, default 5 minutes)
+- fix: a SignalR failure while reporting a run's outcome could mark finished work as Failed or skip the error message; terminal notifications are now best-effort
+- fix: the stream buffer was read by the refresh-restore endpoint while the agent appended to it (a `StringBuilder` is not thread-safe); it is now locked. The Editor's stop-at-notes check scans only the last lines instead of the whole chapter on every chunk
+- fix: the Ollama and OpenAI-compatible clients created a new connection pool per call; they now share one
+- feat: anonymous `GET /health` reports database connectivity
+
+### Streaming & chat
+- fix: reasoning models' inline `<think>` text was streamed into the chapter / planning previews (and could put phantom items in the live planning preview); thinking is now never streamed. Thinking — inline or from the provider's reasoning channel — is saved as one "💭 Thinking" chat message when each call ends, now also when it fails, times out or is stopped
+- fix: question-gathering output was streamed into the chapter-outline preview; question gathering and the Continuity Checker no longer stream (only book content does)
+- fix: after any network blip the UI silently stopped receiving live updates until a page refresh (a SignalR reconnect loses group membership). It now rejoins, retries the initial connection, and re-reads messages, chapters, token stats and run status
+- fix: answering a question on one device left the question box open on every other tab/device; answers now broadcast and the other tabs clear it. Out-of-order message refreshes can no longer overwrite newer messages
+- fix: the planner's question overview stayed in the chat forever as an unanswered question; it is now an informational note
+- fix: a failed answer submission was silently swallowed; it is now shown with the text kept for retry. **Skip** sent whatever had been typed instead of an empty answer
+- fix: "Continuity Checker" chat notes and prompts contained garbled characters (`â€”`, `â„¹ï¸`) from a double-encoded source file
+
+### UI
+- fix: "+ Add" on the Chapters page did nothing — the add-chapter form was lost in the header redesign; restored. The chapter "↺ Clear" button, dropped in the same redesign, is back
+- feat: a render error on one page shows a message instead of blanking the whole app; an expired session now signs you out instead of every request failing silently
+- fix: the public reader no longer tries to show planning notes (POV/foreshadowing/payoff) the public API never returns
+- fix: all 22 existing TypeScript errors; CI now type-checks the UI (the Docker build does not)
+
+### Prompts
+- refactor: every LLM-facing string now lives in `AgentPrompts.cs` — `DefaultPrompts`, new `PromptTemplates` (fixed system prompts, all user-message templates and context blocks) and `RagQueries`. The prompt text itself is unchanged. The repository returns ancestor data instead of formatting it into prompt text; the Writer/Editor RAG retrieval was de-duplicated into `AgentBase.GetChapterRagAsync`
+- fix: "Load Defaults" in Book Settings filled in a stale, hand-written copy of the prompts (its checker prompt asked for a JSON shape the parser doesn't read, breaking checks for books that used it). It now returns the real default templates
+- fix: MCP `run_continuity_check` ignored its `chapterId`
+- refactor: removed the unused `EditorSurgical` prompt; run states are `RunStates` constants instead of string literals
+
 ## v0.1.23 — 2026-08-25
 
 - fix: planning agents no longer abort the whole run when an OpenAI-compatible endpoint (LM Studio, Ollama, vLLM) ignores the JSON schema types. Chapter numbers returned as `1.0`, `"3"` or `"Chapter 4"` are coerced instead of throwing `System.FormatException`, and text fields returned as arrays or numbers are flattened instead of throwing. Shared `LenientJson` reader used by `StoryBibleAgent`, `CharactersAgent`, `PlotThreadsAgent` and `PlannerAgent`

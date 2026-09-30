@@ -202,6 +202,9 @@ export default function ChapterView() {
               <button className="btn-icon" onClick={startEditingChapter} title="Edit chapter title, outline and content">✎ Edit</button>
             )}
             <button className="btn-icon" onClick={handleOpenHistory} title="View version history">📜 History</button>
+            {canEdit && !chapter.isArchived && chapter.status !== 'Outlined' && (
+              <button className="btn-clear-chapter" onClick={handleClearChapter} title="Clear chapter content and reset status to Outlined">↺ Clear</button>
+            )}
             {canEdit && !chapter.isArchived && (
               <button className="btn-archive" onClick={handleArchive} title="Archive this chapter">🗄 Archive</button>
             )}
