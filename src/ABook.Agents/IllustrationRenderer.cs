@@ -10,7 +10,8 @@ namespace ABook.Agents;
 /// <para>
 /// Consistency follows what worked in adate with Z-Image, which takes no reference images: every
 /// character has one seed, used for their portrait and for every scene centred on them, and the
-/// planner repeats their canonical visual description word for word in each prompt.
+/// planner repeats their canonical visual description word for word in each prompt. Style consistency
+/// comes from the book's art direction, which is prepended word for word to every prompt here.
 /// </para>
 /// </summary>
 public class IllustrationRenderer
@@ -80,7 +81,7 @@ public class IllustrationRenderer
             try
             {
                 var image = await generator.GenerateAsync(
-                    new ImageGenRequest(ill.Prompt, ill.NegativePrompt, seed, width, height), config, ct);
+                    new ImageGenRequest(ComposePrompt(book, ill), ComposeNegative(book, ill), seed, width, height), config, ct);
                 await _repo.SaveRenderedImageAsync(bookId, ill.Id, new BookImage
                 {
                     Data = image.Data,
@@ -147,6 +148,17 @@ public class IllustrationRenderer
             _ => [],
         };
     }
+
+    /// <summary>The book's art direction, word for word, then what this image shows — the same style for every image.</summary>
+    internal static string ComposePrompt(Book book, Illustration ill) =>
+        string.IsNullOrWhiteSpace(book.IllustrationStyle)
+            ? ill.Prompt
+            : $"{book.IllustrationStyle.Trim().TrimEnd('.')}. {ill.Prompt.Trim()}";
+
+    internal static string ComposeNegative(Book book, Illustration ill) =>
+        string.Join(", ", new[] { book.IllustrationNegativePrompt, ill.NegativePrompt }
+            .Select(n => n?.Trim().TrimEnd(',', '.') ?? "")
+            .Where(n => n.Length > 0));
 
     /// <summary>
     /// A re-roll override wins; otherwise a portrait or a scene centred on a character uses that

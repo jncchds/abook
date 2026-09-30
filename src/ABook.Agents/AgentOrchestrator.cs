@@ -194,6 +194,9 @@ public class AgentOrchestrator : IAgentOrchestrator
                     case IllustrationPlanScope.Cover:
                         await _illustrationPlanner.PlanCoverAsync(bookId, c);
                         break;
+                    case IllustrationPlanScope.Style:
+                        await _illustrationPlanner.EnsureStyleSheetAsync(bookId, c, force: true);
+                        break;
                     case IllustrationPlanScope.Characters:
                         await _illustrationPlanner.EnsureCharacterVisualsAsync(bookId, c, force: true);
                         break;

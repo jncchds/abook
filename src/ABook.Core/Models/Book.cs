@@ -21,6 +21,17 @@ public class Book
     public string? IllustratorSystemPrompt { get; set; }
     /// <summary>When true, the workflow plans illustrations (prompts and positions) for each finished chapter and the cover.</summary>
     public bool IllustrationsEnabled { get; set; } = false;
+
+    // ── Art direction: written once per book by the illustration planner, editable, and added word for
+    //    word to every image at render time so all portraits and scenes share one style. ─────────────
+    /// <summary>Style description (medium, technique, palette, lighting, mood) prepended to every image prompt.</summary>
+    public string? IllustrationStyle { get; set; }
+    /// <summary>Composition shared by every character's reference portrait (framing, pose, backdrop, light).</summary>
+    public string? IllustrationPortraitFraming { get; set; }
+    /// <summary>Negative prompt added to every image's own negative prompt.</summary>
+    public string? IllustrationNegativePrompt { get; set; }
+    /// <summary>The configured visual style the art direction was written from; a change rewrites it.</summary>
+    public string? IllustrationStyleSource { get; set; }
     public bool HumanAssisted { get; set; } = false;
     public PlanningPhaseStatus StoryBibleStatus { get; set; } = PlanningPhaseStatus.NotStarted;
     public PlanningPhaseStatus CharactersStatus { get; set; } = PlanningPhaseStatus.NotStarted;

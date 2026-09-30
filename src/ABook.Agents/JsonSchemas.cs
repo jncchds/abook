@@ -91,11 +91,9 @@ internal static class JsonSchemas
             "type": "object",
             "properties": {
               "name": { "type": "string" },
-              "visualPrompt": { "type": "string" },
-              "portraitPrompt": { "type": "string" },
-              "portraitNegativePrompt": { "type": "string" }
+              "visualPrompt": { "type": "string" }
             },
-            "required": ["name", "visualPrompt", "portraitPrompt", "portraitNegativePrompt"],
+            "required": ["name", "visualPrompt"],
             "additionalProperties": false
           }
         }
@@ -140,6 +138,19 @@ internal static class JsonSchemas
             "characters": { "type": "array", "items": { "type": "string" } }
           },
           "required": ["prompt", "negativePrompt", "orientation", "focusCharacter", "characters"],
+          "additionalProperties": false
+        }
+        """;
+
+    public const string StyleSheet = """
+        {
+          "type": "object",
+          "properties": {
+            "style": { "type": "string" },
+            "portraitFraming": { "type": "string" },
+            "negativePrompt": { "type": "string" }
+          },
+          "required": ["style", "portraitFraming", "negativePrompt"],
           "additionalProperties": false
         }
         """;

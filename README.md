@@ -32,6 +32,7 @@ A self-hosted web application that uses AI agents to collaboratively write books
 
 ### Illustrations
 - **AI illustrations with Z-Image** — turn on **Illustrate this book** and the LLM plans illustrations for every finished chapter (what each image shows, where it goes, and its positive and negative prompts, chosen to suit the genre), plus the cover once the book is written. Review and edit the plan, then press **Illustrate book** to render everything in one image-model run — no LLM calls, so you can unload the LLM first (automatic for Ollama)
+- **One style for the whole book** — the illustrator writes an art direction once (style, a portrait composition shared by the whole cast, a book-wide negative prompt) from your visual style; it is added word for word to every image and can be edited on the Illustrations page
 - **Consistent characters** — each character gets a visual description written from their profile and a reference portrait; every image showing them repeats that description, and scenes centred on them reuse the portrait's seed. Re-roll a portrait until the look is right, then re-render their scenes
 - **Configurable** — image endpoint, steps, CFG, sizes and visual style live in the LLM configuration and presets, so applying a preset switches the text and image models together
 

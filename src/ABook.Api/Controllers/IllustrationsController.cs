@@ -125,6 +125,27 @@ public class IllustrationsController : ControllerBase
         return Ok(new { card.Id, card.VisualPrompt, card.ImageSeed, updatedIllustrations = updated });
     }
 
+    /// <summary>
+    /// Edits the book's art direction, which is added word for word to every image. Portrait prompts are
+    /// rebuilt from the new composition and rendered images are marked for re-rendering.
+    /// </summary>
+    [HttpPut("style")]
+    public async Task<IActionResult> UpdateStyle(int bookId, [FromBody] StyleSheetRequest req)
+    {
+        var (denied, book) = await this.RequireBookOwnershipAndLoadAsync(bookId, _repo);
+        if (denied is not null) return denied;
+        var marked = await IllustrationPlannerAgent.ApplyStyleSheetAsync(_repo, book!,
+            req.Style?.Trim() ?? "", req.PortraitFraming?.Trim() ?? "", req.NegativePrompt?.Trim() ?? "");
+        await _notifier.NotifyIllustrationsUpdatedAsync(bookId, null);
+        return Ok(new
+        {
+            style = book!.IllustrationStyle,
+            portraitFraming = book.IllustrationPortraitFraming,
+            negativePrompt = book.IllustrationNegativePrompt,
+            markedForRerender = marked,
+        });
+    }
+
     [HttpPost("plan")]
     public async Task<IActionResult> Plan(int bookId, [FromBody] PlanIllustrationsRequest req)
     {
@@ -229,6 +250,8 @@ public record IllustrationRequest(
     List<string>? Characters = null);
 
 public record CharacterVisualRequest(string? VisualPrompt);
+
+public record StyleSheetRequest(string? Style, string? PortraitFraming, string? NegativePrompt);
 
 public record PlanIllustrationsRequest(IllustrationPlanScope Scope = IllustrationPlanScope.Missing, int? TargetId = null);
 

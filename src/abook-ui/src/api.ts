@@ -36,6 +36,10 @@ export interface Book {
   continuityCheckerSystemPrompt?: string
   illustratorSystemPrompt?: string
   illustrationsEnabled?: boolean
+  /** Art direction, added word for word to every image so they share one style. */
+  illustrationStyle?: string | null
+  illustrationPortraitFraming?: string | null
+  illustrationNegativePrompt?: string | null
   storyBibleStatus?: string
   charactersStatus?: string
   plotThreadsStatus?: string
@@ -584,7 +588,7 @@ export interface IllustrationInput {
   focusCharacterId?: number
   characters?: string[]
 }
-export type IllustrationPlanScope = 'Missing' | 'Chapter' | 'Cover' | 'Characters'
+export type IllustrationPlanScope = 'Missing' | 'Chapter' | 'Cover' | 'Characters' | 'Style'
 export type RenderScope = 'All' | 'Portraits' | 'Chapter' | 'Character' | 'Single'
 
 export const getIllustrations = (bookId: number, params?: { chapterId?: number; kind?: IllustrationKind }, signal?: AbortSignal) =>
@@ -598,6 +602,9 @@ export const deleteIllustration = (bookId: number, id: number) =>
 export const updateCharacterVisual = (bookId: number, cardId: number, visualPrompt: string) =>
   api.put<{ id: number; visualPrompt: string; imageSeed: number | null; updatedIllustrations: number }>(
     `/books/${bookId}/illustrations/characters/${cardId}/visual`, { visualPrompt })
+export interface ArtDirection { style: string; portraitFraming: string; negativePrompt: string }
+export const updateArtDirection = (bookId: number, data: ArtDirection) =>
+  api.put<ArtDirection & { markedForRerender: number }>(`/books/${bookId}/illustrations/style`, data)
 export const planIllustrations = (bookId: number, scope: IllustrationPlanScope, targetId?: number) =>
   api.post(`/books/${bookId}/illustrations/plan`, { scope, targetId })
 export const renderIllustrations = (bookId: number, scope: RenderScope, targetId?: number, reroll = false) =>

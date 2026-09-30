@@ -68,15 +68,15 @@ public class IllustrationMcpTools : McpToolBase
     }
 
     [McpServerTool(Name = "plan_illustrations")]
-    [Description("Start an LLM run that writes illustration prompts and positions (nothing is rendered). Scopes: Missing (finished chapters without illustrations, then the cover once all chapters are finished), Chapter (re-plan one chapter; pass chapterId), Cover, Characters (rewrite every character's visual description and portrait prompt).")]
+    [Description("Start an LLM run that writes illustration prompts and positions (nothing is rendered). Scopes: Missing (finished chapters without illustrations, then the cover once all chapters are finished), Chapter (re-plan one chapter; pass chapterId), Cover, Characters (rewrite every character's visual description and portrait prompt), Style (rewrite the book's art direction — the style, portrait composition and negative prompt added to every image).")]
     public async Task<string> PlanIllustrations(
         [Description("The book ID.")] int bookId,
-        [Description("Missing, Chapter, Cover or Characters.")] string scope = "Missing",
+        [Description("Missing, Chapter, Cover, Characters or Style.")] string scope = "Missing",
         [Description("Chapter ID, for the Chapter scope.")] int? chapterId = null)
     {
         await EnsureBookOwnershipAsync(bookId, _repo);
         if (!Enum.TryParse<IllustrationPlanScope>(scope, true, out var s))
-            throw new McpException("Scope must be Missing, Chapter, Cover or Characters.");
+            throw new McpException("Scope must be Missing, Chapter, Cover, Characters or Style.");
         if (s == IllustrationPlanScope.Chapter)
         {
             var chapter = chapterId is int id ? await _repo.GetChapterAsync(bookId, id) : null;

@@ -166,20 +166,21 @@ public static class DefaultPrompts
         Premise: {PromptPlaceholders.Premise}
         Setting: {PromptPlaceholders.Setting}
         Tone & style: {PromptPlaceholders.Tone}
-        Visual style: {PromptPlaceholders.VisualStyle}
+        Art direction: {PromptPlaceholders.VisualStyle}
 
         How to write image prompts:
         - Write every prompt in English as flowing natural-language prose, not as a list of tags.
-        - Open with the visual style, then describe the subject and action, composition and camera framing,
-          setting, lighting, mood and colour palette. Be concrete and visual: the image model knows nothing
-          about the story, so never rely on names or plot references — describe only what is seen.
+        - The book's art direction is added to every prompt automatically, so every image shares one style.
+          Describe only what the image shows — subject and action, composition and camera framing, setting,
+          the lighting and mood of the moment. Do not restate, vary or contradict the art style.
+        - Be concrete and visual: the image model knows nothing about the story, so never rely on names or
+          plot references — describe only what is seen.
         - Suit the imagery to the book's genre and tone. You decide what to depict, how it is depicted, and
           what each negative prompt rules out.
-        - Keep the visual style identical in every prompt so the whole book reads as one set of illustrations.
         - Character consistency: whenever a character is shown, include their canonical visual description
           word for word and never contradict it. Change clothing only when the scene says so.
-        - The negative prompt lists what the image must not contain, written for that specific image.
-          It may be empty.
+        - Each image's negative prompt lists what that specific image must not contain; the book-wide
+          negative prompt is added automatically. It may be empty.
         """;
 
     public static readonly string Editor =
@@ -1008,7 +1009,7 @@ public static class PromptTemplates
 
     /// <summary>Stand-in for an unset visual style, so the planner still keeps one style across the book.</summary>
     public const string VisualStyleUnset =
-        "not set — choose one that suits the genre and tone, and describe it the same way in every prompt";
+        "not set — choose one that suits the genre and tone";
 
     /// <summary>The canonical appearance of each character, as the illustrator must repeat it.</summary>
     public static string CharacterVisuals(IEnumerable<CharacterCard> characters)
@@ -1033,8 +1034,7 @@ public static class PromptTemplates
             sb.AppendLine();
         }
         return $"""
-            Write the canonical visual description and a reference portrait prompt for each of these characters
-            of "{book.Title}" ({book.Genre}).
+            Write the canonical visual description of each of these characters of "{book.Title}" ({book.Genre}).
 
             {sb.ToString().TrimEnd()}
 
@@ -1045,14 +1045,31 @@ public static class PromptTemplates
               "name" (string — exactly as given above),
               "visualPrompt" (string — English prose describing only how the character looks: apparent age,
                 build, skin, face, hair, eyes, distinguishing features and usual clothing. No name, no art style,
-                no pose or background. It will be pasted word for word into every image showing this character,
-                so it must be self-contained and faithful to the character's description),
-              "portraitPrompt" (string — the full prompt for a reference portrait of the character in the book's
-                visual style, containing the visualPrompt word for word),
-              "portraitNegativePrompt" (string).
+                no pose or background. It is pasted word for word into every image showing this character —
+                including their reference portrait, which uses the same composition for the whole cast — so it
+                must be self-contained and faithful to the character's description).
             IMPORTANT: Output ONLY the raw JSON array. No markdown fences, no explanation outside the JSON.
             """;
     }
+
+    /// <summary>Asks for the book's art direction, written once and added to every image.</summary>
+    public static string StyleSheetUser(Book book, StoryBible? bible, string brief) =>
+        $"""
+        Write the art direction for all illustrations of "{book.Title}" ({book.Genre}).
+        Premise: {book.Premise}
+        {(bible is null ? "" : $"Setting: {bible.SettingDescription}\nTime period: {bible.TimePeriod}\nTone & style: {bible.ToneAndStyle}")}
+        The author's brief for the visual style: {brief}
+
+        It is added word for word to every image of the book — portraits, cover and scenes — so that they all
+        look like one consistent set by the same artist.
+        Return a JSON object with these exact fields:
+          "style" (string — English prose describing only the look: medium, technique, line and texture,
+            colour palette, general lighting and mood. No subject matter, no characters, no composition),
+          "portraitFraming" (string — the composition used for every character's reference portrait, identical
+            for the whole cast: framing, pose, camera angle, backdrop and lighting. No appearance, no art style),
+          "negativePrompt" (string — what no image in this book should contain; may be empty).
+        IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
+        """;
 
     /// <summary>Numbers paragraphs "[N] text" so the planner can say where each image goes.</summary>
     public static string NumberParagraphs(IReadOnlyList<string> paragraphs) =>
@@ -1062,7 +1079,9 @@ public static class PromptTemplates
         Book book, Chapter chapter, IReadOnlyList<string> paragraphs, string characterVisuals, string otherIllustrations) =>
         $"""
         Plan the illustrations for Chapter {chapter.Number}: "{chapter.Title}" of "{book.Title}".
-        Decide how many illustrations this chapter deserves and which moments they show — none is a valid answer.
+        Plan one or two illustrations for this chapter, choosing its most striking, pivotal moments.
+        Plan more only when the chapter genuinely needs them — for example several distinct turning points
+        that one or two images cannot carry. Plan none if nothing in the chapter is worth illustrating.
         Each image is placed right after the paragraph it illustrates.
 
         Characters' canonical visual descriptions (copy word for word into any prompt that shows them):

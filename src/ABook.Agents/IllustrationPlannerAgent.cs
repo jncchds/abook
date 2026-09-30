@@ -31,6 +31,7 @@ public class IllustrationPlannerAgent : AgentBase
     /// </summary>
     public async Task EnsureCharacterVisualsAsync(int bookId, CancellationToken ct, bool force = false)
     {
+        await EnsureStyleSheetAsync(bookId, ct);
         var cards = (await Repo.GetCharacterCardsAsync(bookId)).ToList();
         if (cards.Count == 0) return;
 
@@ -73,10 +74,11 @@ public class IllustrationPlannerAgent : AgentBase
             // Scenes already planned quote the old wording; carry the new one into them.
             await SetCharacterVisualAsync(Repo, card, v.VisualPrompt);
 
+            var portraitPrompt = PortraitPrompt(book.IllustrationPortraitFraming, card.VisualPrompt);
             if (portraits.TryGetValue(card.Id, out var portrait))
             {
-                portrait.Prompt = v.PortraitPrompt;
-                portrait.NegativePrompt = v.PortraitNegativePrompt;
+                portrait.Prompt = portraitPrompt;
+                portrait.NegativePrompt = "";
                 portrait.Caption = card.Name;
                 portrait.FocusCharacterId = card.Id;
                 portrait.CharacterNamesJson = JsonSerializer.Serialize(new[] { card.Name });
@@ -93,8 +95,8 @@ public class IllustrationPlannerAgent : AgentBase
                     CharacterCardId = card.Id,
                     FocusCharacterId = card.Id,
                     Caption = card.Name,
-                    Prompt = v.PortraitPrompt,
-                    NegativePrompt = v.PortraitNegativePrompt,
+                    Prompt = portraitPrompt,
+                    NegativePrompt = "",
                     Orientation = IllustrationOrientation.Portrait,
                     CharacterNamesJson = JsonSerializer.Serialize(new[] { card.Name }),
                 });
@@ -113,6 +115,86 @@ public class IllustrationPlannerAgent : AgentBase
             await ReportNoteAsync(bookId, null, AgentRole.IllustrationPlanner,
                 $"No visual description came back for: {string.Join(", ", missing)}. Plan again to retry.", ct);
     }
+
+    /// <summary>
+    /// Writes the book's art direction — style, the portrait composition shared by the whole cast, and a
+    /// book-wide negative prompt — when there is none or the configured visual style changed since it was
+    /// written. <paramref name="force"/> rewrites it. It is added word for word to every image at render
+    /// time, which is what keeps every portrait and scene in one style.
+    /// </summary>
+    public async Task EnsureStyleSheetAsync(int bookId, CancellationToken ct, bool force = false)
+    {
+        var book = await Repo.GetByIdAsync(bookId) ?? throw new InvalidOperationException($"Book {bookId} not found.");
+        var config = await Repo.GetLlmConfigAsync(bookId, book.UserId);
+        var brief = config?.ImageVisualStyle?.Trim() ?? "";
+        if (!force && !string.IsNullOrWhiteSpace(book.IllustrationStyle) && (book.IllustrationStyleSource ?? "") == brief)
+            return;
+
+        await Notifier.NotifyWorkflowProgressAsync(bookId, "Writing the book's art direction…", false, ct);
+        // Written from the brief, never from the art direction it replaces.
+        var (client, llmConfig, messages) = await StartConversationAsync(book,
+            styleOverride: brief.Length > 0 ? brief : PromptTemplates.VisualStyleUnset);
+        var bible = await Repo.GetStoryBibleAsync(bookId);
+        messages.Add(new LlmChatMessage(LlmChatRole.User,
+            PromptTemplates.StyleSheetUser(book, bible, brief.Length > 0 ? brief : PromptTemplates.VisualStyleUnset)));
+
+        var (raw, failure) = await StreamJsonResponseAsync(
+            client, llmConfig, messages, bookId, null, AgentRole.IllustrationPlanner, JsonSchemas.StyleSheet, ct,
+            forwardToUi: false);
+        if (failure is not null) Rethrow(failure);
+
+        using var doc = PlanningParse.OpenObject(raw, "Art direction");
+        var style = LenientJson.Text(doc.RootElement, "style").Trim();
+        if (style.Length == 0)
+            throw new FormatException($"Art direction response contained no style. {PlanningParse.Describe(raw)}");
+        await ApplyStyleSheetAsync(Repo, book, style,
+            LenientJson.Text(doc.RootElement, "portraitFraming").Trim(),
+            LenientJson.Text(doc.RootElement, "negativePrompt").Trim(),
+            brief);
+        await Notifier.NotifyIllustrationsUpdatedAsync(bookId, null, ct);
+    }
+
+    /// <summary>
+    /// Stores the art direction, rebuilds every portrait prompt from the shared composition, and — when
+    /// anything changed — marks rendered images for re-rendering. Returns how many were marked.
+    /// </summary>
+    public static async Task<int> ApplyStyleSheetAsync(
+        IBookRepository repo, Book book, string style, string portraitFraming, string negativePrompt, string? source = null)
+    {
+        var changed = (book.IllustrationStyle ?? "") != style
+            || (book.IllustrationPortraitFraming ?? "") != portraitFraming
+            || (book.IllustrationNegativePrompt ?? "") != negativePrompt;
+        book.IllustrationStyle = style;
+        book.IllustrationPortraitFraming = portraitFraming;
+        book.IllustrationNegativePrompt = negativePrompt;
+        if (source is not null) book.IllustrationStyleSource = source;
+        await repo.UpdateAsync(book);
+
+        var cards = (await repo.GetAllCharacterCardsAsync(book.Id)).ToDictionary(c => c.Id);
+        var marked = 0;
+        foreach (var ill in await repo.GetIllustrationsAsync(book.Id))
+        {
+            var dirty = false;
+            if (ill.Kind == IllustrationKind.Portrait && ill.CharacterCardId is int id && cards.TryGetValue(id, out var card)
+                && !string.IsNullOrWhiteSpace(card.VisualPrompt))
+            {
+                var prompt = PortraitPrompt(portraitFraming, card.VisualPrompt);
+                if (prompt != ill.Prompt) { ill.Prompt = prompt; dirty = true; }
+            }
+            if ((changed || dirty) && ill.Status == IllustrationStatus.Rendered)
+            {
+                ill.Status = IllustrationStatus.Planned;
+                marked++;
+                dirty = true;
+            }
+            if (dirty) await repo.UpdateIllustrationAsync(ill);
+        }
+        return marked;
+    }
+
+    /// <summary>A reference portrait: the composition shared by the whole cast, then the character's appearance.</summary>
+    public static string PortraitPrompt(string? framing, string visualPrompt) =>
+        string.IsNullOrWhiteSpace(framing) ? visualPrompt.Trim() : $"{framing.Trim().TrimEnd('.')}. {visualPrompt.Trim()}";
 
     /// <summary>
     /// Plans the scenes of one chapter, replacing its never-rendered illustrations. Illustrations that
@@ -137,17 +219,55 @@ public class IllustrationPlannerAgent : AgentBase
         messages.Add(new LlmChatMessage(LlmChatRole.User, PromptTemplates.ChapterIllustrationsUser(
             book, chapter, paragraphs, PromptTemplates.CharacterVisuals(cards), others)));
 
+        // Each illustration is saved the moment its JSON element finishes streaming, so the author sees
+        // them appear one by one and an interrupted call keeps everything that arrived.
+        var persisted = new List<Illustration>();
+        async Task PersistNewAsync(string partial)
+        {
+            var parsed = ParseChapterIllustrations(partial, paragraphs, cards);
+            if (parsed.Count <= persisted.Count) return;
+            var fresh = parsed.Skip(persisted.Count).ToList();
+            if (persisted.Count == 0)
+            {
+                // The first new element replaces the chapter's old unrendered plan; until then it stays intact.
+                persisted.AddRange(await Repo.ReplaceUnrenderedIllustrationsAsync(bookId, chapterId, IllustrationKind.Scene, fresh));
+            }
+            else
+            {
+                foreach (var ill in fresh)
+                {
+                    ill.BookId = bookId;
+                    ill.ChapterId = chapterId;
+                    persisted.Add(await Repo.AddIllustrationAsync(ill));
+                }
+            }
+            await Notifier.NotifyIllustrationsUpdatedAsync(bookId, null, CancellationToken.None);
+        }
+
         var (raw, failure) = await StreamJsonResponseAsync(
             client, config, messages, bookId, chapterId, AgentRole.IllustrationPlanner, JsonSchemas.ChapterIllustrations, ct,
-            forwardToUi: false);
-        if (failure is not null) Rethrow(failure);
+            forwardToUi: false, onElementClosed: PersistNewAsync);
 
-        var planned = ParseChapterIllustrations(raw, paragraphs, cards);
-        var saved = await Repo.ReplaceUnrenderedIllustrationsAsync(bookId, chapterId, IllustrationKind.Scene, planned);
+        // Pick up anything the last chunk completed (and, on failure, whatever finished before it).
+        await PersistNewAsync(raw);
+
+        if (failure is not null)
+        {
+            if (persisted.Count > 0)
+                await ReportNoteAsync(bookId, chapterId, AgentRole.IllustrationPlanner,
+                    $"Planning Chapter {chapter.Number}'s illustrations was interrupted — kept the {persisted.Count} " +
+                    $"illustration{(persisted.Count == 1 ? "" : "s")} planned before it stopped.", CancellationToken.None);
+            Rethrow(failure);
+        }
+
+        // A plan of no illustrations still clears the chapter's old unrendered ones.
+        if (persisted.Count == 0)
+            await Repo.ReplaceUnrenderedIllustrationsAsync(bookId, chapterId, IllustrationKind.Scene, []);
+
         await Notifier.NotifyIllustrationsUpdatedAsync(bookId, null, ct);
         await Notifier.NotifyWorkflowProgressAsync(bookId,
-            $"Chapter {chapter.Number}: {saved.Count} illustration{(saved.Count == 1 ? "" : "s")} planned.", false, ct);
-        return saved;
+            $"Chapter {chapter.Number}: {persisted.Count} illustration{(persisted.Count == 1 ? "" : "s")} planned.", false, ct);
+        return persisted;
     }
 
     /// <summary>Plans the cover. An existing cover keeps its image until it is re-rendered.</summary>
@@ -259,13 +379,16 @@ public class IllustrationPlannerAgent : AgentBase
         }
     }
 
-    private async Task<(ILlmChatClient Client, LlmConfiguration Config, List<LlmChatMessage> Messages)> StartConversationAsync(Book book)
+    private async Task<(ILlmChatClient Client, LlmConfiguration Config, List<LlmChatMessage> Messages)> StartConversationAsync(
+        Book book, string? styleOverride = null)
     {
         var (client, config) = await GetChatClientAsync(book.Id);
         var bible = await Repo.GetStoryBibleAsync(book.Id) ?? new StoryBible();
-        var style = string.IsNullOrWhiteSpace(config.ImageVisualStyle)
-            ? PromptTemplates.VisualStyleUnset
-            : config.ImageVisualStyle.Trim();
+        // The written art direction once it exists; before that, the author's brief.
+        var style = styleOverride is not null ? styleOverride
+            : !string.IsNullOrWhiteSpace(book.IllustrationStyle) ? book.IllustrationStyle.Trim()
+            : !string.IsNullOrWhiteSpace(config.ImageVisualStyle) ? config.ImageVisualStyle.Trim()
+            : PromptTemplates.VisualStyleUnset;
         var template = !string.IsNullOrWhiteSpace(book.IllustratorSystemPrompt)
             ? book.IllustratorSystemPrompt
             : DefaultPrompts.Illustrator;
@@ -311,7 +434,7 @@ public class IllustrationPlannerAgent : AgentBase
 
     // ── Parsing ───────────────────────────────────────────────────────────────
 
-    internal sealed record CharacterVisual(string Name, string VisualPrompt, string PortraitPrompt, string PortraitNegativePrompt);
+    internal sealed record CharacterVisual(string Name, string VisualPrompt);
 
     internal static List<CharacterVisual> ParseCharacterVisuals(string raw)
     {
@@ -322,27 +445,26 @@ public class IllustrationPlannerAgent : AgentBase
             var name = LenientJson.Text(el, "name").Trim();
             var visual = LenientJson.Text(el, "visualPrompt").Trim();
             if (name.Length == 0 || visual.Length == 0) continue;
-            var portrait = LenientJson.Text(el, "portraitPrompt").Trim();
-            result.Add(new CharacterVisual(name, visual, portrait.Length > 0 ? portrait : visual,
-                LenientJson.Text(el, "portraitNegativePrompt").Trim()));
+            result.Add(new CharacterVisual(name, visual));
         }
         if (result.Count == 0)
             throw new FormatException($"Character visuals response contained no usable entry. {PlanningParse.Describe(raw)}");
         return result;
     }
 
+    /// <summary>
+    /// Parses the scenes of a chapter plan. Accepts a response cut off mid-stream: every element that
+    /// finished is returned and the incomplete tail is ignored. The illustrations array may be wrapped in
+    /// an object (the schema) or bare.
+    /// </summary>
     internal static List<Illustration> ParseChapterIllustrations(
         string raw, IReadOnlyList<string> paragraphs, IReadOnlyList<CharacterCard> cards)
     {
-        using var doc = PlanningParse.OpenObject(raw, "Chapter illustrations");
-        var root = doc.RootElement;
-        // Tolerate a bare array or a differently named wrapper property.
-        var items = root.TryGetProperty("illustrations", out var arr) && arr.ValueKind == JsonValueKind.Array
-            ? arr
-            : root.EnumerateObject().Select(p => p.Value).FirstOrDefault(v => v.ValueKind == JsonValueKind.Array);
-
         var result = new List<Illustration>();
-        if (items.ValueKind != JsonValueKind.Array) return result;
+        var json = PartialJson.SalvageArray(raw);
+        if (json.Length == 0) return result;
+        using var doc = JsonDocument.Parse(json);
+        var items = doc.RootElement;
 
         var order = 0;
         foreach (var el in items.EnumerateArray())

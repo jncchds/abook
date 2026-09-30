@@ -387,8 +387,16 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     })
     setOnIllustrationsUpdated((_bId, illustrationId) => {
       refreshIllustrations()
-      // A bulk change (planning) may also have rewritten the characters' visual descriptions.
-      if (illustrationId === null) getCharacters(bookId, true).then(r => setCharacters(r.data)).catch(() => {})
+      // A bulk change (planning) may also have rewritten the characters' visual descriptions or the art direction.
+      if (illustrationId === null) {
+        getCharacters(bookId, true).then(r => setCharacters(r.data)).catch(() => {})
+        getBook(bookId).then(r => setBook(prev => prev ? {
+          ...prev,
+          illustrationStyle: r.data.illustrationStyle,
+          illustrationPortraitFraming: r.data.illustrationPortraitFraming,
+          illustrationNegativePrompt: r.data.illustrationNegativePrompt,
+        } : prev)).catch(() => {})
+      }
     })
     setOnReconnected(() => {
       // Events sent while the connection was down are lost — re-read everything they would have updated.

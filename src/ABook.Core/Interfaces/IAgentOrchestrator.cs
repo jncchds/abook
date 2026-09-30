@@ -28,6 +28,8 @@ public enum IllustrationPlanScope
     Cover,
     /// <summary>Rewrite every character's visual description and portrait prompt.</summary>
     Characters,
+    /// <summary>Rewrite the book's art direction (style, portrait composition, book-wide negative prompt).</summary>
+    Style,
 }
 
 public record IllustrationPlanRequest(IllustrationPlanScope Scope, int? TargetId = null);

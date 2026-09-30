@@ -52,6 +52,10 @@ public abstract class AgentBase
     /// <param name="suspiciousThreshold">Minimum response length before a 'suspiciously short' warning is emitted. Pass 0 to suppress.</param>
     /// <param name="stopStreamingAt">Optional regex. Once matched against the accumulated buffer, further tokens are still accumulated but no longer forwarded to the SignalR stream.</param>
     /// <param name="forwardToUi">False for calls whose output is not book content (questions, checker reports): the response is accumulated but never streamed.</param>
+    /// <param name="onElementClosed">
+    /// Called with the content received so far whenever a chunk closes a JSON object or array, so a caller
+    /// can persist each element the moment it finishes — work that survives an interrupted call.
+    /// </param>
     /// <remarks>
     /// Reasoning — whether delivered on the provider's reasoning channel or inline as &lt;think&gt; tags —
     /// is never streamed; it is saved as a single "Thinking" chat message when the call ends, successfully or not.
@@ -61,7 +65,7 @@ public abstract class AgentBase
         int bookId, int? chapterId, AgentRole role, CancellationToken ct,
         int suspiciousThreshold = 50,
         System.Text.RegularExpressions.Regex? stopStreamingAt = null, string? jsonSchema = null,
-        bool forwardToUi = true)
+        bool forwardToUi = true, Func<string, Task>? onElementClosed = null)
     {
         var options = new LlmChatOptions
         {
@@ -97,6 +101,8 @@ public abstract class AgentBase
             thinkingSb.Append(part.Thinking);
             if (part.Content.Length == 0) return;
             sb.Append(part.Content);
+            if (forward && onElementClosed is not null && part.Content.AsSpan().IndexOfAny('}', ']') >= 0)
+                await onElementClosed(sb.ToString());
             if (!forward || stopStreaming) return;
             // The stop patterns are line-anchored headings, so the last few lines are enough —
             // matching the whole buffer on every chunk would be quadratic in the chapter length.
@@ -184,12 +190,14 @@ public abstract class AgentBase
     /// </summary>
     protected async Task<(string Raw, Exception? Failure)> StreamJsonResponseAsync(
         ILlmChatClient client, LlmConfiguration config, IReadOnlyList<LlmChatMessage> messages,
-        int bookId, int? chapterId, AgentRole role, string jsonSchema, CancellationToken ct, bool forwardToUi = true)
+        int bookId, int? chapterId, AgentRole role, string jsonSchema, CancellationToken ct, bool forwardToUi = true,
+        Func<string, Task>? onElementClosed = null)
     {
         try
         {
             var raw = await StreamResponseAsync(
-                client, config, messages, bookId, chapterId, role, ct, jsonSchema: jsonSchema, forwardToUi: forwardToUi);
+                client, config, messages, bookId, chapterId, role, ct, jsonSchema: jsonSchema, forwardToUi: forwardToUi,
+                onElementClosed: onElementClosed);
             return (raw, null);
         }
         catch (Exception ex)

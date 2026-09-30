@@ -86,14 +86,55 @@ public class IllustrationPlannerParseTests
     }
 
     [Fact]
+    public void ParseChapterIllustrations_TruncatedStream_KeepsFinishedElementsOnly()
+    {
+        var paragraphs = ParagraphAnchors.Split("One.\n\nTwo.");
+        const string raw = """
+            {"illustrations":[{"paragraphNumber":1,"anchorText":"One","caption":"a","prompt":"first","negativePrompt":"",
+              "orientation":"landscape","focusCharacter":"","characters":["Boris"]},
+             {"paragraphNumber":2,"anchorText":"Two","caption":"b","prompt":"second, cut off mid-str
+            """;
+
+        var ill = Assert.Single(IllustrationPlannerAgent.ParseChapterIllustrations(raw, paragraphs, Cards));
+        Assert.Equal("first", ill.Prompt);
+        Assert.Equal(2, ill.FocusCharacterId);   // the only character shown becomes the focus
+    }
+
+    [Fact]
+    public void ParseChapterIllustrations_NothingFinishedYet_ReturnsEmpty() =>
+        Assert.Empty(IllustrationPlannerAgent.ParseChapterIllustrations(
+            """{"illustrations":[{"paragraphNumber":1,"characters":["An""", ["x"], Cards));
+
+    [Fact]
     public void ParseCharacterVisuals_SkipsEntriesWithoutNameOrVisual()
     {
         const string raw = """
-            [{"name":"Boris","visualPrompt":"a stocky man","portraitPrompt":"","portraitNegativePrompt":""},
+            [{"name":"Boris","visualPrompt":"a stocky man"},
              {"name":"","visualPrompt":"nobody"}]
             """;
         var v = Assert.Single(IllustrationPlannerAgent.ParseCharacterVisuals(raw));
-        Assert.Equal("a stocky man", v.PortraitPrompt);   // falls back to the visual prompt
+        Assert.Equal("a stocky man", v.VisualPrompt);
+    }
+
+    [Fact]
+    public void PortraitPrompt_PutsSharedCompositionBeforeAppearance()
+    {
+        Assert.Equal("Head and shoulders, grey backdrop. a stocky man",
+            IllustrationPlannerAgent.PortraitPrompt("Head and shoulders, grey backdrop.", "a stocky man"));
+        Assert.Equal("a stocky man", IllustrationPlannerAgent.PortraitPrompt(null, " a stocky man "));
+    }
+
+    [Fact]
+    public void Compose_PrependsArtDirectionAndMergesNegatives()
+    {
+        var book = new Book { IllustrationStyle = "Ink wash, muted palette.", IllustrationNegativePrompt = "text, watermark" };
+        var ill = new Illustration { Prompt = "A gate in fog", NegativePrompt = "people." };
+        Assert.Equal("Ink wash, muted palette. A gate in fog", IllustrationRenderer.ComposePrompt(book, ill));
+        Assert.Equal("text, watermark, people", IllustrationRenderer.ComposeNegative(book, ill));
+
+        var plain = new Book();
+        Assert.Equal("A gate in fog", IllustrationRenderer.ComposePrompt(plain, ill));
+        Assert.Equal("people", IllustrationRenderer.ComposeNegative(plain, ill));
     }
 
     [Fact]

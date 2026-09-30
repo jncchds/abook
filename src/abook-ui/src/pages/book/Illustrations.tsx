@@ -4,6 +4,7 @@ import { useBookContext } from '../../contexts/BookContext'
 import { getLlmConfig, updateBook } from '../../api'
 import type { Illustration, LlmConfig } from '../../api'
 import IllustrationFigure from '../../components/IllustrationFigure'
+import ArtDirectionCard from '../../components/ArtDirectionCard'
 
 /**
  * Review and render the book's illustrations. Planning (LLM) happens during the workflow or from the
@@ -115,6 +116,14 @@ export default function Illustrations() {
       {rendering && workflowLog.length > 0 && (
         <p className="hint" style={{ marginBottom: '1rem' }}><span className="spinner" /> {workflowLog[workflowLog.length - 1]}</p>
       )}
+
+      <ArtDirectionCard
+        book={book}
+        editable={canEdit}
+        canPlan={!isRunning}
+        onRewrite={() => handlePlanIllustrations('Style')}
+        onSaved={patch => { setBook(prev => prev ? { ...prev, ...patch } : prev); refreshIllustrations() }}
+      />
 
       <section className="illustrations-section">
         <h3>Cover</h3>

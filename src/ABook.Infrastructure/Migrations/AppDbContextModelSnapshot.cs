@@ -196,6 +196,18 @@ namespace ABook.Infrastructure.Migrations
                     b.Property<bool>("HumanAssisted")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("IllustrationNegativePrompt")
+                        .HasColumnType("text");
+
+                    b.Property<string>("IllustrationPortraitFraming")
+                        .HasColumnType("text");
+
+                    b.Property<string>("IllustrationStyle")
+                        .HasColumnType("text");
+
+                    b.Property<string>("IllustrationStyleSource")
+                        .HasColumnType("text");
+
                     b.Property<bool>("IllustrationsEnabled")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")

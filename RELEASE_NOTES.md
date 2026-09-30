@@ -8,6 +8,9 @@
 - feat: new Illustrations page, figures inline in the chapter view and public reader, portraits and editable visual descriptions on the Characters page; every plan is editable, and an edited image keeps showing until re-rendered
 - feat: rendered illustrations and the cover are embedded in the HTML, EPUB and FB2 downloads; the metadata export shows portraits
 - feat: image endpoint, visual style, steps, CFG, sizes and timeout are part of the LLM configuration and presets (with Test connection); MCP gains `list_illustrations`, `update_illustration`, `plan_illustrations` and `render_illustrations`
+- feat: one style for the whole book — the illustrator writes an art direction once (style, a portrait composition shared by the whole cast, a book-wide negative prompt) that is added word for word to every image; editable on the Illustrations page
+- feat: planned illustrations are saved one by one as the LLM streams them, so an interrupted planning run keeps what it already wrote
+- change: the illustrator plans one or two images per chapter unless a chapter genuinely needs more
 
 ### Security
 - fix: the agent endpoints (`/api/books/{id}/agent/*`) required no login and checked no ownership — anyone who could reach the server could start runs on any book (spending the owner's API credits), stop them, or read their stream. They now require sign-in and book ownership
