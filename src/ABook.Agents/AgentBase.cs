@@ -488,7 +488,7 @@ public abstract class AgentBase
 
     internal static string InterpolateSystemPrompt(
         string prompt, Book book, ABook.Core.Models.StoryBible? bible = null, string? chapterSynopses = null,
-        string? visualStyle = null)
+        string? visualStyle = null, string? negativePrompts = null)
     {
         var result = prompt
             .Replace(PromptPlaceholders.Title, book.Title ?? "")
@@ -511,6 +511,9 @@ public abstract class AgentBase
 
         if (visualStyle is not null)
             result = result.Replace(PromptPlaceholders.VisualStyle, visualStyle);
+
+        if (negativePrompts is not null)
+            result = result.Replace(PromptPlaceholders.NegativePrompts, negativePrompts);
 
         return result;
     }

@@ -138,6 +138,33 @@ public class IllustrationPlannerParseTests
     }
 
     [Fact]
+    public void IllustratorPrompt_TellsTheModelWhetherNegativesApply()
+    {
+        var book = new Book { Title = "Fog", Genre = "Mystery" };
+        var atCfg1 = AgentBase.InterpolateSystemPrompt(DefaultPrompts.Illustrator, book, new StoryBible(),
+            visualStyle: "ink", negativePrompts: PromptTemplates.NegativePromptSupport(1.0));
+        Assert.Contains("ignores them", atCfg1);
+        Assert.Contains("Never rely on the negative prompt", atCfg1);
+        Assert.DoesNotContain("{NEGATIVE_PROMPTS}", atCfg1);
+        Assert.Contains("applies them", PromptTemplates.NegativePromptSupport(2.0));
+    }
+
+    [Fact]
+    public void EveryIllustrationRequest_SaysNotToRelyOnNegatives()
+    {
+        var book = new Book { Title = "Fog", Genre = "Mystery", Language = "English" };
+        var chapter = new Chapter { Number = 1, Title = "Gate" };
+        string[] requests =
+        [
+            PromptTemplates.CharacterVisualsUser(book, [new CharacterCard { Name = "Anna" }], "(none)"),
+            PromptTemplates.StyleSheetUser(book, null, "ink wash"),
+            PromptTemplates.ChapterIllustrationsUser(book, chapter, ["One."], "(none)", "(none)"),
+            PromptTemplates.CoverUser(book, null, "", "(none)"),
+        ];
+        Assert.All(requests, r => Assert.Contains("Do not rely on negative prompts", r));
+    }
+
+    [Fact]
     public void DeriveSeed_IsStableAndInServerRange()
     {
         var a = IllustrationPlannerAgent.DeriveSeed(7, "anna");

@@ -392,7 +392,9 @@ public class IllustrationPlannerAgent : AgentBase
         var template = !string.IsNullOrWhiteSpace(book.IllustratorSystemPrompt)
             ? book.IllustratorSystemPrompt
             : DefaultPrompts.Illustrator;
-        var system = InterpolateSystemPrompt(template, book, bible, visualStyle: style);
+        var cfg = config.ImageCfg is > 0 ? config.ImageCfg.Value : ImageGenDefaults.Cfg;
+        var system = InterpolateSystemPrompt(template, book, bible, visualStyle: style,
+            negativePrompts: PromptTemplates.NegativePromptSupport(cfg));
         return (client, config, [new LlmChatMessage(LlmChatRole.System, system)]);
     }
 

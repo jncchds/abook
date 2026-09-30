@@ -134,7 +134,11 @@ export default function IllustrationFigure({
             <label>Caption<input value={form.caption} onChange={e => setForm(f => ({ ...f, caption: e.target.value }))} /></label>
           )}
           <label>Prompt<textarea rows={5} value={form.prompt} onChange={e => setForm(f => ({ ...f, prompt: e.target.value }))} /></label>
-          <label>Negative prompt<textarea rows={2} value={form.negativePrompt} onChange={e => setForm(f => ({ ...f, negativePrompt: e.target.value }))} /></label>
+          <label>
+            Negative prompt (optional)
+            <textarea rows={2} value={form.negativePrompt} onChange={e => setForm(f => ({ ...f, negativePrompt: e.target.value }))} />
+            <span className="hint">Ignored at CFG 1.0 — put what the image should show in the prompt instead.</span>
+          </label>
           <div className="illustration-edit-row">
             <label>
               Orientation

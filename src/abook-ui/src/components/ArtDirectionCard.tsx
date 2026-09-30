@@ -63,8 +63,9 @@ export default function ArtDirectionCard({ book, editable, canPlan, onRewrite, o
           <label>Portrait composition (shared by every character)
             <textarea rows={2} value={form.portraitFraming} onChange={e => setForm(f => ({ ...f, portraitFraming: e.target.value }))} />
           </label>
-          <label>Book-wide negative prompt
+          <label>Book-wide negative prompt (optional)
             <textarea rows={2} value={form.negativePrompt} onChange={e => setForm(f => ({ ...f, negativePrompt: e.target.value }))} />
+            <span className="hint">Ignored at CFG 1.0 — the style itself should keep images on track.</span>
           </label>
           <div className="illustration-edit-actions">
             <button className="btn-sm" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save'}</button>

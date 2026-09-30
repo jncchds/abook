@@ -61,6 +61,12 @@ public static class PromptPlaceholders
     /// Resolved by the illustration planner.
     /// </summary>
     public const string VisualStyle = "{VISUAL_STYLE}";
+
+    /// <summary>
+    /// Whether the image model applies negative prompts at the configured CFG (Z-Image Turbo at CFG 1.0
+    /// ignores them). Resolved by the illustration planner.
+    /// </summary>
+    public const string NegativePrompts = "{NEGATIVE_PROMPTS}";
 }
 
 /// <summary>
@@ -175,12 +181,13 @@ public static class DefaultPrompts
           the lighting and mood of the moment. Do not restate, vary or contradict the art style.
         - Be concrete and visual: the image model knows nothing about the story, so never rely on names or
           plot references — describe only what is seen.
-        - Suit the imagery to the book's genre and tone. You decide what to depict, how it is depicted, and
-          what each negative prompt rules out.
+        - Suit the imagery to the book's genre and tone. You decide what to depict and how it is depicted.
         - Character consistency: whenever a character is shown, include their canonical visual description
           word for word and never contradict it. Change clothing only when the scene says so.
-        - Each image's negative prompt lists what that specific image must not contain; the book-wide
-          negative prompt is added automatically. It may be empty.
+        - Never rely on the negative prompt. Each image must come out right from its prompt alone: say what
+          is there instead of what is not ("an empty street at dawn", not "no people"; "a plain grey backdrop",
+          not "no clutter"), and never mention an unwanted element in the prompt, even to exclude it.
+        - Negative prompts: {PromptPlaceholders.NegativePrompts}
         """;
 
     public static readonly string Editor =
@@ -1008,6 +1015,25 @@ public static class PromptTemplates
     // ── Illustrations ─────────────────────────────────────────────────────────
 
     /// <summary>Stand-in for an unset visual style, so the planner still keeps one style across the book.</summary>
+    /// <summary>
+    /// Repeated in every illustration request (not only the overridable system prompt): the image model may
+    /// ignore negative prompts entirely (Z-Image Turbo at CFG 1.0), so nothing may depend on them.
+    /// </summary>
+    public const string NoNegativesRule =
+        """
+        Do not rely on negative prompts — the image model may ignore them entirely. Every prompt must produce
+        the right image on its own: describe what IS there instead of what is not ("an empty street at dawn",
+        not "no people"; "clean-shaven", not "no beard"; "a plain grey backdrop", not "no clutter"), and never
+        mention an unwanted element in a prompt, even to exclude it. A negative prompt is at most an optional
+        extra safeguard and may be left empty.
+        """;
+
+    /// <summary>Resolves <see cref="PromptPlaceholders.NegativePrompts"/> for the configured CFG.</summary>
+    public static string NegativePromptSupport(double cfg) => cfg <= 1.0
+        ? "the image model ignores them at the current settings (CFG 1.0), so they have no effect at all. " +
+          "Leave them empty or keep them minimal; everything must be achieved through the prompt."
+        : "the image model applies them, but only weakly — use them as an optional extra safeguard.";
+
     public const string VisualStyleUnset =
         "not set — choose one that suits the genre and tone";
 
@@ -1048,6 +1074,7 @@ public static class PromptTemplates
                 no pose or background. It is pasted word for word into every image showing this character —
                 including their reference portrait, which uses the same composition for the whole cast — so it
                 must be self-contained and faithful to the character's description).
+            {NoNegativesRule}
             IMPORTANT: Output ONLY the raw JSON array. No markdown fences, no explanation outside the JSON.
             """;
     }
@@ -1067,7 +1094,9 @@ public static class PromptTemplates
             colour palette, general lighting and mood. No subject matter, no characters, no composition),
           "portraitFraming" (string — the composition used for every character's reference portrait, identical
             for the whole cast: framing, pose, camera angle, backdrop and lighting. No appearance, no art style),
-          "negativePrompt" (string — what no image in this book should contain; may be empty).
+          "negativePrompt" (string — an optional extra safeguard listing what no image should contain; the
+            style itself must already keep every image on track without it. May be empty).
+        {NoNegativesRule}
         IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
         """;
 
@@ -1098,10 +1127,11 @@ public static class PromptTemplates
           "anchorText" (string — a short phrase copied exactly, character for character, from that paragraph),
           "caption" (string — a one-line caption in {book.Language}),
           "prompt" (string — the full image prompt),
-          "negativePrompt" (string),
+          "negativePrompt" (string — optional extra safeguard; may be empty),
           "orientation" ("portrait" | "landscape" | "square"),
           "focusCharacter" (string — name of the character the image centres on, or empty),
           "characters" (array of strings — names of every character shown).
+        {NoNegativesRule}
         IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
         """;
 
@@ -1125,10 +1155,11 @@ public static class PromptTemplates
 
         Whether the cover shows the title lettering is your choice; if it does, spell it exactly "{book.Title}".
         Return a JSON object with these exact fields:
-          "prompt" (string), "negativePrompt" (string),
+          "prompt" (string), "negativePrompt" (string — optional extra safeguard; may be empty),
           "orientation" ("portrait" | "landscape" | "square"),
           "focusCharacter" (string — name of the character the cover centres on, or empty),
           "characters" (array of strings — names of every character shown).
+        {NoNegativesRule}
         IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
         """;
 

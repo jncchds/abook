@@ -396,7 +396,7 @@ export default function BookSettings() {
                 <code>{'{SETTING}'}</code> <code>{'{THEMES}'}</code>{' '}
                 <code>{'{TONE}'}</code> <code>{'{WORLD_RULES}'}</code>
                 <br />
-                Illustrator only: <code>{'{VISUAL_STYLE}'}</code> (the visual style from the image generation settings).
+                Illustrator only: <code>{'{VISUAL_STYLE}'}</code> (the book's art direction) and <code>{'{NEGATIVE_PROMPTS}'}</code> (whether negative prompts take effect at the configured CFG).
                 <br />
                 Story Bible placeholders (<code>{'{SETTING}'}</code>, <code>{'{THEMES}'}</code>,{' '}
                 <code>{'{TONE}'}</code>, <code>{'{WORLD_RULES}'}</code>) are available once Phase 1 is complete.
