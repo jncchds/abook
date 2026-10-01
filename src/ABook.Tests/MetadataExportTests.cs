@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using ABook.Api.Services;
 using ABook.Core.Models;
 
@@ -96,16 +97,30 @@ public class MetadataExportTests
                 new Clarification { Source = ClarificationSource.Planner, Question = "Any magic?", IsArchived = true,
                                     CreatedAt = T0.AddMinutes(1), UpdatedAt = T0.AddMinutes(4) },
                 new Clarification { Source = ClarificationSource.Imported, Question = "Old chat question", Answer = "Old answer",
-                                    CreatedAt = T0.AddMinutes(2), AnsweredAt = T0.AddMinutes(2), UpdatedAt = T0.AddMinutes(2) },
+                                    CreatedAt = T0.AddMinutes(2), AnsweredAt = T0.AddMinutes(2).AddSeconds(30), UpdatedAt = T0.AddMinutes(2) },
+            ],
+            // The chat messages the imported clarification was created from (same timestamps).
+            Messages =
+            [
+                new AgentMessage { Id = 1, AgentRole = AgentRole.StoryBibleAgent, MessageType = MessageType.Question,
+                                   Content = "Old chat question", IsResolved = true, CreatedAt = T0.AddMinutes(2) },
+                new AgentMessage { Id = 2, AgentRole = AgentRole.StoryBibleAgent, MessageType = MessageType.Answer,
+                                   Content = "Old answer", IsResolved = true, CreatedAt = T0.AddMinutes(2).AddSeconds(30) },
             ],
         });
 
-        var asked    = Pos(html, "Who narrates?");
-        var answered = Pos(html, "Answered the planner");
-        var skipped  = Pos(html, "Clarification question skipped");
-        Assert.True(asked < answered && answered < skipped);
-        // Imported Q&A is already in the timeline as chat messages — no duplicate creation event.
-        Assert.DoesNotContain("Old chat question", html);
+        // Each question is one entry holding its outcome, in the order the questions were asked.
+        var narrates = Pos(html, "Who narrates?");
+        Assert.True(narrates < Pos(html, "Author answered") && Pos(html, "Author answered") < Pos(html, "His daughter."));
+        Assert.True(Pos(html, "Any magic?") < Pos(html, "Author skipped it"));
+        Assert.True(narrates < Pos(html, "Old chat question"));
+        Assert.DoesNotContain("Answered the planner", html);
+
+        // The imported clarification replaces its chat question and answer instead of repeating them,
+        // and keeps the agent that asked it.
+        Assert.Single(Regex.Matches(html, "Old chat question"));
+        Assert.DoesNotContain("Answered the Story Bible agent", html);
+        Assert.Contains("<span class=\"actor\">Story Bible</span>", html);
     }
 
     [Fact]

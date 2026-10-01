@@ -68,7 +68,8 @@ internal static class MetadataExport
 
         var events = new List<Ev>();
         events.AddRange(BookEvents(book, s.BookSnapshots));
-        events.AddRange(ClarificationEvents(s.Clarifications));
+        var importedFrom = ImportedClarificationMessages(s.Clarifications, s.Messages);
+        events.AddRange(ClarificationEvents(s.Clarifications, importedFrom));
         events.AddRange(BibleEvents(s.Bible, s.BibleSnapshots));
         events.AddRange(SetSnapshotEvents(s.CharacterSnapshots.Select(x => (x.CreatedAt, x.Reason, x.DataJson)),
             "Characters", "character", Deserialize<CharacterCard>, c => c.Name, c => $"{c.Name} · {c.Role}", CharacterFields));
@@ -80,7 +81,9 @@ internal static class MetadataExport
             v => v.CreatedBy, v => v.CreatedAt, v => v.Name, "Plot thread", "agent:PlotThreads", ThreadFields));
         events.AddRange(ChapterEvents(chapters, s.ChapterVersions));
         events.AddRange(IllustrationEvents(s, ChapterLabel));
-        events.AddRange(MessageEvents(s.Messages, ChapterLabel));
+        var coveredMessages = importedFrom.Values
+            .SelectMany(p => new[] { p.Question?.Id, p.Answer?.Id }).OfType<int>().ToHashSet();
+        events.AddRange(MessageEvents(s.Messages.Where(m => !coveredMessages.Contains(m.Id)).ToList(), ChapterLabel));
         events.AddRange(RunEvents(s.Runs, ChapterLabel));
         events.AddRange(UsageEvents(s.TokenUsage, ChapterLabel));
 
@@ -143,38 +146,79 @@ internal static class MetadataExport
     // ── Clarifications ────────────────────────────────────────────────────────
 
     /// <summary>
-    /// The planner's questions and the author's answers, plus later edits and archiving. Phase notes and
-    /// imported Q&amp;A were given in the chat, so their creation is already in the timeline as messages.
-    /// Only the latest wording is stored: an edit shows the text as it is now.
+    /// The chat messages an Imported clarification was created from. The import copied their timestamps
+    /// exactly (question → <c>CreatedAt</c>, answer → <c>AnsweredAt</c>), which is the link used here.
     /// </summary>
-    private static IEnumerable<Ev> ClarificationEvents(IReadOnlyList<Clarification> clarifications)
+    private static Dictionary<Clarification, (AgentMessage? Question, AgentMessage? Answer)> ImportedClarificationMessages(
+        IReadOnlyList<Clarification> clarifications, IReadOnlyList<AgentMessage> messages)
     {
-        var planner = Role(AgentRole.Planner);
+        var questions = messages.Where(m => m.MessageType == MessageType.Question)
+            .GroupBy(m => m.CreatedAt).ToDictionary(g => g.Key, g => g.First());
+        var answers = messages.Where(m => m.MessageType == MessageType.Answer)
+            .GroupBy(m => m.CreatedAt).ToDictionary(g => g.Key, g => g.First());
+        return clarifications.Where(c => c.Source == ClarificationSource.Imported).ToDictionary(c => c,
+            c => (questions.GetValueOrDefault(c.CreatedAt),
+                  c.AnsweredAt is DateTime at ? answers.GetValueOrDefault(at) : null));
+    }
+
+    /// <summary>
+    /// One entry per clarification, at the time it was raised, telling its whole story: the question, how the
+    /// author answered (or skipped) it, and whether it was later edited or archived. Imported clarifications
+    /// stand in for the chat question and answer they came from (those messages are left out of the timeline).
+    /// Phase notes are already in the timeline as their chat messages, so only their later edits and archiving
+    /// get entries here. Only the latest wording is stored: an edit shows the text as it is now.
+    /// </summary>
+    private static IEnumerable<Ev> ClarificationEvents(
+        IReadOnlyList<Clarification> clarifications,
+        IReadOnlyDictionary<Clarification, (AgentMessage? Question, AgentMessage? Answer)> importedFrom)
+    {
         foreach (var c in clarifications.OrderBy(c => c.CreatedAt))
         {
-            var qa = ClarificationQa(c);
+            var settled = c.AnsweredAt ?? c.CreatedAt;
+            var edited = !c.IsArchived && c.UpdatedAt > settled.AddSeconds(1);
+            var aftermath = (c.IsArchived && c.AnsweredAt is not null ? Reply($"{Author} archived it", c.CreatedAt, c.UpdatedAt) : "")
+                + (edited ? Reply("Edited later — shown as it reads now", c.CreatedAt, c.UpdatedAt) : "");
+
             switch (c.Source)
             {
                 case ClarificationSource.Planner:
-                    yield return new Ev(c.CreatedAt, Cat.Conversation, planner,
-                        c.AnsweredAt is null && !c.IsArchived ? "Asked the author — unanswered" : "Asked the author", Text(c.Question));
-                    if (c.AnsweredAt is DateTime answeredAt)
-                        yield return new Ev(answeredAt, Cat.Conversation, Author, "Answered the planner", qa);
+                case ClarificationSource.Imported:
+                {
+                    var outcome = c.AnsweredAt is DateTime answeredAt
+                        ? Reply($"{Author} answered", c.CreatedAt, answeredAt) + Field("Answer", c.Answer)
+                        : c.IsArchived
+                            ? Reply($"{Author} skipped it", c.CreatedAt, c.UpdatedAt)
+                            : "<p class=\"note\">Not answered yet.</p>";
+                    // An imported question may have come from a planning phase agent rather than the planner.
+                    var asker = importedFrom.TryGetValue(c, out var source) && source.Question is { } q ? q.AgentRole : AgentRole.Planner;
+                    yield return new Ev(c.CreatedAt, Cat.Conversation, Role(asker), "Asked a question",
+                        Field("Question", c.Question) + outcome + aftermath);
                     break;
+                }
                 case ClarificationSource.Author:
-                    yield return new Ev(c.CreatedAt, Cat.Planning, Author, "Clarification added", qa);
+                    yield return new Ev(c.CreatedAt, Cat.Planning, Author, "Added a clarification",
+                        ClarificationQa(c) + aftermath);
+                    break;
+                default:
+                    if (c.IsArchived)
+                        yield return new Ev(c.UpdatedAt, Cat.Planning, Author, "Archived a clarification", ClarificationQa(c));
+                    else if (edited)
+                        yield return new Ev(c.UpdatedAt, Cat.Planning, Author, "Edited a clarification",
+                            ClarificationQa(c) + "<p class=\"note\">Shown as it reads now.</p>");
                     break;
             }
-
-            var settled = c.AnsweredAt ?? c.CreatedAt;
-            if (c.IsArchived)
-                yield return new Ev(c.UpdatedAt, Cat.Planning, Author,
-                    c.AnsweredAt is null ? "Clarification question skipped" : "Clarification archived", Text(c.Question));
-            else if (c.UpdatedAt > settled.AddSeconds(1))
-                yield return new Ev(c.UpdatedAt, Cat.Planning, Author, "Clarification edited",
-                    qa + "<p class=\"note\">Shown as it reads now.</p>");
         }
     }
+
+    /// <summary>A labelled value with the label above it.</summary>
+    private static string Field(string label, string? value) => Fields([(label, value)], stacked: true);
+
+    /// <summary>
+    /// A later step inside an entry ("Author answered · 14:34:58"); the date is added when it is not the
+    /// day the entry is filed under.
+    /// </summary>
+    private static string Reply(string what, DateTime entryAt, DateTime at) =>
+        $"<p class=\"reply\">{Esc(what)} · <time>{(at.Date == entryAt.Date ? $"{at:HH:mm:ss}" : $"{at:yyyy-MM-dd HH:mm}")}</time></p>";
 
     /// <summary>A clarification as question then answer, each label above its text rather than beside it.</summary>
     private static string ClarificationQa(Clarification c) =>
@@ -757,6 +801,8 @@ internal static class MetadataExport
     .prop-list dd { white-space: pre-wrap; word-break: break-word; }
     .prop-list.stacked { display: block; margin-bottom: 10px; }
     .prop-list.stacked dd { margin: 0 0 6px; }
+    .reply { font-weight: 600; font-size: 0.9em; margin: 8px 0 2px; }
+    .reply time { font-weight: 400; opacity: 0.6; }
     .diff del { display: block; opacity: 0.5; }
     .diff ins { display: block; text-decoration: none; }
     .tables { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px; margin: 20px 0; }
