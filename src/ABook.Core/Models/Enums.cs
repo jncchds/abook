@@ -20,6 +20,8 @@ public enum IllustrationOrientation { Portrait, Landscape, Square }
 
 public enum IllustrationStatus { Planned, Rendered, Failed }
 
+public enum VisualAssetKind { Object, Outfit, Location, Creature, Vehicle, Other }
+
 public enum CharacterRole { Protagonist, Antagonist, Supporting, Minor }
 
 public enum PlotThreadType { MainPlot, Subplot, CharacterArc, Mystery, Foreshadowing, WorldBuilding, ThematicThread }

@@ -86,6 +86,10 @@ export default function ImageGenSettingsFields({ value, onChange, llmProvider }:
         />
         <span className="hint">The illustrator writes this style into every prompt. Leave blank to let it choose one that suits the genre.</span>
       </label>
+      <label>
+        Illustrations per chapter{num('imagesPerChapter', IMAGE_DEFAULTS.imagesPerChapter)}
+        <span className="hint">The number the illustrator aims for in each chapter. It plans more when a chapter genuinely needs them, fewer when there is little worth illustrating.</span>
+      </label>
       <ToggleField
         checked={!!value.unloadLlmBeforeRender}
         onChange={v => onChange({ unloadLlmBeforeRender: v })}

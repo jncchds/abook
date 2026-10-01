@@ -40,11 +40,12 @@ export const IMAGE_DEFAULTS = {
   landscapeWidth: 1152,
   landscapeHeight: 768,
   timeoutMs: 300000,
+  imagesPerChapter: 2,
 } as const
 
 export type ImageSettings = Pick<import('../api').LlmSettings,
   'imageProvider' | 'imageEndpoint' | 'imageSteps' | 'imageCfg' | 'imagePortraitWidth' | 'imagePortraitHeight'
-  | 'imageLandscapeWidth' | 'imageLandscapeHeight' | 'imageTimeoutMs' | 'imageVisualStyle' | 'unloadLlmBeforeRender'>
+  | 'imageLandscapeWidth' | 'imageLandscapeHeight' | 'imageTimeoutMs' | 'imageVisualStyle' | 'imagesPerChapter' | 'unloadLlmBeforeRender'>
 
 /** The image-generation fields of a configuration or preset, so applying/saving a preset carries them along. */
 export function pickImageSettings(s: ImageSettings): ImageSettings {
@@ -59,6 +60,7 @@ export function pickImageSettings(s: ImageSettings): ImageSettings {
     imageLandscapeHeight: s.imageLandscapeHeight ?? undefined,
     imageTimeoutMs: s.imageTimeoutMs ?? undefined,
     imageVisualStyle: s.imageVisualStyle ?? undefined,
+    imagesPerChapter: s.imagesPerChapter ?? undefined,
     unloadLlmBeforeRender: s.unloadLlmBeforeRender ?? false,
   }
 }

@@ -18,6 +18,11 @@ public interface IImageGenSettings
     int? ImageTimeoutMs { get; }
     /// <summary>Free-text art direction handed to the illustration planner, which writes it into every prompt.</summary>
     string? ImageVisualStyle { get; }
+    /// <summary>
+    /// How many illustrations the planner aims for in a chapter. It may plan more when a chapter genuinely
+    /// needs them, or fewer when there is little worth illustrating.
+    /// </summary>
+    int? ImagesPerChapter { get; }
     /// <summary>Ask Ollama to unload the text model before a render run, freeing VRAM for the image model.</summary>
     bool UnloadLlmBeforeRender { get; }
 }
@@ -35,6 +40,7 @@ public interface IEditableImageGenSettings : IImageGenSettings
     new int? ImageLandscapeHeight { get; set; }
     new int? ImageTimeoutMs { get; set; }
     new string? ImageVisualStyle { get; set; }
+    new int? ImagesPerChapter { get; set; }
     new bool UnloadLlmBeforeRender { get; set; }
 }
 
@@ -48,11 +54,16 @@ public static class ImageGenDefaults
     public const int LandscapeWidth = 1152;
     public const int LandscapeHeight = 768;
     public const int TimeoutMs = 300_000;
+    public const int ImagesPerChapter = 2;
 }
 
 public static class ImageGenSettingsExtensions
 {
     public static bool HasImageGeneration(this IImageGenSettings s) => !string.IsNullOrWhiteSpace(s.ImageEndpoint);
+
+    /// <summary>The configured base number of illustrations per chapter, or the default.</summary>
+    public static int ImagesPerChapterOrDefault(this IImageGenSettings? s) =>
+        s?.ImagesPerChapter is > 0 ? s.ImagesPerChapter.Value : ImageGenDefaults.ImagesPerChapter;
 
     public static void CopyImageSettingsFrom(this IEditableImageGenSettings target, IImageGenSettings source)
     {
@@ -66,6 +77,7 @@ public static class ImageGenSettingsExtensions
         target.ImageLandscapeHeight = source.ImageLandscapeHeight;
         target.ImageTimeoutMs = source.ImageTimeoutMs;
         target.ImageVisualStyle = source.ImageVisualStyle;
+        target.ImagesPerChapter = source.ImagesPerChapter is > 0 ? source.ImagesPerChapter : null;
         target.UnloadLlmBeforeRender = source.UnloadLlmBeforeRender;
     }
 

@@ -69,10 +69,15 @@ public class BookExportService
         var images = (await _repo.GetBookImagesAsync(book.Id, illustrations.Select(i => i.ImageId!.Value)))
             .ToDictionary(i => i.Id);
 
-        ExportImage? Image(Illustration i, int paragraphIndex) =>
-            images.TryGetValue(i.ImageId!.Value, out var img)
-                ? new ExportImage($"img-{i.Id}", i.Caption, img.Data, img.ContentType, paragraphIndex)
-                : null;
+        // Compressed once per image, however many places it appears in.
+        var compressed = new Dictionary<int, (byte[] Data, string ContentType)>();
+        ExportImage? Image(Illustration i, int paragraphIndex)
+        {
+            if (!images.TryGetValue(i.ImageId!.Value, out var img)) return null;
+            if (!compressed.TryGetValue(img.Id, out var c))
+                compressed[img.Id] = c = ExportImageCompressor.Compress(img.Data, img.ContentType);
+            return new ExportImage($"img-{i.Id}", i.Caption, c.Data, c.ContentType, paragraphIndex);
+        }
 
         var scenes = new List<(int ChapterId, ExportImage Image)>();
         foreach (var i in illustrations.Where(i => i.Kind == IllustrationKind.Scene))

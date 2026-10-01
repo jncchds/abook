@@ -1,3 +1,4 @@
+using ABook.Agents;
 using ABook.Api.Services;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
@@ -65,6 +66,46 @@ public class IllustrationMcpTools : McpToolBase
         await _repo.UpdateIllustrationAsync(ill);
         await _notifier.NotifyIllustrationsUpdatedAsync(bookId, ill.Id);
         return JsonSerializer.Serialize(IllustrationViews.ToDto(ill, null), JsonOptions);
+    }
+
+    [McpServerTool(Name = "list_visual_assets", ReadOnly = true)]
+    [Description("List a book's recurring visual assets — props, outfits (including each character's usual outfit), places, creatures and vehicles — with the canonical description the illustration planner repeats word for word in every prompt that shows them, which keeps them identical from image to image.")]
+    public async Task<string> ListVisualAssets([Description("The book ID.")] int bookId)
+    {
+        await EnsureBookOwnershipAsync(bookId, _repo);
+        return JsonSerializer.Serialize(await _repo.GetVisualAssetsAsync(bookId), JsonOptions);
+    }
+
+    [McpServerTool(Name = "update_visual_asset")]
+    [Description("Edit a recurring visual asset. A new description replaces the old wording in every illustration prompt that quotes it and marks those illustrations for re-rendering. Only provide fields you want to change.")]
+    public async Task<string> UpdateVisualAsset(
+        [Description("The book ID.")] int bookId,
+        [Description("The asset ID (from list_visual_assets).")] int assetId,
+        [Description("New canonical description (English prose; outfits start with 'wearing').")] string? description = null,
+        [Description("New name, unique within the book.")] string? name = null,
+        [Description("New kind: Object, Outfit, Location, Creature, Vehicle or Other.")] string? kind = null)
+    {
+        await EnsureBookOwnershipAsync(bookId, _repo);
+        var asset = await _repo.GetVisualAssetAsync(bookId, assetId)
+            ?? throw new McpException($"Visual asset {assetId} not found.");
+        if (!string.IsNullOrWhiteSpace(name) && name.Trim() != asset.Name)
+        {
+            if ((await _repo.GetVisualAssetsAsync(bookId)).Any(a => a.Id != assetId && string.Equals(a.Name, name.Trim(), StringComparison.OrdinalIgnoreCase)))
+                throw new McpException($"There is already an asset named \"{name.Trim()}\".");
+            asset.Name = name.Trim();
+        }
+        if (kind is not null)
+        {
+            if (!Enum.TryParse<VisualAssetKind>(kind, true, out var k))
+                throw new McpException("Kind must be Object, Outfit, Location, Creature, Vehicle or Other.");
+            asset.Kind = k;
+        }
+        var updated = description is not null
+            ? await IllustrationPlannerAgent.SetVisualAssetAsync(_repo, asset, description)
+            : 0;
+        if (description is null) await _repo.UpdateVisualAssetAsync(asset);
+        await _notifier.NotifyIllustrationsUpdatedAsync(bookId, null);
+        return JsonSerializer.Serialize(new { asset, updatedIllustrations = updated }, JsonOptions);
     }
 
     [McpServerTool(Name = "plan_illustrations")]

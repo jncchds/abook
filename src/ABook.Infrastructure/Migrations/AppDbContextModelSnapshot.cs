@@ -864,6 +864,9 @@ namespace ABook.Infrastructure.Migrations
                     b.Property<string>("ImageVisualStyle")
                         .HasColumnType("text");
 
+                    b.Property<int?>("ImagesPerChapter")
+                        .HasColumnType("integer");
+
                     b.Property<int?>("MaxTokens")
                         .HasColumnType("integer");
 
@@ -955,6 +958,9 @@ namespace ABook.Infrastructure.Migrations
 
                     b.Property<string>("ImageVisualStyle")
                         .HasColumnType("text");
+
+                    b.Property<int?>("ImagesPerChapter")
+                        .HasColumnType("integer");
 
                     b.Property<int?>("MaxTokens")
                         .HasColumnType("integer");
@@ -1301,6 +1307,53 @@ namespace ABook.Infrastructure.Migrations
                     b.ToTable("TokenUsageRecords");
                 });
 
+            modelBuilder.Entity("ABook.Core.Models.VisualAsset", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BookId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("CharacterCardId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("FirstChapterNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CharacterCardId");
+
+                    b.HasIndex("BookId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("VisualAssets");
+                });
+
             modelBuilder.Entity("ABook.Infrastructure.VectorStore.ChapterEmbedding", b =>
                 {
                     b.Property<int>("Id")
@@ -1566,6 +1619,22 @@ namespace ABook.Infrastructure.Migrations
                     b.Navigation("Book");
 
                     b.Navigation("Chapter");
+                });
+
+            modelBuilder.Entity("ABook.Core.Models.VisualAsset", b =>
+                {
+                    b.HasOne("ABook.Core.Models.Book", "Book")
+                        .WithMany()
+                        .HasForeignKey("BookId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ABook.Core.Models.CharacterCard", null)
+                        .WithMany()
+                        .HasForeignKey("CharacterCardId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Book");
                 });
 
             modelBuilder.Entity("ABook.Core.Models.AppUser", b =>

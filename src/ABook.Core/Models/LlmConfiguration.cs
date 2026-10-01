@@ -41,6 +41,7 @@ public class LlmConfiguration : IEditableImageGenSettings
     public int? ImageLandscapeHeight { get; set; }
     public int? ImageTimeoutMs { get; set; }
     public string? ImageVisualStyle { get; set; }
+    public int? ImagesPerChapter { get; set; }
     public bool UnloadLlmBeforeRender { get; set; }
 
     [JsonIgnore] public Book? Book { get; set; }

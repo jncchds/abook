@@ -88,7 +88,8 @@ public class UserMcpTools : McpToolBase
         [Description("Visual style the illustration planner writes into every image prompt (e.g. 'moody watercolour, muted palette'). Null keeps the current value.")] string? imageVisualStyle = null,
         [Description("Image sampling steps (Z-Image Turbo: 8). Null keeps the current value.")] int? imageSteps = null,
         [Description("Image CFG scale (Z-Image Turbo: 1.0; negative prompts only take effect above 1). Null keeps the current value.")] double? imageCfg = null,
-        [Description("Unload the Ollama model before rendering images, to free VRAM. Null keeps the current value.")] bool? unloadLlmBeforeRender = null)
+        [Description("Unload the Ollama model before rendering images, to free VRAM. Null keeps the current value.")] bool? unloadLlmBeforeRender = null,
+        [Description("Base number of illustrations planned per chapter (default 2); the planner may go over it when a chapter needs more. 0 resets to the default; null keeps the current value.")] int? imagesPerChapter = null)
     {
         if (!Enum.TryParse<LlmProvider>(provider, ignoreCase: true, out var providerEnum))
             throw new McpException($"Unknown provider '{provider}'. Valid values: Ollama, OpenAI, GoogleAIStudio.");
@@ -110,6 +111,7 @@ public class UserMcpTools : McpToolBase
         if (imageSteps.HasValue) config.ImageSteps = imageSteps;
         if (imageCfg.HasValue) config.ImageCfg = imageCfg;
         if (unloadLlmBeforeRender.HasValue) config.UnloadLlmBeforeRender = unloadLlmBeforeRender.Value;
+        if (imagesPerChapter.HasValue) config.ImagesPerChapter = imagesPerChapter > 0 ? imagesPerChapter : null;
         await _repo.UpsertLlmConfigAsync(config);
         return JsonSerializer.Serialize(new
         {
@@ -129,6 +131,7 @@ public class UserMcpTools : McpToolBase
             steps = s.ImageSteps,
             cfg = s.ImageCfg,
             visualStyle = s.ImageVisualStyle,
+            imagesPerChapter = s.ImagesPerChapterOrDefault(),
             s.UnloadLlmBeforeRender,
         }
         : null;

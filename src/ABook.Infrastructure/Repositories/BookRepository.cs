@@ -674,6 +674,32 @@ public class BookRepository : IBookRepository
         return touched;
     }
 
+    // ── Visual assets ─────────────────────────────────────────────────────────
+
+    public async Task<IReadOnlyList<VisualAsset>> GetVisualAssetsAsync(int bookId) =>
+        await _db.VisualAssets.Where(a => a.BookId == bookId).OrderBy(a => a.Kind).ThenBy(a => a.Name).ToListAsync();
+
+    public async Task<VisualAsset?> GetVisualAssetAsync(int bookId, int assetId) =>
+        await _db.VisualAssets.FirstOrDefaultAsync(a => a.BookId == bookId && a.Id == assetId);
+
+    public async Task<VisualAsset> AddVisualAssetAsync(VisualAsset asset)
+    {
+        asset.CreatedAt = asset.UpdatedAt = DateTime.UtcNow;
+        _db.VisualAssets.Add(asset);
+        await _db.SaveChangesAsync();
+        return asset;
+    }
+
+    public async Task UpdateVisualAssetAsync(VisualAsset asset)
+    {
+        asset.UpdatedAt = DateTime.UtcNow;
+        _db.VisualAssets.Update(asset);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task DeleteVisualAssetAsync(int bookId, int assetId) =>
+        await _db.VisualAssets.Where(a => a.BookId == bookId && a.Id == assetId).ExecuteDeleteAsync();
+
     // ── Illustrations ─────────────────────────────────────────────────────────
 
     public async Task<IReadOnlyList<Illustration>> GetIllustrationsAsync(int bookId, int? chapterId = null, IllustrationKind? kind = null)

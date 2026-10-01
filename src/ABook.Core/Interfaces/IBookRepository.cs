@@ -140,6 +140,13 @@ public interface IBookRepository
     Task<BookImage?> GetBookImageAsync(int bookId, int imageId);
     Task<IReadOnlyList<BookImage>> GetBookImagesAsync(int bookId, IEnumerable<int> imageIds);
 
+    // Visual assets (recurring props, outfits, places … shared by the illustrations)
+    Task<IReadOnlyList<VisualAsset>> GetVisualAssetsAsync(int bookId);
+    Task<VisualAsset?> GetVisualAssetAsync(int bookId, int assetId);
+    Task<VisualAsset> AddVisualAssetAsync(VisualAsset asset);
+    Task UpdateVisualAssetAsync(VisualAsset asset);
+    Task DeleteVisualAssetAsync(int bookId, int assetId);
+
     // Agent Runs (durable run state for restart resilience)
     Task<AgentRun> CreateRunAsync(AgentRun run);
     Task<AgentRun?> GetRunByIdAsync(Guid runId);

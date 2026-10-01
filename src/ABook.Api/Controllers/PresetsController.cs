@@ -109,4 +109,5 @@ public record PresetRequest(
     int? ImageLandscapeHeight = null,
     int? ImageTimeoutMs = null,
     string? ImageVisualStyle = null,
+    int? ImagesPerChapter = null,
     bool UnloadLlmBeforeRender = false) : IImageGenSettings;

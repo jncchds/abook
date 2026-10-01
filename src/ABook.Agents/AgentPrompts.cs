@@ -183,7 +183,10 @@ public static class DefaultPrompts
           plot references — describe only what is seen.
         - Suit the imagery to the book's genre and tone. You decide what to depict and how it is depicted.
         - Character consistency: whenever a character is shown, include their canonical visual description
-          word for word and never contradict it. Change clothing only when the scene says so.
+          word for word and never contradict it. Dress them in their usual outfit; change clothing only when
+          the story says so, and then use the same registered outfit in every image where they wear it.
+        - Object and place consistency: every recurring prop, outfit, place, creature or vehicle has one
+          canonical description — repeat it word for word in every image that shows it.
         - Never rely on the negative prompt. Each image must come out right from its prompt alone: say what
           is there instead of what is not ("an empty street at dawn", not "no people"; "a plain grey backdrop",
           not "no clutter"), and never mention an unwanted element in the prompt, even to exclude it.
@@ -1028,6 +1031,26 @@ public static class PromptTemplates
         extra safeguard and may be left empty.
         """;
 
+    /// <summary>
+    /// Repeated in every scene and cover request: the image model takes no reference images, so the only
+    /// thing keeping a prop, an outfit or a place identical between images is identical wording.
+    /// </summary>
+    public const string VisualContinuityRule =
+        """
+        Visual continuity — anything that can appear in more than one image must look exactly the same every time:
+        - In "assets", list every recurring prop, outfit, place, creature or vehicle the image shows. For one
+          already registered, copy its name and description exactly. For a new one, give it a short unique name
+          and write its canonical description: concrete English prose of shape, size, materials, colours,
+          markings and condition — no art style, no action, no surroundings. Outfit descriptions start with
+          "wearing". From then on that description is the asset's only wording.
+        - Paste the description of every listed asset word for word into the prompt.
+        - Clothing: a character wears their usual outfit unless the text says otherwise. When they wear
+          something else, use (or register) an "outfit" asset named after them, e.g. "Mara — wedding gown",
+          paste it in place of their usual outfit, and keep it on in every image of that stretch of the story.
+        - Keep places continuous: an image set somewhere already shown reuses that place's asset — the same
+          layout, furniture and light sources.
+        """;
+
     /// <summary>Resolves <see cref="PromptPlaceholders.NegativePrompts"/> for the configured CFG.</summary>
     public static string NegativePromptSupport(double cfg) => cfg <= 1.0
         ? "the image model ignores them at the current settings (CFG 1.0), so they have no effect at all. " +
@@ -1037,14 +1060,37 @@ public static class PromptTemplates
     public const string VisualStyleUnset =
         "not set — choose one that suits the genre and tone";
 
-    /// <summary>The canonical appearance of each character, as the illustrator must repeat it.</summary>
-    public static string CharacterVisuals(IEnumerable<CharacterCard> characters)
+    /// <summary>
+    /// The canonical appearance of each character, as the illustrator must repeat it, followed by the name
+    /// of their usual-outfit asset (when they have one).
+    /// </summary>
+    public static string CharacterVisuals(IEnumerable<CharacterCard> characters, IEnumerable<VisualAsset>? assets = null)
     {
+        var outfits = (assets ?? []).Where(a => a.CharacterCardId.HasValue)
+            .GroupBy(a => a.CharacterCardId!.Value).ToDictionary(g => g.Key, g => g.First());
         var lines = characters
             .Where(c => !string.IsNullOrWhiteSpace(c.VisualPrompt))
-            .Select(c => $"- {c.Name}: {c.VisualPrompt.Trim()}")
+            .Select(c => $"- {c.Name}: {c.VisualPrompt.Trim()}"
+                + (outfits.TryGetValue(c.Id, out var o) ? $" (usual outfit: asset \"{o.Name}\")" : ""))
             .ToList();
         return lines.Count == 0 ? "(no character visuals yet)" : string.Join("\n", lines);
+    }
+
+    /// <summary>The book's registered visual assets, each with the description the illustrator must repeat.</summary>
+    public static string VisualAssets(IEnumerable<VisualAsset> assets)
+    {
+        var lines = assets
+            .Where(a => !string.IsNullOrWhiteSpace(a.Description))
+            .Select(a => $"- \"{a.Name}\" ({a.Kind.ToString().ToLowerInvariant()}): {a.Description.Trim()}")
+            .ToList();
+        return lines.Count == 0 ? "(none yet)" : string.Join("\n", lines);
+    }
+
+    /// <summary>Full prompts of the illustrations just before a chapter, so outfits and places carry over.</summary>
+    public static string PreviousIllustrations(IEnumerable<(int ChapterNumber, string Prompt)> illustrations)
+    {
+        var lines = illustrations.Select(i => $"- Chapter {i.ChapterNumber}: {i.Prompt.Trim()}").ToList();
+        return lines.Count == 0 ? "(none)" : string.Join("\n", lines);
     }
 
     public static string CharacterVisualsUser(Book book, IEnumerable<CharacterCard> characters, string otherVisuals)
@@ -1069,11 +1115,14 @@ public static class PromptTemplates
 
             Return a JSON array with one object per character above, each with these exact fields:
               "name" (string — exactly as given above),
-              "visualPrompt" (string — English prose describing only how the character looks: apparent age,
-                build, skin, face, hair, eyes, distinguishing features and usual clothing. No name, no art style,
-                no pose or background. It is pasted word for word into every image showing this character —
-                including their reference portrait, which uses the same composition for the whole cast — so it
-                must be self-contained and faithful to the character's description).
+              "visualPrompt" (string — English prose describing only the character's body: apparent age,
+                build, skin, face, hair, eyes and permanent distinguishing features. No clothing, no name, no art
+                style, no pose or background. It is pasted word for word into every image showing this
+                character — including their reference portrait, which uses the same composition for the whole
+                cast — so it must be self-contained and faithful to the character's description),
+              "usualOutfit" (string — English prose starting with "wearing", describing only the clothes,
+                footwear and accessories the character usually wears: garments, cut, materials, colours and
+                details. It becomes their outfit in every image unless the story dresses them differently).
             {NoNegativesRule}
             IMPORTANT: Output ONLY the raw JSON array. No markdown fences, no explanation outside the JSON.
             """;
@@ -1105,16 +1154,27 @@ public static class PromptTemplates
         string.Join("\n\n", paragraphs.Select((p, i) => $"[{i + 1}] {p}"));
 
     public static string ChapterIllustrationsUser(
-        Book book, Chapter chapter, IReadOnlyList<string> paragraphs, string characterVisuals, string otherIllustrations) =>
+        Book book, Chapter chapter, IReadOnlyList<string> paragraphs, string characterVisuals, string otherIllustrations,
+        int imagesPerChapter = ImageGenDefaults.ImagesPerChapter, string visualAssets = "(none yet)",
+        string previousIllustrations = "(none)") =>
         $"""
         Plan the illustrations for Chapter {chapter.Number}: "{chapter.Title}" of "{book.Title}".
-        Plan one or two illustrations for this chapter, choosing its most striking, pivotal moments.
-        Plan more only when the chapter genuinely needs them — for example several distinct turning points
-        that one or two images cannot carry. Plan none if nothing in the chapter is worth illustrating.
+        Plan {imagesPerChapter} illustration{(imagesPerChapter == 1 ? "" : "s")} for this chapter, choosing its most striking, pivotal moments.
+        That number is a guide, not a hard limit: plan more when the chapter genuinely needs them — for example
+        several distinct turning points that {imagesPerChapter} image{(imagesPerChapter == 1 ? "" : "s")} cannot carry — and fewer, or none, when the
+        chapter has less worth illustrating.
         Each image is placed right after the paragraph it illustrates.
 
         Characters' canonical visual descriptions (copy word for word into any prompt that shows them):
         {characterVisuals}
+
+        Registered visual assets — recurring props, outfits, places, creatures and vehicles (copy name and
+        description word for word whenever an image shows one):
+        {visualAssets}
+
+        The most recent illustrations before this chapter (keep outfits, objects and places continuous with them
+        unless the story has changed them):
+        {previousIllustrations}
 
         Illustrations already planned for other chapters (avoid repeating the same image):
         {otherIllustrations}
@@ -1122,15 +1182,18 @@ public static class PromptTemplates
         Chapter text, paragraphs numbered [N]:
         {NumberParagraphs(paragraphs)}
 
-        Return a JSON object {"{"}"illustrations": [...]{"}"} where each element has these exact fields:
+        Return a JSON object {"{"}"illustrations": [...]{"}"} where each element has these exact fields, in this order:
           "paragraphNumber" (integer — the [N] of the paragraph the image follows),
           "anchorText" (string — a short phrase copied exactly, character for character, from that paragraph),
           "caption" (string — a one-line caption in {book.Language}),
+          "characters" (array of strings — names of every character shown),
+          "focusCharacter" (string — name of the character the image centres on, or empty),
+          "assets" (array of objects {"{"}"name", "kind", "description"{"}"} — every recurring asset shown;
+            kind is one of "object", "outfit", "location", "creature", "vehicle", "other"),
           "prompt" (string — the full image prompt),
           "negativePrompt" (string — optional extra safeguard; may be empty),
-          "orientation" ("portrait" | "landscape" | "square"),
-          "focusCharacter" (string — name of the character the image centres on, or empty),
-          "characters" (array of strings — names of every character shown).
+          "orientation" ("portrait" | "landscape" | "square").
+        {VisualContinuityRule}
         {NoNegativesRule}
         IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
         """;
@@ -1141,7 +1204,8 @@ public static class PromptTemplates
         return lines.Count == 0 ? "(none)" : string.Join("\n", lines);
     }
 
-    public static string CoverUser(Book book, StoryBible? bible, string synopses, string characterVisuals) =>
+    public static string CoverUser(Book book, StoryBible? bible, string synopses, string characterVisuals,
+        string visualAssets = "(none yet)") =>
         $"""
         Design the cover illustration of "{book.Title}" ({book.Genre}).
         Premise: {book.Premise}
@@ -1153,12 +1217,19 @@ public static class PromptTemplates
         Characters' canonical visual descriptions (copy word for word into the prompt for anyone shown):
         {characterVisuals}
 
+        Registered visual assets — recurring props, outfits, places, creatures and vehicles (copy name and
+        description word for word whenever the cover shows one):
+        {visualAssets}
+
         Whether the cover shows the title lettering is your choice; if it does, spell it exactly "{book.Title}".
-        Return a JSON object with these exact fields:
-          "prompt" (string), "negativePrompt" (string — optional extra safeguard; may be empty),
-          "orientation" ("portrait" | "landscape" | "square"),
+        Return a JSON object with these exact fields, in this order:
+          "characters" (array of strings — names of every character shown),
           "focusCharacter" (string — name of the character the cover centres on, or empty),
-          "characters" (array of strings — names of every character shown).
+          "assets" (array of objects {"{"}"name", "kind", "description"{"}"} — every recurring asset shown;
+            kind is one of "object", "outfit", "location", "creature", "vehicle", "other"),
+          "prompt" (string), "negativePrompt" (string — optional extra safeguard; may be empty),
+          "orientation" ("portrait" | "landscape" | "square").
+        {VisualContinuityRule}
         {NoNegativesRule}
         IMPORTANT: Output ONLY the raw JSON object. No markdown fences, no explanation outside the JSON.
         """;

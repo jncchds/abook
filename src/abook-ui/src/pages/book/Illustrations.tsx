@@ -5,6 +5,7 @@ import { getLlmConfig, updateBook } from '../../api'
 import type { Illustration, LlmConfig } from '../../api'
 import IllustrationFigure from '../../components/IllustrationFigure'
 import ArtDirectionCard from '../../components/ArtDirectionCard'
+import VisualAssetsCard from '../../components/VisualAssetsCard'
 
 /**
  * Review and render the book's illustrations. Planning (LLM) happens during the workflow or from the
@@ -168,9 +169,12 @@ export default function Illustrations() {
         )}
       </section>
 
-      {/* 3. Chapters — in reading order. */}
+      {/* 3. Recurring assets — outfits, props and places kept identical across images. */}
+      <VisualAssetsCard bookId={bookId} editable={canEdit} refreshKey={illustrations} onChanged={refreshIllustrations} />
+
+      {/* 4. Chapters — in reading order. */}
       <section className="illustrations-section">
-        <div className="illustrations-section-header"><h3>3 · Chapters</h3></div>
+        <div className="illustrations-section-header"><h3>4 · Chapters</h3></div>
         {!hasText && <p className="empty">No chapter has been written yet.</p>}
         {chapters.map(ch => {
           const scenes = illustrations
@@ -205,10 +209,10 @@ export default function Illustrations() {
         })}
       </section>
 
-      {/* 4. Cover — planned once the whole book is written. */}
+      {/* 5. Cover — planned once the whole book is written. */}
       <section className="illustrations-section">
         <div className="illustrations-section-header">
-          <h3>4 · Cover</h3>
+          <h3>5 · Cover</h3>
           <div className="illustrations-section-actions">
             <button className="btn-sm btn-secondary" disabled={isRunning || !hasText}
               onClick={() => {

@@ -9,9 +9,10 @@ using Microsoft.Extensions.Logging;
 namespace ABook.Agents;
 
 /// <summary>
-/// Writes the illustration plan with the text model: each character's canonical visual description and
-/// reference-portrait prompt, the scenes of a chapter (prompt, negative prompt and the paragraph each
-/// follows) and the cover. Nothing is rendered here — <see cref="IllustrationRenderer"/> does that in a
+/// Writes the illustration plan with the text model: each character's canonical visual description, usual
+/// outfit and reference-portrait prompt, the scenes of a chapter (prompt, negative prompt and the paragraph
+/// each follows), the cover, and the registry of recurring visual assets (props, outfits, places …) whose
+/// canonical descriptions every prompt repeats word for word. Nothing is rendered here — <see cref="IllustrationRenderer"/> does that in a
 /// separate, LLM-free run so the text model can be unloaded to free VRAM for the image model.
 /// </summary>
 public class IllustrationPlannerAgent : AgentBase
@@ -67,14 +68,16 @@ public class IllustrationPlannerAgent : AgentBase
         catch (Exception ex) { parseError = ex; }
 
         var byName = stale.ToDictionary(c => c.Name, StringComparer.OrdinalIgnoreCase);
+        var assets = (await Repo.GetVisualAssetsAsync(bookId)).ToList();
         var saved = 0;
         foreach (var v in visuals)
         {
             if (!byName.TryGetValue(v.Name, out var card)) continue;
             // Scenes already planned quote the old wording; carry the new one into them.
             await SetCharacterVisualAsync(Repo, card, v.VisualPrompt);
+            var outfit = await SetUsualOutfitAsync(Repo, card, v.UsualOutfit, assets);
 
-            var portraitPrompt = PortraitPrompt(book.IllustrationPortraitFraming, card.VisualPrompt);
+            var portraitPrompt = PortraitPrompt(book.IllustrationPortraitFraming, card.VisualPrompt, outfit?.Description);
             if (portraits.TryGetValue(card.Id, out var portrait))
             {
                 portrait.Prompt = portraitPrompt;
@@ -171,6 +174,7 @@ public class IllustrationPlannerAgent : AgentBase
         await repo.UpdateAsync(book);
 
         var cards = (await repo.GetAllCharacterCardsAsync(book.Id)).ToDictionary(c => c.Id);
+        var outfits = UsualOutfits(await repo.GetVisualAssetsAsync(book.Id));
         var marked = 0;
         foreach (var ill in await repo.GetIllustrationsAsync(book.Id))
         {
@@ -178,7 +182,7 @@ public class IllustrationPlannerAgent : AgentBase
             if (ill.Kind == IllustrationKind.Portrait && ill.CharacterCardId is int id && cards.TryGetValue(id, out var card)
                 && !string.IsNullOrWhiteSpace(card.VisualPrompt))
             {
-                var prompt = PortraitPrompt(portraitFraming, card.VisualPrompt);
+                var prompt = PortraitPrompt(portraitFraming, card.VisualPrompt, outfits.GetValueOrDefault(id)?.Description);
                 if (prompt != ill.Prompt) { ill.Prompt = prompt; dirty = true; }
             }
             if ((changed || dirty) && ill.Status == IllustrationStatus.Rendered)
@@ -192,9 +196,28 @@ public class IllustrationPlannerAgent : AgentBase
         return marked;
     }
 
-    /// <summary>A reference portrait: the composition shared by the whole cast, then the character's appearance.</summary>
-    public static string PortraitPrompt(string? framing, string visualPrompt) =>
-        string.IsNullOrWhiteSpace(framing) ? visualPrompt.Trim() : $"{framing.Trim().TrimEnd('.')}. {visualPrompt.Trim()}";
+    /// <summary>
+    /// A reference portrait: the composition shared by the whole cast, then the character's appearance and
+    /// their usual outfit.
+    /// </summary>
+    public static string PortraitPrompt(string? framing, string visualPrompt, string? outfit = null)
+    {
+        var look = WithOutfit(visualPrompt, outfit);
+        return string.IsNullOrWhiteSpace(framing) ? look : $"{framing.Trim().TrimEnd('.')}. {look}";
+    }
+
+    /// <summary>"A tall woman." + "wearing a grey coat." → "A tall woman, wearing a grey coat."</summary>
+    internal static string WithOutfit(string visualPrompt, string? outfit) =>
+        string.IsNullOrWhiteSpace(outfit) ? visualPrompt.Trim() : $"{visualPrompt.Trim().TrimEnd('.')}, {outfit.Trim()}";
+
+    /// <summary>Each character's usual-outfit asset, by character id.</summary>
+    internal static Dictionary<int, VisualAsset> UsualOutfits(IEnumerable<VisualAsset> assets) =>
+        assets.Where(a => a.CharacterCardId.HasValue)
+            .GroupBy(a => a.CharacterCardId!.Value)
+            .ToDictionary(g => g.Key, g => g.First());
+
+    /// <summary>The registry name of a character's usual outfit.</summary>
+    public static string UsualOutfitName(CharacterCard card) => $"{card.Name.Trim()} — usual outfit";
 
     /// <summary>
     /// Plans the scenes of one chapter, replacing its never-rendered illustrations. Illustrations that
@@ -212,21 +235,29 @@ public class IllustrationPlannerAgent : AgentBase
 
         var book = await Repo.GetByIdAsync(bookId) ?? throw new InvalidOperationException($"Book {bookId} not found.");
         var cards = (await Repo.GetCharacterCardsAsync(bookId)).ToList();
+        var assets = new AssetRegistry(await Repo.GetVisualAssetsAsync(bookId));
         var paragraphs = ParagraphAnchors.Split(chapter.Content);
         var others = await OtherScenesAsync(bookId, chapterId);
+        var previous = await PreviousScenesAsync(bookId, chapter.Number);
 
         var (client, config, messages) = await StartConversationAsync(book);
         messages.Add(new LlmChatMessage(LlmChatRole.User, PromptTemplates.ChapterIllustrationsUser(
-            book, chapter, paragraphs, PromptTemplates.CharacterVisuals(cards), others)));
+            book, chapter, paragraphs, PromptTemplates.CharacterVisuals(cards, assets.All), others,
+            config.ImagesPerChapterOrDefault(), PromptTemplates.VisualAssets(assets.All), previous)));
 
         // Each illustration is saved the moment its JSON element finishes streaming, so the author sees
         // them appear one by one and an interrupted call keeps everything that arrived.
         var persisted = new List<Illustration>();
         async Task PersistNewAsync(string partial)
         {
-            var parsed = ParseChapterIllustrations(partial, paragraphs, cards);
+            var parsed = ParseChapterPlan(partial, paragraphs, cards);
             if (parsed.Count <= persisted.Count) return;
-            var fresh = parsed.Skip(persisted.Count).ToList();
+            var fresh = new List<Illustration>();
+            foreach (var plan in parsed.Skip(persisted.Count))
+            {
+                await RegisterAssetsAsync(bookId, plan, assets, chapter.Number);
+                fresh.Add(plan.Illustration);
+            }
             if (persisted.Count == 0)
             {
                 // The first new element replaces the chapter's old unrendered plan; until then it stays intact.
@@ -279,18 +310,22 @@ public class IllustrationPlannerAgent : AgentBase
         var book = await Repo.GetByIdAsync(bookId) ?? throw new InvalidOperationException($"Book {bookId} not found.");
         var bible = await Repo.GetStoryBibleAsync(bookId);
         var cards = (await Repo.GetCharacterCardsAsync(bookId)).ToList();
+        var assets = new AssetRegistry(await Repo.GetVisualAssetsAsync(bookId));
         var synopses = await BuildChapterSynopsesAsync(bookId, ct: ct);
 
         var (client, config, messages) = await StartConversationAsync(book);
         messages.Add(new LlmChatMessage(LlmChatRole.User,
-            PromptTemplates.CoverUser(book, bible, synopses, PromptTemplates.CharacterVisuals(cards))));
+            PromptTemplates.CoverUser(book, bible, synopses, PromptTemplates.CharacterVisuals(cards, assets.All),
+                PromptTemplates.VisualAssets(assets.All))));
 
         var (raw, failure) = await StreamJsonResponseAsync(
             client, config, messages, bookId, null, AgentRole.IllustrationPlanner, JsonSchemas.Cover, ct,
             forwardToUi: false);
         if (failure is not null) Rethrow(failure);
 
-        var plan = ParseCover(raw, cards);
+        var coverPlan = ParseCoverPlan(raw, cards);
+        await RegisterAssetsAsync(bookId, coverPlan, assets, null);
+        var plan = coverPlan.Illustration;
         var existing = (await Repo.GetIllustrationsAsync(bookId, kind: IllustrationKind.Cover)).FirstOrDefault();
         Illustration cover;
         if (existing is not null)
@@ -409,6 +444,63 @@ public class IllustrationPlannerAgent : AgentBase
     }
 
     /// <summary>
+    /// Full prompts of the last few scenes before the chapter, so the planner continues the outfits,
+    /// objects and places the reader has just seen.
+    /// </summary>
+    private async Task<string> PreviousScenesAsync(int bookId, int chapterNumber, int count = 3)
+    {
+        var chapters = (await Repo.GetChaptersAsync(bookId))
+            .Where(c => c.Number < chapterNumber).ToDictionary(c => c.Id, c => c.Number);
+        var scenes = (await Repo.GetIllustrationsAsync(bookId, kind: IllustrationKind.Scene))
+            .Where(i => i.ChapterId is int id && chapters.ContainsKey(id) && !string.IsNullOrWhiteSpace(i.Prompt))
+            .OrderByDescending(i => chapters[i.ChapterId!.Value]).ThenByDescending(i => i.ParagraphNumber).ThenByDescending(i => i.SortOrder)
+            .Take(count)
+            .Reverse()
+            .Select(i => (chapters[i.ChapterId!.Value], i.Prompt));
+        return PromptTemplates.PreviousIllustrations(scenes);
+    }
+
+    /// <summary>The book's visual assets by name, kept current as a plan registers new ones.</summary>
+    internal sealed class AssetRegistry(IEnumerable<VisualAsset> assets)
+    {
+        private readonly Dictionary<string, VisualAsset> _byName =
+            assets.GroupBy(a => a.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+        public IEnumerable<VisualAsset> All => _byName.Values.OrderBy(a => a.Kind).ThenBy(a => a.Name);
+        public VisualAsset? Find(string name) => _byName.GetValueOrDefault(name.Trim());
+        public void Add(VisualAsset asset) => _byName[asset.Name.Trim()] = asset;
+    }
+
+    /// <summary>
+    /// Registers the new assets an image shows. For an asset already registered, a prompt that pasted a
+    /// reworded description is corrected to the canonical wording — identical wording is what keeps the
+    /// asset identical from image to image.
+    /// </summary>
+    private async Task RegisterAssetsAsync(int bookId, PlannedImage plan, AssetRegistry registry, int? chapterNumber)
+    {
+        foreach (var a in plan.Assets)
+        {
+            if (registry.Find(a.Name) is { } known)
+            {
+                if (a.Description.Length > 0 && a.Description != known.Description.Trim()
+                    && plan.Illustration.Prompt.Contains(a.Description, StringComparison.Ordinal))
+                    plan.Illustration.Prompt = plan.Illustration.Prompt.Replace(a.Description, known.Description.Trim(), StringComparison.Ordinal);
+                continue;
+            }
+            if (a.Description.Length == 0) continue;
+            registry.Add(await Repo.AddVisualAssetAsync(new VisualAsset
+            {
+                BookId = bookId,
+                Name = a.Name,
+                Kind = a.Kind,
+                Description = a.Description,
+                FirstChapterNumber = chapterNumber,
+            }));
+        }
+    }
+
+    /// <summary>
     /// Stores a character's canonical visual description and replaces the old wording in every prompt that
     /// quotes it (the planner copies it word for word), marking those illustrations for re-rendering.
     /// Returns how many illustrations were updated.
@@ -420,13 +512,60 @@ public class IllustrationPlannerAgent : AgentBase
         card.VisualPromptSourceHash = VisualSourceHash(card);
         card.ImageSeed ??= DeriveSeed(card.BookId, card.Name.Trim().ToLowerInvariant());
         await repo.UpdateCharacterCardAsync(card);
+        return await ReplaceInPromptsAsync(repo, card.BookId, old, card.VisualPrompt);
+    }
 
-        if (old.Length == 0 || old == card.VisualPrompt) return 0;
+    /// <summary>
+    /// Stores a visual asset's canonical description and carries the new wording into every prompt that
+    /// quotes the old one, marking those illustrations for re-rendering. Returns how many were updated.
+    /// </summary>
+    public static async Task<int> SetVisualAssetAsync(IBookRepository repo, VisualAsset asset, string description)
+    {
+        var old = asset.Description?.Trim() ?? "";
+        asset.Description = description.Trim();
+        await repo.UpdateVisualAssetAsync(asset);
+        return await ReplaceInPromptsAsync(repo, asset.BookId, old, asset.Description);
+    }
+
+    /// <summary>
+    /// Creates or updates the character's usual-outfit asset. An outfit left over from a previous set of
+    /// character cards (the Characters phase recreates them) is re-linked by name.
+    /// </summary>
+    internal static async Task<VisualAsset?> SetUsualOutfitAsync(
+        IBookRepository repo, CharacterCard card, string outfit, List<VisualAsset> assets)
+    {
+        var existing = assets.FirstOrDefault(a => a.CharacterCardId == card.Id)
+            ?? assets.FirstOrDefault(a => string.Equals(a.Name, UsualOutfitName(card), StringComparison.OrdinalIgnoreCase));
+        outfit = outfit.Trim();
+        if (outfit.Length == 0) return existing;
+        if (existing is null)
+        {
+            var created = await repo.AddVisualAssetAsync(new VisualAsset
+            {
+                BookId = card.BookId,
+                CharacterCardId = card.Id,
+                Name = UsualOutfitName(card),
+                Kind = VisualAssetKind.Outfit,
+                Description = outfit,
+            });
+            assets.Add(created);
+            return created;
+        }
+        existing.CharacterCardId = card.Id;
+        existing.Kind = VisualAssetKind.Outfit;
+        await SetVisualAssetAsync(repo, existing, outfit);
+        return existing;
+    }
+
+    /// <summary>Replaces <paramref name="old"/> with <paramref name="replacement"/> in every prompt of the book.</summary>
+    private static async Task<int> ReplaceInPromptsAsync(IBookRepository repo, int bookId, string old, string replacement)
+    {
+        if (old.Length == 0 || old == replacement) return 0;
         var updated = 0;
-        foreach (var ill in await repo.GetIllustrationsAsync(card.BookId))
+        foreach (var ill in await repo.GetIllustrationsAsync(bookId))
         {
             if (!ill.Prompt.Contains(old, StringComparison.Ordinal)) continue;
-            ill.Prompt = ill.Prompt.Replace(old, card.VisualPrompt, StringComparison.Ordinal);
+            ill.Prompt = ill.Prompt.Replace(old, replacement, StringComparison.Ordinal);
             if (ill.Status == IllustrationStatus.Rendered) ill.Status = IllustrationStatus.Planned;
             await repo.UpdateIllustrationAsync(ill);
             updated++;
@@ -436,7 +575,13 @@ public class IllustrationPlannerAgent : AgentBase
 
     // ── Parsing ───────────────────────────────────────────────────────────────
 
-    internal sealed record CharacterVisual(string Name, string VisualPrompt);
+    internal sealed record CharacterVisual(string Name, string VisualPrompt, string UsualOutfit = "");
+
+    /// <summary>A recurring asset as an image plan lists it.</summary>
+    internal sealed record AssetRef(string Name, VisualAssetKind Kind, string Description);
+
+    /// <summary>A planned image with the recurring assets it shows.</summary>
+    internal sealed record PlannedImage(Illustration Illustration, IReadOnlyList<AssetRef> Assets);
 
     internal static List<CharacterVisual> ParseCharacterVisuals(string raw)
     {
@@ -447,7 +592,7 @@ public class IllustrationPlannerAgent : AgentBase
             var name = LenientJson.Text(el, "name").Trim();
             var visual = LenientJson.Text(el, "visualPrompt").Trim();
             if (name.Length == 0 || visual.Length == 0) continue;
-            result.Add(new CharacterVisual(name, visual));
+            result.Add(new CharacterVisual(name, visual, LenientJson.Text(el, "usualOutfit").Trim()));
         }
         if (result.Count == 0)
             throw new FormatException($"Character visuals response contained no usable entry. {PlanningParse.Describe(raw)}");
@@ -460,9 +605,14 @@ public class IllustrationPlannerAgent : AgentBase
     /// an object (the schema) or bare.
     /// </summary>
     internal static List<Illustration> ParseChapterIllustrations(
+        string raw, IReadOnlyList<string> paragraphs, IReadOnlyList<CharacterCard> cards) =>
+        ParseChapterPlan(raw, paragraphs, cards).Select(p => p.Illustration).ToList();
+
+    /// <inheritdoc cref="ParseChapterIllustrations"/>
+    internal static List<PlannedImage> ParseChapterPlan(
         string raw, IReadOnlyList<string> paragraphs, IReadOnlyList<CharacterCard> cards)
     {
-        var result = new List<Illustration>();
+        var result = new List<PlannedImage>();
         var json = PartialJson.SalvageArray(raw);
         if (json.Length == 0) return result;
         using var doc = JsonDocument.Parse(json);
@@ -477,7 +627,7 @@ public class IllustrationPlannerAgent : AgentBase
             var hint = LenientJson.Int(el, "paragraphNumber") ?? paragraphs.Count;
             var index = ParagraphAnchors.Resolve(paragraphs, anchor, hint);
             var names = ReadNames(el);
-            result.Add(new Illustration
+            result.Add(new PlannedImage(new Illustration
             {
                 Kind = IllustrationKind.Scene,
                 ParagraphNumber = index + 1,
@@ -490,12 +640,15 @@ public class IllustrationPlannerAgent : AgentBase
                     ?? (names.Count == 1 ? FindCharacter(cards, names[0])?.Id : null),
                 CharacterNamesJson = JsonSerializer.Serialize(names),
                 SortOrder = order++,
-            });
+            }, ReadAssets(el)));
         }
         return result;
     }
 
-    internal static Illustration ParseCover(string raw, IReadOnlyList<CharacterCard> cards)
+    internal static Illustration ParseCover(string raw, IReadOnlyList<CharacterCard> cards) =>
+        ParseCoverPlan(raw, cards).Illustration;
+
+    internal static PlannedImage ParseCoverPlan(string raw, IReadOnlyList<CharacterCard> cards)
     {
         using var doc = PlanningParse.OpenObject(raw, "Cover");
         var el = doc.RootElement;
@@ -503,7 +656,7 @@ public class IllustrationPlannerAgent : AgentBase
         if (prompt.Length == 0)
             throw new FormatException($"Cover response contained no prompt. {PlanningParse.Describe(raw)}");
         var names = ReadNames(el);
-        return new Illustration
+        return new PlannedImage(new Illustration
         {
             Kind = IllustrationKind.Cover,
             Caption = "Cover",
@@ -512,7 +665,24 @@ public class IllustrationPlannerAgent : AgentBase
             Orientation = ParseOrientation(LenientJson.Text(el, "orientation"), IllustrationOrientation.Portrait),
             FocusCharacterId = FindCharacter(cards, LenientJson.Text(el, "focusCharacter"))?.Id,
             CharacterNamesJson = JsonSerializer.Serialize(names),
-        };
+        }, ReadAssets(el));
+    }
+
+    /// <summary>The recurring assets an image plan lists; entries without a name are dropped.</summary>
+    internal static List<AssetRef> ReadAssets(JsonElement el)
+    {
+        if (!el.TryGetProperty("assets", out var a) || a.ValueKind != JsonValueKind.Array) return [];
+        var result = new List<AssetRef>();
+        foreach (var item in a.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object) continue;
+            var name = LenientJson.Text(item, "name").Trim();
+            if (name.Length == 0 || result.Any(r => string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase))) continue;
+            var kind = Enum.TryParse<VisualAssetKind>(LenientJson.Text(item, "kind").Trim(), ignoreCase: true, out var k)
+                ? k : VisualAssetKind.Other;
+            result.Add(new AssetRef(name.Length > 200 ? name[..200] : name, kind, LenientJson.Text(item, "description").Trim()));
+        }
+        return result;
     }
 
     private static List<string> ReadNames(JsonElement el) =>

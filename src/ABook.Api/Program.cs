@@ -153,6 +153,8 @@ using (var scope = app.Services.CreateScope())
         }
         var imageStyle = llmSection["ImageVisualStyle"];
         if (!string.IsNullOrWhiteSpace(imageStyle)) config.ImageVisualStyle = imageStyle;
+        if (int.TryParse(llmSection["ImagesPerChapter"], out var imagesPerChapter) && imagesPerChapter > 0)
+            config.ImagesPerChapter = imagesPerChapter;
         await repo.UpsertLlmConfigAsync(config);
         app.Logger.LogInformation(
             "LLM default config: provider={Provider} model={Model} endpoint={Endpoint}",

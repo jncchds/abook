@@ -37,6 +37,7 @@ public class AppDbContext : DbContext
     public DbSet<PlotThreadVersion> PlotThreadVersions => Set<PlotThreadVersion>();
     public DbSet<Illustration> Illustrations => Set<Illustration>();
     public DbSet<BookImage> BookImages => Set<BookImage>();
+    public DbSet<VisualAsset> VisualAssets => Set<VisualAsset>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -325,6 +326,24 @@ public class AppDbContext : DbContext
              .HasForeignKey(x => x.BookId)
              .OnDelete(DeleteBehavior.Cascade);
             b.HasIndex(x => x.BookId);
+        });
+
+        modelBuilder.Entity<VisualAsset>(a =>
+        {
+            a.HasKey(x => x.Id);
+            a.Property(x => x.Name).HasMaxLength(200);
+            a.Property(x => x.Kind).HasConversion<string>().HasMaxLength(20);
+            a.HasOne(x => x.Book)
+             .WithMany()
+             .HasForeignKey(x => x.BookId)
+             .OnDelete(DeleteBehavior.Cascade);
+            // Characters are recreated when the Characters phase re-runs; the outfit is re-linked by name.
+            a.HasOne<CharacterCard>()
+             .WithMany()
+             .HasForeignKey(x => x.CharacterCardId)
+             .OnDelete(DeleteBehavior.SetNull)
+             .IsRequired(false);
+            a.HasIndex(x => new { x.BookId, x.Name }).IsUnique();
         });
 
         modelBuilder.Entity<StoryBibleSnapshot>(s =>

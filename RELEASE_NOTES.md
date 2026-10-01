@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.2.1 — 2026-10-01
+
+### Illustrations
+- feat: consistent objects, clothes and places — the illustrator keeps a per-book registry of recurring visual assets (props, outfits, places, creatures, vehicles), registering each the first time an image shows it and repeating its description word for word in every later image; characters get a usual outfit and wear it unless the story dresses them differently, and each chapter is planned with the prompts of the images just before it so outfits and places carry over. Review and edit the registry on the Illustrations page or with MCP `list_visual_assets` / `update_visual_asset`; an edit updates every prompt that shows the asset. Use **Rewrite descriptions** once on existing books to split clothing out of the character descriptions
+- feat: the base number of illustrations per chapter is a setting (**Illustrations per chapter** in the image settings and presets, default 2; MCP `imagesPerChapter`); the illustrator still plans more when a chapter genuinely needs them
+- feat: downloaded books are much smaller — illustrations are re-encoded as JPEG (longest side up to 1600 px) in the HTML, EPUB, FB2 and metadata exports; the stored originals stay lossless
+
 ## v0.2.0 — 2026-09-30
 
 ### Illustrations

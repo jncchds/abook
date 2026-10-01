@@ -111,6 +111,8 @@ export interface LlmSettings {
   imageLandscapeHeight?: number | null
   imageTimeoutMs?: number | null
   imageVisualStyle?: string | null
+  /** Base number of illustrations per chapter; the planner may go over it when a chapter needs more. */
+  imagesPerChapter?: number | null
   unloadLlmBeforeRender?: boolean
 }
 export interface LlmConfig extends LlmSettings {
@@ -605,6 +607,26 @@ export const updateCharacterVisual = (bookId: number, cardId: number, visualProm
 export interface ArtDirection { style: string; portraitFraming: string; negativePrompt: string }
 export const updateArtDirection = (bookId: number, data: ArtDirection) =>
   api.put<ArtDirection & { markedForRerender: number }>(`/books/${bookId}/illustrations/style`, data)
+export type VisualAssetKind = 'Object' | 'Outfit' | 'Location' | 'Creature' | 'Vehicle' | 'Other'
+/** A recurring prop, outfit, place … whose description every prompt showing it repeats word for word. */
+export interface VisualAsset {
+  id: number
+  name: string
+  kind: VisualAssetKind
+  description: string
+  /** Set for a character's usual outfit. */
+  characterCardId: number | null
+  firstChapterNumber: number | null
+}
+export interface VisualAssetInput { name?: string; kind?: VisualAssetKind; description?: string }
+export const getVisualAssets = (bookId: number) =>
+  api.get<VisualAsset[]>(`/books/${bookId}/illustrations/assets`)
+export const createVisualAsset = (bookId: number, data: VisualAssetInput) =>
+  api.post<VisualAsset>(`/books/${bookId}/illustrations/assets`, data)
+export const updateVisualAsset = (bookId: number, id: number, data: VisualAssetInput) =>
+  api.put<{ asset: VisualAsset; updatedIllustrations: number }>(`/books/${bookId}/illustrations/assets/${id}`, data)
+export const deleteVisualAsset = (bookId: number, id: number) =>
+  api.delete(`/books/${bookId}/illustrations/assets/${id}`)
 export const planIllustrations = (bookId: number, scope: IllustrationPlanScope, targetId?: number) =>
   api.post(`/books/${bookId}/illustrations/plan`, { scope, targetId })
 export const renderIllustrations = (bookId: number, scope: RenderScope, targetId?: number, reroll = false) =>

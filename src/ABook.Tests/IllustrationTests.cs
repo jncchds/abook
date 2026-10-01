@@ -125,6 +125,62 @@ public class IllustrationPlannerParseTests
     }
 
     [Fact]
+    public void ParseChapterPlan_ReadsRecurringAssets()
+    {
+        var paragraphs = ParagraphAnchors.Split("Anna lit the lamp.");
+        const string raw = """
+            {"illustrations":[{"paragraphNumber":1,"anchorText":"lit the lamp","caption":"Lamp","characters":["Anna"],
+              "focusCharacter":"Anna","assets":[
+                {"name":"the brass lamp","kind":"object","description":"a dented brass oil lamp"},
+                {"name":"The Brass Lamp","kind":"object","description":"duplicate"},
+                {"name":"","kind":"object","description":"nameless"},
+                {"name":"the attic","kind":"spaceship","description":"a low attic"}],
+              "prompt":"a woman lighting a dented brass oil lamp","negativePrompt":"","orientation":"landscape"}]}
+            """;
+
+        var plan = Assert.Single(IllustrationPlannerAgent.ParseChapterPlan(raw, paragraphs, Cards));
+        Assert.Collection(plan.Assets,
+            a => Assert.Equal(("the brass lamp", VisualAssetKind.Object, "a dented brass oil lamp"), (a.Name, a.Kind, a.Description)),
+            a => Assert.Equal(("the attic", VisualAssetKind.Other), (a.Name, a.Kind)));   // unknown kind → Other
+    }
+
+    [Fact]
+    public void ParseCharacterVisuals_ReadsUsualOutfit()
+    {
+        var v = Assert.Single(IllustrationPlannerAgent.ParseCharacterVisuals(
+            """[{"name":"Boris","visualPrompt":"a stocky man","usualOutfit":"wearing a grey wool coat"}]"""));
+        Assert.Equal("wearing a grey wool coat", v.UsualOutfit);
+    }
+
+    [Fact]
+    public void PortraitPrompt_AppendsUsualOutfit()
+    {
+        Assert.Equal("Head and shoulders. A stocky man, wearing a grey wool coat.",
+            IllustrationPlannerAgent.PortraitPrompt("Head and shoulders.", "A stocky man.", "wearing a grey wool coat."));
+    }
+
+    [Fact]
+    public void CharacterVisuals_NamesEachCharactersUsualOutfit()
+    {
+        var cards = new[] { new CharacterCard { Id = 2, Name = "Boris", VisualPrompt = "a stocky man" } };
+        var assets = new[] { new VisualAsset { Name = "Boris — usual outfit", CharacterCardId = 2, Description = "wearing a coat" } };
+        Assert.Equal("- Boris: a stocky man (usual outfit: asset \"Boris — usual outfit\")",
+            PromptTemplates.CharacterVisuals(cards, assets));
+    }
+
+    [Fact]
+    public void ChapterIllustrationsUser_UsesConfiguredBaseCountAndListsAssets()
+    {
+        var text = PromptTemplates.ChapterIllustrationsUser(
+            new Book { Title = "T", Language = "English" }, new Chapter { Number = 1, Title = "C" }, ["One."],
+            "(none)", "(none)", imagesPerChapter: 3,
+            visualAssets: PromptTemplates.VisualAssets([new VisualAsset { Name = "the lamp", Kind = VisualAssetKind.Object, Description = "a brass lamp" }]));
+        Assert.Contains("Plan 3 illustrations", text);
+        Assert.Contains("not a hard limit", text);
+        Assert.Contains("- \"the lamp\" (object): a brass lamp", text);
+    }
+
+    [Fact]
     public void Compose_PrependsArtDirectionAndMergesNegatives()
     {
         var book = new Book { IllustrationStyle = "Ink wash, muted palette.", IllustrationNegativePrompt = "text, watermark" };
@@ -336,5 +392,45 @@ public class BookExportIllustrationTests
         Assert.Contains("<image l:href=\"#img-5.png\"/>", fb2);
         Assert.Contains("<binary id=\"img-5.png\" content-type=\"image/png\">", fb2);
         Assert.True(fb2.IndexOf("<binary", StringComparison.Ordinal) > fb2.IndexOf("</body>", StringComparison.Ordinal));
+    }
+}
+
+public class ExportImageCompressorTests
+{
+    private static byte[] NoisyPng(int width, int height)
+    {
+        using var bitmap = new SkiaSharp.SKBitmap(width, height);
+        var rng = new Random(42);
+        for (var y = 0; y < height; y++)
+            for (var x = 0; x < width; x++)
+                bitmap.SetPixel(x, y, new SkiaSharp.SKColor((byte)(x % 256), (byte)(y % 256), (byte)rng.Next(256)));
+        using var image = SkiaSharp.SKImage.FromBitmap(bitmap);
+        return image.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100).ToArray();
+    }
+
+    [Fact]
+    public void Compress_ReencodesPngAsSmallerJpeg()
+    {
+        var png = NoisyPng(400, 300);
+        var (data, type) = ExportImageCompressor.Compress(png, "image/png");
+        Assert.Equal("image/jpeg", type);
+        Assert.True(data.Length < png.Length / 2, $"{data.Length} vs {png.Length}");
+        using var decoded = SkiaSharp.SKBitmap.Decode(data);
+        Assert.Equal((400, 300), (decoded.Width, decoded.Height));
+    }
+
+    [Fact]
+    public void Compress_ScalesDownOversizedImages()
+    {
+        var (data, _) = ExportImageCompressor.Compress(NoisyPng(3200, 800), "image/png");
+        using var decoded = SkiaSharp.SKBitmap.Decode(data);
+        Assert.Equal((ExportImageCompressor.MaxDimension, 400), (decoded.Width, decoded.Height));
+    }
+
+    [Fact]
+    public void Compress_UndecodableBytes_ShipUnchanged()
+    {
+        var junk = new byte[] { 1, 2, 3, 4 };
+        Assert.Equal((junk, "image/png"), ExportImageCompressor.Compress(junk, "image/png"));
     }
 }

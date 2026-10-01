@@ -36,6 +36,7 @@ public class LlmPreset : IEditableImageGenSettings
     public int? ImageLandscapeHeight { get; set; }
     public int? ImageTimeoutMs { get; set; }
     public string? ImageVisualStyle { get; set; }
+    public int? ImagesPerChapter { get; set; }
     public bool UnloadLlmBeforeRender { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

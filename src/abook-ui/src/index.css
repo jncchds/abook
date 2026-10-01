@@ -919,6 +919,13 @@ button:disabled:hover { background: var(--accent); }
 .illustration-edit-actions { display: flex; gap: 0.5rem; }
 .illustrations-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; }
 .illustrations-section { margin-bottom: 2rem; }
+.visual-assets-group { margin-bottom: 0.75rem; }
+.visual-assets-group h4 { margin: 0.5rem 0 0.35rem; font-size: 0.9rem; }
+.visual-assets-list { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.5rem; }
+.visual-assets-list > li { padding: 0.6rem 0.75rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 0.85rem; min-width: 0; }
+.visual-asset-header { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.visual-asset-actions { margin-left: auto; display: flex; gap: 0.25rem; }
+.visual-asset-description { margin: 0.35rem 0 0; color: var(--text-muted, inherit); overflow-wrap: anywhere; }
 .illustrations-section h3 { margin-bottom: 0.75rem; }
 .illustrations-steps { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 1.5rem; }
 .illustrations-step { display: grid; grid-template-columns: 11rem auto 1fr; gap: 0.75rem; align-items: center; }

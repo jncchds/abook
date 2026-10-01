@@ -91,9 +91,10 @@ internal static class JsonSchemas
             "type": "object",
             "properties": {
               "name": { "type": "string" },
-              "visualPrompt": { "type": "string" }
+              "visualPrompt": { "type": "string" },
+              "usualOutfit": { "type": "string" }
             },
-            "required": ["name", "visualPrompt"],
+            "required": ["name", "visualPrompt", "usualOutfit"],
             "additionalProperties": false
           }
         }
@@ -111,13 +112,26 @@ internal static class JsonSchemas
                   "paragraphNumber": { "type": "integer" },
                   "anchorText": { "type": "string" },
                   "caption": { "type": "string" },
+                  "characters": { "type": "array", "items": { "type": "string" } },
+                  "focusCharacter": { "type": "string" },
+                  "assets": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": { "type": "string" },
+                        "kind": { "type": "string", "enum": ["object", "outfit", "location", "creature", "vehicle", "other"] },
+                        "description": { "type": "string" }
+                      },
+                      "required": ["name", "kind", "description"],
+                      "additionalProperties": false
+                    }
+                  },
                   "prompt": { "type": "string" },
                   "negativePrompt": { "type": "string" },
-                  "orientation": { "type": "string", "enum": ["portrait", "landscape", "square"] },
-                  "focusCharacter": { "type": "string" },
-                  "characters": { "type": "array", "items": { "type": "string" } }
+                  "orientation": { "type": "string", "enum": ["portrait", "landscape", "square"] }
                 },
-                "required": ["paragraphNumber", "anchorText", "caption", "prompt", "negativePrompt", "orientation", "focusCharacter", "characters"],
+                "required": ["paragraphNumber", "anchorText", "caption", "characters", "focusCharacter", "assets", "prompt", "negativePrompt", "orientation"],
                 "additionalProperties": false
               }
             }
@@ -131,13 +145,26 @@ internal static class JsonSchemas
         {
           "type": "object",
           "properties": {
+            "characters": { "type": "array", "items": { "type": "string" } },
+            "focusCharacter": { "type": "string" },
+            "assets": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "kind": { "type": "string", "enum": ["object", "outfit", "location", "creature", "vehicle", "other"] },
+                  "description": { "type": "string" }
+                },
+                "required": ["name", "kind", "description"],
+                "additionalProperties": false
+              }
+            },
             "prompt": { "type": "string" },
             "negativePrompt": { "type": "string" },
-            "orientation": { "type": "string", "enum": ["portrait", "landscape", "square"] },
-            "focusCharacter": { "type": "string" },
-            "characters": { "type": "array", "items": { "type": "string" } }
+            "orientation": { "type": "string", "enum": ["portrait", "landscape", "square"] }
           },
-          "required": ["prompt", "negativePrompt", "orientation", "focusCharacter", "characters"],
+          "required": ["characters", "focusCharacter", "assets", "prompt", "negativePrompt", "orientation"],
           "additionalProperties": false
         }
         """;

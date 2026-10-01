@@ -125,6 +125,79 @@ public class IllustrationsController : ControllerBase
         return Ok(new { card.Id, card.VisualPrompt, card.ImageSeed, updatedIllustrations = updated });
     }
 
+    [HttpGet("assets")]
+    public async Task<IActionResult> ListAssets(int bookId)
+    {
+        var denied = await this.RequireBookOwnershipAsync(bookId, _repo);
+        if (denied is not null) return denied;
+        return Ok(await _repo.GetVisualAssetsAsync(bookId));
+    }
+
+    [HttpPost("assets")]
+    public async Task<IActionResult> CreateAsset(int bookId, [FromBody] VisualAssetRequest req)
+    {
+        var denied = await this.RequireBookOwnershipAsync(bookId, _repo);
+        if (denied is not null) return denied;
+        var name = req.Name?.Trim() ?? "";
+        if (name.Length == 0) return BadRequest(new { message = "An asset needs a name." });
+        if (await AssetNameTakenAsync(bookId, name, null))
+            return Conflict(new { message = $"There is already an asset named \"{name}\"." });
+
+        var asset = await _repo.AddVisualAssetAsync(new VisualAsset
+        {
+            BookId = bookId,
+            Name = name,
+            Kind = req.Kind ?? VisualAssetKind.Object,
+            Description = req.Description?.Trim() ?? "",
+        });
+        await _notifier.NotifyIllustrationsUpdatedAsync(bookId, null);
+        return Ok(asset);
+    }
+
+    /// <summary>
+    /// Edits a recurring visual asset. A new description replaces the old wording in every prompt that
+    /// quotes it, and those illustrations are marked for re-rendering.
+    /// </summary>
+    [HttpPut("assets/{assetId:int}")]
+    public async Task<IActionResult> UpdateAsset(int bookId, int assetId, [FromBody] VisualAssetRequest req)
+    {
+        var denied = await this.RequireBookOwnershipAsync(bookId, _repo);
+        if (denied is not null) return denied;
+        var asset = await _repo.GetVisualAssetAsync(bookId, assetId);
+        if (asset is null) return NotFound();
+
+        var name = req.Name?.Trim();
+        if (!string.IsNullOrEmpty(name) && name != asset.Name)
+        {
+            if (await AssetNameTakenAsync(bookId, name, assetId))
+                return Conflict(new { message = $"There is already an asset named \"{name}\"." });
+            asset.Name = name;
+        }
+        if (req.Kind is { } kind) asset.Kind = kind;
+
+        var updated = req.Description is not null
+            ? await IllustrationPlannerAgent.SetVisualAssetAsync(_repo, asset, req.Description)
+            : 0;
+        if (req.Description is null) await _repo.UpdateVisualAssetAsync(asset);
+        await _notifier.NotifyIllustrationsUpdatedAsync(bookId, null);
+        return Ok(new { asset, updatedIllustrations = updated });
+    }
+
+    /// <summary>Removes an asset from the registry. Prompts that already quote it keep their wording.</summary>
+    [HttpDelete("assets/{assetId:int}")]
+    public async Task<IActionResult> DeleteAsset(int bookId, int assetId)
+    {
+        var denied = await this.RequireBookOwnershipAsync(bookId, _repo);
+        if (denied is not null) return denied;
+        await _repo.DeleteVisualAssetAsync(bookId, assetId);
+        await _notifier.NotifyIllustrationsUpdatedAsync(bookId, null);
+        return NoContent();
+    }
+
+    private async Task<bool> AssetNameTakenAsync(int bookId, string name, int? exceptId) =>
+        (await _repo.GetVisualAssetsAsync(bookId))
+            .Any(a => a.Id != exceptId && string.Equals(a.Name, name, StringComparison.OrdinalIgnoreCase));
+
     /// <summary>
     /// Edits the book's art direction, which is added word for word to every image. Portrait prompts are
     /// rebuilt from the new composition and rendered images are marked for re-rendering.
@@ -250,6 +323,9 @@ public record IllustrationRequest(
     List<string>? Characters = null);
 
 public record CharacterVisualRequest(string? VisualPrompt);
+
+/// <param name="Description">Null leaves the description unchanged.</param>
+public record VisualAssetRequest(string? Name = null, VisualAssetKind? Kind = null, string? Description = null);
 
 public record StyleSheetRequest(string? Style, string? PortraitFraming, string? NegativePrompt);
 

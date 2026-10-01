@@ -32,12 +32,13 @@ A self-hosted web application that uses AI agents to collaboratively write books
 
 ### Illustrations
 - **AI illustrations with Z-Image** — turn on **Illustrate this book** and the LLM plans illustrations for every finished chapter (what each image shows, where it goes, and its positive and negative prompts, chosen to suit the genre), plus the cover once the book is written. Review and edit the plan, then press **Illustrate book** to render everything in one image-model run — no LLM calls, so you can unload the LLM first (automatic for Ollama)
+- **The same objects, clothes and places in every image** — the illustrator keeps a registry of recurring assets (props, outfits, places, creatures, vehicles) and repeats each one's description word for word whenever it appears; characters keep their usual outfit unless the story changes it. Review and edit the registry on the Illustrations page — an edit updates every prompt that shows the asset
 - **One style for the whole book** — the illustrator writes an art direction once (style, a portrait composition shared by the whole cast, a book-wide negative prompt) from your visual style; it is added word for word to every image and can be edited on the Illustrations page
 - **Consistent characters** — each character gets a visual description written from their profile and a reference portrait; every image showing them repeats that description, and scenes centred on them reuse the portrait's seed. Re-roll a portrait until the look is right, then re-render their scenes
 - **Configurable** — image endpoint, steps, CFG, sizes and visual style live in the LLM configuration and presets, so applying a preset switches the text and image models together
 
 ### Exports & sharing
-- **Multiple export formats** — HTML (6 colour themes, adjustable font size), EPUB, FB2, and a Metadata document (book info, outlines, planning artifacts, agent messages, token stats). Rendered illustrations and the cover are embedded in all of them
+- **Multiple export formats** — HTML (6 colour themes, adjustable font size), EPUB, FB2, and a Metadata document (book info, outlines, planning artifacts, agent messages, token stats). Rendered illustrations and the cover are embedded in all of them, compressed to JPEG to keep the download small
 - **Public Library** — browse and read published books without logging in (when public mode is enabled); each chapter has its own URL for bookmarking and sharing
 
 ### Infrastructure
@@ -155,6 +156,7 @@ volumes:
 | `LlmDefaults__EmbeddingModelName` | — | Embedding model for RAG (optional; falls back to chat model) |
 | `LlmDefaults__ImageEndpoint` | — | Z-Image server URL for illustrations (e.g. `http://gpu-box:8000`); applied with `LlmDefaults__Provider` |
 | `LlmDefaults__ImageVisualStyle` | — | Default visual style for illustrations |
+| `LlmDefaults__ImagesPerChapter` | 2 | Base number of illustrations per chapter (the illustrator may plan more when a chapter needs them) |
 | `AgentSettings__MaxConcurrentRuns` | `3` | Max simultaneous agent runs across all books/users |
 | `PublicMode` | `false` | Enable public library (anonymous access to published books) |
 
