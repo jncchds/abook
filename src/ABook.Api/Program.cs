@@ -104,6 +104,7 @@ builder.Services.AddMcpServer()
 var isPublicMode = builder.Configuration.GetValue<bool>("PublicMode");
 builder.Services.AddSingleton(new ABook.Api.Services.PublicModeOptions(isPublicMode));
 builder.Services.AddScoped<ABook.Api.Services.BookExportService>();
+builder.Services.AddScoped<ABook.Api.Services.ClarificationService>();
 // ── API ───────────────────────────────────────────────────────────────────────
 builder.Services.AddControllers()
     .AddJsonOptions(o => ConfigureJsonSerializer(o.JsonSerializerOptions));

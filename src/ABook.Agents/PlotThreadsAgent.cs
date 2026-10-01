@@ -27,7 +27,6 @@ public class PlotThreadsAgent : AgentBase
         Book book,
         StoryBible bible,
         IReadOnlyList<CharacterCard> characters,
-        string qaContext,
         CancellationToken ct = default)
     {
         var bookId = book.Id;
@@ -47,7 +46,7 @@ public class PlotThreadsAgent : AgentBase
 
         messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
         messages.Add(new LlmChatMessage(LlmChatRole.User,
-            PromptTemplates.PlotThreadsUser(book, bible, characters, qaContext, ancestorReference, BuildExistingBlock(existing))));
+            PromptTemplates.PlotThreadsUser(book, bible, characters, ancestorReference, BuildExistingBlock(existing))));
 
         var (raw, failure) = await StreamJsonResponseAsync(
             client, config, messages, bookId, null, AgentRole.PlotThreadsAgent, JsonSchemas.PlotThreads, ct);

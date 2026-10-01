@@ -8,18 +8,65 @@ using System.Text.Json;
 
 namespace ABook.Api.Mcp;
 
-/// <summary>MCP tools for managing book content: story bible, characters, plot threads, and chapters.</summary>
+/// <summary>MCP tools for managing book content: clarifications, story bible, characters, plot threads, and chapters.</summary>
 public class ContentMcpTools : McpToolBase
 {
     private readonly IBookRepository _repo;
+    private readonly ABook.Api.Services.ClarificationService _clarifications;
 
-    public ContentMcpTools(IBookRepository repo, IHttpContextAccessor http)
+    public ContentMcpTools(IBookRepository repo, ABook.Api.Services.ClarificationService clarifications, IHttpContextAccessor http)
         : base(http)
     {
         _repo = repo;
+        _clarifications = clarifications;
     }
 
 
+
+    // ── Clarifications ────────────────────────────────────────────────────────
+
+    [McpServerTool(Name = "list_clarifications", ReadOnly = true)]
+    [Description("List a book's clarifications: the planner's clarifying questions with the author's answers, and notes added after planning phases. Open ones (isOpen: true) still await an answer — a planning run waits for them; answer with update_clarification. Answered clarifications are appended to the premise in every prompt; archived ones are ignored.")]
+    public async Task<string> ListClarifications(
+        [Description("The book ID.")] int bookId,
+        [Description("Include archived clarifications.")] bool includeArchived = false)
+    {
+        await GetOwnedBookAsync(bookId, _repo);
+        var items = await _repo.GetClarificationsAsync(bookId, includeArchived);
+        return JsonSerializer.Serialize(items.Select(c => new { c.Id, c.Question, c.Answer, c.IsOpen, c.IsArchived, c.CreatedAt }), JsonOptions);
+    }
+
+    [McpServerTool(Name = "add_clarification")]
+    [Description("Add a clarification (a question and the author's answer) to a book. It is appended to the premise in every prompt.")]
+    public async Task<string> AddClarification(
+        [Description("The book ID.")] int bookId,
+        [Description("The question being settled.")] string question,
+        [Description("The author's answer.")] string answer)
+    {
+        await GetOwnedBookAsync(bookId, _repo);
+        if (string.IsNullOrWhiteSpace(question) || string.IsNullOrWhiteSpace(answer))
+            throw new McpException("Both the question and the answer are required.");
+        var c = await _repo.AddClarificationAsync(new Clarification { BookId = bookId, Question = question.Trim(), Answer = answer.Trim() });
+        return JsonSerializer.Serialize(new { c.Id, c.Question, c.Answer, c.IsArchived }, JsonOptions);
+    }
+
+    [McpServerTool(Name = "update_clarification")]
+    [Description("Answer, edit, archive or restore a clarification. Provide only the fields you want to change. Set 'answer' to answer an open planner question; archiving an open one skips it. Answering or archiving the last open question completes the clarification round and resumes a planning run waiting for it. Archived clarifications are no longer sent with the premise.")]
+    public async Task<string> UpdateClarification(
+        [Description("The book ID.")] int bookId,
+        [Description("The clarification ID.")] int clarificationId,
+        [Description("New question text.")] string? question = null,
+        [Description("New answer text.")] string? answer = null,
+        [Description("true to archive, false to restore.")] bool? archived = null)
+    {
+        await GetOwnedBookAsync(bookId, _repo);
+        var c = await _repo.GetClarificationAsync(bookId, clarificationId)
+            ?? throw new McpException($"Clarification {clarificationId} not found in book {bookId}.");
+        if (question is not null && string.IsNullOrWhiteSpace(question)) throw new McpException("The question cannot be empty.");
+        if (answer is not null && string.IsNullOrWhiteSpace(answer)) throw new McpException("The answer cannot be empty.");
+        c = await _clarifications.UpdateAsync(c, question, answer, archived);
+        return JsonSerializer.Serialize(new { c.Id, c.Question, c.Answer, c.IsArchived, c.IsOpen }, JsonOptions);
+    }
 
     // ── Story Bible ───────────────────────────────────────────────────────────
 

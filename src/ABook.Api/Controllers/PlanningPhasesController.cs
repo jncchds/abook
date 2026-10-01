@@ -6,12 +6,12 @@ using Microsoft.AspNetCore.Mvc;
 namespace ABook.Api.Controllers;
 
 /// <summary>
-/// Manages the planning phase completion status for Story Bible, Characters, Plot Threads, and Chapters.
+/// Manages the planning phase completion status for Clarifications, Story Bible, Characters, Plot Threads, and Chapters.
 /// Supports three actions per phase:
 ///   POST /{phase}/complete  — mark phase as Complete (data kept)
 ///   POST /{phase}/reopen    — reset phase to NotStarted (data kept)
 ///   DELETE /{phase}         — delete phase data AND reset to NotStarted
-/// Valid phase values: storybible | characters | plotthreads | chapters
+/// Valid phase values: clarifications | storybible | characters | plotthreads | chapters
 /// </summary>
 [ApiController]
 [Route("api/books/{bookId:int}/planning-phases")]
@@ -19,8 +19,13 @@ namespace ABook.Api.Controllers;
 public class PlanningPhasesController : ControllerBase
 {
     private readonly IBookRepository _repo;
+    private readonly ABook.Api.Services.ClarificationService _clarifications;
 
-    public PlanningPhasesController(IBookRepository repo) => _repo = repo;
+    public PlanningPhasesController(IBookRepository repo, ABook.Api.Services.ClarificationService clarifications)
+    {
+        _repo = repo;
+        _clarifications = clarifications;
+    }
 
     [HttpPost("{phase}/complete")]
     public Task<IActionResult> Complete(int bookId, string phase) =>
@@ -37,6 +42,9 @@ public class PlanningPhasesController : ControllerBase
         if (!ApplyStatus(book!, phase, status))
             return BadRequest(new { message = $"Unknown planning phase: {phase}" });
         await _repo.UpdateAsync(book!);
+        // Marking the round complete by hand releases a run still waiting for answers.
+        if (status == PlanningPhaseStatus.Complete && phase.Equals("clarifications", StringComparison.OrdinalIgnoreCase))
+            _clarifications.ReleaseWaitingRun(bookId);
         return Ok();
     }
 
@@ -48,6 +56,12 @@ public class PlanningPhasesController : ControllerBase
 
         switch (phase.ToLowerInvariant())
         {
+            case "clarifications":
+                // Archived, not deleted — the answers stay readable on the Clarifications page. A run
+                // waiting for answers carries on without them; the next run asks again.
+                await _clarifications.ArchiveAllAsync(bookId);
+                book!.ClarificationsStatus = PlanningPhaseStatus.NotStarted;
+                break;
             case "storybible":
                 {
                     var existing = await _repo.GetStoryBibleAsync(bookId);
@@ -120,6 +134,7 @@ public class PlanningPhasesController : ControllerBase
     {
         switch (phase.ToLowerInvariant())
         {
+            case "clarifications": book.ClarificationsStatus = status; return true;
             case "storybible":   book.StoryBibleStatus   = status; return true;
             case "characters":   book.CharactersStatus   = status; return true;
             case "plotthreads":  book.PlotThreadsStatus  = status; return true;

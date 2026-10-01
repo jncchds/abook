@@ -20,7 +20,7 @@ public class StoryBibleAgent : AgentBase
     /// Generates the Story Bible for the book, persists it, marks the phase Complete,
     /// and returns the saved <see cref="StoryBible"/>.
     /// </summary>
-    public async Task<StoryBible> RunAsync(Book book, string qaContext, CancellationToken ct = default)
+    public async Task<StoryBible> RunAsync(Book book, CancellationToken ct = default)
     {
         var bookId = book.Id;
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 1/4 - Story Bible...", false, ct);
@@ -36,7 +36,7 @@ public class StoryBibleAgent : AgentBase
 
         messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
         messages.Add(new LlmChatMessage(LlmChatRole.User,
-            PromptTemplates.StoryBibleUser(book, qaContext, ancestorReference)));
+            PromptTemplates.StoryBibleUser(book, ancestorReference)));
 
         var raw = await StreamResponseAsync(client, config, messages, bookId, null, AgentRole.StoryBibleAgent, ct, jsonSchema: JsonSchemas.StoryBible);
 

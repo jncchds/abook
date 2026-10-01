@@ -493,7 +493,7 @@ public abstract class AgentBase
         var result = prompt
             .Replace(PromptPlaceholders.Title, book.Title ?? "")
             .Replace(PromptPlaceholders.Genre, book.Genre ?? "")
-            .Replace(PromptPlaceholders.Premise, book.Premise ?? "")
+            .Replace(PromptPlaceholders.Premise, PromptTemplates.Premise(book))
             .Replace(PromptPlaceholders.Language, book.Language ?? "English")
             .Replace(PromptPlaceholders.ChapterCount, book.TargetChapterCount.ToString());
 

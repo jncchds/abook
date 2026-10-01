@@ -32,7 +32,7 @@ function BookSidebar() {
     book, isRunning, runStatus, pendingQuestion,
     streamingChapterId,
     handleWriteBook, handlePlanBook, handleStop, isPhaseComplete,
-    illustrations, handleRenderIllustrations,
+    illustrations, handleRenderIllustrations, openClarificationCount,
   } = useBookContext()
 
   const [showExportMenu, setShowExportMenu] = useState(false)
@@ -58,7 +58,7 @@ function BookSidebar() {
 
   return (
     <Sidebar
-      hasPendingQuestion={!!pendingQuestion}
+      hasPendingQuestion={!!pendingQuestion || openClarificationCount > 0}
       bottomChildren={
         <>
           {(book.chapters ?? []).some(c => !c.isArchived && c.content?.trim()) && (
@@ -102,7 +102,9 @@ function BookSidebar() {
             const chNum = streamingChapterId
               ? (book.chapters ?? []).find(c => c.id === streamingChapterId)?.number ?? null
               : null
-            const label = agentCaption(runStatus?.role, runStatus?.state, chNum)
+            const label = runStatus?.state === 'WaitingForInput' && openClarificationCount > 0
+              ? 'Waiting for your clarifications…'
+              : agentCaption(runStatus?.role, runStatus?.state, chNum)
             return (
               <div className="agent-running-banner" style={{ margin: '0 4px 4px', fontSize: '0.75rem' }}>
                 <span className="spinner" />
@@ -136,6 +138,14 @@ function BookSidebar() {
       )}
       <SidebarDivider />
       <SidebarBtn icon="📖" label="Overview" active={isAt('overview')} onClick={() => navigate(`/books/${id}/overview`)} />
+      <SidebarBtn
+        icon="❓"
+        label={openClarificationCount > 0 ? `Clarifications (${openClarificationCount})` : 'Clarifications'}
+        active={isAt('clarifications')}
+        onClick={() => navigate(`/books/${id}/clarifications`)}
+        dot={openClarificationCount > 0 || isPhaseComplete('clarifications')}
+        dotColor={openClarificationCount > 0 ? 'var(--warning)' : undefined}
+      />
       <SidebarBtn icon="🌍" label="Story Bible" active={isAt('story-bible')} onClick={() => navigate(`/books/${id}/story-bible`)} dot={isPhaseComplete('storybible')} />
       <SidebarBtn icon="👤" label="Characters" active={isAt('characters')} onClick={() => navigate(`/books/${id}/characters`)} dot={isPhaseComplete('characters')} />
       <SidebarBtn icon="🧵" label="Plot Threads" active={isAt('plot-threads')} onClick={() => navigate(`/books/${id}/plot-threads`)} dot={isPhaseComplete('plotthreads')} />

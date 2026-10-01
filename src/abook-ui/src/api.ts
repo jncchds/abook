@@ -40,6 +40,7 @@ export interface Book {
   illustrationStyle?: string | null
   illustrationPortraitFraming?: string | null
   illustrationNegativePrompt?: string | null
+  clarificationsStatus?: string
   storyBibleStatus?: string
   charactersStatus?: string
   plotThreadsStatus?: string
@@ -349,6 +350,30 @@ export const getCharacterHistory = (bookId: number, cardId: number) =>
   api.get<CharacterCardVersion[]>(`/books/${bookId}/characters/${cardId}/history`)
 export const restoreCharacterVersion = (bookId: number, cardId: number, versionId: number) =>
   api.post<CharacterCard>(`/books/${bookId}/characters/${cardId}/history/${versionId}/restore`)
+
+// Clarifications — answered planning questions and author notes, appended to the premise in every prompt
+export interface Clarification {
+  id: number
+  bookId: number
+  question: string
+  /** Empty while the planner's question awaits an answer. */
+  answer: string
+  isArchived: boolean
+  /** Awaiting an answer (active and unanswered); a waiting planning run resumes once none are left. */
+  isOpen: boolean
+  createdAt: string
+  updatedAt: string
+}
+export const getClarifications = (bookId: number, includeArchived = false, signal?: AbortSignal) =>
+  api.get<Clarification[]>(`/books/${bookId}/clarifications`, { params: includeArchived ? { includeArchived: true } : undefined, signal })
+export const createClarification = (bookId: number, data: { question: string; answer: string }) =>
+  api.post<Clarification>(`/books/${bookId}/clarifications`, data)
+export const updateClarification = (bookId: number, id: number, data: { question: string; answer: string }) =>
+  api.put<Clarification>(`/books/${bookId}/clarifications/${id}`, data)
+export const archiveClarification = (bookId: number, id: number) =>
+  api.post<Clarification>(`/books/${bookId}/clarifications/${id}/archive`)
+export const unarchiveClarification = (bookId: number, id: number) =>
+  api.post<Clarification>(`/books/${bookId}/clarifications/${id}/unarchive`)
 
 // Plot Threads
 export interface PlotThread {

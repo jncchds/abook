@@ -32,7 +32,21 @@ public class BookRepository : IBookRepository
     }
 
     public async Task<Book?> GetByIdAsync(int id) =>
-        await _db.Books.FindAsync(id);
+        await WithClarificationsAsync(await _db.Books.FindAsync(id));
+
+    /// <summary>
+    /// Every single-book load brings the active clarifications along — prompts append them to the
+    /// premise. Read untracked on each load, so they are always current and never saved via the book.
+    /// </summary>
+    private async Task<Book?> WithClarificationsAsync(Book? book)
+    {
+        if (book is not null)
+            book.Clarifications = await _db.Clarifications.AsNoTracking()
+                .Where(c => c.BookId == book.Id && !c.IsArchived)
+                .OrderBy(c => c.CreatedAt).ThenBy(c => c.Id)
+                .ToListAsync();
+        return book;
+    }
 
     /// <summary>
     /// Loads a book with all of its chapters (archived included), LLM config, and Story Bible.
@@ -40,12 +54,12 @@ public class BookRepository : IBookRepository
     /// Intended for the UI, which renders archived chapters in their own section.
     /// </summary>
     public async Task<Book?> GetByIdWithDetailsAsync(int id) =>
-        await _db.Books
+        await WithClarificationsAsync(await _db.Books
             .Include(b => b.StoryBible)
             .Include(b => b.Chapters.OrderBy(c => c.Number))
             .Include(b => b.LlmConfigurations)
             .AsSplitQuery()
-            .FirstOrDefaultAsync(b => b.Id == id);
+            .FirstOrDefaultAsync(b => b.Id == id));
 
     /// <summary>
     /// Same as <see cref="GetByIdWithDetailsAsync"/> but the chapter collection excludes archived
@@ -54,12 +68,12 @@ public class BookRepository : IBookRepository
     /// exported manuscript.
     /// </summary>
     public async Task<Book?> GetByIdWithActiveDetailsAsync(int id) =>
-        await _db.Books
+        await WithClarificationsAsync(await _db.Books
             .Include(b => b.StoryBible)
             .Include(b => b.Chapters.Where(c => !c.IsArchived).OrderBy(c => c.Number))
             .Include(b => b.LlmConfigurations)
             .AsSplitQuery()
-            .FirstOrDefaultAsync(b => b.Id == id);
+            .FirstOrDefaultAsync(b => b.Id == id));
 
     public async Task<IReadOnlyList<int>> GetAncestryBookIdsAsync(int bookId, CancellationToken ct = default)
     {
@@ -92,6 +106,13 @@ public class BookRepository : IBookRepository
         var books = await _db.Books
             .Where(b => ancestorIds.Contains(b.Id))
             .ToDictionaryAsync(b => b.Id, ct);
+
+        var clarificationsByBook = await _db.Clarifications.AsNoTracking()
+            .Where(c => ancestorIds.Contains(c.BookId) && !c.IsArchived)
+            .GroupBy(c => c.BookId)
+            .ToDictionaryAsync(g => g.Key, g => g.OrderBy(x => x.CreatedAt).ThenBy(x => x.Id).ToList(), ct);
+        foreach (var (id, book) in books)
+            book.Clarifications = clarificationsByBook.GetValueOrDefault(id) ?? [];
 
         var bibles = await _db.StoryBibles
             .Where(s => ancestorIds.Contains(s.BookId))
@@ -675,6 +696,41 @@ public class BookRepository : IBookRepository
     }
 
     // ── Visual assets ─────────────────────────────────────────────────────────
+
+    // ── Clarifications ────────────────────────────────────────────────────────
+
+    // Untracked: a planning run polls this while the author answers in other requests.
+    public async Task<IReadOnlyList<Clarification>> GetClarificationsAsync(int bookId, bool includeArchived = false) =>
+        await _db.Clarifications.AsNoTracking()
+            .Where(c => c.BookId == bookId && (includeArchived || !c.IsArchived))
+            .OrderBy(c => c.CreatedAt).ThenBy(c => c.Id)
+            .ToListAsync();
+
+    public async Task<Clarification?> GetClarificationAsync(int bookId, int clarificationId) =>
+        await _db.Clarifications.FirstOrDefaultAsync(c => c.BookId == bookId && c.Id == clarificationId);
+
+    // AnsweredAt records the first answer, whichever path gives it — the metadata timeline relies on it.
+    public async Task<Clarification> AddClarificationAsync(Clarification clarification)
+    {
+        clarification.CreatedAt = clarification.UpdatedAt = DateTime.UtcNow;
+        if (!string.IsNullOrWhiteSpace(clarification.Answer)) clarification.AnsweredAt ??= clarification.CreatedAt;
+        _db.Clarifications.Add(clarification);
+        await _db.SaveChangesAsync();
+        return clarification;
+    }
+
+    public async Task UpdateClarificationAsync(Clarification clarification)
+    {
+        clarification.UpdatedAt = DateTime.UtcNow;
+        if (!string.IsNullOrWhiteSpace(clarification.Answer)) clarification.AnsweredAt ??= clarification.UpdatedAt;
+        _db.Clarifications.Update(clarification);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task ArchiveClarificationsAsync(int bookId) =>
+        await _db.Clarifications
+            .Where(c => c.BookId == bookId && !c.IsArchived)
+            .ExecuteUpdateAsync(s => s.SetProperty(c => c.IsArchived, true).SetProperty(c => c.UpdatedAt, DateTime.UtcNow));
 
     public async Task<IReadOnlyList<VisualAsset>> GetVisualAssetsAsync(int bookId) =>
         await _db.VisualAssets.Where(a => a.BookId == bookId).OrderBy(a => a.Kind).ThenBy(a => a.Name).ToListAsync();

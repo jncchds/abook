@@ -179,6 +179,9 @@ namespace ABook.Infrastructure.Migrations
                     b.Property<string>("CharactersSystemPrompt")
                         .HasColumnType("text");
 
+                    b.Property<int>("ClarificationsStatus")
+                        .HasColumnType("integer");
+
                     b.Property<string>("ContinuityCheckerSystemPrompt")
                         .HasColumnType("text");
 
@@ -715,6 +718,51 @@ namespace ABook.Infrastructure.Migrations
                     b.HasIndex("BookId");
 
                     b.ToTable("CharactersSnapshots");
+                });
+
+            modelBuilder.Entity("ABook.Core.Models.Clarification", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Answer")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("AnsweredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("BookId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsArchived")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("Question")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BookId");
+
+                    b.ToTable("Clarifications");
                 });
 
             modelBuilder.Entity("ABook.Core.Models.Illustration", b =>
@@ -1522,6 +1570,17 @@ namespace ABook.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("CharacterCard");
+                });
+
+            modelBuilder.Entity("ABook.Core.Models.Clarification", b =>
+                {
+                    b.HasOne("ABook.Core.Models.Book", "Book")
+                        .WithMany()
+                        .HasForeignKey("BookId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Book");
                 });
 
             modelBuilder.Entity("ABook.Core.Models.Illustration", b =>

@@ -29,6 +29,9 @@ public class AgentRunStateService
     // bookId -> (messageId, TaskCompletionSource for answer)
     private readonly ConcurrentDictionary<int, (int MessageId, TaskCompletionSource<string> Tcs)> _pending = new();
 
+    // bookId → planning run waiting for every open clarification to be answered
+    private readonly ConcurrentDictionary<int, TaskCompletionSource<bool>> _clarificationWaiters = new();
+
     // Per-book cancellation tokens (for workflow stop)
     private readonly ConcurrentDictionary<int, CancellationTokenSource> _cts = new();
 
@@ -129,8 +132,11 @@ public class AgentRunStateService
         }
     }
 
-    /// <summary>Persist the run in WaitingForInput state with the question message id.</summary>
-    public async Task PersistRunPausedAsync(int bookId, int messageId, string? workflowContext = null)
+    /// <summary>
+    /// Persist the run in WaitingForInput state with the question message id — null while it waits for
+    /// the clarifications, which are answered on their own page rather than through a message.
+    /// </summary>
+    public async Task PersistRunPausedAsync(int bookId, int? messageId, string? workflowContext = null)
     {
         if (!_runIds.TryGetValue(bookId, out var runId)) return;
         try
@@ -223,6 +229,22 @@ public class AgentRunStateService
 
     // ────────────────────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Waits for the author to answer every open clarification on the Clarifications page. Completes
+    /// when <see cref="TryResolveClarifications"/> is called — true when the round is complete, false
+    /// when the author reset it — and is cancelled by <see cref="CancelRun"/>.
+    /// </summary>
+    public Task<bool> WaitForClarificationsAsync(int bookId)
+    {
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _clarificationWaiters[bookId] = tcs;
+        return tcs.Task;
+    }
+
+    /// <summary>Releases a run waiting for clarification answers. False when no run is waiting.</summary>
+    public bool TryResolveClarifications(int bookId, bool roundComplete = true) =>
+        _clarificationWaiters.TryRemove(bookId, out var tcs) && tcs.TrySetResult(roundComplete);
+
     public void SetPending(int bookId, int messageId, TaskCompletionSource<string> tcs) =>
         _pending[bookId] = (messageId, tcs);
 
@@ -254,6 +276,8 @@ public class AgentRunStateService
         // Unblock any agent waiting for a user answer
         if (_pending.TryRemove(bookId, out var pending))
             pending.Tcs.TrySetCanceled();
+        if (_clarificationWaiters.TryRemove(bookId, out var waiter))
+            waiter.TrySetCanceled();
 
         if (!cancelled && _status.GetValueOrDefault(bookId) is { IsActive: true } stuck)
         {

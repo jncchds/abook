@@ -38,6 +38,7 @@ public class AppDbContext : DbContext
     public DbSet<Illustration> Illustrations => Set<Illustration>();
     public DbSet<BookImage> BookImages => Set<BookImage>();
     public DbSet<VisualAsset> VisualAssets => Set<VisualAsset>();
+    public DbSet<Clarification> Clarifications => Set<Clarification>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -174,6 +175,20 @@ public class AppDbContext : DbContext
              .WithMany(x => x.CharacterCards)
              .HasForeignKey(x => x.BookId)
              .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Clarification>(c =>
+        {
+            c.HasKey(x => x.Id);
+            c.Property(x => x.Source).HasConversion<string>().HasMaxLength(20);
+            c.Property(x => x.Question).IsRequired();
+            c.Property(x => x.Answer).IsRequired();
+            c.Property(x => x.IsArchived).HasDefaultValue(false);
+            c.HasOne(x => x.Book)
+             .WithMany()
+             .HasForeignKey(x => x.BookId)
+             .OnDelete(DeleteBehavior.Cascade);
+            c.HasIndex(x => x.BookId);
         });
 
         modelBuilder.Entity<CharacterCardVersion>(v =>

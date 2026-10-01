@@ -24,7 +24,7 @@ public class CharactersAgent : AgentBase
     /// finished streaming are merged into the existing set before the failure is rethrown.
     /// </summary>
     public async Task<IReadOnlyList<CharacterCard>> RunAsync(
-        Book book, StoryBible bible, string qaContext, CancellationToken ct = default)
+        Book book, StoryBible bible, CancellationToken ct = default)
     {
         var bookId = book.Id;
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 2/4 - Characters...", false, ct);
@@ -43,7 +43,7 @@ public class CharactersAgent : AgentBase
 
         messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
         messages.Add(new LlmChatMessage(LlmChatRole.User,
-            PromptTemplates.CharactersUser(book, bible, qaContext, ancestorReference, BuildExistingBlock(existing))));
+            PromptTemplates.CharactersUser(book, bible, ancestorReference, BuildExistingBlock(existing))));
 
         var (raw, failure) = await StreamJsonResponseAsync(
             client, config, messages, bookId, null, AgentRole.CharactersAgent, JsonSchemas.Characters, ct);

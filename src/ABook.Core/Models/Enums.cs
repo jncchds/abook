@@ -28,6 +28,13 @@ public enum PlotThreadType { MainPlot, Subplot, CharacterArc, Mystery, Foreshado
 
 public enum PlotThreadStatus { Active, Resolved, Dormant }
 
+/// <summary>
+/// Where a clarification came from: a planner question answered on the Clarifications page, an author
+/// note after a planning phase (also in the chat), one the author added, or one imported from the
+/// chat-based Q&amp;A of older books.
+/// </summary>
+public enum ClarificationSource { Planner, PhaseNote, Author, Imported }
+
 public enum AgentRunPersistStatus
 {
     Running,

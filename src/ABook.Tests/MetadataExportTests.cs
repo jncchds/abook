@@ -84,6 +84,31 @@ public class MetadataExportTests
     }
 
     [Fact]
+    public void Generate_ShowsClarificationQuestionsAnswersAndSkips_InOrder()
+    {
+        var html = MetadataExport.Generate(new MetadataSources
+        {
+            Book = BookWithChapter(),
+            Clarifications =
+            [
+                new Clarification { Source = ClarificationSource.Planner, Question = "Who narrates?", Answer = "His daughter.",
+                                    CreatedAt = T0.AddMinutes(1), AnsweredAt = T0.AddMinutes(3), UpdatedAt = T0.AddMinutes(3) },
+                new Clarification { Source = ClarificationSource.Planner, Question = "Any magic?", IsArchived = true,
+                                    CreatedAt = T0.AddMinutes(1), UpdatedAt = T0.AddMinutes(4) },
+                new Clarification { Source = ClarificationSource.Imported, Question = "Old chat question", Answer = "Old answer",
+                                    CreatedAt = T0.AddMinutes(2), AnsweredAt = T0.AddMinutes(2), UpdatedAt = T0.AddMinutes(2) },
+            ],
+        });
+
+        var asked    = Pos(html, "Who narrates?");
+        var answered = Pos(html, "Answered the planner");
+        var skipped  = Pos(html, "Clarification question skipped");
+        Assert.True(asked < answered && answered < skipped);
+        // Imported Q&A is already in the timeline as chat messages — no duplicate creation event.
+        Assert.DoesNotContain("Old chat question", html);
+    }
+
+    [Fact]
     public void Generate_ReconstructsAuthorBibleEditFromLaterState()
     {
         StoryBibleSnapshot Snap(string setting, string reason, int minutes) =>

@@ -76,9 +76,12 @@ public class RunRecoveryService : BackgroundService
                     await repo.UpdateMessageAsync(question);
                 }
 
-                var reason = wasWaiting
-                    ? "The server restarted while the agent was waiting for your answer, so that question can no longer be answered."
-                    : "Agent run was interrupted by a server restart.";
+                // No pending message: the run was waiting for clarifications, which outlive the run.
+                var reason = !wasWaiting
+                    ? "Agent run was interrupted by a server restart."
+                    : pendingMessageId is null
+                        ? "The server restarted while the planner was waiting for your clarifications. Your answers are kept — answer the open ones on the Clarifications page."
+                        : "The server restarted while the agent was waiting for your answer, so that question can no longer be answered.";
                 await repo.AddMessageAsync(new AgentMessage
                 {
                     BookId = run.BookId,

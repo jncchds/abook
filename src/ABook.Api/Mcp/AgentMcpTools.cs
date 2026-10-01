@@ -51,7 +51,7 @@ public class AgentMcpTools : McpToolBase
     // ── Planning ──────────────────────────────────────────────────────────────
 
     [McpServerTool(Name = "start_planning")]
-    [Description("Start the planning pipeline for a book. Runs four sequential phases: Story Bible → Characters → Plot Threads → Chapter Outlines. Each phase may ask clarifying questions — check get_agent_status and use answer_agent_question if the agent is WaitingForInput. The run is asynchronous; returns immediately after scheduling.")]
+    [Description("Start the planning pipeline for a book. Runs four sequential phases: Story Bible → Characters → Plot Threads → Chapter Outlines. It may first ask clarifying questions and wait (WaitingForInput in get_agent_status): answer the open ones from list_clarifications with update_clarification — the last answer resumes planning. Human-assisted pauses after phases are answered with answer_agent_question. The run is asynchronous; returns immediately after scheduling.")]
     public async Task<string> StartPlanning(
         [Description("The book ID to plan.")] int bookId)
     {
@@ -134,7 +134,7 @@ public class AgentMcpTools : McpToolBase
     // ── Human-in-the-loop ─────────────────────────────────────────────────────
 
     [McpServerTool(Name = "answer_agent_question")]
-    [Description("Answer a question posed by a paused agent. Use get_agent_status to detect WaitingForInput state, then get_agent_messages to find the unanswered Question message and its ID. Submitting the answer unblocks the agent and it resumes generation.")]
+    [Description("Answer a question posed by a paused agent (human-assisted pauses). Use get_agent_status to detect WaitingForInput state, then get_agent_messages to find the unanswered Question message and its ID. Submitting the answer unblocks the agent and it resumes generation. The planner's clarifying questions are not messages — answer those with list_clarifications / update_clarification.")]
     public async Task<string> AnswerAgentQuestion(
         [Description("The ID of the AgentMessage with MessageType=Question that you are answering (from get_agent_messages).")] int messageId,
         [Description("Your answer to the agent's question.")] string answer)

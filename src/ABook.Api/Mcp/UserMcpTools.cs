@@ -210,7 +210,7 @@ public class UserMcpTools : McpToolBase
     // ── Generate book ─────────────────────────────────────────────────────────
 
     [McpServerTool(Name = "generate_book")]
-    [Description("Create a new book project and immediately start the full autonomous writing workflow: Story Bible → Characters → Plot Threads → Chapter Outlines → Write each chapter → Continuity check → Edit each chapter. The agent will ask clarifying questions during planning — use get_agent_status to check for WaitingForInput and answer_agent_question to respond. Returns the new book ID to use with other tools.")]
+    [Description("Create a new book project and immediately start the full autonomous writing workflow: Story Bible → Characters → Plot Threads → Chapter Outlines → Write each chapter → Continuity check → Edit each chapter. The planner may ask clarifying questions first — when get_agent_status shows WaitingForInput, answer the open ones from list_clarifications with update_clarification (the last answer resumes planning); other pauses are answered with answer_agent_question. Returns the new book ID to use with other tools.")]
     public async Task<string> GenerateBook(
         [Description("The book title.")] string title,
         [Description("A concise synopsis of the book's premise and plot.")] string premise,
@@ -245,7 +245,7 @@ public class UserMcpTools : McpToolBase
             book.TargetChapterCount,
             workflowStarted,
             message = workflowStarted
-                ? $"Book created with ID {book.Id}. Full workflow started. Use get_agent_status with bookId={book.Id} to monitor progress. The agent will pause at WaitingForInput state when it needs clarification — use answer_agent_question to respond."
+                ? $"Book created with ID {book.Id}. Full workflow started. Use get_agent_status with bookId={book.Id} to monitor progress. The agent will pause at WaitingForInput state when it needs clarification — answer the open questions from list_clarifications with update_clarification."
                 : $"Book created with ID {book.Id}, but the workflow was not started: {start.ToMessage()} Start it later with start_workflow."
         }, JsonOptions);
     }

@@ -80,6 +80,7 @@ public class BookExportService
             PlotThreadVersions  = plotThreadVersions,
             PlotThreadSnapshots = (await _repo.GetPlotThreadsSnapshotsAsync(book.Id)).ToList(),
             ChapterVersions     = chapterVersions,
+            Clarifications      = await _repo.GetClarificationsAsync(book.Id, includeArchived: true),
             Messages            = (await _repo.GetMessagesAsync(book.Id)).ToList(),
             TokenUsage          = (await _repo.GetTokenUsageAsync(book.Id)).ToList(),
             Runs                = await _repo.GetRunsForBookAsync(book.Id),

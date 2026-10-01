@@ -379,8 +379,20 @@ public static class PromptTemplates
 {
     // ── Shared blocks ──────────────────────────────────────────────────────────
 
-    private static string AuthorGuidance(string qaContext, string label) =>
-        qaContext.Length > 0 ? $"\n{label}:\n{qaContext}" : "";
+    /// <summary>
+    /// The premise with the author's active clarifications appended. Use it wherever the premise reaches
+    /// a prompt, so decisions made in the clarification round are never lost.
+    /// </summary>
+    public static string Premise(Book book)
+    {
+        var answered = book.Clarifications
+            .Where(c => !c.IsArchived && !string.IsNullOrWhiteSpace(c.Answer))
+            .OrderBy(c => c.CreatedAt).ThenBy(c => c.Id)
+            .ToList();
+        if (answered.Count == 0) return book.Premise;
+        return $"{book.Premise}\n\nAuthor clarifications:\n" +
+               string.Join("\n", answered.Select(c => QuestionAndAnswer(c.Question.Trim(), c.Answer.Trim()).TrimEnd()));
+    }
 
     private static string Ancestor(string ancestorReference) =>
         ancestorReference.Length > 0 ? $"\n{ancestorReference}" : "";
@@ -400,11 +412,10 @@ public static class PromptTemplates
     /// <summary>Joins passage blocks retrieved by separate RAG queries.</summary>
     public static string JoinRagGroups(IEnumerable<string> groups) => string.Join("\n\n===\n\n", groups);
 
-    /// <summary>Bookkeeping line appended to the Q&amp;A context after a human-assisted planning pause.</summary>
-    public static string UserNoteAfterPhase(string phaseLabel, string note) =>
-        $"\n[User note after {phaseLabel}]: {note}";
+    /// <summary>The question a human-assisted planning note is saved under as a clarification.</summary>
+    public static string NoteAfterPhaseQuestion(string phaseLabel) => $"Anything to add after the {phaseLabel}?";
 
-    /// <summary>One answered clarifying question, as carried through the planning phases.</summary>
+    /// <summary>One answered clarifying question, as appended to the premise.</summary>
     public static string QuestionAndAnswer(string question, string answer) =>
         $"Q: {question}\nA: {answer}\n";
 
@@ -425,7 +436,7 @@ public static class PromptTemplates
             sb.AppendLine();
             sb.AppendLine($"### Prior Book: {a.Book.Title} (Id: {a.Book.Id})");
             sb.AppendLine($"- Genre: {a.Book.Genre}");
-            sb.AppendLine($"- Premise: {a.Book.Premise}");
+            sb.AppendLine($"- Premise: {Premise(a.Book)}");
 
             if (a.Bible is { } bible)
             {
@@ -480,6 +491,8 @@ public static class PromptTemplates
         IMPORTANT: Ask all questions in {language}.
         Keep the number of questions to an absolute minimum — only ask when truly necessary.
         If everything is clear from the premise, respond with exactly: None.
+        If the premise ends with "Author clarifications", those questions are already answered — never ask
+        them again, nor anything their answers settle.
 
         If the premise includes "Continuation context from previous books":
         - Do NOT re-ask worldbuilding questions already established by the prior book.
@@ -490,29 +503,28 @@ public static class PromptTemplates
 
     public static string QuestionGatheringUser(Book book, string ancestorReference)
     {
-        var context = $"Title: {book.Title}\nGenre: {book.Genre}\nPremise: {book.Premise}\nTarget chapters: {book.TargetChapterCount}";
+        var context = $"Title: {book.Title}\nGenre: {book.Genre}\nPremise: {Premise(book)}\nTarget chapters: {book.TargetChapterCount}";
         return string.IsNullOrEmpty(ancestorReference) ? context : $"{context}\n\n{ancestorReference}";
     }
 
     // ── Planning phases ───────────────────────────────────────────────────────
 
-    public static string StoryBibleUser(Book book, string qaContext, string ancestorReference) =>
+    public static string StoryBibleUser(Book book, string ancestorReference) =>
         $"""
         Book title: {book.Title}
         Genre: {book.Genre}
-        Premise: {book.Premise}
+        Premise: {Premise(book)}
         Target chapter count: {book.TargetChapterCount}
-        {AuthorGuidance(qaContext, "Author guidance")}
         {Ancestor(ancestorReference)}
 
         Create the Story Bible for this book.
         """;
 
-    public static string CharactersUser(Book book, StoryBible bible, string qaContext, string ancestorReference, string existingBlock) =>
+    public static string CharactersUser(Book book, StoryBible bible, string ancestorReference, string existingBlock) =>
         $"""
         Book title: {book.Title}
         Genre: {book.Genre}
-        Premise: {book.Premise}
+        Premise: {Premise(book)}
         Target chapter count: {book.TargetChapterCount}
 
         Story Bible:
@@ -521,7 +533,6 @@ public static class PromptTemplates
         Themes: {bible.Themes}
         Tone & style: {bible.ToneAndStyle}
         World rules: {bible.WorldRules}
-        {AuthorGuidance(qaContext, "Author guidance so far")}
         {Ancestor(ancestorReference)}
         {existingBlock}
         Create detailed character profiles for this book.
@@ -545,11 +556,11 @@ public static class PromptTemplates
 
     public static string PlotThreadsUser(
         Book book, StoryBible bible, IEnumerable<CharacterCard> characters,
-        string qaContext, string ancestorReference, string existingBlock) =>
+        string ancestorReference, string existingBlock) =>
         $"""
         Book title: {book.Title}
         Genre: {book.Genre}
-        Premise: {book.Premise}
+        Premise: {Premise(book)}
         Target chapter count: {book.TargetChapterCount}
 
         Story Bible:
@@ -560,7 +571,6 @@ public static class PromptTemplates
 
         Characters:
         {CharacterSummary(characters)}
-        {AuthorGuidance(qaContext, "Author guidance so far")}
         {Ancestor(ancestorReference)}
         {existingBlock}
         Create the plot thread map for this book.
@@ -581,14 +591,14 @@ public static class PromptTemplates
 
     public static string ChapterOutlinesUser(
         Book book, StoryBible bible, IEnumerable<CharacterCard> characters, IEnumerable<PlotThread> threads,
-        string qaContext, string ancestorReference, string existingBlock)
+        string ancestorReference, string existingBlock)
     {
         var threadSummary = string.Join("\n", threads.Select(t =>
             $"- {t.Name} ({t.Type}, introduced ch.{t.IntroducedChapterNumber?.ToString() ?? "?"}): {t.Description}"));
         return $"""
             Book title: {book.Title}
             Genre: {book.Genre}
-            Premise: {book.Premise}
+            Premise: {Premise(book)}
             Target chapter count: {book.TargetChapterCount}
 
             Story Bible:
@@ -603,7 +613,6 @@ public static class PromptTemplates
 
             Plot Threads:
             {threadSummary}
-            {AuthorGuidance(qaContext, "Author guidance")}
             {Ancestor(ancestorReference)}
             {existingBlock}
             Create {book.TargetChapterCount} detailed chapter outlines for this book.
@@ -1132,7 +1141,7 @@ public static class PromptTemplates
     public static string StyleSheetUser(Book book, StoryBible? bible, string brief) =>
         $"""
         Write the art direction for all illustrations of "{book.Title}" ({book.Genre}).
-        Premise: {book.Premise}
+        Premise: {Premise(book)}
         {(bible is null ? "" : $"Setting: {bible.SettingDescription}\nTime period: {bible.TimePeriod}\nTone & style: {bible.ToneAndStyle}")}
         The author's brief for the visual style: {brief}
 
@@ -1208,7 +1217,7 @@ public static class PromptTemplates
         string visualAssets = "(none yet)") =>
         $"""
         Design the cover illustration of "{book.Title}" ({book.Genre}).
-        Premise: {book.Premise}
+        Premise: {Premise(book)}
         {(bible is null ? "" : $"Themes: {bible.Themes}\nTime period: {bible.TimePeriod}")}
 
         Chapter synopses:

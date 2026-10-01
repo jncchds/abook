@@ -1,6 +1,6 @@
 import { useBookContext } from '../contexts/BookContext'
 
-type Phase = 'storybible' | 'characters' | 'plotthreads' | 'chapters'
+type Phase = 'clarifications' | 'storybible' | 'characters' | 'plotthreads' | 'chapters'
 
 interface PhaseActionBarProps {
   phase: Phase

@@ -21,6 +21,8 @@ internal sealed class MetadataSources
     public IReadOnlyList<PlotThreadsSnapshot> PlotThreadSnapshots { get; init; } = [];
     /// <summary>Versions of the active chapters.</summary>
     public IReadOnlyList<ChapterVersion> ChapterVersions { get; init; } = [];
+    /// <summary>All clarifications, archived included.</summary>
+    public IReadOnlyList<Clarification> Clarifications { get; init; } = [];
     public IReadOnlyList<AgentMessage> Messages { get; init; } = [];
     public IReadOnlyList<TokenUsageRecord> TokenUsage { get; init; } = [];
     public IReadOnlyList<AgentRun> Runs { get; init; } = [];
@@ -66,6 +68,7 @@ internal static class MetadataExport
 
         var events = new List<Ev>();
         events.AddRange(BookEvents(book, s.BookSnapshots));
+        events.AddRange(ClarificationEvents(s.Clarifications));
         events.AddRange(BibleEvents(s.Bible, s.BibleSnapshots));
         events.AddRange(SetSnapshotEvents(s.CharacterSnapshots.Select(x => (x.CreatedAt, x.Reason, x.DataJson)),
             "Characters", "character", Deserialize<CharacterCard>, c => c.Name, c => $"{c.Name} · {c.Role}", CharacterFields));
@@ -134,6 +137,42 @@ internal static class MetadataExport
         {
             var diff = Diff(states[i], states[i + 1]);
             if (diff.Length > 0) yield return new Ev(ordered[i].CreatedAt, Cat.Planning, Author, "Book details edited", diff);
+        }
+    }
+
+    // ── Clarifications ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The planner's questions and the author's answers, plus later edits and archiving. Phase notes and
+    /// imported Q&amp;A were given in the chat, so their creation is already in the timeline as messages.
+    /// Only the latest wording is stored: an edit shows the text as it is now.
+    /// </summary>
+    private static IEnumerable<Ev> ClarificationEvents(IReadOnlyList<Clarification> clarifications)
+    {
+        var planner = Role(AgentRole.Planner);
+        foreach (var c in clarifications.OrderBy(c => c.CreatedAt))
+        {
+            var qa = Fields([("Question", c.Question), ("Answer", c.Answer)]);
+            switch (c.Source)
+            {
+                case ClarificationSource.Planner:
+                    yield return new Ev(c.CreatedAt, Cat.Conversation, planner,
+                        c.AnsweredAt is null && !c.IsArchived ? "Asked the author — unanswered" : "Asked the author", Text(c.Question));
+                    if (c.AnsweredAt is DateTime answeredAt)
+                        yield return new Ev(answeredAt, Cat.Conversation, Author, "Answered the planner", qa);
+                    break;
+                case ClarificationSource.Author:
+                    yield return new Ev(c.CreatedAt, Cat.Planning, Author, "Clarification added", qa);
+                    break;
+            }
+
+            var settled = c.AnsweredAt ?? c.CreatedAt;
+            if (c.IsArchived)
+                yield return new Ev(c.UpdatedAt, Cat.Planning, Author,
+                    c.AnsweredAt is null ? "Clarification question skipped" : "Clarification archived", Text(c.Question));
+            else if (c.UpdatedAt > settled.AddSeconds(1))
+                yield return new Ev(c.UpdatedAt, Cat.Planning, Author, "Clarification edited",
+                    qa + "<p class=\"note\">Shown as it reads now.</p>");
         }
     }
 
@@ -469,7 +508,10 @@ internal static class MetadataExport
     {
         var book  = s.Book;
         var calls = s.TokenUsage.Where(r => r.AgentRole != AgentRole.WorkflowStep).ToList();
-        var questions = s.Messages.Count(m => m.MessageType == MessageType.Question);
+        // Chat questions (human-assisted pauses, older clarification rounds) plus the planner's questions
+        // asked on the Clarifications page.
+        var questions = s.Messages.Count(m => m.MessageType == MessageType.Question)
+                      + s.Clarifications.Count(c => c.Source == ClarificationSource.Planner);
 
         html.Append("<section id=\"overview\" class=\"md-section\">\n  <h2>Overview</h2>\n");
         html.Append(Fields(
@@ -493,6 +535,10 @@ internal static class MetadataExport
             AppendUsageTable(html, "By model", calls.GroupBy(c => c.ModelName is { Length: > 0 } m ? m : "unknown"));
             html.Append("  </div>\n");
         }
+
+        if (book.Clarifications.Count > 0)
+            html.Append(Fold($"Clarifications (current) · {book.Clarifications.Count}",
+                Fields(book.Clarifications.Select(c => (c.Question, (string?)c.Answer)))));
 
         var art = Fields(
         [
@@ -554,6 +600,11 @@ internal static class MetadataExport
         html.Append("</section>\n");
     }
 
+    private const string EyeIcon =
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" " +
+        "stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z\"/>" +
+        "<circle cx=\"12\" cy=\"12\" r=\"3\"/></svg>";
+
     private static void AppendToolbar(StringBuilder html, List<Ev> timeline)
     {
         (string Bg, string Fg, string Border, string Name)[] presets =
@@ -563,20 +614,27 @@ internal static class MetadataExport
             ("#f4ecd8", "#5c4a1e", "#5c4a1e", "Sepia"),
             ("#002b36", "#93a1a1", "#93a1a1", "Solarized"),
         ];
-        html.Append("  <div id=\"toolbar\">\n    <span class=\"toolbar-label\">Show</span>\n");
+        html.Append("  <div id=\"toolbar\">\n");
+        foreach (var p in presets)
+            html.Append($"    <button class=\"preset-btn\" data-bg=\"{p.Bg}\" data-fg=\"{p.Fg}\" " +
+                        $"style=\"background:{p.Bg};color:{p.Fg};border:2px solid {p.Border}\">{p.Name}</button>\n");
+        html.Append("    <div class=\"toolbar-sep\"></div>\n");
+        html.Append("    <button class=\"size-btn\" id=\"font-smaller\" title=\"Decrease font size\">A−</button>\n");
+        html.Append("    <button class=\"size-btn\" id=\"font-larger\" title=\"Increase font size\">A+</button>\n");
+
+        // Category filters live in a popup behind the eye button.
+        html.Append("    <div class=\"filter-wrap\">\n");
+        html.Append("      <button class=\"size-btn\" id=\"filter-btn\" title=\"Show or hide kinds of events\" aria-haspopup=\"true\" aria-expanded=\"false\">")
+            .Append(EyeIcon).Append("<span id=\"filter-hidden\"></span></button>\n");
+        html.Append("      <div id=\"filter-menu\" role=\"menu\" hidden>\n");
         foreach (var (cat, label) in Categories)
         {
             var count = timeline.Count(e => e.Cat == cat);
             if (count == 0) continue;
             var key = cat.ToString().ToLowerInvariant();
-            html.Append($"    <label class=\"filter cat-{key}\"><input type=\"checkbox\" data-cat=\"{key}\" checked> {label} <span class=\"count\">{count:N0}</span></label>\n");
+            html.Append($"        <label class=\"filter cat-{key}\"><input type=\"checkbox\" data-cat=\"{key}\" checked><span class=\"swatch\"></span>{label}<span class=\"count\">{count:N0}</span></label>\n");
         }
-        html.Append("    <div class=\"toolbar-sep\"></div>\n");
-        foreach (var p in presets)
-            html.Append($"    <button class=\"preset-btn\" data-bg=\"{p.Bg}\" data-fg=\"{p.Fg}\" " +
-                        $"style=\"background:{p.Bg};color:{p.Fg};border:2px solid {p.Border}\">{p.Name}</button>\n");
-        html.Append("    <button class=\"size-btn\" id=\"font-smaller\" title=\"Decrease font size\">A−</button>\n");
-        html.Append("    <button class=\"size-btn\" id=\"font-larger\" title=\"Increase font size\">A+</button>\n");
+        html.Append("      </div>\n    </div>\n");
         html.Append("  </div>\n");
     }
 
@@ -667,12 +725,22 @@ internal static class MetadataExport
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, sans-serif; font-size: var(--fs); line-height: 1.55; }
     #toolbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 16px; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 0.85em; }
-    .toolbar-label { font-size: 0.8em; opacity: 0.55; letter-spacing: 0.04em; text-transform: uppercase; }
     .toolbar-sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
-    .filter { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); cursor: pointer; user-select: none; }
-    .filter .count { opacity: 0.5; font-size: 0.85em; }
     .preset-btn, .size-btn { padding: 2px 9px; border-radius: 4px; cursor: pointer; font-size: 0.9em; font-weight: 600; }
     .size-btn { background: transparent; color: var(--fg); border: 1px solid var(--border); }
+    .filter-wrap { position: relative; }
+    #filter-btn { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; }
+    #filter-btn svg { display: block; }
+    #filter-btn[aria-expanded=""true""], #filter-btn.has-hidden { border-color: var(--fg); }
+    #filter-hidden { font-size: 0.85em; }
+    #filter-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 200; min-width: 210px; max-width: calc(100vw - 32px);
+                   padding: 6px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 8px;
+                   box-shadow: 0 8px 24px rgba(0,0,0,0.18); }
+    #filter-menu[hidden] { display: none; }
+    .filter { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; cursor: pointer; user-select: none; white-space: nowrap; }
+    .filter:hover { background: var(--soft); }
+    .filter .swatch { width: 10px; height: 10px; border-radius: 50%; background: var(--c); flex: none; }
+    .filter .count { margin-left: auto; padding-left: 12px; opacity: 0.5; font-size: 0.85em; font-variant-numeric: tabular-nums; }
     main { max-width: 980px; margin: 0 auto; padding: 32px 16px 96px; }
     header.doc-header { margin-bottom: 32px; padding-bottom: 20px; border-bottom: 2px solid var(--border); }
     header.doc-header h1 { font-size: 1.9em; margin-bottom: 6px; }
@@ -711,7 +779,6 @@ internal static class MetadataExport
     .ev-body::after { content: ''; display: block; clear: both; }
     .cat-planning { --c: #6366f1; } .cat-writing { --c: #16a34a; } .cat-conversation { --c: #d97706; }
     .cat-thinking { --c: #64748b; } .cat-art { --c: #db2777; } .cat-runs { --c: #0891b2; } .cat-llm { --c: #94a3b8; }
-    .filter { border-color: var(--c); }
     body.hide-planning .ev.cat-planning, body.hide-writing .ev.cat-writing, body.hide-conversation .ev.cat-conversation,
     body.hide-thinking .ev.cat-thinking, body.hide-art .ev.cat-art, body.hide-runs .ev.cat-runs, body.hide-llm .ev.cat-llm { display: none; }
     @media print { #toolbar { display: none; } }";
@@ -720,7 +787,16 @@ internal static class MetadataExport
       var store = { get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
                     set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
       var hidden = JSON.parse(store.get('abook-meta-hidden') || '[]');
-      document.querySelectorAll('.filter input').forEach(function (box) {
+      var filterBtn = document.getElementById('filter-btn');
+      var filterMenu = document.getElementById('filter-menu');
+      var boxes = document.querySelectorAll('.filter input');
+      function showHiddenCount() {
+        var n = 0;
+        boxes.forEach(function (b) { if (!b.checked) n++; });
+        document.getElementById('filter-hidden').textContent = n > 0 ? n + ' hidden' : '';
+        filterBtn.classList.toggle('has-hidden', n > 0);
+      }
+      boxes.forEach(function (box) {
         var cat = box.dataset.cat;
         box.checked = hidden.indexOf(cat) < 0;
         document.body.classList.toggle('hide-' + cat, !box.checked);
@@ -729,8 +805,17 @@ internal static class MetadataExport
           hidden = hidden.filter(function (c) { return c !== cat; });
           if (!box.checked) hidden.push(cat);
           store.set('abook-meta-hidden', JSON.stringify(hidden));
+          showHiddenCount();
         });
       });
+      showHiddenCount();
+      function setMenu(open) {
+        filterMenu.hidden = !open;
+        filterBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      }
+      filterBtn.addEventListener('click', function (e) { e.stopPropagation(); setMenu(filterMenu.hidden); });
+      document.addEventListener('click', function (e) { if (!filterMenu.hidden && !filterMenu.contains(e.target)) setMenu(false); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !filterMenu.hidden) { setMenu(false); filterBtn.focus(); } });
       function applyPreset(btn) {
         document.documentElement.style.setProperty('--bg', btn.dataset.bg);
         document.documentElement.style.setProperty('--fg', btn.dataset.fg);

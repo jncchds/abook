@@ -471,28 +471,37 @@ public class AgentOrchestrator : IAgentOrchestrator
         bool skipChapters,
         CancellationToken ct)
     {
-        var book = await _repo.GetByIdWithActiveDetailsAsync(bookId)
-            ?? throw new InvalidOperationException($"Book {bookId} not found.");
+        var book = await ReloadBookAsync(bookId);
 
         await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, RunStates.Running, ct: ct);
 
-        bool isContinuation = skipStoryBible || skipCharacters || skipPlotThreads || skipChapters;
-
-        // Continuation: reload prior Q&A context. Fresh run: gather and ask upfront questions.
-        var qaContext = isContinuation
-            ? await _questions.LoadExistingContextAsync(bookId)
-            : new System.Text.StringBuilder();
-
-        if (!isContinuation)
+        // Clarifications: asked once. The questions are saved open and answered on the Clarifications
+        // page, so an interrupted round loses nothing — a re-run waits for the questions still open
+        // instead of asking new ones.
+        if (book.ClarificationsStatus == PlanningPhaseStatus.Complete)
         {
-            var ancestorRef = PromptTemplates.AncestorReference(await _repo.GetAncestorPlanningContextAsync(bookId, ct));
-            var bkCtx = PromptTemplates.QuestionGatheringUser(book, ancestorRef);
-            var questions = await _questions.GatherQuestionsAsync(bookId, bkCtx, book.Language, ct);
-            if (questions.Count > 0)
-                await _questions.AskQuestionsAsync(bookId, questions, qaContext, ct);
+            await _notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Skipping clarifications (marked complete).", false, ct);
         }
+        else
+        {
+            bool roundComplete;
+            if ((await _repo.GetClarificationsAsync(bookId)).Any(c => c.IsOpen))
+            {
+                roundComplete = await _questions.WaitForAnswersAsync(bookId, ct);
+            }
+            else
+            {
+                var ancestorRef = PromptTemplates.AncestorReference(await _repo.GetAncestorPlanningContextAsync(bookId, ct));
+                var bkCtx = PromptTemplates.QuestionGatheringUser(book, ancestorRef);
+                var questions = await _questions.GatherQuestionsAsync(bookId, bkCtx, book.Language, ct);
+                roundComplete = questions.Count == 0 || await _questions.AskQuestionsAsync(bookId, questions, ct);
+            }
 
-
+            // Reset by the author while waiting (Archive all): plan without, and ask again next run.
+            book = await ReloadBookAsync(bookId);
+            book.ClarificationsStatus = roundComplete ? PlanningPhaseStatus.Complete : PlanningPhaseStatus.NotStarted;
+            await _repo.UpdateAsync(book);
+        }
 
         // Phase 1: Story Bible
         StoryBible bible;
@@ -504,11 +513,11 @@ public class AgentOrchestrator : IAgentOrchestrator
         }
         else
         {
-            bible = await _storyBibleAgent.RunAsync(book, qaContext.ToString(), ct);
+            bible = await _storyBibleAgent.RunAsync(book, ct);
 
-            await ApplyHumanAssistedNoteAsync(bookId, book, AgentRole.StoryBibleAgent,
+            book = await ApplyHumanAssistedNoteAsync(bookId, book, AgentRole.StoryBibleAgent,
                 "Story Bible is complete. Want anything to add before moving to Characters?",
-                "Story Bible", qaContext, ct);
+                "Story Bible", ct);
         }
 
         // Phase 2: Character Cards
@@ -520,11 +529,11 @@ public class AgentOrchestrator : IAgentOrchestrator
         }
         else
         {
-            characters = await _charactersAgent.RunAsync(book, bible, qaContext.ToString(), ct);
+            characters = await _charactersAgent.RunAsync(book, bible, ct);
 
-            await ApplyHumanAssistedNoteAsync(bookId, book, AgentRole.CharactersAgent,
+            book = await ApplyHumanAssistedNoteAsync(bookId, book, AgentRole.CharactersAgent,
                 "Characters are complete. Want anything to add before moving to Plot Threads?",
-                "Characters", qaContext, ct);
+                "Characters", ct);
         }
 
         // Phase 3: Plot Threads
@@ -536,11 +545,11 @@ public class AgentOrchestrator : IAgentOrchestrator
         }
         else
         {
-            threads = await _plotThreadsAgent.RunAsync(book, bible, characters, qaContext.ToString(), ct);
+            threads = await _plotThreadsAgent.RunAsync(book, bible, characters, ct);
 
-            await ApplyHumanAssistedNoteAsync(bookId, book, AgentRole.PlotThreadsAgent,
+            book = await ApplyHumanAssistedNoteAsync(bookId, book, AgentRole.PlotThreadsAgent,
                 "Plot Threads are complete. Want anything to add before generating Chapter Outlines?",
-                "Plot Threads", qaContext, ct);
+                "Plot Threads", ct);
         }
 
         // Phase 4: Chapter Outlines
@@ -552,11 +561,11 @@ public class AgentOrchestrator : IAgentOrchestrator
         }
         else
         {
-            chapters = await _planner.RunAsync(book, bible, characters, threads, qaContext.ToString(), ct);
+            chapters = await _planner.RunAsync(book, bible, characters, threads, ct);
 
-            await ApplyHumanAssistedNoteAsync(bookId, book, AgentRole.Planner,
+            book = await ApplyHumanAssistedNoteAsync(bookId, book, AgentRole.Planner,
                 "Chapter Outlines are complete. Any final notes before writing begins?",
-                "Chapter Outlines", qaContext, ct);
+                "Chapter Outlines", ct);
         }
 
         await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, RunStates.Done, ct: ct);
@@ -565,21 +574,24 @@ public class AgentOrchestrator : IAgentOrchestrator
 
     /// <summary>
     /// Prompts the user for optional feedback after a planning phase completes (when HumanAssisted is true).
-    /// Appends non-empty responses to the Q&amp;A context passed by reference.
+    /// A non-empty note is saved as a clarification, and the book is reloaded so later phases see it.
     /// </summary>
-    private async Task ApplyHumanAssistedNoteAsync(
-        int bookId, Book book, AgentRole role, string question,
-        string label, System.Text.StringBuilder qaContext, CancellationToken ct)
+    private async Task<Book> ApplyHumanAssistedNoteAsync(
+        int bookId, Book book, AgentRole role, string question, string label, CancellationToken ct)
     {
-        if (!book.HumanAssisted) return;
+        if (!book.HumanAssisted) return book;
 
-        var note = (await _questions.AskSingleOptionalAsync(
-            bookId, null, role, question, ct)).Trim();
-        if (!string.IsNullOrEmpty(note))
-        {
-            qaContext.AppendLine(PromptTemplates.UserNoteAfterPhase(label, note));
-        }
+        var note = (await _questions.AskSingleOptionalAsync(bookId, null, role, question, ct)).Trim();
+        if (note.Length == 0) return book;
+
+        await _questions.SaveClarificationAsync(bookId, PromptTemplates.NoteAfterPhaseQuestion(label), note);
+        return await ReloadBookAsync(bookId);
     }
+
+    /// <summary>The book with its active chapters and clarifications, freshly read.</summary>
+    private async Task<Book> ReloadBookAsync(int bookId) =>
+        await _repo.GetByIdWithActiveDetailsAsync(bookId)
+            ?? throw new InvalidOperationException($"Book {bookId} not found.");
 
     private static (bool skipSb, bool skipChars, bool skipThreads, bool skipChapters) GetPlanningSkipFlags(Book book) =>
         (book.StoryBibleStatus  == PlanningPhaseStatus.Complete,

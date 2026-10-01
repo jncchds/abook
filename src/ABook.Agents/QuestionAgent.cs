@@ -1,4 +1,3 @@
-using System.Text;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -7,8 +6,8 @@ namespace ABook.Agents;
 
 /// <summary>
 /// Handles the upfront clarifying Q&amp;A round that precedes the planning pipeline.
-/// Gathers questions from the LLM about the book premise, presents them to the author
-/// one at a time, and can rebuild prior Q&amp;A context for continuation runs.
+/// Gathers questions from the LLM about the book premise and presents them to the author one at a
+/// time; the answers become the book's clarifications, which prompts append to the premise.
 /// </summary>
 public class QuestionAgent : AgentBase
 {
@@ -63,32 +62,71 @@ public class QuestionAgent : AgentBase
     }
 
     /// <summary>
-    /// Posts a single preview message listing all upcoming questions, then presents each
-    /// one to the author individually via <see cref="AskUserAndWaitAsync"/> and appends Q&amp;A pairs
-    /// to the shared context string builder.
+    /// Saves the questions as open (unanswered) clarifications — the author answers them all on the
+    /// Clarifications page — and waits until every one is answered or archived. Returns false when the
+    /// author reset the round instead (Archive all).
     /// </summary>
-    public async Task AskQuestionsAsync(
-        int bookId, List<string> questions, StringBuilder qaContext, CancellationToken ct)
+    public async Task<bool> AskQuestionsAsync(int bookId, List<string> questions, CancellationToken ct)
     {
-        // An informational note, not a Question: nothing answers it, so as a Question it would stay
-        // "open" in the chat forever and could be offered as the pending question.
+        foreach (var question in questions)
+            await Repo.AddClarificationAsync(new Clarification
+            {
+                BookId = bookId, Source = ClarificationSource.Planner, Question = question.Trim(),
+            });
+        return await WaitForAnswersAsync(bookId, ct);
+    }
+
+    /// <summary>
+    /// Pauses the run until no open clarification is left. The answer that closes the last one releases
+    /// it (<see cref="AgentRunStateService.TryResolveClarifications"/>); Stop cancels it. Returns false
+    /// when the author reset the round instead.
+    /// </summary>
+    public async Task<bool> WaitForAnswersAsync(int bookId, CancellationToken ct)
+    {
+        var open = (await Repo.GetClarificationsAsync(bookId)).Where(c => c.IsOpen).ToList();
+        if (open.Count == 0) return true;
+
+        // An informational note, not a Question: the answers go to the Clarifications page, not the chat.
         await Repo.AddMessageAsync(new AgentMessage
         {
             BookId = bookId,
             ChapterId = null,
             AgentRole = AgentRole.Planner,
             MessageType = MessageType.SystemNote,
-            Content = $"The planner has {questions.Count} question(s) to clarify the plan:\n\n{string.Join("\n", questions.Select((q, i) => ($"{i + 1}. {q}")))}",
+            Content = $"The planner has {open.Count} question(s) to clarify the plan — answer them on the Clarifications page. " +
+                      $"Planning continues once the last one is answered.\n\n{string.Join("\n", open.Select((c, i) => $"{i + 1}. {c.Question}"))}",
             IsResolved = true
         });
         await Notifier.NotifyMessagesUpdatedAsync(bookId, ct);
 
-        foreach (var question in questions)
+        var answered = StateService.WaitForClarificationsAsync(bookId);
+        // The last answer may have landed before the waiter existed.
+        if (!(await Repo.GetClarificationsAsync(bookId)).Any(c => c.IsOpen))
+            StateService.TryResolveClarifications(bookId);
+
+        StateService.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, RunStates.WaitingForInput, null));
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, RunStates.WaitingForInput, null, ct);
+        await StateService.PersistRunPausedAsync(bookId, messageId: null);
+
+        var roundComplete = await answered.WaitAsync(ct);
+
+        StateService.SetStatus(bookId, new AgentRunStatus(AgentRole.Planner, RunStates.Running, null));
+        await StateService.PersistRunResumedAsync(bookId);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, RunStates.Running, null, ct);
+        return roundComplete;
+    }
+
+    /// <summary>Saves a non-empty phase note as a clarification; blank (skipped) notes are dropped.</summary>
+    public async Task SaveClarificationAsync(int bookId, string question, string answer)
+    {
+        if (string.IsNullOrWhiteSpace(answer)) return;
+        await Repo.AddClarificationAsync(new Clarification
         {
-            var answer = await AskUserAndWaitAsync(bookId, null, AgentRole.Planner, question, ct);
-            if (!string.IsNullOrWhiteSpace(answer))
-                qaContext.AppendLine(PromptTemplates.QuestionAndAnswer(question, answer));
-        }
+            BookId = bookId,
+            Source = ClarificationSource.PhaseNote,
+            Question = question.Trim(),
+            Answer = answer.Trim(),
+        });
     }
 
     /// <summary>
@@ -98,30 +136,4 @@ public class QuestionAgent : AgentBase
     public Task<string> AskSingleOptionalAsync(
         int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct) =>
         AskUserAndWaitAsync(bookId, chapterId, role, question, ct, isOptional: true);
-
-    /// <summary>
-    /// Reconstructs the Q&amp;A context from persisted Planner messages.
-    /// Used on continuation runs so prior author answers flow into subsequent phases.
-    /// </summary>
-    public async Task<StringBuilder> LoadExistingContextAsync(int bookId)
-    {
-        var messages = (await Repo.GetMessagesAsync(bookId))
-            .Where(m => m.AgentRole == AgentRole.Planner
-                     && (m.MessageType == MessageType.Question || m.MessageType == MessageType.Answer))
-            .OrderBy(m => m.CreatedAt)
-            .ToList();
-
-        var sb = new StringBuilder();
-        for (int i = 0; i < messages.Count - 1; i++)
-        {
-            var q = messages[i];
-            var a = messages[i + 1];
-            if (q.MessageType == MessageType.Question && a.MessageType == MessageType.Answer)
-            {
-                sb.AppendLine(PromptTemplates.QuestionAndAnswer(q.Content, a.Content));
-                i++;
-            }
-        }
-        return sb;
-    }
 }

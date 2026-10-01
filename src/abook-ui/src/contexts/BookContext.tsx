@@ -1,14 +1,14 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
-import type { Book, AgentMessage, AgentRunStatus, StoryBible, CharacterCard, PlotThread, Illustration, IllustrationPlanScope, RenderScope } from '../api'
+import type { Book, AgentMessage, AgentRunStatus, StoryBible, CharacterCard, PlotThread, Illustration, IllustrationPlanScope, RenderScope, Clarification } from '../api'
 import {
   getBook, getMessages, postAnswer, getAgentStatus,
   startPlanning, continuePlanning, completePlanningPhase, reopenPlanningPhase, clearPlanningPhase,
   startWorkflow, continueWorkflow, stopWorkflow,
   getTokenUsage, clearMessages, clearTokenUsage,
   getStoryBible, getCharacters, getPlotThreads, getChapters, getChapter,
-  getIllustrations, planIllustrations, renderIllustrations,
+  getIllustrations, planIllustrations, renderIllustrations, getClarifications,
 } from '../api'
 import { useBookHub } from '../hooks/useBookHub'
 import { useNotifications } from '../hooks/useNotifications'
@@ -69,6 +69,12 @@ interface BookContextValue {
   setCharacters: React.Dispatch<React.SetStateAction<CharacterCard[]>>
   plotThreads: PlotThread[]
   setPlotThreads: React.Dispatch<React.SetStateAction<PlotThread[]>>
+
+  /** All clarifications, archived included. Open ones (no answer yet) hold up a waiting planning run. */
+  clarifications: Clarification[]
+  setClarifications: React.Dispatch<React.SetStateAction<Clarification[]>>
+  refreshClarifications: () => Promise<Clarification[] | null>
+  openClarificationCount: number
 
   /** Every illustration of the book: portraits, cover and chapter scenes. */
   illustrations: Illustration[]
@@ -135,6 +141,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   const [characters, setCharacters] = useState<CharacterCard[]>([])
   const [plotThreads, setPlotThreads] = useState<PlotThread[]>([])
   const [illustrations, setIllustrations] = useState<Illustration[]>([])
+  const [clarifications, setClarifications] = useState<Clarification[]>([])
 
   const [tokenStats, setTokenStats] = useState<TokenStat[]>([])
   const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([])
@@ -173,6 +180,16 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       const r = await getIllustrations(bookId)
       if (seq === illustrationsRequestSeq.current) setIllustrations(r.data)
     } catch { /* keep the current list */ }
+  }, [bookId])
+
+  const clarificationsRequestSeq = useRef(0)
+  const refreshClarifications = useCallback(async () => {
+    const seq = ++clarificationsRequestSeq.current
+    try {
+      const r = await getClarifications(bookId, true)
+      if (seq === clarificationsRequestSeq.current) setClarifications(r.data)
+      return r.data
+    } catch { return null }
   }, [bookId])
 
   const refreshTokenStats = useCallback((signal?: AbortSignal) =>
@@ -227,6 +244,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     getCharacters(bookId, true, signal).then(r => { if (!signal.aborted) setCharacters(r.data) }).catch(() => {})
     getPlotThreads(bookId, true, signal).then(r => { if (!signal.aborted) setPlotThreads(r.data) }).catch(() => {})
     getIllustrations(bookId, undefined, signal).then(r => { if (!signal.aborted) setIllustrations(r.data) }).catch(() => {})
+    getClarifications(bookId, true, signal).then(r => { if (!signal.aborted) setClarifications(r.data) }).catch(() => {})
 
     return () => { controller.abort() }
   }, [refreshBook, refreshTokenStats, bookId])
@@ -279,6 +297,22 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         // Transition to a new agent step — update role/state but keep the run active.
         // Preserve chapterId that was set on page load via the status API.
         setRunStatus(prev => ({ role, state, chapterId: prev?.chapterId }))
+        // The planner waits for its clarifying questions on the Clarifications page, not in the chat.
+        if (state === 'WaitingForInput' && role === 'Planner') {
+          refreshClarifications().then(list => {
+            const open = (list ?? []).filter(c => c.isOpen)
+            if (open.length === 0) return
+            navigate(`/books/${bookId}/clarifications`)
+            notifyRef.current('ABook — Input needed', {
+              body: `The planner has ${open.length} question${open.length === 1 ? '' : 's'} for you.`,
+              tag: `clarifications-${bookId}`,
+              onClick: () => navigate(`/books/${bookId}/clarifications`),
+            })
+          })
+        } else if (state === 'Running' && role === 'Planner') {
+          // Resumed after the last answer — the round's status has changed.
+          refreshBook()
+        }
       } else if (state === 'Done') {
         // An individual agent phase finished but the workflow may still be running.
         // Do NOT clear runStatus here — WorkflowProgress(isComplete=true) is the
@@ -384,6 +418,8 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     })
     setOnMessagesUpdated(() => {
       refreshMessages()
+      // The planner posts a note after saving its questions; answers from another tab land here too.
+      refreshClarifications()
     })
     setOnIllustrationsUpdated((_bId, illustrationId) => {
       refreshIllustrations()
@@ -404,6 +440,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       refreshBook().catch(() => {})
       refreshTokenStats().catch(() => {})
       refreshIllustrations()
+      refreshClarifications()
       getAgentStatus(bookId).then(r => {
         const status = r.data
         if (status && (status.state === 'Running' || status.state === 'WaitingForInput')) {
@@ -421,7 +458,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         }
       }).catch(() => {})
     })
-  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnIllustrationsUpdated, setOnReconnected, refreshBook, refreshMessages, refreshTokenStats, refreshIllustrations, clearStreams, bookId, navigate])
+  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnIllustrationsUpdated, setOnReconnected, refreshBook, refreshMessages, refreshTokenStats, refreshIllustrations, refreshClarifications, clearStreams, bookId, navigate])
 
   const isWaitingForInput = runStatus?.state === 'WaitingForInput'
   const isRunning = runStatus?.state === 'Running' || isWaitingForInput
@@ -473,7 +510,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       book.storyBibleStatus === 'Complete' && book.charactersStatus === 'Complete' &&
       book.plotThreadsStatus === 'Complete' && book.chaptersStatus === 'Complete'
     const anyPlanningComplete =
-      book.storyBibleStatus === 'Complete' || book.charactersStatus === 'Complete' ||
+      book.clarificationsStatus === 'Complete' || book.storyBibleStatus === 'Complete' || book.charactersStatus === 'Complete' ||
       book.plotThreadsStatus === 'Complete' || book.chaptersStatus === 'Complete'
     try {
       if (!allPlanningComplete && anyPlanningComplete) {
@@ -490,6 +527,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   }
 
   const phaseStatusKey: Record<string, keyof Book> = {
+    clarifications: 'clarificationsStatus',
     storybible: 'storyBibleStatus',
     characters: 'charactersStatus',
     plotthreads: 'plotThreadsStatus',
@@ -509,8 +547,11 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   }
 
   const handleClearPhase = async (phase: string, clearLocal: () => void) => {
-    const labels: Record<string, string> = { storybible: 'Story Bible', characters: 'Characters', plotthreads: 'Plot Threads', chapters: 'Chapter Outlines' }
-    if (!confirm(`Clear all ${labels[phase] ?? phase} data? This cannot be undone.`)) return
+    const labels: Record<string, string> = { clarifications: 'Clarifications', storybible: 'Story Bible', characters: 'Characters', plotthreads: 'Plot Threads', chapters: 'Chapter Outlines' }
+    const prompt = phase === 'clarifications'
+      ? 'Archive all clarifications and reopen the round? The next planning run will ask its questions again.'
+      : `Clear all ${labels[phase] ?? phase} data? This cannot be undone.`
+    if (!confirm(prompt)) return
     await clearPlanningPhase(bookId, phase)
     clearLocal()
     const key = phaseStatusKey[phase]
@@ -565,6 +606,8 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     plotThreadsStream, setPlotThreadsStream, setStreamBuffer, setStreamingChapterId,
     storyBible, setStoryBible, characters, setCharacters, plotThreads, setPlotThreads,
     illustrations, refreshIllustrations, handlePlanIllustrations, handleRenderIllustrations,
+    clarifications, setClarifications, refreshClarifications,
+    openClarificationCount: clarifications.filter(c => c.isOpen).length,
     tokenStats, setTokenStats, workflowSteps, setWorkflowSteps, workflowLog,
     answerText, setAnswerText, submittingAnswer, answerError,
     refreshBook, refreshMessages,

@@ -8,6 +8,7 @@ import Login from './pages/Login'
 import AdminUsers from './pages/AdminUsers'
 import Presets from './pages/Presets'
 import Overview from './pages/book/Overview'
+import Clarifications from './pages/book/Clarifications'
 import StoryBible from './pages/book/StoryBible'
 import Characters from './pages/book/Characters'
 import PlotThreads from './pages/book/PlotThreads'
@@ -38,6 +39,7 @@ function ProtectedRoutes() {
       <Route path="/books/:bookId" element={<BookLayout />}>
         <Route index element={<Navigate to="overview" replace />} />
         <Route path="overview" element={<Overview />} />
+        <Route path="clarifications" element={<Clarifications />} />
         <Route path="story-bible" element={<StoryBible />} />
         <Route path="characters" element={<Characters />} />
         <Route path="plot-threads" element={<PlotThreads />} />

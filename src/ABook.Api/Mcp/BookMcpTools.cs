@@ -36,6 +36,7 @@ public class BookMcpTools : McpToolBase
         {
             b.Id, b.Title, b.Genre, b.Premise,
             Status = b.Status.ToString(),
+            ClarificationsStatus = b.ClarificationsStatus.ToString(),
             StoryBibleStatus = b.StoryBibleStatus.ToString(),
             CharactersStatus = b.CharactersStatus.ToString(),
             PlotThreadsStatus = b.PlotThreadsStatus.ToString(),
@@ -56,6 +57,7 @@ public class BookMcpTools : McpToolBase
             book.Id, book.Title, book.Genre, book.Premise, book.Language,
             book.TargetChapterCount,
             Status = book.Status.ToString(),
+            ClarificationsStatus = book.ClarificationsStatus.ToString(),
             StoryBibleStatus = book.StoryBibleStatus.ToString(),
             CharactersStatus = book.CharactersStatus.ToString(),
             PlotThreadsStatus = book.PlotThreadsStatus.ToString(),
@@ -142,7 +144,7 @@ public class BookMcpTools : McpToolBase
     // ── Agent status ─────────────────────────────────────────────────────────
 
     [McpServerTool(Name = "get_agent_status", ReadOnly = true)]
-    [Description("Get the current status of any running agent for a book. Returns null if no agent is running. States: Running, WaitingForInput (agent needs an answer — use answer_agent_question).")]
+    [Description("Get the current status of any running agent for a book. Returns null if no agent is running. States: Running, WaitingForInput (agent needs an answer — if list_clarifications shows open questions, answer them with update_clarification; otherwise use answer_agent_question).")]
     public async Task<string> GetAgentStatus(
         [Description("The book ID to check agent status for.")] int bookId)
     {

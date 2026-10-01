@@ -28,7 +28,6 @@ public class PlannerAgent : AgentBase
         StoryBible bible,
         IReadOnlyList<CharacterCard> characters,
         IReadOnlyList<PlotThread> threads,
-        string qaContext,
         CancellationToken ct = default)
     {
         var bookId = book.Id;
@@ -48,7 +47,7 @@ public class PlannerAgent : AgentBase
             : InterpolateSystemPrompt(DefaultPrompts.ChapterOutlines, book, bible);
         messages.Add(new LlmChatMessage(LlmChatRole.System, systemPrompt));
         messages.Add(new LlmChatMessage(LlmChatRole.User,
-            PromptTemplates.ChapterOutlinesUser(book, bible, characters, threads, qaContext, ancestorReference, BuildExistingBlock(existing))));
+            PromptTemplates.ChapterOutlinesUser(book, bible, characters, threads, ancestorReference, BuildExistingBlock(existing))));
 
         var (chapterRaw, failure) = await StreamJsonResponseAsync(
             client, config, messages, bookId, null, AgentRole.ChaptersAgent, JsonSchemas.ChapterOutlines, ct);

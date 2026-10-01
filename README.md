@@ -17,7 +17,7 @@ A self-hosted web application that uses AI agents to collaboratively write books
 - **RAG context retrieval** — Writer runs 3 targeted queries (characters, locations, plot threads) and Editor runs 4 (same + repeated-phrase detection) against pgvector embeddings
 
 ### Planning & guidance
-- **Guided planning Q&A** — agents ask clarifying questions up front before planning begins, then carry your answers through all four planning phases
+- **Guided planning Q&A** — before planning, the planner posts its clarifying questions to the book's **Clarifications** page and waits; answer each one there (or skip it), and submitting the last answer completes the round and planning carries on. Answers are kept as **clarifications** and added to the premise in every prompt, so nothing is lost if planning is interrupted, and the round isn't repeated once it's done. Edit, add, archive or restore them on the same page, or reopen the round to be asked again
 - **Human-assisted generation** — pauses after each planning phase, and after each chapter's mechanical fixes so you can edit the book and steer the creative rewrite; pending questions are restored after page refresh; supports **Ctrl+Enter** to submit
 - **Flexible workflow controls** — **Plan Only**, **Write Book**, **Continue**, **Continue Planning**, and individual per-chapter agent buttons; **Stop** cancels any running agent cleanly
 - **Interrupted runs keep their output** — if a Characters, Plot Threads, or Chapter Outlines run times out, drops, or is stopped part-way, everything that finished streaming is saved instead of discarded; run the phase again to pick up where it left off

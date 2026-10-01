@@ -140,6 +140,15 @@ public interface IBookRepository
     Task<BookImage?> GetBookImageAsync(int bookId, int imageId);
     Task<IReadOnlyList<BookImage>> GetBookImagesAsync(int bookId, IEnumerable<int> imageIds);
 
+    // Clarifications (answered planning questions and author notes, appended to the premise)
+    /// <summary>The book's clarifications, oldest first.</summary>
+    Task<IReadOnlyList<Clarification>> GetClarificationsAsync(int bookId, bool includeArchived = false);
+    Task<Clarification?> GetClarificationAsync(int bookId, int clarificationId);
+    Task<Clarification> AddClarificationAsync(Clarification clarification);
+    Task UpdateClarificationAsync(Clarification clarification);
+    /// <summary>Archives every active clarification of the book.</summary>
+    Task ArchiveClarificationsAsync(int bookId);
+
     // Visual assets (recurring props, outfits, places … shared by the illustrations)
     Task<IReadOnlyList<VisualAsset>> GetVisualAssetsAsync(int bookId);
     Task<VisualAsset?> GetVisualAssetAsync(int bookId, int assetId);

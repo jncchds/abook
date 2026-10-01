@@ -33,6 +33,8 @@ public class Book
     /// <summary>The configured visual style the art direction was written from; a change rewrites it.</summary>
     public string? IllustrationStyleSource { get; set; }
     public bool HumanAssisted { get; set; } = false;
+    /// <summary>Complete once the planner's clarifying questions have been asked; later planning runs skip them.</summary>
+    public PlanningPhaseStatus ClarificationsStatus { get; set; } = PlanningPhaseStatus.NotStarted;
     public PlanningPhaseStatus StoryBibleStatus { get; set; } = PlanningPhaseStatus.NotStarted;
     public PlanningPhaseStatus CharactersStatus { get; set; } = PlanningPhaseStatus.NotStarted;
     public PlanningPhaseStatus PlotThreadsStatus { get; set; } = PlanningPhaseStatus.NotStarted;
@@ -53,4 +55,10 @@ public class Book
     [JsonIgnore] public StoryBible? StoryBible { get; set; }
     [JsonIgnore] public ICollection<CharacterCard> CharacterCards { get; set; } = new List<CharacterCard>();
     [JsonIgnore] public ICollection<PlotThread> PlotThreads { get; set; } = new List<PlotThread>();
+    /// <summary>
+    /// The active clarifications, filled (untracked) by the repository's single-book loads so prompts can
+    /// append them to the premise. Not an EF navigation: saving the book must never write them back.
+    /// </summary>
+    [JsonIgnore, System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public IReadOnlyList<Clarification> Clarifications { get; set; } = [];
 }
