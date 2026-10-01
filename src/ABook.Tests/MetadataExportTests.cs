@@ -124,6 +124,49 @@ public class MetadataExportTests
     }
 
     [Fact]
+    public void Generate_MergesOnlyLinkedQuestionsAndAnswers()
+    {
+        var html = MetadataExport.Generate(new MetadataSources
+        {
+            Book = BookWithChapter(),
+            // A phase note saved with a link to its chat question.
+            Clarifications =
+            [
+                new Clarification { Source = ClarificationSource.PhaseNote, Question = "Anything to add after the Story Bible?",
+                                    Answer = "More rain.", QuestionMessageId = 1,
+                                    CreatedAt = T0.AddMinutes(3), AnsweredAt = T0.AddMinutes(3), UpdatedAt = T0.AddMinutes(3) },
+            ],
+            Messages =
+            [
+                new AgentMessage { Id = 1, AgentRole = AgentRole.StoryBibleAgent, MessageType = MessageType.Question, IsOptional = true,
+                                   Content = "Story Bible is ready — anything to add?", IsResolved = true, CreatedAt = T0.AddMinutes(1) },
+                new AgentMessage { Id = 2, AgentRole = AgentRole.StoryBibleAgent, MessageType = MessageType.Answer, QuestionMessageId = 1,
+                                   Content = "More rain.", IsResolved = true, CreatedAt = T0.AddMinutes(2) },
+                // A linked chapter pause (no clarification).
+                new AgentMessage { Id = 3, AgentRole = AgentRole.Editor, MessageType = MessageType.Question, IsOptional = true, ChapterId = 10,
+                                   Content = "Any instructions for the rewrite?", IsResolved = true, CreatedAt = T0.AddMinutes(10) },
+                new AgentMessage { Id = 4, AgentRole = AgentRole.Editor, MessageType = MessageType.Answer, QuestionMessageId = 3, ChapterId = 10,
+                                   Content = "Shorter dialogue.", IsResolved = true, CreatedAt = T0.AddMinutes(11) },
+                // An old answer without a link stays its own entry.
+                new AgentMessage { Id = 5, AgentRole = AgentRole.Writer, MessageType = MessageType.Question, ChapterId = 10,
+                                   Content = "Which gate?", IsResolved = true, CreatedAt = T0.AddMinutes(20) },
+                new AgentMessage { Id = 6, AgentRole = AgentRole.Writer, MessageType = MessageType.Answer, ChapterId = 10,
+                                   Content = "The north one.", IsResolved = true, CreatedAt = T0.AddMinutes(21) },
+            ],
+        });
+
+        // The phase note replaces its chat messages: filed at the question's time, by the asking agent.
+        Assert.DoesNotContain("Story Bible is ready", html);
+        Assert.Single(Regex.Matches(html, "More rain\\."));
+        Assert.True(Pos(html, "Anything to add after the Story Bible?") < Pos(html, "More rain."));
+
+        // The linked chapter pause is one entry; the unlinked pair is two.
+        Assert.True(Pos(html, "Any instructions for the rewrite?") < Pos(html, "Shorter dialogue."));
+        Assert.DoesNotContain("Answered the Editor agent", html);
+        Assert.Contains("Answered the Writer agent", html);
+    }
+
+    [Fact]
     public void Generate_ReconstructsAuthorBibleEditFromLaterState()
     {
         StoryBibleSnapshot Snap(string setting, string reason, int minutes) =>

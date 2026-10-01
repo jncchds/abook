@@ -12,6 +12,8 @@ public class AgentMessage
     public string Content { get; set; } = string.Empty;
     public bool IsResolved { get; set; }
     public bool IsOptional { get; set; }
+    /// <summary>On an Answer: the Question message it answers. Null on answers saved before v0.3.0.</summary>
+    public int? QuestionMessageId { get; set; }
     public bool IsDeleted { get; set; }
     public DateTime CreatedAt { get; set; }
 

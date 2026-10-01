@@ -116,8 +116,11 @@ public class QuestionAgent : AgentBase
         return roundComplete;
     }
 
-    /// <summary>Saves a non-empty phase note as a clarification; blank (skipped) notes are dropped.</summary>
-    public async Task SaveClarificationAsync(int bookId, string question, string answer)
+    /// <summary>
+    /// Saves a non-empty phase note as a clarification linked to the chat question it answers;
+    /// blank (skipped) notes are dropped.
+    /// </summary>
+    public async Task SaveClarificationAsync(int bookId, string question, string answer, int questionMessageId)
     {
         if (string.IsNullOrWhiteSpace(answer)) return;
         await Repo.AddClarificationAsync(new Clarification
@@ -126,6 +129,7 @@ public class QuestionAgent : AgentBase
             Source = ClarificationSource.PhaseNote,
             Question = question.Trim(),
             Answer = answer.Trim(),
+            QuestionMessageId = questionMessageId,
         });
     }
 
@@ -136,4 +140,9 @@ public class QuestionAgent : AgentBase
     public Task<string> AskSingleOptionalAsync(
         int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct) =>
         AskUserAndWaitAsync(bookId, chapterId, role, question, ct, isOptional: true);
+
+    /// <summary>Same as <see cref="AskSingleOptionalAsync"/>, also returning the id of the question message.</summary>
+    public Task<(int QuestionMessageId, string Answer)> AskSingleOptionalWithIdAsync(
+        int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct) =>
+        AskUserAndWaitForAnswerAsync(bookId, chapterId, role, question, ct, isOptional: true);
 }

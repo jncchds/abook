@@ -582,10 +582,11 @@ public class AgentOrchestrator : IAgentOrchestrator
     {
         if (!book.HumanAssisted) return book;
 
-        var note = (await _questions.AskSingleOptionalAsync(bookId, null, role, question, ct)).Trim();
+        var (questionMessageId, answer) = await _questions.AskSingleOptionalWithIdAsync(bookId, null, role, question, ct);
+        var note = answer.Trim();
         if (note.Length == 0) return book;
 
-        await _questions.SaveClarificationAsync(bookId, PromptTemplates.NoteAfterPhaseQuestion(label), note);
+        await _questions.SaveClarificationAsync(bookId, PromptTemplates.NoteAfterPhaseQuestion(label), note, questionMessageId);
         return await ReloadBookAsync(bookId);
     }
 
@@ -632,7 +633,8 @@ public class AgentOrchestrator : IAgentOrchestrator
             AgentRole = message.AgentRole,
             MessageType = MessageType.Answer,
             Content = answer,
-            IsResolved = true
+            IsResolved = true,
+            QuestionMessageId = message.Id
         });
 
         // Other open tabs/devices still show the question box until they re-read the messages.

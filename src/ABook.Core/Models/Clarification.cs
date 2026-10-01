@@ -19,6 +19,11 @@ public class Clarification
     public string Answer { get; set; } = string.Empty;
     /// <summary>When the answer was first given; set by the repository. Null while the question is open.</summary>
     public DateTime? AnsweredAt { get; set; }
+    /// <summary>
+    /// For a PhaseNote: the chat question it answers (its answer message points back at that question).
+    /// Null for other sources and for phase notes saved before v0.3.0.
+    /// </summary>
+    public int? QuestionMessageId { get; set; }
     public bool IsArchived { get; set; }
 
     /// <summary>Awaiting an answer: active and not yet answered. Archiving an open one skips it.</summary>

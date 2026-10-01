@@ -310,6 +310,11 @@ public abstract class AgentBase
     }
 
     protected async Task<string> AskUserAndWaitAsync(
+        int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct, bool isOptional = false) =>
+        (await AskUserAndWaitForAnswerAsync(bookId, chapterId, role, question, ct, isOptional)).Answer;
+
+    /// <summary>Same as <see cref="AskUserAndWaitAsync"/>, also returning the id of the question message.</summary>
+    protected async Task<(int QuestionMessageId, string Answer)> AskUserAndWaitForAnswerAsync(
         int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct, bool isOptional = false)
     {
         var msg = await AskUserAsync(bookId, chapterId, role, question, ct, isOptional);
@@ -329,7 +334,7 @@ public abstract class AgentBase
         await StateService.PersistRunResumedAsync(bookId);
         await Notifier.NotifyStatusChangedAsync(bookId, role, RunStates.Running, chapterId, ct);
 
-        return answer;
+        return (msg.Id, answer);
     }
 
     /// <summary>

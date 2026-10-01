@@ -64,6 +64,9 @@ namespace ABook.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int?>("QuestionMessageId")
+                        .HasColumnType("integer");
+
                     b.HasKey("Id");
 
                     b.HasIndex("BookId");
@@ -754,6 +757,9 @@ namespace ABook.Infrastructure.Migrations
                     b.Property<string>("Question")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<int?>("QuestionMessageId")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Source")
                         .IsRequired()

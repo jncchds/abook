@@ -68,8 +68,8 @@ internal static class MetadataExport
 
         var events = new List<Ev>();
         events.AddRange(BookEvents(book, s.BookSnapshots));
-        var importedFrom = ImportedClarificationMessages(s.Clarifications, s.Messages);
-        events.AddRange(ClarificationEvents(s.Clarifications, importedFrom));
+        var clarificationSources = ClarificationMessages(s.Clarifications, s.Messages);
+        events.AddRange(ClarificationEvents(s.Clarifications, clarificationSources));
         events.AddRange(BibleEvents(s.Bible, s.BibleSnapshots));
         events.AddRange(SetSnapshotEvents(s.CharacterSnapshots.Select(x => (x.CreatedAt, x.Reason, x.DataJson)),
             "Characters", "character", Deserialize<CharacterCard>, c => c.Name, c => $"{c.Name} · {c.Role}", CharacterFields));
@@ -81,7 +81,7 @@ internal static class MetadataExport
             v => v.CreatedBy, v => v.CreatedAt, v => v.Name, "Plot thread", "agent:PlotThreads", ThreadFields));
         events.AddRange(ChapterEvents(chapters, s.ChapterVersions));
         events.AddRange(IllustrationEvents(s, ChapterLabel));
-        var coveredMessages = importedFrom.Values
+        var coveredMessages = clarificationSources.Values
             .SelectMany(p => new[] { p.Question?.Id, p.Answer?.Id }).OfType<int>().ToHashSet();
         events.AddRange(MessageEvents(s.Messages.Where(m => !coveredMessages.Contains(m.Id)).ToList(), ChapterLabel));
         events.AddRange(RunEvents(s.Runs, ChapterLabel));
@@ -146,55 +146,74 @@ internal static class MetadataExport
     // ── Clarifications ────────────────────────────────────────────────────────
 
     /// <summary>
-    /// The chat messages an Imported clarification was created from. The import copied their timestamps
-    /// exactly (question → <c>CreatedAt</c>, answer → <c>AnsweredAt</c>), which is the link used here.
+    /// The chat question and answer a clarification came from, by a recorded link only: a phase note stores its
+    /// question's id (and the answer message points back at that question); an Imported clarification has the
+    /// exact timestamps of its messages, copied by the import (question → <c>CreatedAt</c>, answer →
+    /// <c>AnsweredAt</c>). Phase notes saved before the link existed have no entry.
     /// </summary>
-    private static Dictionary<Clarification, (AgentMessage? Question, AgentMessage? Answer)> ImportedClarificationMessages(
+    private static Dictionary<Clarification, (AgentMessage? Question, AgentMessage? Answer)> ClarificationMessages(
         IReadOnlyList<Clarification> clarifications, IReadOnlyList<AgentMessage> messages)
     {
-        var questions = messages.Where(m => m.MessageType == MessageType.Question)
+        var byId = messages.GroupBy(m => m.Id).ToDictionary(g => g.Key, g => g.First());
+        var answerTo = messages.Where(m => m.MessageType == MessageType.Answer && m.QuestionMessageId is not null)
+            .GroupBy(m => m.QuestionMessageId!.Value).ToDictionary(g => g.Key, g => g.First());
+        var questionsAt = messages.Where(m => m.MessageType == MessageType.Question)
             .GroupBy(m => m.CreatedAt).ToDictionary(g => g.Key, g => g.First());
-        var answers = messages.Where(m => m.MessageType == MessageType.Answer)
+        var answersAt = messages.Where(m => m.MessageType == MessageType.Answer)
             .GroupBy(m => m.CreatedAt).ToDictionary(g => g.Key, g => g.First());
-        return clarifications.Where(c => c.Source == ClarificationSource.Imported).ToDictionary(c => c,
-            c => (questions.GetValueOrDefault(c.CreatedAt),
-                  c.AnsweredAt is DateTime at ? answers.GetValueOrDefault(at) : null));
+
+        var result = new Dictionary<Clarification, (AgentMessage? Question, AgentMessage? Answer)>();
+        foreach (var c in clarifications)
+        {
+            if (c.Source == ClarificationSource.PhaseNote && c.QuestionMessageId is int qid && byId.TryGetValue(qid, out var q))
+                result[c] = (q, answerTo.GetValueOrDefault(qid));
+            else if (c.Source == ClarificationSource.Imported)
+                result[c] = (questionsAt.GetValueOrDefault(c.CreatedAt),
+                             c.AnsweredAt is DateTime at ? answersAt.GetValueOrDefault(at) : null);
+        }
+        return result;
     }
 
     /// <summary>
     /// One entry per clarification, at the time it was raised, telling its whole story: the question, how the
-    /// author answered (or skipped) it, and whether it was later edited or archived. Imported clarifications
-    /// stand in for the chat question and answer they came from (those messages are left out of the timeline).
-    /// Phase notes are already in the timeline as their chat messages, so only their later edits and archiving
-    /// get entries here. Only the latest wording is stored: an edit shows the text as it is now.
+    /// author answered (or skipped) it, and whether it was later edited or archived. A clarification that came
+    /// from a chat question (imported, or a linked phase note) stands in for that question and its answer,
+    /// which are left out of the timeline. Older phase notes without a link are already in the timeline as
+    /// chat messages, so only their later edits and archiving get entries here. Only the latest wording is
+    /// stored: an edit shows the text as it is now.
     /// </summary>
     private static IEnumerable<Ev> ClarificationEvents(
         IReadOnlyList<Clarification> clarifications,
-        IReadOnlyDictionary<Clarification, (AgentMessage? Question, AgentMessage? Answer)> importedFrom)
+        IReadOnlyDictionary<Clarification, (AgentMessage? Question, AgentMessage? Answer)> sources)
     {
         foreach (var c in clarifications.OrderBy(c => c.CreatedAt))
         {
+            sources.TryGetValue(c, out var source);
+            var askedAt = source.Question?.CreatedAt ?? c.CreatedAt;
             var settled = c.AnsweredAt ?? c.CreatedAt;
             var edited = !c.IsArchived && c.UpdatedAt > settled.AddSeconds(1);
-            var aftermath = (c.IsArchived && c.AnsweredAt is not null ? Reply($"{Author} archived it", c.CreatedAt, c.UpdatedAt) : "")
-                + (edited ? Reply("Edited later — shown as it reads now", c.CreatedAt, c.UpdatedAt) : "");
+            var aftermath = (c.IsArchived && c.AnsweredAt is not null ? Reply($"{Author} archived it", askedAt, c.UpdatedAt) : "")
+                + (edited ? Reply("Edited later — shown as it reads now", askedAt, c.UpdatedAt) : "");
+
+            var fromQuestion = c.Source is ClarificationSource.Planner or ClarificationSource.Imported
+                || (c.Source == ClarificationSource.PhaseNote && source.Question is not null);
+            if (fromQuestion)
+            {
+                var answeredAt = source.Answer?.CreatedAt ?? c.AnsweredAt;
+                var outcome = answeredAt is DateTime at
+                    ? Reply($"{Author} answered", askedAt, at) + Field("Answer", c.Answer)
+                    : c.IsArchived
+                        ? Reply($"{Author} skipped it", askedAt, c.UpdatedAt)
+                        : "<p class=\"note\">Not answered yet.</p>";
+                // A question from the chat may have come from a planning phase agent rather than the planner.
+                var asker = source.Question?.AgentRole ?? AgentRole.Planner;
+                yield return new Ev(askedAt, Cat.Conversation, Role(asker), "Asked a question",
+                    Field("Question", c.Question) + outcome + aftermath);
+                continue;
+            }
 
             switch (c.Source)
             {
-                case ClarificationSource.Planner:
-                case ClarificationSource.Imported:
-                {
-                    var outcome = c.AnsweredAt is DateTime answeredAt
-                        ? Reply($"{Author} answered", c.CreatedAt, answeredAt) + Field("Answer", c.Answer)
-                        : c.IsArchived
-                            ? Reply($"{Author} skipped it", c.CreatedAt, c.UpdatedAt)
-                            : "<p class=\"note\">Not answered yet.</p>";
-                    // An imported question may have come from a planning phase agent rather than the planner.
-                    var asker = importedFrom.TryGetValue(c, out var source) && source.Question is { } q ? q.AgentRole : AgentRole.Planner;
-                    yield return new Ev(c.CreatedAt, Cat.Conversation, Role(asker), "Asked a question",
-                        Field("Question", c.Question) + outcome + aftermath);
-                    break;
-                }
                 case ClarificationSource.Author:
                     yield return new Ev(c.CreatedAt, Cat.Planning, Author, "Added a clarification",
                         ClarificationQa(c) + aftermath);
@@ -492,6 +511,13 @@ internal static class MetadataExport
 
     private static IEnumerable<Ev> MessageEvents(IReadOnlyList<AgentMessage> messages, Func<int?, string?> chapterLabel)
     {
+        // Answers saved since v0.3.0 point at their question: the pair becomes one entry. Older answers
+        // carry no link and stay separate entries.
+        var questionIds = messages.Where(m => m.MessageType == MessageType.Question).Select(m => m.Id).ToHashSet();
+        var answerTo = messages
+            .Where(m => m.MessageType == MessageType.Answer && m.QuestionMessageId is int q && questionIds.Contains(q))
+            .GroupBy(m => m.QuestionMessageId!.Value).ToDictionary(g => g.Key, g => g.First());
+
         foreach (var m in messages)
         {
             var chapter = chapterLabel(m.ChapterId);
@@ -500,6 +526,18 @@ internal static class MetadataExport
                 var thinking = m.Content[ThinkingPrefix.Length..].Trim();
                 yield return new Ev(m.CreatedAt, Cat.Thinking, Role(m.AgentRole), "Thinking",
                     Fold($"Reasoning · {WordCount(thinking):N0} words", Text(thinking)), chapter);
+                continue;
+            }
+            if (m.MessageType == MessageType.Answer && m.QuestionMessageId is int answered && questionIds.Contains(answered))
+                continue;
+            if (m.MessageType == MessageType.Question && answerTo.TryGetValue(m.Id, out var answer))
+            {
+                var outcome = string.IsNullOrWhiteSpace(answer.Content)
+                    ? Reply($"{Author} skipped it", m.CreatedAt, answer.CreatedAt)
+                    : Reply($"{Author} answered", m.CreatedAt, answer.CreatedAt) + Field("Answer", answer.Content);
+                yield return new Ev(m.CreatedAt, Cat.Conversation, Role(m.AgentRole),
+                    m.IsOptional ? "Asked a question (optional)" : "Asked a question",
+                    Field("Question", m.Content) + outcome, chapter);
                 continue;
             }
             var (actor, title) = m.MessageType switch
