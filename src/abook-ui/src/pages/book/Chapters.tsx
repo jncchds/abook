@@ -95,7 +95,7 @@ export default function Chapters() {
     <div>
       <div className="page-header">
         <h2>Chapters ({activeChapters.length}{archivedChapters.length > 0 ? ' + ' + archivedChapters.length + ' archived' : ''})</h2>
-        <button className="btn-sm" onClick={() => setAddingChapter(true)}>+ Add</button>
+        {canEdit && <button className="btn-sm" onClick={() => setAddingChapter(true)}>+ Add</button>}
       </div>
 
       {/* Phase action bar */}

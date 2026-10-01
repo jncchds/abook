@@ -18,6 +18,7 @@
 
 ### Runs
 - fix: refreshing the page (or losing the connection) during a run no longer loses track of it — the sidebar shows the step actually running (e.g. "Editing Ch. 3…" rather than the step the run started with), the latest progress message comes back, and the text streamed so far reappears on the Story Bible, Characters, Plot Threads, Chapters and chapter pages, with new text continuing from where it left off
+- fix: the Chapters page no longer shows the **+ Add** button to viewers who can't edit the book
 
 ## v0.2.0 — 2026-09-30
 
