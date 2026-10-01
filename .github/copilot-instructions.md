@@ -46,7 +46,7 @@ dotnet ef database update --project src/ABook.Infrastructure --startup-project s
 After every change — whether to .NET (C#) or TypeScript/React code — check for and fix compilation errors before considering the task done.
 
 - **.NET**: run `dotnet build` from the solution root; resolve all errors and warnings that relate to the change.
-- **TypeScript**: run `npm run build` (or `npx tsc --noEmit`) inside `src/abook-ui`; resolve all type errors.
+- **TypeScript**: run `npm run build` (or `npx tsc --noEmit -p tsconfig.app.json` — without `-p` nothing is checked) inside `src/abook-ui`; resolve all type errors.
 
 Do not leave a codebase in a broken state. If a change introduces errors in files outside the directly edited file, fix those too.
 

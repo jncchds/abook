@@ -244,7 +244,7 @@ export default function GlobalSettings() {
               </select>
               {defaultPreset && (
                 <span className="hint">
-                  {PROVIDER_LABELS[defaultPreset.provider] ?? defaultPreset.provider} · {defaultPreset.modelName}
+                  {PROVIDER_LABELS[defaultPreset.provider as keyof typeof PROVIDER_LABELS] ?? defaultPreset.provider} · {defaultPreset.modelName}
                   {defaultPreset.endpoint ? ` · ${defaultPreset.endpoint}` : ''}
                 </span>
               )}

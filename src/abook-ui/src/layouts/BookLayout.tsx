@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation, Outlet, Navigate } from 'react-rou
 import { BookContextProvider, useBookContext } from '../contexts/BookContext'
 import Sidebar, { SidebarBtn, SidebarDivider } from '../components/Sidebar'
 import { chapterStatusColor } from '../utils/chapterStatus'
+import { downloadFile } from '../api'
 
 function agentCaption(role: string | undefined, state: string | undefined, chapterNum: number | null): string {
   if (state === 'WaitingForInput') return 'Waiting for your answer…'

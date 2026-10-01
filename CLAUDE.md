@@ -18,7 +18,7 @@ npm install
 npm run dev      # Vite dev server at http://localhost:5173, proxies /api and /hubs to http://localhost:5000
 npm run build    # TypeScript check + Vite build → outputs to src/ABook.Api/wwwroot/
 npm run lint     # ESLint
-npx tsc --noEmit # type-check only
+npx tsc --noEmit -p tsconfig.app.json  # type-check only (plain `tsc --noEmit` checks nothing: tsconfig.json only holds references)
 ```
 
 > **Note:** the Vite dev server proxies to port 5000, but `launchSettings.json` runs the API on 5193 by default. Either change the proxy target in `vite.config.ts` to match, or run the API on 5000 (e.g. via `--urls http://localhost:5000`).
@@ -104,7 +104,7 @@ Built-in at `/mcp` using `ModelContextProtocol.AspNetCore 1.2.0`. Tool classes i
 
 ## Mandatory workflow rules
 
-1. **After every code change** — check for compilation errors and warnings: `dotnet build` (backend), `npx tsc --noEmit` in `src/abook-ui` (frontend). Fix all errors before finishing; fix warnings whenever it is safe to do so without changing behaviour.
+1. **After every code change** — check for compilation errors and warnings: `dotnet build` (backend), `npx tsc --noEmit -p tsconfig.app.json` in `src/abook-ui` (frontend). Fix all errors before finishing; fix warnings whenever it is safe to do so without changing behaviour.
 2. **After every committed change** — version check-bump flow:
    a. Check if the current `VERSION` has been pushed to origin (`git log origin/main..HEAD -- VERSION`); if so, bump the patch number and create a new `## v{version} — {date}` heading in `RELEASE_NOTES.md`; otherwise reuse the current version.
    b. Verify the heading for the current version in `RELEASE_NOTES.md` carries today's date; update it if it doesn't.
