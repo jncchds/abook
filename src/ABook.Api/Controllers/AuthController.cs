@@ -1,3 +1,4 @@
+using ABook.Api.Services;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.AspNetCore.Authentication;
@@ -28,7 +29,7 @@ public class AuthController : ControllerBase
         Ok(new { needsSetup = !await _users.AnyUsersExistAsync() });
 
     [HttpPost("register")]
-    public async Task<IActionResult> Register([FromBody] AuthRequest req)
+    public async Task<IActionResult> Register([FromBody] AuthRequest req, [FromServices] UserProvisioningService provisioning)
     {
         // Only allow registration if no users exist yet (first admin) OR current user is admin
         bool anyExist = await _users.AnyUsersExistAsync();
@@ -43,7 +44,7 @@ public class AuthController : ControllerBase
 
         var user = new AppUser { Username = req.Username, IsAdmin = true };
         user.PasswordHash = _hasher.HashPassword(user, req.Password);
-        user = await _users.AddAsync(user);
+        user = await provisioning.CreateAsync(user);
 
         await SignInAsync(user);
         return Ok(UserDto(user));

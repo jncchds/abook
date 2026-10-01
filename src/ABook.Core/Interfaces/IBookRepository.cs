@@ -57,7 +57,8 @@ public interface IBookRepository
     Task<AgentMessage> AddMessageAsync(AgentMessage message);
     Task UpdateMessageAsync(AgentMessage message);
 
-    Task<LlmConfiguration?> GetLlmConfigAsync(int? bookId, int? userId = null);
+    /// <summary>The book's own LLM settings; there is no user or global fallback.</summary>
+    Task<LlmConfiguration?> GetLlmConfigAsync(int bookId);
     Task<LlmConfiguration> UpsertLlmConfigAsync(LlmConfiguration config);
 
     Task<TokenUsageRecord> AddTokenUsageAsync(TokenUsageRecord record);
@@ -168,6 +169,8 @@ public interface IBookRepository
     // LLM Presets
     Task<IEnumerable<LlmPreset>> GetPresetsAsync(int? userId);
     Task<LlmPreset?> GetPresetAsync(int id);
+    /// <summary>The user's default preset, provided it is still their own or shared.</summary>
+    Task<LlmPreset?> GetDefaultPresetAsync(int userId);
     Task<LlmPreset> CreatePresetAsync(LlmPreset preset);
     Task UpdatePresetAsync(LlmPreset preset);
     Task DeletePresetAsync(int id);

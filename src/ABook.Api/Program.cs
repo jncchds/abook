@@ -105,6 +105,7 @@ var isPublicMode = builder.Configuration.GetValue<bool>("PublicMode");
 builder.Services.AddSingleton(new ABook.Api.Services.PublicModeOptions(isPublicMode));
 builder.Services.AddScoped<ABook.Api.Services.BookExportService>();
 builder.Services.AddScoped<ABook.Api.Services.ClarificationService>();
+builder.Services.AddScoped<ABook.Api.Services.UserProvisioningService>();
 // ── API ───────────────────────────────────────────────────────────────────────
 builder.Services.AddControllers()
     .AddJsonOptions(o => ConfigureJsonSerializer(o.JsonSerializerOptions));
@@ -127,46 +128,6 @@ using (var scope = app.Services.CreateScope())
     app.Logger.LogInformation("Applying database migrations…");
     await db.Database.MigrateAsync();
     app.Logger.LogInformation("Database migrations applied.");
-
-    // Seed global LLM defaults from env / appsettings ──────────────────────────
-    var llmSection = app.Configuration.GetSection("LlmDefaults");
-    var providerStr = llmSection["Provider"];
-    if (!string.IsNullOrWhiteSpace(providerStr) &&
-        Enum.TryParse<LlmProvider>(providerStr, ignoreCase: true, out var provider))
-    {
-        var repo = scope.ServiceProvider.GetRequiredService<IBookRepository>();
-        var existing = await repo.GetLlmConfigAsync(null, null);
-        var config = existing ?? new LlmConfiguration();
-        config.Provider = provider;
-        var modelName = llmSection["ModelName"];
-        if (!string.IsNullOrWhiteSpace(modelName)) config.ModelName = modelName;
-        var endpoint = llmSection["Endpoint"];
-        if (!string.IsNullOrWhiteSpace(endpoint)) config.Endpoint = endpoint;
-        var apiKey = llmSection["ApiKey"];
-        if (!string.IsNullOrWhiteSpace(apiKey)) config.ApiKey = apiKey;
-        var embeddingModel = llmSection["EmbeddingModelName"];
-        if (!string.IsNullOrWhiteSpace(embeddingModel)) config.EmbeddingModelName = embeddingModel;
-        var imageEndpoint = llmSection["ImageEndpoint"];
-        if (!string.IsNullOrWhiteSpace(imageEndpoint))
-        {
-            config.ImageEndpoint = imageEndpoint;
-            config.ImageProvider = Enum.TryParse<ImageProvider>(llmSection["ImageProvider"], true, out var ip)
-                ? ip
-                : config.ImageProvider ?? ImageProvider.ZImage;
-        }
-        var imageApiKey = llmSection["ImageApiKey"];
-        if (!string.IsNullOrWhiteSpace(imageApiKey)) config.ImageApiKey = imageApiKey;
-        var imageModel = llmSection["ImageModel"];
-        if (!string.IsNullOrWhiteSpace(imageModel)) config.ImageModel = imageModel;
-        var imageStyle = llmSection["ImageVisualStyle"];
-        if (!string.IsNullOrWhiteSpace(imageStyle)) config.ImageVisualStyle = imageStyle;
-        if (int.TryParse(llmSection["ImagesPerChapter"], out var imagesPerChapter) && imagesPerChapter > 0)
-            config.ImagesPerChapter = imagesPerChapter;
-        await repo.UpsertLlmConfigAsync(config);
-        app.Logger.LogInformation(
-            "LLM default config: provider={Provider} model={Model} endpoint={Endpoint}",
-            config.Provider, config.ModelName, config.Endpoint);
-    }
 }
 
 app.UseAuthentication();

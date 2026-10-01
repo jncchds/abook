@@ -12,27 +12,50 @@ namespace ABook.Api.Controllers;
 public class PresetsController : ControllerBase
 {
     private readonly IBookRepository _repo;
+    private readonly IUserRepository _users;
 
-    public PresetsController(IBookRepository repo) => _repo = repo;
+    public PresetsController(IBookRepository repo, IUserRepository users)
+    {
+        _repo = repo;
+        _users = users;
+    }
 
-    private int? CurrentUserId =>
-        User.Identity?.IsAuthenticated == true
-            ? int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!)
-            : (int?)null;
+    private int CurrentUserId => int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
     private bool IsAdmin =>
         User.FindFirstValue(ClaimTypes.Role) == "Admin";
+
+    /// <summary>Shared presets (UserId null) are usable by everyone but only admins may change them.</summary>
+    private bool CanModify(LlmPreset preset) => preset.UserId == CurrentUserId || (preset.UserId is null && IsAdmin);
 
     [HttpGet]
     public async Task<IActionResult> GetAll() =>
         Ok(await _repo.GetPresetsAsync(CurrentUserId));
 
+    /// <summary>The preset copied into each new book; null when the user has none.</summary>
+    [HttpGet("default")]
+    public async Task<IActionResult> GetDefault() =>
+        Ok(new { presetId = (await _repo.GetDefaultPresetAsync(CurrentUserId))?.Id });
+
+    [HttpPut("{id}/default")]
+    public async Task<IActionResult> SetDefault(int id)
+    {
+        var preset = await _repo.GetPresetAsync(id);
+        if (preset is null || (preset.UserId is not null && preset.UserId != CurrentUserId)) return NotFound();
+        var user = await _users.GetByIdAsync(CurrentUserId);
+        if (user is null) return Unauthorized();
+        user.DefaultPresetId = id;
+        await _users.UpdateAsync(user);
+        return Ok(new { presetId = id });
+    }
+
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] PresetRequest req)
     {
+        if (req.Shared && !IsAdmin) return Forbid();
         var preset = new LlmPreset
         {
-            UserId = CurrentUserId,
+            UserId = req.Shared ? null : CurrentUserId,
             Name = req.Name,
             Provider = req.Provider,
             ModelName = req.ModelName,
@@ -55,9 +78,15 @@ public class PresetsController : ControllerBase
         var existing = await _repo.GetPresetAsync(id);
         if (existing is null) return NotFound();
 
-        // Only the owner or an admin may edit
-        if (existing.UserId != CurrentUserId && !IsAdmin)
-            return Forbid();
+        if (!CanModify(existing)) return Forbid();
+
+        // An admin may share their own preset. Sharing is one-way: a shared preset is never taken private,
+        // since other users may have made it their default.
+        if (req.Shared && existing.UserId is not null)
+        {
+            if (!IsAdmin) return Forbid();
+            existing.UserId = null;
+        }
 
         existing.Name = req.Name;
         existing.Provider = req.Provider;
@@ -80,8 +109,8 @@ public class PresetsController : ControllerBase
         var existing = await _repo.GetPresetAsync(id);
         if (existing is null) return NotFound();
 
-        if (existing.UserId != CurrentUserId && !IsAdmin)
-            return Forbid();
+        // Users who had it as their default are left without one (FK set null) and are asked to pick another.
+        if (!CanModify(existing)) return Forbid();
 
         await _repo.DeletePresetAsync(id);
         return NoContent();
@@ -112,4 +141,5 @@ public record PresetRequest(
     int? ImageTimeoutMs = null,
     string? ImageVisualStyle = null,
     int? ImagesPerChapter = null,
-    bool UnloadLlmBeforeRender = false) : IImageGenSettings;
+    bool UnloadLlmBeforeRender = false,
+    bool Shared = false) : IImageGenSettings;

@@ -11,6 +11,10 @@ public class AppUser
     public bool IsAdmin { get; set; }
     [JsonIgnore] public string? ApiToken { get; set; }
     public DateTime CreatedAt { get; set; }
+    /// <summary>The preset (own or shared) whose settings are copied into each new book.</summary>
+    public int? DefaultPresetId { get; set; }
+
+    [JsonIgnore] public LlmPreset? DefaultPreset { get; set; }
 
     [JsonIgnore] public ICollection<Book> Books { get; set; } = new List<Book>();
 }

@@ -42,9 +42,8 @@ public abstract class AgentBase
 
     protected async Task<(ILlmChatClient client, LlmConfiguration config)> GetChatClientAsync(int bookId)
     {
-        var book = await Repo.GetByIdAsync(bookId);
-        var config = await Repo.GetLlmConfigAsync(bookId, book?.UserId)
-            ?? throw new InvalidOperationException("No LLM configuration found.");
+        var config = await Repo.GetLlmConfigAsync(bookId)
+            ?? throw new InvalidOperationException(LlmConfiguration.MissingMessage);
         return (LlmFactory.CreateChatClient(config), config);
     }
 

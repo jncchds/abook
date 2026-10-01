@@ -259,9 +259,10 @@ export const clearTokenUsage = (bookId: number) =>
 
 
 // LLM Config
-export const getLlmConfig = (bookId?: number) =>
-  api.get<LlmConfig>('/configuration', { params: { bookId } })
-export const updateLlmConfig = (data: LlmConfig) => api.put<LlmConfig>('/configuration', data)
+/** A book's own LLM settings (null when it has none) — there is no user-level or global configuration. */
+export const getLlmConfig = (bookId: number) =>
+  api.get<LlmConfig | null>('/configuration', { params: { bookId } })
+export const updateLlmConfig = (data: LlmConfig & { bookId: number }) => api.put<LlmConfig>('/configuration', data)
 export interface ImageGenHealth { ready: boolean; status: string; detail?: string | null }
 /** A POST so the image API key stays out of the URL. */
 export const getImageHealth = (endpoint: string, provider?: string | null, apiKey?: string | null, model?: string | null) =>
@@ -425,17 +426,23 @@ export const restorePlotThreadVersion = (bookId: number, threadId: number, versi
 // LLM Presets
 export interface LlmPreset extends LlmSettings {
   id: number
+  /** Null for a shared preset: usable by everyone, changed only by admins. */
   userId?: number | null
   name: string
   createdAt?: string
   updatedAt?: string
 }
+/** `shared` (admins only) makes a new preset — or an admin's own one — shared; sharing cannot be undone. */
+export type PresetInput = Omit<LlmPreset, 'id' | 'userId' | 'createdAt' | 'updatedAt'> & { shared?: boolean }
 export const getPresets = () => api.get<LlmPreset[]>('/presets')
-export const createPreset = (data: Omit<LlmPreset, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) =>
+export const createPreset = (data: PresetInput) =>
   api.post<LlmPreset>('/presets', data)
-export const updatePreset = (id: number, data: Omit<LlmPreset, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) =>
+export const updatePreset = (id: number, data: PresetInput) =>
   api.put<LlmPreset>(`/presets/${id}`, data)
 export const deletePreset = (id: number) => api.delete(`/presets/${id}`)
+/** The preset copied into every new book (null when the user has none). */
+export const getDefaultPreset = () => api.get<{ presetId: number | null }>('/presets/default')
+export const setDefaultPreset = (id: number) => api.put<{ presetId: number }>(`/presets/${id}/default`)
 
 // Story Bible history / snapshots
 export interface StoryBibleSnapshotMeta {

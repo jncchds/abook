@@ -150,6 +150,16 @@ public class BookRepository : IBookRepository
     {
         book.CreatedAt = book.UpdatedAt = DateTime.UtcNow;
         _db.Books.Add(book);
+
+        // The new book gets a copy of its owner's current default preset; it is never tied to the preset.
+        var preset = book.UserId is int userId ? await GetDefaultPresetAsync(userId) : null;
+        if (preset is not null)
+        {
+            var config = new LlmConfiguration { Book = book };
+            config.CopyFrom(preset);
+            _db.LlmConfigurations.Add(config);
+        }
+
         await _db.SaveChangesAsync();
         return book;
     }
@@ -448,26 +458,12 @@ public class BookRepository : IBookRepository
         await _db.SaveChangesAsync();
     }
 
-    public async Task<LlmConfiguration?> GetLlmConfigAsync(int? bookId, int? userId = null)
-    {
-        if (bookId.HasValue)
-        {
-            var bookConfig = await _db.LlmConfigurations.FirstOrDefaultAsync(l => l.BookId == bookId);
-            if (bookConfig is not null) return bookConfig;
-        }
-        if (userId.HasValue)
-        {
-            var userConfig = await _db.LlmConfigurations
-                .FirstOrDefaultAsync(l => l.BookId == null && l.UserId == userId);
-            if (userConfig is not null) return userConfig;
-        }
-        return await _db.LlmConfigurations.FirstOrDefaultAsync(l => l.BookId == null && l.UserId == null);
-    }
+    public async Task<LlmConfiguration?> GetLlmConfigAsync(int bookId) =>
+        await _db.LlmConfigurations.FirstOrDefaultAsync(l => l.BookId == bookId);
 
     public async Task<LlmConfiguration> UpsertLlmConfigAsync(LlmConfiguration config)
     {
-        var existing = await _db.LlmConfigurations
-            .FirstOrDefaultAsync(l => l.BookId == config.BookId && l.UserId == config.UserId);
+        var existing = await _db.LlmConfigurations.FirstOrDefaultAsync(l => l.BookId == config.BookId);
 
         if (existing is null)
         {
@@ -475,16 +471,7 @@ public class BookRepository : IBookRepository
         }
         else
         {
-            existing.Provider = config.Provider;
-            existing.ModelName = config.ModelName;
-            existing.Endpoint = config.Endpoint;
-            existing.ApiKey = config.ApiKey;
-            existing.EmbeddingModelName = config.EmbeddingModelName;
-            existing.Temperature = config.Temperature;
-            existing.MaxTokens = config.MaxTokens;
-            existing.ReasoningEffort = config.ReasoningEffort;
-            existing.TimeoutMs = config.TimeoutMs;
-            existing.CopyImageSettingsFrom(config);
+            existing.CopyFrom(config);
             config = existing;
         }
 
@@ -1164,6 +1151,14 @@ public class BookRepository : IBookRepository
 
     public async Task<LlmPreset?> GetPresetAsync(int id) =>
         await _db.LlmPresets.FindAsync(id);
+
+    public async Task<LlmPreset?> GetDefaultPresetAsync(int userId)
+    {
+        var presetId = await _db.Users.Where(u => u.Id == userId).Select(u => u.DefaultPresetId).FirstOrDefaultAsync();
+        if (presetId is null) return null;
+        // A shared preset an admin has since made private is no longer the user's to use.
+        return await _db.LlmPresets.FirstOrDefaultAsync(p => p.Id == presetId && (p.UserId == null || p.UserId == userId));
+    }
 
     public async Task<LlmPreset> CreatePresetAsync(LlmPreset preset)
     {

@@ -2,7 +2,6 @@ using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Security.Claims;
 
 namespace ABook.Api.Controllers;
 
@@ -15,22 +14,23 @@ public class ConfigurationController : ControllerBase
 
     public ConfigurationController(IBookRepository repo) => _repo = repo;
 
-    private int? CurrentUserId =>
-        User.Identity?.IsAuthenticated == true
-            ? int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!)
-            : (int?)null;
-
+    /// <summary>The book's own LLM settings (null when it has none). There is no user or global level any more.</summary>
     [HttpGet]
-    public async Task<IActionResult> Get([FromQuery] int? bookId) =>
-        Ok(await _repo.GetLlmConfigAsync(bookId, CurrentUserId));
+    public async Task<IActionResult> Get([FromQuery] int bookId)
+    {
+        var (denied, _) = await this.RequireBookOwnershipAndLoadAsync(bookId, _repo);
+        if (denied is not null) return denied;
+        return Ok(await _repo.GetLlmConfigAsync(bookId));
+    }
 
     [HttpPut]
     public async Task<IActionResult> Upsert([FromBody] LlmConfigRequest req)
     {
+        var (denied, _) = await this.RequireBookOwnershipAndLoadAsync(req.BookId, _repo);
+        if (denied is not null) return denied;
         var config = new LlmConfiguration
         {
             BookId = req.BookId,
-            UserId = req.BookId.HasValue ? null : CurrentUserId,
             Provider = req.Provider,
             ModelName = req.ModelName,
             Endpoint = req.Endpoint,
@@ -79,7 +79,7 @@ public class ConfigurationController : ControllerBase
 public record ImageHealthRequest(string Endpoint, ImageProvider? Provider, string? ApiKey, string? Model);
 
 public record LlmConfigRequest(
-    int? BookId,
+    int BookId,
     LlmProvider Provider,
     string ModelName,
     string Endpoint,

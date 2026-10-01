@@ -52,6 +52,11 @@ public class AppDbContext : DbContext
             u.HasIndex(x => x.Username).IsUnique();
             u.Property(x => x.Username).IsRequired().HasMaxLength(100);
             u.Property(x => x.PasswordHash).IsRequired();
+            u.HasOne(x => x.DefaultPreset)
+             .WithMany()
+             .HasForeignKey(x => x.DefaultPresetId)
+             .OnDelete(DeleteBehavior.SetNull)
+             .IsRequired(false);
         });
 
         modelBuilder.Entity<Book>(b =>
@@ -127,13 +132,8 @@ public class AppDbContext : DbContext
             l.HasOne(x => x.Book)
              .WithMany(x => x.LlmConfigurations)
              .HasForeignKey(x => x.BookId)
-             .OnDelete(DeleteBehavior.Cascade)
-             .IsRequired(false);
-            l.HasOne(x => x.User)
-             .WithMany()
-             .HasForeignKey(x => x.UserId)
-             .OnDelete(DeleteBehavior.SetNull)
-             .IsRequired(false);
+             .OnDelete(DeleteBehavior.Cascade);
+            l.HasIndex(x => x.BookId).IsUnique();
         });
 
         modelBuilder.Entity<TokenUsageRecord>(t =>
@@ -243,10 +243,11 @@ public class AppDbContext : DbContext
             p.Property(x => x.ImageApiKey).HasMaxLength(500);
             p.Property(x => x.ImageModel).HasMaxLength(500);
             p.Property(x => x.UnloadLlmBeforeRender).HasDefaultValue(false);
+            // UserId null = shared preset. A user's own presets go with them; they must never turn shared.
             p.HasOne(x => x.User)
              .WithMany()
              .HasForeignKey(x => x.UserId)
-             .OnDelete(DeleteBehavior.SetNull)
+             .OnDelete(DeleteBehavior.Cascade)
              .IsRequired(false);
         });
 

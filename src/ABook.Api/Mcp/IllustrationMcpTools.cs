@@ -145,9 +145,9 @@ public class IllustrationMcpTools : McpToolBase
             throw new McpException("Scope must be All, Portraits, Chapter, Character or Single.");
         if (s is RenderScope.Chapter or RenderScope.Character or RenderScope.Single && targetId is null)
             throw new McpException($"The {s} scope needs a targetId.");
-        var config = await _repo.GetLlmConfigAsync(bookId, book.UserId);
+        var config = await _repo.GetLlmConfigAsync(bookId);
         if (config is null || !config.HasImageGeneration())
-            throw new McpException("No image endpoint is configured — set imageEndpoint with set_llm_config or apply a preset that has one.");
+            throw new McpException("This book has no image endpoint — copy in a preset that has one with apply_preset (bookId), or set imageEndpoint with set_llm_config (bookId).");
 
         var request = new RenderRequest(s, targetId, reroll);
         var result = _runner.TryStart(bookId, AgentRole.Illustrator, null, (o, c) => o.StartRenderAsync(bookId, request, c));

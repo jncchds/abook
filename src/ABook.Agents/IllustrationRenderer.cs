@@ -42,11 +42,11 @@ public class IllustrationRenderer
     public async Task RenderAsync(int bookId, RenderRequest request, CancellationToken ct)
     {
         var book = await _repo.GetByIdAsync(bookId) ?? throw new InvalidOperationException($"Book {bookId} not found.");
-        var config = await _repo.GetLlmConfigAsync(bookId, book.UserId)
-            ?? throw new InvalidOperationException("No LLM configuration found.");
+        var config = await _repo.GetLlmConfigAsync(bookId)
+            ?? throw new InvalidOperationException(LlmConfiguration.MissingMessage);
         if (!config.HasImageGeneration())
             throw new InvalidOperationException(
-                "No image endpoint is configured. Set one in the image generation settings (LLM configuration or preset).");
+                "No image endpoint is configured. Set one in the book's image generation settings.");
 
         var cards = (await _repo.GetAllCharacterCardsAsync(bookId)).ToDictionary(c => c.Id);
         var targets = await SelectTargetsAsync(bookId, request, cards);

@@ -43,7 +43,7 @@ A self-hosted web application that uses AI agents to collaboratively write books
 - **Public Library** — browse and read published books without logging in (when public mode is enabled); each chapter has its own URL for bookmarking and sharing
 
 ### Infrastructure
-- **Pluggable LLM backend** — Ollama (default, local), OpenAI (or any OpenAI-compatible API), or Google AI Studio; configurable globally, per-user, or per-book
+- **Pluggable LLM backend** — Ollama (default, local), OpenAI (or any OpenAI-compatible API), or Google AI Studio; settings kept as presets (your default is copied into each new book) and per book
 - **Real-time streaming** — watch chapters being written token by token via SignalR; planning phases stream with live progressive JSON previews. Only book content streams — a reasoning model's thinking is saved to the chat as one "💭 Thinking" message when each step finishes (even when it fails), and the live view reconnects by itself after a network drop
 - **Fail-safe runs** — a stalled LLM connection times out instead of hanging the book; double-clicking a start button can't launch two runs; runs interrupted by a server restart are closed out with a note telling you to use **Continue**
 - **Health endpoint** — `GET /health` reports whether the database is reachable (for Docker/uptime checks)
@@ -150,7 +150,7 @@ volumes:
 |---|---|---|
 | `ConnectionStrings__DefaultConnection` | — | PostgreSQL connection string |
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` disables Swagger |
-| `LlmDefaults__Provider` | `Ollama` | Default LLM provider (`Ollama`, `OpenAI`, `GoogleAIStudio`) |
+| `LlmDefaults__Provider` | `Ollama` | Provider of the "Default" preset each **new user** gets (`Ollama`, `OpenAI`, `GoogleAIStudio`); unset = new users start without a preset. The `LlmDefaults__*` values only seed that preset — books never fall back to them |
 | `LlmDefaults__ModelName` | `llama3` | Default model name |
 | `LlmDefaults__Endpoint` | `http://host.docker.internal:11434` | Default LLM endpoint |
 | `LlmDefaults__ApiKey` | — | API key (required for OpenAI / GoogleAIStudio; optional for Ollama) |
@@ -170,7 +170,7 @@ For local development, copy `src/ABook.Api/appsettings.Local.example.json` → `
 
 ### LLM Providers
 
-Configure the LLM backend in **Settings** or via the API:
+LLM settings are kept as **presets** (the 🔑 Presets page) and per book (each book's **Settings** page):
 
 | Provider | Notes |
 |---|---|
@@ -179,13 +179,18 @@ Configure the LLM backend in **Settings** or via the API:
 | **Google AI Studio** | Native Gemini connector. Requires an API key from [aistudio.google.com](https://aistudio.google.com/apikey). Suggested models: `gemini-2.0-flash`, `gemini-2.5-pro`. Embedding model: `text-embedding-004`. |
 | **OpenAI Compatible** | For LM Studio, OpenRouter, vLLM and similar. Reads the stream directly, so non-standard fields such as `reasoning_content` are captured; `reasoning_effort` is never sent. API key optional. |
 
-Configurations can be set globally, per-user, or per-book. The lookup order is: book-specific → user-default → global.
+How the settings are resolved:
+
+- **Every book has its own LLM settings.** When you create a book it gets a copy of your **default preset** (a sequel copies its base book instead). Later changes to the preset — or picking another default — never affect existing books; change those on the book's Settings page (where **Apply Preset** copies a preset in).
+- **Your default preset** is chosen under **Settings → Default LLM Preset** or with **Make default** on the Presets page. New users get a private "Default" preset built from the `LlmDefaults__*` environment variables, if those are set.
+- **Shared presets** are available to every user (including as their default) but only admins can create, edit or delete them. Admins share a preset with the **Shared with everyone** toggle; sharing cannot be undone. Anyone who can use a shared preset can see its API keys once it is copied into their books.
+- There is no global or per-user fallback configuration any more (removed in v0.3.0).
 
 Local models often ignore the JSON schema the planning agents send — returning a chapter number as `1.0` or `"3"`, or a text field as a list. The parsers coerce those instead of failing, drop only the entries they genuinely cannot read, and post a `⚠️` note in the book's chat naming each dropped entry and the JSON behind it. If a planning phase does fail outright, the error in the chat quotes what the model actually returned.
 
 ### Image Generation (Illustrations)
 
-Illustrations are rendered by one of two image providers, chosen under **🎨 Image Generation** in the LLM settings (global, per book, or in a preset); use **Test connection** after setting the URL.
+Illustrations are rendered by one of two image providers, chosen under **🎨 Image Generation** in a book's LLM settings or in a preset; use **Test connection** after setting the URL.
 
 - **Z-Image** — a self-hosted [Z-Image Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) server: the FastAPI server in the adate project's `compose/zimage` folder (`POST /generate`, `GET /images/{id}`, `GET /health`).
 - **Unsloth Studio** — the image models of an [Unsloth Studio](https://unsloth.ai/docs/new/studio) server. Enter the Studio address (with or without `/v1`) and an API key from Studio's **Settings → API**. Studio keeps only one model on the GPU, so if it also serves your text model (as an **OpenAI Compatible** provider at `http://<host>:<port>/v1`), set **Image model** too — e.g. `unsloth/Z-Image-Turbo-GGUF:z-image-turbo-Q8_0.gguf` (a Hub repo id, optionally `:` plus a checkpoint file). ABook then loads it before rendering whenever no image model is loaded, and Studio unloads the text model to make room. Leave it blank to use whatever is loaded on Studio's Images page.

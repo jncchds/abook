@@ -90,24 +90,12 @@ public class BooksController : ControllerBase
 
         var created = await _repo.AddAsync(book);
 
-        if (baseBook is not null)
+        // A sequel keeps the base book's LLM settings rather than the owner's default preset.
+        if (baseBook is not null && await _repo.GetLlmConfigAsync(baseBook.Id) is { } sourceConfig)
         {
-            var sourceConfig = await _repo.GetLlmConfigAsync(baseBook.Id, baseBook.UserId);
-            if (sourceConfig is not null && sourceConfig.BookId == baseBook.Id)
-            {
-                var copy = new LlmConfiguration
-                {
-                    BookId = created.Id,
-                    UserId = created.UserId,
-                    Provider = sourceConfig.Provider,
-                    ModelName = sourceConfig.ModelName,
-                    Endpoint = sourceConfig.Endpoint,
-                    ApiKey = sourceConfig.ApiKey,
-                    EmbeddingModelName = sourceConfig.EmbeddingModelName
-                };
-                copy.CopyImageSettingsFrom(sourceConfig);
-                await _repo.UpsertLlmConfigAsync(copy);
-            }
+            var copy = new LlmConfiguration { BookId = created.Id };
+            copy.CopyFrom(sourceConfig);
+            await _repo.UpsertLlmConfigAsync(copy);
         }
 
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
@@ -235,7 +223,7 @@ public class BooksController : ControllerBase
         if (ownershipResult.Error is not null) return ownershipResult.Error;
         var book = ownershipResult.Book!;
 
-        var config = await _repo.GetLlmConfigAsync(id, book.UserId);
+        var config = await _repo.GetLlmConfigAsync(id);
         var embeddingModelConfigured = config is not null && !string.IsNullOrWhiteSpace(config.EmbeddingModelName);
         var indexedChunkCount = await _vectorStore.CountChunksAsync(id);
 

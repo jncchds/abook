@@ -1,3 +1,4 @@
+using ABook.Api.Services;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -28,14 +29,14 @@ public class UsersController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<IActionResult> Create([FromBody] CreateUserRequest req)
+    public async Task<IActionResult> Create([FromBody] CreateUserRequest req, [FromServices] UserProvisioningService provisioning)
     {
         if (await _users.GetByUsernameAsync(req.Username) is not null)
             return Conflict(new { message = "Username already taken." });
 
         var user = new AppUser { Username = req.Username, IsAdmin = req.IsAdmin };
         user.PasswordHash = _hasher.HashPassword(user, req.Password);
-        user = await _users.AddAsync(user);
+        user = await provisioning.CreateAsync(user);
         return Ok(new { user.Id, user.Username, user.IsAdmin, user.CreatedAt });
     }
 

@@ -128,7 +128,7 @@ public class IllustrationPlannerAgent : AgentBase
     public async Task EnsureStyleSheetAsync(int bookId, CancellationToken ct, bool force = false)
     {
         var book = await Repo.GetByIdAsync(bookId) ?? throw new InvalidOperationException($"Book {bookId} not found.");
-        var config = await Repo.GetLlmConfigAsync(bookId, book.UserId);
+        var config = await Repo.GetLlmConfigAsync(bookId);
         var brief = config?.ImageVisualStyle?.Trim() ?? "";
         if (!force && !string.IsNullOrWhiteSpace(book.IllustrationStyle) && (book.IllustrationStyleSource ?? "") == brief)
             return;

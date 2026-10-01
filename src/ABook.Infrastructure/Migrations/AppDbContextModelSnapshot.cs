@@ -133,6 +133,9 @@ namespace ABook.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int?>("DefaultPresetId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("DisplayName")
                         .HasColumnType("text");
 
@@ -149,6 +152,8 @@ namespace ABook.Infrastructure.Migrations
                         .HasColumnType("character varying(100)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DefaultPresetId");
 
                     b.HasIndex("Username")
                         .IsUnique();
@@ -869,7 +874,7 @@ namespace ABook.Infrastructure.Migrations
                     b.Property<string>("ApiKey")
                         .HasColumnType("text");
 
-                    b.Property<int?>("BookId")
+                    b.Property<int>("BookId")
                         .HasColumnType("integer");
 
                     b.Property<string>("EmbeddingModelName")
@@ -949,14 +954,10 @@ namespace ABook.Infrastructure.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
-                    b.Property<int?>("UserId")
-                        .HasColumnType("integer");
-
                     b.HasKey("Id");
 
-                    b.HasIndex("BookId");
-
-                    b.HasIndex("UserId");
+                    b.HasIndex("BookId")
+                        .IsUnique();
 
                     b.ToTable("LlmConfigurations");
                 });
@@ -1500,6 +1501,16 @@ namespace ABook.Infrastructure.Migrations
                     b.Navigation("PendingMessage");
                 });
 
+            modelBuilder.Entity("ABook.Core.Models.AppUser", b =>
+                {
+                    b.HasOne("ABook.Core.Models.LlmPreset", "DefaultPreset")
+                        .WithMany()
+                        .HasForeignKey("DefaultPresetId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("DefaultPreset");
+                });
+
             modelBuilder.Entity("ABook.Core.Models.Book", b =>
                 {
                     b.HasOne("ABook.Core.Models.Book", "BaseBook")
@@ -1623,16 +1634,10 @@ namespace ABook.Infrastructure.Migrations
                     b.HasOne("ABook.Core.Models.Book", "Book")
                         .WithMany("LlmConfigurations")
                         .HasForeignKey("BookId")
-                        .OnDelete(DeleteBehavior.Cascade);
-
-                    b.HasOne("ABook.Core.Models.AppUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Book");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("ABook.Core.Models.LlmPreset", b =>
@@ -1640,7 +1645,7 @@ namespace ABook.Infrastructure.Migrations
                     b.HasOne("ABook.Core.Models.AppUser", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("User");
                 });

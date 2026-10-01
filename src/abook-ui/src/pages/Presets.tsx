@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import type { LlmPreset, ProviderModel } from '../api'
-import { getPresets, createPreset, updatePreset, deletePreset, getModels } from '../api'
+import type { LlmPreset, PresetInput, ProviderModel } from '../api'
+import { getPresets, createPreset, updatePreset, deletePreset, getModels, getDefaultPreset, setDefaultPreset } from '../api'
 import { PROVIDERS, PROVIDER_LABELS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, pickImageSettings } from '../config/providers'
 import ImageGenSettingsFields from '../components/ImageGenSettingsFields'
+import { useAuth } from '../hooks/useAuth'
 
 const emptyForm = {
   name: '', provider: 'Ollama', modelName: '', endpoint: '', apiKey: '', embeddingModelName: '',
@@ -11,12 +12,19 @@ const emptyForm = {
   reasoningEffort: undefined as string | undefined,
   maxTokens: undefined as number | undefined,
   ...pickImageSettings({}),
+  shared: false,
 }
 
 export default function Presets() {
+  const { user } = useAuth()
+  const isAdmin = user?.isAdmin ?? false
   const [presets, setPresets] = useState<LlmPreset[]>([])
-  const [form, setForm] = useState<Omit<LlmPreset, 'id' | 'userId' | 'createdAt' | 'updatedAt'>>({ ...emptyForm })
+  const [defaultPresetId, setDefaultPresetId] = useState<number | null>(null)
+  const [form, setForm] = useState<PresetInput>({ ...emptyForm })
   const [editingId, setEditingId] = useState<number | null>(null)
+  const editingShared = presets.find(p => p.id === editingId)?.userId == null && editingId !== null
+  /** Shared presets (no owner) are usable by everyone but only admins may change them. */
+  const canModify = (p: LlmPreset) => p.userId != null || isAdmin
   const [showForm, setShowForm] = useState(false)
   const [saved, setSaved] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -36,7 +44,13 @@ export default function Presets() {
 
   useEffect(() => {
     getPresets().then(r => setPresets(r.data)).catch(err => console.error('Failed to load presets', err))
+    getDefaultPreset().then(r => setDefaultPresetId(r.data.presetId)).catch(err => console.error('Failed to load default preset', err))
   }, [])
+
+  const handleMakeDefault = async (id: number) => {
+    await setDefaultPreset(id)
+    setDefaultPresetId(id)
+  }
 
   useEffect(() => { fetchModels() }, [form.provider])
 
@@ -69,6 +83,7 @@ export default function Presets() {
       reasoningEffort: preset.reasoningEffort ?? undefined,
       maxTokens: preset.maxTokens ?? undefined,
       ...pickImageSettings(preset),
+      shared: preset.userId == null,
     })
   }
 
@@ -97,8 +112,9 @@ export default function Presets() {
         }}>{showForm ? '✕ Close' : '+ New Preset'}</button>
       </div>
       <p className="hint">
-        Save named LLM configurations for quick reuse. Presets are per-user and can be applied from any
-        book's LLM settings page.
+        Named LLM configurations. Your <strong>default</strong> preset is copied into every new book; any preset can
+        also be applied from a book's Settings page. Books keep their own copy — editing a preset never changes
+        existing books. <strong>Shared</strong> presets are available to everyone and can only be changed by admins.
       </p>
 
       {showForm && (
@@ -234,6 +250,22 @@ export default function Presets() {
             </div>
           </details>
           <ImageGenSettingsFields value={form} llmProvider={form.provider} onChange={patch => setForm(f => ({ ...f, ...patch }))} />
+          {isAdmin && (
+            <label className="toggle-row">
+              <span>Shared with everyone</span>
+              <input
+                type="checkbox"
+                checked={form.shared ?? false}
+                disabled={editingShared}
+                onChange={e => setForm(f => ({ ...f, shared: e.target.checked }))}
+              />
+            </label>
+          )}
+          {isAdmin && form.shared && (
+            <span className="hint">
+              Every user can use a shared preset (including its API keys); only admins can edit or delete it. Sharing cannot be undone.
+            </span>
+          )}
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem' }}>
             <button type="submit">{editingId !== null ? 'Update Preset' : 'Save Preset'}</button>
             {editingId !== null && (
@@ -254,19 +286,20 @@ export default function Presets() {
                 <strong>{p.name}</strong>
                 <span className="preset-meta">{p.provider} · {p.modelName}{p.endpoint ? ` · ${p.endpoint}` : ''}</span>
                 {p.embeddingModelName && <span className="preset-meta">embed: {p.embeddingModelName}</span>}
-                {!p.userId && <span className="preset-badge">global</span>}
+                {p.userId == null && <span className="preset-badge">shared</span>}
+                {p.id === defaultPresetId && <span className="preset-badge">★ default</span>}
               </div>
               <div className="preset-actions">
-                <button type="button" className="btn-secondary btn-sm" onClick={() => handleEdit(p)}>Edit</button>
-                <button
-                  type="button"
-                  className="btn-danger btn-sm"
-                  onClick={() => handleDelete(p.id)}
-                  disabled={!p.userId}
-                  title={!p.userId ? 'Global presets cannot be deleted' : undefined}
-                >
-                  Delete
-                </button>
+                {p.id !== defaultPresetId && (
+                  <button type="button" className="btn-secondary btn-sm" onClick={() => handleMakeDefault(p.id)}
+                    title="Copy this preset into every new book">Make default</button>
+                )}
+                {canModify(p) && (
+                  <>
+                    <button type="button" className="btn-secondary btn-sm" onClick={() => { handleEdit(p); setShowForm(true) }}>Edit</button>
+                    <button type="button" className="btn-danger btn-sm" onClick={() => handleDelete(p.id)}>Delete</button>
+                  </>
+                )}
               </div>
             </div>
           ))}

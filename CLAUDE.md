@@ -70,7 +70,7 @@ React is built at image-build time and served from `wwwroot/` — there is no se
 
 ### Key architectural patterns
 
-**LLM provider factory** — `LlmProviderFactory` dispatches to per-provider strategy classes (`src/ABook.Infrastructure/Llm/Strategies/`). Supported: `Ollama`, `OpenAI` (+ any OpenAI-compatible endpoint), `GoogleAIStudio`. Lookup chain for config: book-specific → user-default → global.
+**LLM provider factory** — `LlmProviderFactory` dispatches to per-provider strategy classes (`src/ABook.Infrastructure/Llm/Strategies/`). Supported: `Ollama`, `OpenAI` (+ any OpenAI-compatible endpoint), `GoogleAIStudio`. Each book owns its LLM config, copied from the owner's default preset at creation — there is no user or global fallback.
 
 **Agent orchestration** — `AgentOrchestrator` runs fire-and-forget via `IServiceScopeFactory`. `AgentRunStateService` (singleton) tracks in-memory state; `AgentRun` entity persists run lifecycle to the DB for restart resilience. All LLM calls use `StreamResponseAsync` — there is no non-streaming path.
 

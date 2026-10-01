@@ -245,9 +245,9 @@ public class IllustrationsController : ControllerBase
     {
         var (denied, book) = await this.RequireBookOwnershipAndLoadAsync(bookId, _repo);
         if (denied is not null) return denied;
-        var config = await _repo.GetLlmConfigAsync(bookId, book!.UserId);
+        var config = await _repo.GetLlmConfigAsync(bookId);
         if (config is null || !config.HasImageGeneration())
-            return BadRequest(new { message = "No image endpoint is configured. Set one in the LLM settings or apply a preset that has one." });
+            return BadRequest(new { message = "No image endpoint is configured. Set one in the book's LLM settings or apply a preset that has one." });
         if (req.Scope is RenderScope.Chapter or RenderScope.Character or RenderScope.Single && req.TargetId is null)
             return BadRequest(new { message = "This render scope needs a target id." });
 

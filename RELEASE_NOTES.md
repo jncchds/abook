@@ -1,6 +1,14 @@
 # Release Notes
 
-## v0.2.1 — 2026-10-01
+## v0.3.0 — 2026-10-01
+
+### ⚠️ Breaking changes
+- ⚠️ **breaking: no more global or per-user LLM configuration — every book has its own settings, and every user has a default preset.** A new book gets a copy of its owner's default preset (a sequel copies its base book); changing the preset or the default later never touches existing books. The update migrates automatically: each book that relied on the user or global configuration gets a copy of it, each user gets a private **Default** preset made from their old settings (or the global ones) as their default, and the old global/user rows are removed. `LlmDefaults__*` no longer configures anything at startup — it only seeds the "Default" preset of users created from now on
+  - **Settings** now has a **Default LLM Preset** picker instead of the LLM form; edit a book's settings on its own Settings page, and manage presets (with **Make default**) on the Presets page
+  - **Shared presets** (no owner) can be used by everyone, including as a default, but only admins can create, edit or delete them; admins share a preset with **Shared with everyone** (one-way). A user's private presets are now deleted with the user instead of turning shared
+  - REST: `GET/PUT /api/configuration` require a `bookId` you own (before, any signed-in user could read any book's settings, API keys included). New `GET /api/presets/default` and `PUT /api/presets/{id}/default`
+  - MCP: `get_llm_config` / `set_llm_config` act on your default preset, or on one book with `bookId` (a shared default is copied into a private "Default" preset rather than edited); `apply_preset` makes a preset your default, or copies it into one book with `bookId`; `list_presets` reports `isShared` / `isDefault`; `generate_book` refuses to start when you have no default preset
+  - A book without settings (e.g. created while you had no default preset) stops with a message telling you to choose a preset on its Settings page
 
 ### Illustrations
 - feat: consistent objects, clothes and places — the illustrator keeps a per-book registry of recurring visual assets (props, outfits, places, creatures, vehicles), registering each the first time an image shows it and repeating its description word for word in every later image; characters get a usual outfit and wear it unless the story dresses them differently, and each chapter is planned with the prompts of the images just before it so outfits and places carry over. Review and edit the registry on the Illustrations page or with MCP `list_visual_assets` / `update_visual_asset`; an edit updates every prompt that shows the asset. Use **Rewrite descriptions** once on existing books to split clothing out of the character descriptions

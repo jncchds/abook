@@ -2,11 +2,18 @@ using System.Text.Json.Serialization;
 
 namespace ABook.Core.Models;
 
+/// <summary>
+/// A book's LLM settings. Every book owns exactly one, copied from its owner's default preset when the book
+/// is created (or from the base book for a sequel); a book is never tied to a preset afterwards.
+/// </summary>
 public class LlmConfiguration : IEditableImageGenSettings
 {
+    public const string MissingMessage =
+        "This book has no LLM settings. Open the book's Settings page and choose a preset (or fill in the fields), " +
+        "and set a default preset on the Presets page so new books get one automatically.";
+
     public int Id { get; set; }
-    public int? BookId { get; set; }
-    public int? UserId { get; set; }
+    public int BookId { get; set; }
     public LlmProvider Provider { get; set; } = LlmProvider.Ollama;
     public string ModelName { get; set; } = "llama3";
     public string Endpoint { get; set; } = "http://localhost:11434";
@@ -48,5 +55,4 @@ public class LlmConfiguration : IEditableImageGenSettings
     public bool UnloadLlmBeforeRender { get; set; }
 
     [JsonIgnore] public Book? Book { get; set; }
-    [JsonIgnore] public AppUser? User { get; set; }
 }

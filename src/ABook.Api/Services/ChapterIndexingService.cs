@@ -21,8 +21,7 @@ public class ChapterIndexingService(IServiceScopeFactory scopeFactory, ILogger<C
                 using var scope = scopeFactory.CreateScope();
                 var sp = scope.ServiceProvider;
                 var repo = sp.GetRequiredService<IBookRepository>();
-                var book = await repo.GetByIdAsync(bookId);
-                var config = await repo.GetLlmConfigAsync(bookId, book?.UserId);
+                var config = await repo.GetLlmConfigAsync(bookId);
                 if (config is null)
                 {
                     logger.LogWarning("[Book {BookId}] No LLM configuration — author edit to chapter {ChapterId} left unembedded.",
