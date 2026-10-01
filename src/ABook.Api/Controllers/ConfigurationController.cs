@@ -46,19 +46,27 @@ public class ConfigurationController : ControllerBase
         return Ok(saved);
     }
 
-    /// <summary>Asks the image server whether it is up and its pipeline loaded ("Test connection").</summary>
-    [HttpGet("image-health")]
+    /// <summary>
+    /// Asks the image server whether it is up and its pipeline loaded ("Test connection"). A POST so the image
+    /// API key travels in the body rather than the query string.
+    /// </summary>
+    [HttpPost("image-health")]
     public async Task<IActionResult> ImageHealth(
-        [FromQuery] string endpoint, [FromQuery] ImageProvider? provider, [FromServices] IImageGeneratorFactory factory,
-        CancellationToken ct)
+        [FromBody] ImageHealthRequest req, [FromServices] IImageGeneratorFactory factory, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(endpoint)) return BadRequest(new { message = "Endpoint is required." });
-        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
+        if (string.IsNullOrWhiteSpace(req.Endpoint)) return BadRequest(new { message = "Endpoint is required." });
+        if (!Uri.TryCreate(req.Endpoint, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
             return BadRequest(new { message = "Endpoint must be an http(s) URL." });
         try
         {
-            var health = await factory.Create(provider).CheckHealthAsync(
-                new LlmConfiguration { ImageProvider = provider, ImageEndpoint = endpoint }, ct);
+            var health = await factory.Create(req.Provider).CheckHealthAsync(
+                new LlmConfiguration
+                {
+                    ImageProvider = req.Provider,
+                    ImageEndpoint = req.Endpoint,
+                    ImageApiKey = req.ApiKey,
+                    ImageModel = req.Model,
+                }, ct);
             return Ok(health);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
@@ -67,6 +75,8 @@ public class ConfigurationController : ControllerBase
         }
     }
 }
+
+public record ImageHealthRequest(string Endpoint, ImageProvider? Provider, string? ApiKey, string? Model);
 
 public record LlmConfigRequest(
     int? BookId,
@@ -81,6 +91,8 @@ public record LlmConfigRequest(
     int? MaxTokens = null,
     ImageProvider? ImageProvider = null,
     string? ImageEndpoint = null,
+    string? ImageApiKey = null,
+    string? ImageModel = null,
     int? ImageSteps = null,
     double? ImageCfg = null,
     int? ImagePortraitWidth = null,

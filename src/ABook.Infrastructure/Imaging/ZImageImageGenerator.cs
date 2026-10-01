@@ -14,17 +14,17 @@ namespace ABook.Infrastructure.Imaging;
 /// </summary>
 public sealed class ZImageImageGenerator : IImageGenerator
 {
+    private const string Server = "Z-Image";
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    private static readonly byte[] PngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-
     private readonly Func<TimeSpan, Uri, HttpClient> _clientFactory;
 
-    public ZImageImageGenerator() : this((timeout, baseAddress) => LlmHttp.CreateClient(timeout, baseAddress)) { }
+    public ZImageImageGenerator() : this(ImageHttp.DefaultClientFactory) { }
 
     /// <summary>Test seam: lets tests supply a client over a fake handler.</summary>
     internal ZImageImageGenerator(Func<TimeSpan, Uri, HttpClient> clientFactory) => _clientFactory = clientFactory;
@@ -34,20 +34,18 @@ public sealed class ZImageImageGenerator : IImageGenerator
         using var http = CreateClient(settings);
         var body = BuildRequest(request, settings);
 
-        // A sized body, not PostAsJsonAsync's chunked stream — not every server behind a proxy accepts chunked uploads.
-        using var content = new StringContent(JsonSerializer.Serialize(body, Json), System.Text.Encoding.UTF8, "application/json");
+        using var content = ImageHttp.JsonContent(body, Json);
         using var response = await http.PostAsync("generate", content, ct);
-        await EnsureSuccessAsync(response, "generate", ct);
+        await ImageHttp.EnsureSuccessAsync(response, Server, "generate", ct);
         var generated = await response.Content.ReadFromJsonAsync<GenerateResponse>(Json, ct)
             ?? throw new InvalidOperationException("Z-Image returned an empty /generate response.");
         if (string.IsNullOrWhiteSpace(generated.ImageId))
             throw new InvalidOperationException("Z-Image /generate response carried no image_id.");
 
         using var image = await http.GetAsync($"images/{Uri.EscapeDataString(generated.ImageId)}", ct);
-        await EnsureSuccessAsync(image, "images", ct);
+        await ImageHttp.EnsureSuccessAsync(image, Server, "images", ct);
         var bytes = await image.Content.ReadAsByteArrayAsync(ct);
-        if (bytes.Length < PngSignature.Length || !bytes.AsSpan(0, PngSignature.Length).SequenceEqual(PngSignature))
-            throw new InvalidOperationException($"Z-Image returned {bytes.Length} bytes that are not a PNG image.");
+        ImageHttp.EnsurePng(bytes, Server);
 
         return new GeneratedImage(bytes, "image/png", generated.Seed ?? request.Seed);
     }
@@ -58,7 +56,7 @@ public sealed class ZImageImageGenerator : IImageGenerator
         using var response = await http.GetAsync("health", ct);
         var text = await response.Content.ReadAsStringAsync(ct);
         if (!response.IsSuccessStatusCode)
-            return new ImageGenHealth(false, $"HTTP {(int)response.StatusCode}", Truncate(text));
+            return new ImageGenHealth(false, $"HTTP {(int)response.StatusCode}", ImageHttp.Truncate(text));
         try
         {
             using var doc = JsonDocument.Parse(text);
@@ -70,7 +68,7 @@ public sealed class ZImageImageGenerator : IImageGenerator
         }
         catch (JsonException)
         {
-            return new ImageGenHealth(false, "unrecognised response", Truncate(text));
+            return new ImageGenHealth(false, "unrecognised response", ImageHttp.Truncate(text));
         }
     }
 
@@ -83,34 +81,8 @@ public sealed class ZImageImageGenerator : IImageGenerator
         Width: request.Width,
         Height: request.Height);
 
-    private HttpClient CreateClient(IImageGenSettings settings, TimeSpan? timeout = null)
-    {
-        if (string.IsNullOrWhiteSpace(settings.ImageEndpoint))
-            throw new InvalidOperationException("No image endpoint is configured.");
-        var endpoint = settings.ImageEndpoint.Trim();
-        if (!endpoint.EndsWith('/')) endpoint += "/";
-        var ms = settings.ImageTimeoutMs is > 0 ? settings.ImageTimeoutMs.Value : ImageGenDefaults.TimeoutMs;
-        return _clientFactory(timeout ?? TimeSpan.FromMilliseconds(ms), new Uri(endpoint));
-    }
-
-    /// <summary>FastAPI puts the useful detail in the body, so it goes into the exception message.</summary>
-    private static async Task EnsureSuccessAsync(HttpResponseMessage response, string call, CancellationToken ct)
-    {
-        if (response.IsSuccessStatusCode) return;
-        var body = await response.Content.ReadAsStringAsync(ct);
-        string detail = body;
-        try
-        {
-            using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("detail", out var d))
-                detail = d.ValueKind == JsonValueKind.String ? d.GetString() ?? body : d.GetRawText();
-        }
-        catch (JsonException) { }
-        throw new HttpRequestException(
-            $"Z-Image /{call} failed with HTTP {(int)response.StatusCode}: {Truncate(detail)}", null, response.StatusCode);
-    }
-
-    private static string Truncate(string text) => text.Length <= 500 ? text : text[..500] + "…";
+    private HttpClient CreateClient(IImageGenSettings settings, TimeSpan? timeout = null) =>
+        ImageHttp.CreateClient(_clientFactory, ImageHttp.RequireEndpoint(settings), settings, timeout);
 
     internal sealed record GenerateRequest(
         string Prompt, string NegativePrompt, long Seed, int NumInferenceSteps, double CfgScale, int Width, int Height);
@@ -121,10 +93,12 @@ public sealed class ZImageImageGenerator : IImageGenerator
 public sealed class ImageGeneratorFactory : IImageGeneratorFactory
 {
     private readonly ZImageImageGenerator _zImage = new();
+    private readonly UnslothStudioImageGenerator _unsloth = new();
 
     public IImageGenerator Create(ImageProvider? provider) => provider switch
     {
         null or ImageProvider.ZImage => _zImage,
+        ImageProvider.UnslothStudio => _unsloth,
         _ => throw new NotSupportedException($"Image provider {provider} is not supported."),
     };
 }

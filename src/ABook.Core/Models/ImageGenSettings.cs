@@ -9,6 +9,13 @@ public interface IImageGenSettings
 {
     ImageProvider? ImageProvider { get; }
     string? ImageEndpoint { get; }
+    /// <summary>Bearer token for image servers that require one (Unsloth Studio's <c>sk-unsloth-…</c> keys).</summary>
+    string? ImageApiKey { get; }
+    /// <summary>
+    /// The image model to load when the server has none loaded (Unsloth Studio). A Hub repo id, optionally
+    /// followed by <c>:</c> and a single-file checkpoint in it, e.g. <c>unsloth/Z-Image-Turbo-GGUF:z-image-turbo-Q8_0.gguf</c>.
+    /// </summary>
+    string? ImageModel { get; }
     int? ImageSteps { get; }
     double? ImageCfg { get; }
     int? ImagePortraitWidth { get; }
@@ -23,7 +30,10 @@ public interface IImageGenSettings
     /// needs them, or fewer when there is little worth illustrating.
     /// </summary>
     int? ImagesPerChapter { get; }
-    /// <summary>Ask Ollama to unload the text model before a render run, freeing VRAM for the image model.</summary>
+    /// <summary>
+    /// Ask Ollama to unload the text model before a render run, freeing VRAM for the image model. Unsloth Studio
+    /// needs no help: it evicts its chat model by itself when an image model loads.
+    /// </summary>
     bool UnloadLlmBeforeRender { get; }
 }
 
@@ -32,6 +42,8 @@ public interface IEditableImageGenSettings : IImageGenSettings
 {
     new ImageProvider? ImageProvider { get; set; }
     new string? ImageEndpoint { get; set; }
+    new string? ImageApiKey { get; set; }
+    new string? ImageModel { get; set; }
     new int? ImageSteps { get; set; }
     new double? ImageCfg { get; set; }
     new int? ImagePortraitWidth { get; set; }
@@ -69,6 +81,8 @@ public static class ImageGenSettingsExtensions
     {
         target.ImageProvider = source.ImageProvider;
         target.ImageEndpoint = string.IsNullOrWhiteSpace(source.ImageEndpoint) ? null : source.ImageEndpoint.Trim();
+        target.ImageApiKey = string.IsNullOrWhiteSpace(source.ImageApiKey) ? null : source.ImageApiKey.Trim();
+        target.ImageModel = string.IsNullOrWhiteSpace(source.ImageModel) ? null : source.ImageModel.Trim();
         target.ImageSteps = source.ImageSteps;
         target.ImageCfg = source.ImageCfg;
         target.ImagePortraitWidth = source.ImagePortraitWidth;

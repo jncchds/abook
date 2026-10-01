@@ -64,6 +64,8 @@ public class IllustrationRenderer
         if (!health.Ready)
             throw new InvalidOperationException(
                 $"The image server at {config.ImageEndpoint} is not ready (status: {health.Status}{(health.Detail is null ? "" : $", {health.Detail}")}).");
+        if (health.Status == "idle" && health.Detail is not null)
+            await _notifier.NotifyWorkflowProgressAsync(bookId, $"No image model is loaded yet: {health.Detail}.", false, ct);
 
         var chapterNumbers = (await _repo.GetChaptersAsync(bookId, includeArchived: true)).ToDictionary(c => c.Id, c => c.Number);
         var failures = 0;

@@ -28,6 +28,9 @@ public class LlmPreset : IEditableImageGenSettings
     // ── Image generation (see IImageGenSettings) ──────────────────────────────
     public ImageProvider? ImageProvider { get; set; }
     public string? ImageEndpoint { get; set; }
+    /// <summary>Stored in plaintext, like <see cref="ApiKey"/>.</summary>
+    public string? ImageApiKey { get; set; }
+    public string? ImageModel { get; set; }
     public int? ImageSteps { get; set; }
     public double? ImageCfg { get; set; }
     public int? ImagePortraitWidth { get; set; }

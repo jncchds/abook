@@ -120,6 +120,8 @@ public class AppDbContext : DbContext
             l.Property(x => x.Endpoint).HasMaxLength(500);
             l.Property(x => x.ImageProvider).HasConversion<string>().HasMaxLength(50);
             l.Property(x => x.ImageEndpoint).HasMaxLength(500);
+            l.Property(x => x.ImageApiKey).HasMaxLength(500);
+            l.Property(x => x.ImageModel).HasMaxLength(500);
             l.Property(x => x.UnloadLlmBeforeRender).HasDefaultValue(false);
             l.HasOne(x => x.Book)
              .WithMany(x => x.LlmConfigurations)
@@ -223,6 +225,8 @@ public class AppDbContext : DbContext
             p.Property(x => x.Endpoint).HasMaxLength(500);
             p.Property(x => x.ImageProvider).HasConversion<string>().HasMaxLength(50);
             p.Property(x => x.ImageEndpoint).HasMaxLength(500);
+            p.Property(x => x.ImageApiKey).HasMaxLength(500);
+            p.Property(x => x.ImageModel).HasMaxLength(500);
             p.Property(x => x.UnloadLlmBeforeRender).HasDefaultValue(false);
             p.HasOne(x => x.User)
              .WithMany()

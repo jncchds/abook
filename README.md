@@ -31,7 +31,7 @@ A self-hosted web application that uses AI agents to collaboratively write books
 - **Book continuation** — create a sequel that copies all settings and inherits ancestor context; RAG and planning reference the full base-book chain
 
 ### Illustrations
-- **AI illustrations with Z-Image** — turn on **Illustrate this book** and the LLM plans illustrations for every finished chapter (what each image shows, where it goes, and its positive and negative prompts, chosen to suit the genre), plus the cover once the book is written. Review and edit the plan, then press **Illustrate book** to render everything in one image-model run — no LLM calls, so you can unload the LLM first (automatic for Ollama)
+- **AI illustrations with Z-Image or Unsloth Studio** — turn on **Illustrate this book** and the LLM plans illustrations for every finished chapter (what each image shows, where it goes, and its positive and negative prompts, chosen to suit the genre), plus the cover once the book is written. Review and edit the plan, then press **Illustrate book** to render everything in one image-model run — no LLM calls, so you can unload the LLM first (automatic for Ollama)
 - **The same objects, clothes and places in every image** — the illustrator keeps a registry of recurring assets (props, outfits, places, creatures, vehicles) and repeats each one's description word for word whenever it appears; characters keep their usual outfit unless the story changes it. Review and edit the registry on the Illustrations page — an edit updates every prompt that shows the asset
 - **One style for the whole book** — the illustrator writes an art direction once (style, a portrait composition shared by the whole cast, a book-wide negative prompt) from your visual style; it is added word for word to every image and can be edited on the Illustrations page
 - **Consistent characters** — each character gets a visual description written from their profile and a reference portrait; every image showing them repeats that description, and scenes centred on them reuse the portrait's seed. Re-roll a portrait until the look is right, then re-render their scenes
@@ -154,7 +154,10 @@ volumes:
 | `LlmDefaults__Endpoint` | `http://host.docker.internal:11434` | Default LLM endpoint |
 | `LlmDefaults__ApiKey` | — | API key (required for OpenAI / GoogleAIStudio; optional for Ollama) |
 | `LlmDefaults__EmbeddingModelName` | — | Embedding model for RAG (optional; falls back to chat model) |
-| `LlmDefaults__ImageEndpoint` | — | Z-Image server URL for illustrations (e.g. `http://gpu-box:8000`); applied with `LlmDefaults__Provider` |
+| `LlmDefaults__ImageEndpoint` | — | Image server URL for illustrations (e.g. `http://gpu-box:8000`); applied with `LlmDefaults__Provider` |
+| `LlmDefaults__ImageProvider` | `ZImage` | `ZImage` or `UnslothStudio` |
+| `LlmDefaults__ImageApiKey` | — | Image server API key (Unsloth Studio `sk-unsloth-…`) |
+| `LlmDefaults__ImageModel` | — | Unsloth Studio: image model to load when none is loaded |
 | `LlmDefaults__ImageVisualStyle` | — | Default visual style for illustrations |
 | `LlmDefaults__ImagesPerChapter` | 2 | Base number of illustrations per chapter (the illustrator may plan more when a chapter needs them) |
 | `AgentSettings__MaxConcurrentRuns` | `3` | Max simultaneous agent runs across all books/users |
@@ -181,16 +184,21 @@ Local models often ignore the JSON schema the planning agents send — returning
 
 ### Image Generation (Illustrations)
 
-Illustrations are rendered by a self-hosted [Z-Image Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) server — the FastAPI server in the adate project's `compose/zimage` folder (`POST /generate`, `GET /images/{id}`, `GET /health`). Set its URL under **🎨 Image Generation** in the LLM settings (global, per book, or in a preset) and use **Test connection**.
+Illustrations are rendered by one of two image providers, chosen under **🎨 Image Generation** in the LLM settings (global, per book, or in a preset); use **Test connection** after setting the URL.
+
+- **Z-Image** — a self-hosted [Z-Image Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) server: the FastAPI server in the adate project's `compose/zimage` folder (`POST /generate`, `GET /images/{id}`, `GET /health`).
+- **Unsloth Studio** — the image models of an [Unsloth Studio](https://unsloth.ai/docs/new/studio) server. Enter the Studio address (with or without `/v1`) and an API key from Studio's **Settings → API**. Studio keeps only one model on the GPU, so if it also serves your text model (as an **OpenAI Compatible** provider at `http://<host>:<port>/v1`), set **Image model** too — e.g. `unsloth/Z-Image-Turbo-GGUF:z-image-turbo-Q8_0.gguf` (a Hub repo id, optionally `:` plus a checkpoint file). ABook then loads it before rendering whenever no image model is loaded, and Studio unloads the text model to make room. Leave it blank to use whatever is loaded on Studio's Images page.
 
 | Setting | Default | Notes |
 |---|---|---|
 | Endpoint | — | Blank disables rendering (illustrations can still be planned) |
+| Image API key | — | Unsloth Studio only |
+| Image model | — | Unsloth Studio only — loaded when Studio has no image model loaded |
 | Visual style | — | Written into every prompt by the LLM; blank lets it choose one for the genre |
-| Steps / CFG | 8 / 1.0 | Z-Image Turbo values. Negative prompts only take effect with CFG above 1.0 |
+| Steps / CFG | 8 / 1.0 (Unsloth Studio: 9 / 0) | Z-Image Turbo values; blank on Unsloth Studio lets Studio choose, so set both for other Studio models (e.g. FLUX). Negative prompts only take effect with CFG above 1.0 |
 | Portrait / landscape size | 768×1152 / 1152×768 | Square images use the portrait area |
 | Timeout | 300000 ms | Per image |
-| Unload the LLM before rendering | off | Ollama only (`keep_alive: 0`) |
+| Unload the LLM before rendering | off | Ollama only (`keep_alive: 0`); Unsloth Studio swaps models by itself |
 
 Workflow: enable **Illustrate this book** in the book settings → write the book → open **🎨 Illustrations**, review or edit the plan → **Render portraits** and re-roll any you don't like → **Illustrate book**.
 

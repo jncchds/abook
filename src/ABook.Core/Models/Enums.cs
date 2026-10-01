@@ -12,7 +12,7 @@ public enum MessageType { Content, Question, Answer, SystemNote, Feedback }
 
 public enum LlmProvider { Ollama, OpenAI, GoogleAIStudio, OpenAICompatible }
 
-public enum ImageProvider { ZImage }
+public enum ImageProvider { ZImage, UnslothStudio }
 
 public enum IllustrationKind { Scene, Cover, Portrait }
 

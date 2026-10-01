@@ -100,9 +100,12 @@ export interface LlmSettings {
   timeoutMs?: number | null
   reasoningEffort?: string | null
   maxTokens?: number | null
-  // Image generation (Z-Image) — part of the configuration and of presets
+  // Image generation (Z-Image or Unsloth Studio) — part of the configuration and of presets
   imageProvider?: string | null
   imageEndpoint?: string | null
+  imageApiKey?: string | null
+  /** Unsloth Studio: the model to load when none is loaded — `owner/repo` or `owner/repo:file.gguf`. */
+  imageModel?: string | null
   imageSteps?: number | null
   imageCfg?: number | null
   imagePortraitWidth?: number | null
@@ -257,8 +260,14 @@ export const getLlmConfig = (bookId?: number) =>
   api.get<LlmConfig>('/configuration', { params: { bookId } })
 export const updateLlmConfig = (data: LlmConfig) => api.put<LlmConfig>('/configuration', data)
 export interface ImageGenHealth { ready: boolean; status: string; detail?: string | null }
-export const getImageHealth = (endpoint: string, provider?: string | null) =>
-  api.get<ImageGenHealth>('/configuration/image-health', { params: { endpoint, provider: provider ?? undefined } })
+/** A POST so the image API key stays out of the URL. */
+export const getImageHealth = (endpoint: string, provider?: string | null, apiKey?: string | null, model?: string | null) =>
+  api.post<ImageGenHealth>('/configuration/image-health', {
+    endpoint,
+    provider: provider ?? undefined,
+    apiKey: apiKey || undefined,
+    model: model || undefined,
+  })
 
 // Models
 // The key travels in a header, never the URL, so it can't end up in access logs.

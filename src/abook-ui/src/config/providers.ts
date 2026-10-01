@@ -28,8 +28,8 @@ export const INITIAL_LLM_CONFIG = {
 
 // ── Image generation ─────────────────────────────────────────────────────────
 
-export const IMAGE_PROVIDERS = ['ZImage'] as const
-export const IMAGE_PROVIDER_LABELS: Record<string, string> = { ZImage: 'Z-Image' }
+export const IMAGE_PROVIDERS = ['ZImage', 'UnslothStudio'] as const
+export const IMAGE_PROVIDER_LABELS: Record<string, string> = { ZImage: 'Z-Image', UnslothStudio: 'Unsloth Studio' }
 
 /** Z-Image Turbo is distilled for 8 steps at cfg 1.0; these match the server-side defaults. */
 export const IMAGE_DEFAULTS = {
@@ -44,7 +44,7 @@ export const IMAGE_DEFAULTS = {
 } as const
 
 export type ImageSettings = Pick<import('../api').LlmSettings,
-  'imageProvider' | 'imageEndpoint' | 'imageSteps' | 'imageCfg' | 'imagePortraitWidth' | 'imagePortraitHeight'
+  'imageProvider' | 'imageEndpoint' | 'imageApiKey' | 'imageModel' | 'imageSteps' | 'imageCfg' | 'imagePortraitWidth' | 'imagePortraitHeight'
   | 'imageLandscapeWidth' | 'imageLandscapeHeight' | 'imageTimeoutMs' | 'imageVisualStyle' | 'imagesPerChapter' | 'unloadLlmBeforeRender'>
 
 /** The image-generation fields of a configuration or preset, so applying/saving a preset carries them along. */
@@ -52,6 +52,8 @@ export function pickImageSettings(s: ImageSettings): ImageSettings {
   return {
     imageProvider: s.imageProvider ?? undefined,
     imageEndpoint: s.imageEndpoint ?? undefined,
+    imageApiKey: s.imageApiKey ?? undefined,
+    imageModel: s.imageModel ?? undefined,
     imageSteps: s.imageSteps ?? undefined,
     imageCfg: s.imageCfg ?? undefined,
     imagePortraitWidth: s.imagePortraitWidth ?? undefined,

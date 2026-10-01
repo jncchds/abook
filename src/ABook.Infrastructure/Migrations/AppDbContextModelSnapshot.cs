@@ -832,6 +832,10 @@ namespace ABook.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<string>("ImageApiKey")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<double?>("ImageCfg")
                         .HasColumnType("double precision");
 
@@ -844,6 +848,10 @@ namespace ABook.Infrastructure.Migrations
 
                     b.Property<int?>("ImageLandscapeWidth")
                         .HasColumnType("integer");
+
+                    b.Property<string>("ImageModel")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<int?>("ImagePortraitHeight")
                         .HasColumnType("integer");
@@ -927,6 +935,10 @@ namespace ABook.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<string>("ImageApiKey")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<double?>("ImageCfg")
                         .HasColumnType("double precision");
 
@@ -939,6 +951,10 @@ namespace ABook.Infrastructure.Migrations
 
                     b.Property<int?>("ImageLandscapeWidth")
                         .HasColumnType("integer");
+
+                    b.Property<string>("ImageModel")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<int?>("ImagePortraitHeight")
                         .HasColumnType("integer");

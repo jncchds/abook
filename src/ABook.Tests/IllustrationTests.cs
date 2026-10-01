@@ -326,6 +326,193 @@ public class ZImageImageGeneratorTests
     }
 }
 
+public class UnslothStudioImageGeneratorTests
+{
+    private static readonly byte[] Png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3];
+
+    static UnslothStudioImageGeneratorTests() => UnslothStudioImageGenerator.LoadPollInterval = TimeSpan.FromMilliseconds(1);
+
+    private sealed class FakeHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
+    {
+        public List<(HttpRequestMessage Request, string? Body)> Calls { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(ct);
+            Calls.Add((request, body));
+            return respond(request);
+        }
+    }
+
+    private static (UnslothStudioImageGenerator Generator, FakeHandler Handler) Create(Func<HttpRequestMessage, HttpResponseMessage> respond)
+    {
+        var handler = new FakeHandler(respond);
+        return (new UnslothStudioImageGenerator((timeout, baseAddress) => new HttpClient(handler) { BaseAddress = baseAddress }), handler);
+    }
+
+    private static HttpResponseMessage JsonResponse(string json, HttpStatusCode code = HttpStatusCode.OK) =>
+        new(code) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+
+    private static LlmConfiguration Settings(string? model = null) => new()
+    {
+        ImageProvider = ImageProvider.UnslothStudio,
+        ImageEndpoint = "http://gpu:8888/v1",
+        ImageApiKey = "sk-unsloth-test",
+        ImageModel = model,
+        ImageSteps = 8,
+        ImageCfg = 1.0,
+    };
+
+    private static Func<HttpRequestMessage, HttpResponseMessage> LoadedServer => req => req.RequestUri!.AbsolutePath switch
+    {
+        "/api/inference/images/status" => JsonResponse("""{"loaded":true,"repo_id":"unsloth/Z-Image-Turbo-GGUF"}"""),
+        "/api/inference/images/generate" => JsonResponse(
+            """{"images":[{"id":"img1","url":"/api/inference/images/gallery/img1/file","seed":7}]}"""),
+        "/api/inference/images/gallery/img1/file" => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(Png) },
+        _ => new HttpResponseMessage(HttpStatusCode.NotFound),
+    };
+
+    [Fact]
+    public async Task Generate_PostsNativeRequestWithSeedAndKey_ThenFetchesGalleryImage()
+    {
+        var (gen, handler) = Create(LoadedServer);
+
+        var image = await gen.GenerateAsync(new ImageGenRequest("a cat", "blurry", 7, 768, 1152), Settings());
+
+        Assert.Equal(Png, image.Data);
+        Assert.Equal(7, image.Seed);
+        var generate = handler.Calls.Single(c => c.Request.RequestUri!.AbsolutePath == "/api/inference/images/generate");
+        Assert.Equal("Bearer", generate.Request.Headers.Authorization?.Scheme);
+        Assert.Equal("sk-unsloth-test", generate.Request.Headers.Authorization?.Parameter);
+        using var body = JsonDocument.Parse(generate.Body!);
+        Assert.Equal("a cat", body.RootElement.GetProperty("prompt").GetString());
+        Assert.Equal("blurry", body.RootElement.GetProperty("negative_prompt").GetString());
+        Assert.Equal(7, body.RootElement.GetProperty("seed").GetInt64());
+        Assert.Equal(8, body.RootElement.GetProperty("steps").GetInt32());
+        Assert.Equal(1.0, body.RootElement.GetProperty("guidance").GetDouble());
+        Assert.Equal(1152, body.RootElement.GetProperty("height").GetInt32());
+        Assert.DoesNotContain(handler.Calls, c => c.Request.RequestUri!.AbsolutePath.EndsWith("/images/load"));
+    }
+
+    [Fact]
+    public async Task Generate_UnsetFields_AreOmittedSoStudioDefaultsApply()
+    {
+        var (gen, handler) = Create(LoadedServer);
+        var settings = Settings();
+        settings.ImageSteps = null;
+        settings.ImageCfg = null;
+
+        await gen.GenerateAsync(new ImageGenRequest("a cat", "", 7, 768, 1152), settings);
+
+        using var body = JsonDocument.Parse(handler.Calls.Single(c => c.Request.Method == HttpMethod.Post).Body!);
+        Assert.False(body.RootElement.TryGetProperty("negative_prompt", out _));
+        Assert.False(body.RootElement.TryGetProperty("steps", out _));
+        Assert.False(body.RootElement.TryGetProperty("guidance", out _));
+    }
+
+    [Fact]
+    public async Task Generate_NoModelLoaded_LoadsConfiguredModelAndWaits()
+    {
+        var statusCalls = 0;
+        var (gen, handler) = Create(req => req.RequestUri!.AbsolutePath switch
+        {
+            // Not loaded before the load, still loading on the first poll, then ready.
+            "/api/inference/images/status" => JsonResponse(++statusCalls >= 3 ? """{"loaded":true}""" : """{"loaded":false}"""),
+            "/api/inference/images/load" => JsonResponse("""{"loaded":false}"""),
+            "/api/inference/images/load-progress" => JsonResponse("""{"phase":"finalizing"}"""),
+            _ => LoadedServer(req),
+        });
+
+        var image = await gen.GenerateAsync(new ImageGenRequest("a cat", "", 7, 768, 1152),
+            Settings("unsloth/Z-Image-Turbo-GGUF:z-image-turbo-Q8_0.gguf"));
+
+        Assert.Equal(Png, image.Data);
+        using var load = JsonDocument.Parse(handler.Calls.Single(c => c.Request.RequestUri!.AbsolutePath == "/api/inference/images/load").Body!);
+        Assert.Equal("unsloth/Z-Image-Turbo-GGUF", load.RootElement.GetProperty("model_path").GetString());
+        Assert.Equal("z-image-turbo-Q8_0.gguf", load.RootElement.GetProperty("gguf_filename").GetString());
+    }
+
+    [Fact]
+    public async Task Generate_NoModelLoadedAndNoneConfigured_Throws()
+    {
+        var (gen, _) = Create(req => req.RequestUri!.AbsolutePath == "/api/inference/images/status"
+            ? JsonResponse("""{"loaded":false}""")
+            : LoadedServer(req));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            gen.GenerateAsync(new ImageGenRequest("x", "", 1, 256, 256), Settings()));
+        Assert.Contains("no image model loaded", ex.Message);
+    }
+
+    [Fact]
+    public async Task Generate_LoadFails_SurfacesStudioError()
+    {
+        var (gen, _) = Create(req => req.RequestUri!.AbsolutePath switch
+        {
+            "/api/inference/images/status" => JsonResponse("""{"loaded":false}"""),
+            "/api/inference/images/load" => JsonResponse("""{"loaded":false}"""),
+            "/api/inference/images/load-progress" => JsonResponse("""{"phase":"error","error":"out of memory"}"""),
+            _ => LoadedServer(req),
+        });
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            gen.GenerateAsync(new ImageGenRequest("x", "", 1, 256, 256), Settings("unsloth/Z-Image-Turbo")));
+        Assert.Contains("out of memory", ex.Message);
+    }
+
+    [Fact]
+    public async Task Generate_OpenAiErrorEnvelope_SurfacesMessage()
+    {
+        var (gen, _) = Create(req => req.RequestUri!.AbsolutePath == "/api/inference/images/generate"
+            ? JsonResponse("""{"detail":{"error":{"message":"GPU is busy","type":"gpu_busy"}}}""", HttpStatusCode.Conflict)
+            : LoadedServer(req));
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() =>
+            gen.GenerateAsync(new ImageGenRequest("x", "", 1, 256, 256), Settings()));
+        Assert.Contains("GPU is busy", ex.Message);
+    }
+
+    [Fact]
+    public async Task Health_IdleWithConfiguredModel_IsReady()
+    {
+        var (gen, _) = Create(_ => JsonResponse("""{"loaded":false}"""));
+
+        var health = await gen.CheckHealthAsync(Settings("unsloth/Z-Image-Turbo"));
+
+        Assert.True(health.Ready);
+        Assert.Equal("idle", health.Status);
+    }
+
+    [Fact]
+    public async Task Health_Unauthorized_PointsAtApiKey()
+    {
+        var (gen, _) = Create(_ => JsonResponse("""{"detail":"Invalid API key"}""", HttpStatusCode.Unauthorized));
+
+        var health = await gen.CheckHealthAsync(Settings());
+
+        Assert.False(health.Ready);
+        Assert.Equal("unauthorized", health.Status);
+    }
+
+    [Theory]
+    [InlineData("http://gpu:8888", "http://gpu:8888")]
+    [InlineData("http://gpu:8888/v1/", "http://gpu:8888")]
+    [InlineData("https://studio.example/proxy/api/inference", "https://studio.example/proxy")]
+    public void BaseEndpoint_StripsApiSuffixes(string endpoint, string expected) =>
+        Assert.Equal(expected, UnslothStudioImageGenerator.BaseEndpoint(endpoint));
+
+    [Theory]
+    [InlineData("unsloth/Z-Image-Turbo", "unsloth/Z-Image-Turbo", null)]
+    [InlineData("unsloth/Z-Image-Turbo-GGUF:z-image-turbo-Q4_K_M.gguf", "unsloth/Z-Image-Turbo-GGUF", "z-image-turbo-Q4_K_M.gguf")]
+    [InlineData(@"C:\models\z-image", @"C:\models\z-image", null)]
+    public void ParseModel_SplitsOnlyACheckpointFile(string model, string path, string? file)
+    {
+        var parsed = UnslothStudioImageGenerator.ParseModel(model)!;
+        Assert.Equal(path, parsed.ModelPath);
+        Assert.Equal(file, parsed.GgufFilename);
+    }
+}
+
 public class BookExportIllustrationTests
 {
     private static readonly byte[] Png = [0x89, 0x50, 0x4E, 0x47, 1, 2];

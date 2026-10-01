@@ -10,6 +10,14 @@ interface Props {
   llmProvider?: string
 }
 
+/** What Unsloth Studio's image API uses when steps and CFG are left out (its Z-Image Turbo recipe). */
+const UNSLOTH_DEFAULTS = { steps: 9, cfg: 0 }
+
+const ENDPOINT_PLACEHOLDERS: Record<string, string> = {
+  ZImage: 'e.g. http://gpu-box:8000',
+  UnslothStudio: 'e.g. http://gpu-box:8888',
+}
+
 const numberOrUndefined = (v: string, parse: (s: string) => number) => (v === '' ? undefined : parse(v))
 
 /**
@@ -25,7 +33,7 @@ export default function ImageGenSettingsFields({ value, onChange, llmProvider }:
     setTesting(true)
     setHealth(null)
     try {
-      const r = await getImageHealth(value.imageEndpoint, value.imageProvider)
+      const r = await getImageHealth(value.imageEndpoint, value.imageProvider, value.imageApiKey, value.imageModel)
       setHealth({
         ok: r.data.ready,
         text: r.data.ready
@@ -49,6 +57,9 @@ export default function ImageGenSettingsFields({ value, onChange, llmProvider }:
     />
   )
 
+  const provider = value.imageProvider ?? 'ZImage'
+  const isUnsloth = provider === 'UnslothStudio'
+
   return (
     <details style={{ marginTop: '0.75rem' }} open={!!value.imageEndpoint}>
       <summary style={{ cursor: 'pointer', fontWeight: 600, userSelect: 'none' }}>🎨 Image Generation</summary>
@@ -58,7 +69,7 @@ export default function ImageGenSettingsFields({ value, onChange, llmProvider }:
       </p>
       <label>
         Image provider
-        <select value={value.imageProvider ?? 'ZImage'} onChange={e => onChange({ imageProvider: e.target.value })}>
+        <select value={provider} onChange={e => { setHealth(null); onChange({ imageProvider: e.target.value }) }}>
           {IMAGE_PROVIDERS.map(p => <option key={p} value={p}>{IMAGE_PROVIDER_LABELS[p]}</option>)}
         </select>
       </label>
@@ -67,7 +78,7 @@ export default function ImageGenSettingsFields({ value, onChange, llmProvider }:
         <div className="endpoint-row">
           <input
             value={value.imageEndpoint ?? ''}
-            placeholder="e.g. http://gpu-box:8000"
+            placeholder={ENDPOINT_PLACEHOLDERS[provider]}
             onChange={e => { setHealth(null); onChange({ imageEndpoint: e.target.value || undefined }) }}
           />
           <button type="button" className="btn-secondary btn-sm" onClick={testConnection} disabled={!value.imageEndpoint || testing}>
@@ -75,7 +86,40 @@ export default function ImageGenSettingsFields({ value, onChange, llmProvider }:
           </button>
         </div>
         {health && <span className="hint" style={{ color: health.ok ? 'var(--success, green)' : 'var(--danger, red)' }}>{health.text}</span>}
+        {isUnsloth && (
+          <span className="hint">
+            The Studio address, with or without <code>/v1</code> — the same server can also serve the text model as an
+            OpenAI Compatible provider.
+          </span>
+        )}
       </label>
+      {isUnsloth && (
+        <>
+          <label>
+            Image API key
+            <input
+              type="password"
+              value={value.imageApiKey ?? ''}
+              placeholder="sk-unsloth-…"
+              onChange={e => { setHealth(null); onChange({ imageApiKey: e.target.value || undefined }) }}
+            />
+            <span className="hint">Create one in Unsloth Studio under Settings → API.</span>
+          </label>
+          <label>
+            Image model
+            <input
+              value={value.imageModel ?? ''}
+              placeholder="e.g. unsloth/Z-Image-Turbo-GGUF:z-image-turbo-Q8_0.gguf"
+              onChange={e => { setHealth(null); onChange({ imageModel: e.target.value || undefined }) }}
+            />
+            <span className="hint">
+              Loaded before rendering when Studio has no image model loaded — Studio unloads its text model to make room.
+              A Hub repo id, optionally followed by <code>:</code> and a checkpoint file in it. Leave blank to use
+              whatever is loaded on Studio’s Images page.
+            </span>
+          </label>
+        </>
+      )}
       <label>
         Visual style
         <textarea
@@ -94,14 +138,19 @@ export default function ImageGenSettingsFields({ value, onChange, llmProvider }:
         checked={!!value.unloadLlmBeforeRender}
         onChange={v => onChange({ unloadLlmBeforeRender: v })}
         label="Unload the LLM before rendering"
-        hint={llmProvider && llmProvider !== 'Ollama'
-          ? 'Only works with Ollama — unload other providers yourself before rendering.'
-          : 'Asks Ollama to free the text model’s VRAM before the image model renders.'}
+        hint={isUnsloth
+          ? 'Only works with Ollama. Unsloth Studio frees its own text model when the image model loads.'
+          : llmProvider && llmProvider !== 'Ollama'
+            ? 'Only works with Ollama — unload other providers yourself before rendering.'
+            : 'Asks Ollama to free the text model’s VRAM before the image model renders.'}
       />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.5rem' }}>
-        <label>Steps{num('imageSteps', IMAGE_DEFAULTS.steps)}</label>
         <label>
-          CFG scale{num('imageCfg', IMAGE_DEFAULTS.cfg, parseFloat)}
+          Steps{num('imageSteps', isUnsloth ? UNSLOTH_DEFAULTS.steps : IMAGE_DEFAULTS.steps)}
+          {isUnsloth && <span className="hint">Blank uses Studio’s Z-Image Turbo defaults; set both for other models.</span>}
+        </label>
+        <label>
+          CFG scale{num('imageCfg', isUnsloth ? UNSLOTH_DEFAULTS.cfg : IMAGE_DEFAULTS.cfg, parseFloat)}
           <span className="hint">Negative prompts only take effect above 1.0.</span>
         </label>
         <label>Portrait width{num('imagePortraitWidth', IMAGE_DEFAULTS.portraitWidth)}</label>

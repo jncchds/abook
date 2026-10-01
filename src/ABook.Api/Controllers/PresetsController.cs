@@ -101,6 +101,8 @@ public record PresetRequest(
     int? MaxTokens = null,
     ImageProvider? ImageProvider = null,
     string? ImageEndpoint = null,
+    string? ImageApiKey = null,
+    string? ImageModel = null,
     int? ImageSteps = null,
     double? ImageCfg = null,
     int? ImagePortraitWidth = null,

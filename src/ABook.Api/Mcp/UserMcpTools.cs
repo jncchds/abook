@@ -84,15 +84,25 @@ public class UserMcpTools : McpToolBase
         [Description("API endpoint URL. Required for Ollama; optional for OpenAI-compatible providers.")] string endpoint = "",
         [Description("API key. Required for OpenAI and GoogleAIStudio.")] string? apiKey = null,
         [Description("Embedding model name (e.g. nomic-embed-text, text-embedding-3-small). Leave null to use the generation model.")] string? embeddingModelName = null,
-        [Description("Image generation (Z-Image) server URL, e.g. http://gpu-box:8000. Empty string disables image generation; null keeps the current value.")] string? imageEndpoint = null,
+        [Description("Image generation server URL, e.g. http://gpu-box:8000 (Z-Image) or http://gpu-box:8888 (Unsloth Studio). Empty string disables image generation; null keeps the current value.")] string? imageEndpoint = null,
+        [Description("Image provider: ZImage or UnslothStudio. Null keeps the current value (ZImage when none is set).")] string? imageProvider = null,
+        [Description("API key for the image server (Unsloth Studio: an sk-unsloth-… key). Empty string clears it; null keeps the current value.")] string? imageApiKey = null,
+        [Description("Unsloth Studio only: the image model to load when none is loaded — a Hub repo id, optionally ':' plus a checkpoint file in it (e.g. unsloth/Z-Image-Turbo-GGUF:z-image-turbo-Q8_0.gguf). Empty string clears it; null keeps the current value.")] string? imageModel = null,
         [Description("Visual style the illustration planner writes into every image prompt (e.g. 'moody watercolour, muted palette'). Null keeps the current value.")] string? imageVisualStyle = null,
         [Description("Image sampling steps (Z-Image Turbo: 8). Null keeps the current value.")] int? imageSteps = null,
         [Description("Image CFG scale (Z-Image Turbo: 1.0; negative prompts only take effect above 1). Null keeps the current value.")] double? imageCfg = null,
-        [Description("Unload the Ollama model before rendering images, to free VRAM. Null keeps the current value.")] bool? unloadLlmBeforeRender = null,
+        [Description("Unload the Ollama model before rendering images, to free VRAM (Unsloth Studio frees it by itself). Null keeps the current value.")] bool? unloadLlmBeforeRender = null,
         [Description("Base number of illustrations planned per chapter (default 2); the planner may go over it when a chapter needs more. 0 resets to the default; null keeps the current value.")] int? imagesPerChapter = null)
     {
         if (!Enum.TryParse<LlmProvider>(provider, ignoreCase: true, out var providerEnum))
             throw new McpException($"Unknown provider '{provider}'. Valid values: Ollama, OpenAI, GoogleAIStudio.");
+        ImageProvider? imageProviderEnum = null;
+        if (!string.IsNullOrWhiteSpace(imageProvider))
+        {
+            if (!Enum.TryParse<ImageProvider>(imageProvider, ignoreCase: true, out var ip))
+                throw new McpException($"Unknown image provider '{imageProvider}'. Valid values: {string.Join(", ", Enum.GetNames<ImageProvider>())}.");
+            imageProviderEnum = ip;
+        }
 
         var userId = CurrentUserId();
         var existing = await _repo.GetLlmConfigAsync(null, userId);
@@ -107,6 +117,9 @@ public class UserMcpTools : McpToolBase
             config.ImageEndpoint = string.IsNullOrWhiteSpace(imageEndpoint) ? null : imageEndpoint.Trim();
             config.ImageProvider ??= ImageProvider.ZImage;
         }
+        if (imageProviderEnum.HasValue) config.ImageProvider = imageProviderEnum;
+        if (imageApiKey is not null) config.ImageApiKey = string.IsNullOrWhiteSpace(imageApiKey) ? null : imageApiKey.Trim();
+        if (imageModel is not null) config.ImageModel = string.IsNullOrWhiteSpace(imageModel) ? null : imageModel.Trim();
         if (imageVisualStyle is not null) config.ImageVisualStyle = imageVisualStyle;
         if (imageSteps.HasValue) config.ImageSteps = imageSteps;
         if (imageCfg.HasValue) config.ImageCfg = imageCfg;
@@ -128,6 +141,8 @@ public class UserMcpTools : McpToolBase
         {
             provider = (s.ImageProvider ?? ImageProvider.ZImage).ToString(),
             endpoint = s.ImageEndpoint,
+            hasApiKey = !string.IsNullOrEmpty(s.ImageApiKey),
+            model = s.ImageModel,
             steps = s.ImageSteps,
             cfg = s.ImageCfg,
             visualStyle = s.ImageVisualStyle,

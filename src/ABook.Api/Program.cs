@@ -149,8 +149,14 @@ using (var scope = app.Services.CreateScope())
         if (!string.IsNullOrWhiteSpace(imageEndpoint))
         {
             config.ImageEndpoint = imageEndpoint;
-            config.ImageProvider ??= Enum.TryParse<ImageProvider>(llmSection["ImageProvider"], true, out var ip) ? ip : ImageProvider.ZImage;
+            config.ImageProvider = Enum.TryParse<ImageProvider>(llmSection["ImageProvider"], true, out var ip)
+                ? ip
+                : config.ImageProvider ?? ImageProvider.ZImage;
         }
+        var imageApiKey = llmSection["ImageApiKey"];
+        if (!string.IsNullOrWhiteSpace(imageApiKey)) config.ImageApiKey = imageApiKey;
+        var imageModel = llmSection["ImageModel"];
+        if (!string.IsNullOrWhiteSpace(imageModel)) config.ImageModel = imageModel;
         var imageStyle = llmSection["ImageVisualStyle"];
         if (!string.IsNullOrWhiteSpace(imageStyle)) config.ImageVisualStyle = imageStyle;
         if (int.TryParse(llmSection["ImagesPerChapter"], out var imagesPerChapter) && imagesPerChapter > 0)

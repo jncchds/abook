@@ -9,12 +9,15 @@ services:
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=abook;Username=abook;Password=abook
       - ASPNETCORE_ENVIRONMENT=Production
       # ── LLM defaults (override the built-in Ollama settings) ──────────────────
-      # - LlmDefaults__Provider=Ollama          # Ollama | LMStudio | OpenAI | AzureOpenAI | Anthropic
+      # - LlmDefaults__Provider=Ollama          # Ollama | OpenAI | OpenAICompatible (e.g. Unsloth Studio …/v1) | GoogleAIStudio
       # - LlmDefaults__ModelName=llama3
       # - LlmDefaults__Endpoint=http://host.docker.internal:11434
       # - LlmDefaults__ApiKey=
       # - LlmDefaults__EmbeddingModelName=nomic-embed-text
       # - LlmDefaults__ImageEndpoint=http://gpu-box:8000   # Z-Image server for illustrations
+      # - LlmDefaults__ImageProvider=UnslothStudio          # ZImage (default) or UnslothStudio
+      # - LlmDefaults__ImageApiKey=sk-unsloth-...            # Unsloth Studio API key
+      # - LlmDefaults__ImageModel=unsloth/Z-Image-Turbo-GGUF:z-image-turbo-Q8_0.gguf  # loaded when Studio has none
       # - LlmDefaults__ImageVisualStyle=painterly watercolour illustration
       # ── Logging ───────────────────────────────────────────────────────────────
       # - LLM_DEBUG_LOGGING=true                # print full chat history + responses to app log
