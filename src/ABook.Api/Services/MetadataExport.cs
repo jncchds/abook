@@ -741,7 +741,7 @@ internal static class MetadataExport
     .filter:hover { background: var(--soft); }
     .filter .swatch { width: 10px; height: 10px; border-radius: 50%; background: var(--c); flex: none; }
     .filter .count { margin-left: auto; padding-left: 12px; opacity: 0.5; font-size: 0.85em; font-variant-numeric: tabular-nums; }
-    main { max-width: 980px; margin: 0 auto; padding: 32px 16px 96px; }
+    main { padding: 32px 16px 96px; }
     header.doc-header { margin-bottom: 32px; padding-bottom: 20px; border-bottom: 2px solid var(--border); }
     header.doc-header h1 { font-size: 1.9em; margin-bottom: 6px; }
     .subtitle { opacity: 0.6; font-size: 0.9em; }

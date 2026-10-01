@@ -22,6 +22,7 @@
 
 ### Exports
 - feat: **Download Metadata** is now a chronological log of how the book was made — one timeline (grouped by day) of book and story-bible edits, generated and edited characters and plot threads, chapter outlines and versions (word counts and planning changes, never the prose), agent questions and answers, feedback, notes and folded reasoning, runs, workflow steps, every LLM call, and illustration plans and renders. An overview sums up LLM calls and tokens by agent and by model, and the 👁 button next to the font controls opens a list of categories to show or hide. The book text and the images shown in the book are left out; character portraits stay
+- feat: the metadata export uses the full window width instead of a 980 px column
 - feat: the metadata timeline shows the clarification round — when the planner asked each question, when you answered or skipped it, and later edits — and the overview lists the current clarifications
 
 ### Planning
