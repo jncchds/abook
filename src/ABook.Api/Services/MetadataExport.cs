@@ -152,7 +152,7 @@ internal static class MetadataExport
         var planner = Role(AgentRole.Planner);
         foreach (var c in clarifications.OrderBy(c => c.CreatedAt))
         {
-            var qa = Fields([("Question", c.Question), ("Answer", c.Answer)]);
+            var qa = ClarificationQa(c);
             switch (c.Source)
             {
                 case ClarificationSource.Planner:
@@ -175,6 +175,10 @@ internal static class MetadataExport
                     qa + "<p class=\"note\">Shown as it reads now.</p>");
         }
     }
+
+    /// <summary>A clarification as question then answer, each label above its text rather than beside it.</summary>
+    private static string ClarificationQa(Clarification c) =>
+        Fields([("Question", c.Question), ("Answer", c.Answer)], stacked: true);
 
     // ── Story bible ───────────────────────────────────────────────────────────
 
@@ -538,7 +542,7 @@ internal static class MetadataExport
 
         if (book.Clarifications.Count > 0)
             html.Append(Fold($"Clarifications (current) · {book.Clarifications.Count}",
-                Fields(book.Clarifications.Select(c => (c.Question, (string?)c.Answer)))));
+                string.Concat(book.Clarifications.Select(ClarificationQa))));
 
         var art = Fields(
         [
@@ -656,11 +660,12 @@ internal static class MetadataExport
     private static string Fold(string summaryHtml, string bodyHtml) =>
         $"<details><summary>{summaryHtml}</summary>{bodyHtml}</details>";
 
-    private static string Fields(IEnumerable<(string Label, string? Value)> fields)
+    /// <param name="stacked">Each label above its value instead of beside it.</param>
+    private static string Fields(IEnumerable<(string Label, string? Value)> fields, bool stacked = false)
     {
         var rows = fields.Where(f => !string.IsNullOrWhiteSpace(f.Value))
             .Select(f => $"<dt>{Esc(f.Label)}</dt><dd>{Esc(f.Value!.Trim())}</dd>").ToList();
-        return rows.Count == 0 ? "" : $"<dl class=\"prop-list\">{string.Concat(rows)}</dl>";
+        return rows.Count == 0 ? "" : $"<dl class=\"prop-list{(stacked ? " stacked" : "")}\">{string.Concat(rows)}</dl>";
     }
 
     /// <summary>The fields that changed, old value struck through above the new one.</summary>
@@ -750,6 +755,8 @@ internal static class MetadataExport
     .prop-list { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 0.92em; }
     .prop-list dt { font-weight: 600; opacity: 0.6; }
     .prop-list dd { white-space: pre-wrap; word-break: break-word; }
+    .prop-list.stacked { display: block; margin-bottom: 10px; }
+    .prop-list.stacked dd { margin: 0 0 6px; }
     .diff del { display: block; opacity: 0.5; }
     .diff ins { display: block; text-decoration: none; }
     .tables { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px; margin: 20px 0; }
