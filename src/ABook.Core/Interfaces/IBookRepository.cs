@@ -153,6 +153,8 @@ public interface IBookRepository
     Task<AgentRun?> GetActiveRunForBookAsync(int bookId);
     Task UpdateRunAsync(AgentRun run);
     Task<IEnumerable<AgentRun>> GetRunsByStatusAsync(AgentRunPersistStatus status);
+    /// <summary>Every run of the book, oldest first.</summary>
+    Task<IReadOnlyList<AgentRun>> GetRunsForBookAsync(int bookId);
 
     // LLM Presets
     Task<IEnumerable<LlmPreset>> GetPresetsAsync(int? userId);

@@ -26,20 +26,14 @@ public class BookExportService
 
         var bible    = await _repo.GetStoryBibleAsync(bookId);
         var safeName = SafeFilename(book.Title);
-        var art      = await LoadArtAsync(book);
 
         if (format.Equals("metadata", StringComparison.OrdinalIgnoreCase))
-        {
-            var characters  = await _repo.GetCharacterCardsAsync(bookId);
-            var plotThreads = await _repo.GetPlotThreadsAsync(bookId);
-            var messages    = await _repo.GetMessagesAsync(bookId);
-            var tokenUsage  = await _repo.GetTokenUsageAsync(bookId);
             return (
-                Encoding.UTF8.GetBytes(GenerateMetadataHtml(book, bible, characters, plotThreads, messages, tokenUsage, art)),
+                Encoding.UTF8.GetBytes(MetadataExport.Generate(await LoadMetadataAsync(book, bible))),
                 "text/html; charset=utf-8",
                 $"{safeName}-metadata.html");
-        }
 
+        var art = await LoadArtAsync(book);
         return format.ToLowerInvariant() switch
         {
             "fb2"  => (Encoding.UTF8.GetBytes(GenerateFb2(book, bible, art)),
@@ -51,6 +45,47 @@ public class BookExportService
             _      => (Encoding.UTF8.GetBytes(GenerateHtml(book, art)),
                       "text/html; charset=utf-8",
                       $"{safeName}.html"),
+        };
+    }
+
+    // ── Metadata ──────────────────────────────────────────────────────────────
+
+    private async Task<MetadataSources> LoadMetadataAsync(Book book, StoryBible? bible)
+    {
+        var characters = (await _repo.GetAllCharacterCardsAsync(book.Id)).ToList();
+        var characterVersions = new List<CharacterCardVersion>();
+        foreach (var c in characters)
+            characterVersions.AddRange(await _repo.GetCharacterVersionsAsync(book.Id, c.Id));
+
+        var plotThreadVersions = new List<PlotThreadVersion>();
+        foreach (var t in await _repo.GetAllPlotThreadsAsync(book.Id))
+            plotThreadVersions.AddRange(await _repo.GetPlotThreadVersionsAsync(book.Id, t.Id));
+
+        var chapterVersions = new List<ChapterVersion>();
+        foreach (var c in book.Chapters)
+            chapterVersions.AddRange(await _repo.GetChapterVersionsAsync(c.Id));
+
+        var illustrations = await _repo.GetIllustrationsAsync(book.Id);
+        var images = await _repo.GetBookImagesAsync(book.Id, illustrations.Where(i => i.ImageId.HasValue).Select(i => i.ImageId!.Value));
+
+        return new MetadataSources
+        {
+            Book                = book,
+            Bible               = bible,
+            BookSnapshots       = (await _repo.GetBookSnapshotsAsync(book.Id)).ToList(),
+            BibleSnapshots      = (await _repo.GetStoryBibleSnapshotsAsync(book.Id)).ToList(),
+            Characters          = characters,
+            CharacterVersions   = characterVersions,
+            CharacterSnapshots  = (await _repo.GetCharactersSnapshotsAsync(book.Id)).ToList(),
+            PlotThreadVersions  = plotThreadVersions,
+            PlotThreadSnapshots = (await _repo.GetPlotThreadsSnapshotsAsync(book.Id)).ToList(),
+            ChapterVersions     = chapterVersions,
+            Messages            = (await _repo.GetMessagesAsync(book.Id)).ToList(),
+            TokenUsage          = (await _repo.GetTokenUsageAsync(book.Id)).ToList(),
+            Runs                = await _repo.GetRunsForBookAsync(book.Id),
+            Illustrations       = illustrations,
+            Images              = images.ToDictionary(i => i.Id),
+            VisualAssets        = await _repo.GetVisualAssetsAsync(book.Id),
         };
     }
 
@@ -88,14 +123,7 @@ public class BookExportService
         }
 
         var cover = illustrations.FirstOrDefault(i => i.Kind == IllustrationKind.Cover) is { } c ? Image(c, -1) : null;
-        var portraits = illustrations
-            .Where(i => i.Kind == IllustrationKind.Portrait && i.CharacterCardId.HasValue)
-            .Select(i => (Id: i.CharacterCardId!.Value, Image: Image(i, -1)))
-            .Where(p => p.Image is not null)
-            .GroupBy(p => p.Id)
-            .ToDictionary(g => g.Key, g => g.First().Image!);
-
-        return new ExportArt(cover, scenes.ToLookup(s => s.ChapterId, s => s.Image), portraits);
+        return new ExportArt(cover, scenes.ToLookup(s => s.ChapterId, s => s.Image));
     }
 
     internal sealed record ExportImage(string Key, string Caption, byte[] Data, string ContentType, int ParagraphIndex)
@@ -105,12 +133,10 @@ public class BookExportService
         public string DataUri => $"data:{ContentType};base64,{Convert.ToBase64String(Data)}";
     }
 
-    /// <param name="Portraits">Character portraits keyed by character id (metadata export only).</param>
-    internal sealed record ExportArt(
-        ExportImage? Cover, ILookup<int, ExportImage> Scenes, IReadOnlyDictionary<int, ExportImage> Portraits)
+    internal sealed record ExportArt(ExportImage? Cover, ILookup<int, ExportImage> Scenes)
     {
         public static readonly ExportArt Empty =
-            new(null, Array.Empty<(int, ExportImage)>().ToLookup(x => x.Item1, x => x.Item2), new Dictionary<int, ExportImage>());
+            new(null, Array.Empty<(int, ExportImage)>().ToLookup(x => x.Item1, x => x.Item2));
 
         public IEnumerable<ExportImage> All =>
             (Cover is null ? [] : new[] { Cover }).Concat(Scenes.SelectMany(g => g));
@@ -276,397 +302,6 @@ public class BookExportService
     private static string HtmlFigure(ExportImage image) =>
         $"<figure class=\"illustration\"><img src=\"{image.DataUri}\" alt=\"{EscHtml(image.Caption)}\">" +
         (image.Caption.Length > 0 ? $"<figcaption>{EscHtml(image.Caption)}</figcaption>" : "") + "</figure>\n";
-
-    // ── Metadata HTML ─────────────────────────────────────────────────────────
-
-    private static readonly string MetaCss = @"
-    :root { --bg: #ffffff; --fg: #1a1a1a; --fs: 18px; --lh: 1.75; --accent: #6366f1; --muted: #64748b; --border: rgba(128,128,128,0.15); }
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, sans-serif; font-size: var(--fs); line-height: var(--lh); transition: background 0.25s, color 0.25s; }
-    #toolbar { position: sticky; top: 0; z-index: 100; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 20px; background: var(--bg); border-bottom: 1px solid var(--border); font-family: system-ui,-apple-system,sans-serif; transition: background 0.25s; }
-    .toolbar-label { font-size: 0.72em; opacity: 0.55; letter-spacing: 0.04em; text-transform: uppercase; margin-right: 2px; }
-    .preset-btn { padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 0.78em; font-weight: 600; white-space: nowrap; transition: opacity 0.15s; }
-    .preset-btn:hover { opacity: 0.8; }
-    .toolbar-sep { width: 1px; height: 22px; background: rgba(128,128,128,0.3); margin: 0 4px; }
-    .size-btn { padding: 3px 9px; border-radius: 4px; cursor: pointer; font-weight: bold; background: transparent; color: var(--fg); border: 1px solid rgba(128,128,128,0.4); font-size: 0.85em; transition: opacity 0.15s; }
-    .size-btn:hover { opacity: 0.65; }
-    #font-size-label { font-size: 0.75em; min-width: 2.2em; text-align: center; opacity: 0.6; }
-    main { padding: 48px 24px 96px; }
-    header.doc-header { margin-bottom: 56px; padding-bottom: 24px; border-bottom: 2px solid var(--border); }
-    header.doc-header h1 { font-size: 2em; margin-bottom: 6px; }
-    header.doc-header .subtitle { opacity: 0.5; font-size: 0.9em; font-style: italic; }
-    nav#toc { margin-bottom: 60px; padding: 24px 28px; border: 1px solid var(--border); border-radius: 6px; }
-    nav#toc h2 { font-size: 1.1em; margin-bottom: 14px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.65; }
-    nav#toc ol { padding-left: 1.5em; }
-    nav#toc li { margin: 7px 0; }
-    nav#toc a { color: var(--fg); opacity: 0.82; text-decoration: none; border-bottom: 1px dotted rgba(128,128,128,0.5); transition: opacity 0.15s; }
-    nav#toc a:hover { opacity: 1; }
-    .md-section { margin-bottom: 56px; }
-    .md-section h2 { font-size: 1.35em; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid var(--border); }
-    .md-section h3 { font-size: 1.05em; margin: 20px 0 8px; }
-    .prop-list { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin-bottom: 16px; font-size: 0.9em; }
-    .prop-list dt { font-weight: 600; opacity: 0.6; white-space: nowrap; }
-    .prop-list dd { word-break: break-word; }
-    .prop-block { margin-top: 14px; }
-    .prop-block strong { display: block; font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.55; margin-bottom: 6px; }
-    .prop-block p { font-size: 0.95em; line-height: 1.7; }
-    .pre-block { background: rgba(128,128,128,0.07); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; font-family: 'Courier New', monospace; font-size: 0.82em; white-space: pre-wrap; word-break: break-word; }
-    .empty-note { opacity: 0.5; font-style: italic; }
-    .outline-card { background: rgba(128,128,128,0.04); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 14px; }
-    .outline-meta { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
-    .outline-text { font-size: 0.9em; line-height: 1.65; margin-bottom: 8px; }
-    .foretell { font-size: 0.85em; opacity: 0.75; margin-top: 6px; }
-    .badge-status { font-size: 0.72em; padding: 2px 8px; border-radius: 999px; background: rgba(99,102,241,0.15); color: var(--accent); border: 1px solid rgba(99,102,241,0.3); font-weight: 600; }
-    .badge-role { font-size: 0.72em; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
-    .role-protagonist { background: rgba(34,197,94,0.15); color: #16a34a; border: 1px solid rgba(34,197,94,0.3); }
-    .role-antagonist { background: rgba(239,68,68,0.15); color: #b91c1c; border: 1px solid rgba(239,68,68,0.3); }
-    .role-supporting { background: rgba(99,102,241,0.15); color: #4338ca; border: 1px solid rgba(99,102,241,0.3); }
-    .role-minor { background: rgba(100,116,139,0.12); color: #475569; border: 1px solid rgba(100,116,139,0.3); }
-    .char-block { border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 14px; }
-    .char-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-    .char-header strong { font-size: 1.05em; }
-    .char-block img.portrait { float: right; width: 160px; height: auto; margin: 0 0 12px 16px; border-radius: 6px; }
-    .char-block::after { content: ''; display: block; clear: both; }
-    .badge-type { font-size: 0.72em; padding: 2px 8px; border-radius: 4px; background: rgba(99,102,241,0.12); color: var(--accent); font-weight: 600; }
-    .badge-thread-status { font-size: 0.72em; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
-    .badge-thread-status.status-active { background: rgba(34,197,94,0.15); color: #16a34a; border: 1px solid rgba(34,197,94,0.3); }
-    .badge-thread-status.status-resolved { background: rgba(100,116,139,0.12); color: #475569; border: 1px solid rgba(100,116,139,0.3); }
-    .badge-thread-status.status-dormant { background: rgba(245,158,11,0.15); color: #b45309; border: 1px solid rgba(245,158,11,0.3); }
-    .thread-block { border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 12px; }
-    .thread-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
-    .thread-header strong { font-size: 1em; }
-    .thread-desc { font-size: 0.9em; opacity: 0.8; margin-bottom: 8px; line-height: 1.6; }
-    .thread-meta { display: flex; gap: 12px; font-size: 0.8em; opacity: 0.6; }
-    .msg-group { margin-bottom: 24px; }
-    .msg-item { border-left: 3px solid var(--muted); padding: 8px 12px; margin-bottom: 8px; background: rgba(128,128,128,0.04); border-radius: 0 6px 6px 0; }
-    .msg-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
-    .msg-meta strong { font-size: 0.85em; }
-    .msg-type-label { font-size: 0.75em; opacity: 0.6; }
-    .msg-time { font-size: 0.72em; opacity: 0.5; margin-left: auto; }
-    .msg-body { font-size: 0.88em; white-space: pre-wrap; word-break: break-word; opacity: 0.85; }
-    .stats-table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
-    .stats-table th { text-align: left; padding: 6px 10px; border-bottom: 2px solid var(--border); font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.6; }
-    .stats-table td { padding: 5px 10px; border-bottom: 1px solid var(--border); }
-    .stats-table tr:nth-child(even) td { background: rgba(128,128,128,0.04); }
-    .stats-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-    .stats-total { margin-top: 12px; font-size: 0.9em; text-align: right; opacity: 0.7; }";
-
-    private static readonly string MetaJs = @"    (function () {
-      var presets = [
-        {name:'Light',     bg:'#ffffff', fg:'#1a1a1a'},
-        {name:'Dark',      bg:'#1c1c1e', fg:'#e8e8e8'},
-        {name:'Hi-Contrast',bg:'#000000',fg:'#ffff00'},
-        {name:'Sepia',     bg:'#f4ecd8', fg:'#5c4a1e'},
-        {name:'Solarized', bg:'#002b36', fg:'#93a1a1'},
-        {name:'Retro',     bg:'#0d0d0d', fg:'#00e676'}
-      ];
-      var fontSize = 18;
-      function applyPreset(index) {
-        var p = presets[index];
-        document.documentElement.style.setProperty('--bg', p.bg);
-        document.documentElement.style.setProperty('--fg', p.fg);
-        document.body.style.background = p.bg;
-        document.body.style.color = p.fg;
-        document.getElementById('toolbar').style.background = p.bg;
-        document.querySelectorAll('.size-btn').forEach(function(b) { b.style.color = p.fg; });
-        document.getElementById('font-size-label').style.color = p.fg;
-        try { localStorage.setItem('abook-meta-preset', index); } catch(e) {}
-      }
-      function applyFontSize(size) {
-        fontSize = Math.min(Math.max(size, 12), 36);
-        document.documentElement.style.setProperty('--fs', fontSize + 'px');
-        document.getElementById('font-size-label').textContent = fontSize;
-        try { localStorage.setItem('abook-meta-fontsize', fontSize); } catch(e) {}
-      }
-      document.querySelectorAll('.preset-btn').forEach(function(btn, i) {
-        btn.addEventListener('click', function() { applyPreset(i); });
-      });
-      document.getElementById('font-smaller').addEventListener('click', function() { applyFontSize(fontSize - 2); });
-      document.getElementById('font-larger').addEventListener('click',  function() { applyFontSize(fontSize + 2); });
-      try {
-        var sp = localStorage.getItem('abook-meta-preset'); if (sp !== null) applyPreset(Number(sp));
-        var sf = localStorage.getItem('abook-meta-fontsize'); if (sf !== null) applyFontSize(Number(sf));
-      } catch(e) {}
-    })();";
-
-    internal static string GenerateMetadataHtml(
-        Book book,
-        StoryBible? bible,
-        IEnumerable<CharacterCard> characters,
-        IEnumerable<PlotThread> plotThreads,
-        IEnumerable<AgentMessage> messages,
-        IEnumerable<TokenUsageRecord> tokenUsage,
-        ExportArt? art = null)
-    {
-        art ??= ExportArt.Empty;
-        var lang       = GetLang2(book.Language);
-        var chapters   = book.Chapters.Where(c => !c.IsArchived).OrderBy(c => c.Number).ToList();
-        var charList   = characters.OrderBy(c => c.Role).ToList();
-        var threadList = plotThreads.ToList();
-        var msgList    = messages.ToList();
-        var tuList     = tokenUsage.ToList();
-        var chapterMap = chapters.ToDictionary(c => c.Id);
-
-        var tocParts = new List<string>
-        {
-            "        <li><a href=\"#book-info\">Book Information</a></li>",
-            "        <li><a href=\"#chapter-outlines\">Chapter Outlines</a></li>",
-        };
-        if (bible is not null && (!string.IsNullOrWhiteSpace(bible.SettingDescription) || !string.IsNullOrWhiteSpace(bible.Themes)))
-            tocParts.Add("        <li><a href=\"#story-bible\">Story Bible</a></li>");
-        if (charList.Count > 0)
-            tocParts.Add($"        <li><a href=\"#characters\">Characters ({charList.Count})</a></li>");
-        if (threadList.Count > 0)
-            tocParts.Add($"        <li><a href=\"#plot-threads\">Plot Threads ({threadList.Count})</a></li>");
-        if (msgList.Count > 0)
-            tocParts.Add("        <li><a href=\"#agent-messages\">Agent Messages</a></li>");
-        if (tuList.Count > 0)
-            tocParts.Add("        <li><a href=\"#token-stats\">Token Statistics</a></li>");
-        var toc = string.Join("\n", tocParts);
-
-        var bookInfoHtml = $@"
-<section id=""book-info"" class=""md-section"">
-  <h2>Book Information</h2>
-  <dl class=""prop-list"">
-    <dt>Title</dt><dd>{EscHtml(book.Title)}</dd>
-    <dt>Genre</dt><dd>{EscHtml(book.Genre)}</dd>
-    <dt>Language</dt><dd>{EscHtml(book.Language.Length > 0 ? book.Language : "en")}</dd>
-    <dt>Target Chapters</dt><dd>{book.TargetChapterCount}</dd>
-    <dt>Status</dt><dd>{EscHtml(book.Status.ToString())}</dd>
-    <dt>Created</dt><dd>{book.CreatedAt:yyyy-MM-dd HH:mm}</dd>
-  </dl>
-  {(book.Premise.Length > 0 ? $"<div class=\"prop-block\"><strong>Premise</strong><p>{EscHtml(book.Premise)}</p></div>" : "")}
-</section>";
-
-        var outlineCards = chapters.Count == 0
-            ? "<p class=\"empty-note\">No chapters yet.</p>"
-            : string.Concat(chapters.Select(c =>
-            {
-                var titleSuffix = c.Title.Length > 0 ? $": {EscHtml(c.Title)}" : "";
-                return $@"
-  <div class=""outline-card"">
-    <h3>Chapter {c.Number}{titleSuffix}</h3>
-    <div class=""outline-meta"">
-      <span class=""badge-status"">{EscHtml(c.Status.ToString())}</span>
-      {(c.PovCharacter?.Length > 0 ? $"<span style=\"font-size:0.82em\"><strong>POV:</strong> {EscHtml(c.PovCharacter)}</span>" : "")}
-    </div>
-    {(c.Outline?.Length > 0 ? $"<div class=\"outline-text\">{EscHtml(c.Outline)}</div>" : "")}
-    {(c.ForeshadowingNotes?.Length > 0 ? $"<div class=\"foretell\"><strong>Foreshadowing:</strong> {EscHtml(c.ForeshadowingNotes)}</div>" : "")}
-    {(c.PayoffNotes?.Length > 0 ? $"<div class=\"foretell\"><strong>Payoff:</strong> {EscHtml(c.PayoffNotes)}</div>" : "")}
-  </div>";
-            }));
-        var chapterOutlinesHtml = $@"
-<section id=""chapter-outlines"" class=""md-section"">
-  <h2>Chapter Outlines</h2>
-  {outlineCards}
-</section>";
-
-        var storyBibleHtml = "";
-        if (bible is not null && (!string.IsNullOrWhiteSpace(bible.SettingDescription) || !string.IsNullOrWhiteSpace(bible.Themes)))
-        {
-            storyBibleHtml = $@"
-<section id=""story-bible"" class=""md-section"">
-  <h2>Story Bible</h2>
-  <dl class=""prop-list"">
-    {(bible.SettingDescription?.Length > 0 ? $"<dt>Setting</dt><dd>{EscHtml(bible.SettingDescription)}</dd>" : "")}
-    {(bible.TimePeriod?.Length > 0 ? $"<dt>Time Period</dt><dd>{EscHtml(bible.TimePeriod)}</dd>" : "")}
-    {(bible.Themes?.Length > 0 ? $"<dt>Themes</dt><dd>{EscHtml(bible.Themes)}</dd>" : "")}
-    {(bible.ToneAndStyle?.Length > 0 ? $"<dt>Tone &amp; Style</dt><dd>{EscHtml(bible.ToneAndStyle)}</dd>" : "")}
-  </dl>
-  {(bible.WorldRules?.Length > 0 ? $"<div class=\"prop-block\"><strong>World Rules</strong><pre class=\"pre-block\">{EscHtml(bible.WorldRules)}</pre></div>" : "")}
-  {(bible.Notes?.Length > 0 ? $"<div class=\"prop-block\"><strong>Notes</strong><pre class=\"pre-block\">{EscHtml(bible.Notes)}</pre></div>" : "")}
-</section>";
-        }
-
-        var charactersHtml = "";
-        if (charList.Count > 0)
-        {
-            var cards = string.Concat(charList.Select(ch =>
-            {
-                var roleLower = ch.Role.ToString().ToLowerInvariant();
-                return $@"
-  <div class=""char-block"">
-    <div class=""char-header""><strong>{EscHtml(ch.Name)}</strong><span class=""badge-role role-{roleLower}"">{EscHtml(ch.Role.ToString())}</span></div>
-    {(art.Portraits.TryGetValue(ch.Id, out var portrait) ? $"<img class=\"portrait\" src=\"{portrait.DataUri}\" alt=\"{EscHtml(ch.Name)}\">" : "")}
-    <dl class=""prop-list"">
-      {(ch.VisualPrompt.Length > 0 ? $"<dt>Visual prompt</dt><dd>{EscHtml(ch.VisualPrompt)}</dd>" : "")}
-      {(ch.PhysicalDescription.Length > 0 ? $"<dt>Appearance</dt><dd>{EscHtml(ch.PhysicalDescription)}</dd>" : "")}
-      {(ch.Personality.Length > 0 ? $"<dt>Personality</dt><dd>{EscHtml(ch.Personality)}</dd>" : "")}
-      {(ch.Backstory.Length > 0 ? $"<dt>Backstory</dt><dd>{EscHtml(ch.Backstory)}</dd>" : "")}
-      {(ch.GoalMotivation.Length > 0 ? $"<dt>Goal / Motivation</dt><dd>{EscHtml(ch.GoalMotivation)}</dd>" : "")}
-      {(ch.Arc.Length > 0 ? $"<dt>Arc</dt><dd>{EscHtml(ch.Arc)}</dd>" : "")}
-      {(ch.Notes.Length > 0 ? $"<dt>Notes</dt><dd>{EscHtml(ch.Notes)}</dd>" : "")}
-      {(ch.FirstAppearanceChapterNumber.HasValue ? $"<dt>First Appears</dt><dd>Chapter {ch.FirstAppearanceChapterNumber}</dd>" : "")}
-    </dl>
-  </div>";
-            }));
-            charactersHtml = $@"
-<section id=""characters"" class=""md-section"">
-  <h2>Characters</h2>
-  {cards}
-</section>";
-        }
-
-        var plotThreadsHtml = "";
-        if (threadList.Count > 0)
-        {
-            var threads = string.Concat(threadList.Select(t =>
-            {
-                var statusLower = t.Status.ToString().ToLowerInvariant();
-                return $@"
-  <div class=""thread-block"">
-    <div class=""thread-header"">
-      <strong>{EscHtml(t.Name)}</strong>
-      <span class=""badge-type"">{EscHtml(t.Type.ToString())}</span>
-      <span class=""badge-thread-status status-{statusLower}"">{EscHtml(t.Status.ToString())}</span>
-    </div>
-    {(t.Description.Length > 0 ? $"<p class=\"thread-desc\">{EscHtml(t.Description)}</p>" : "")}
-    <div class=""thread-meta"">
-      {(t.IntroducedChapterNumber.HasValue ? $"<span>Introduced: Ch.{t.IntroducedChapterNumber}</span>" : "")}
-      {(t.ResolvedChapterNumber.HasValue ? $"<span>Resolved: Ch.{t.ResolvedChapterNumber}</span>" : "")}
-    </div>
-  </div>";
-            }));
-            plotThreadsHtml = $@"
-<section id=""plot-threads"" class=""md-section"">
-  <h2>Plot Threads</h2>
-  {threads}
-</section>";
-        }
-
-        var messagesHtml = "";
-        if (msgList.Count > 0)
-        {
-            static string MsgColor(MessageType t) => t switch
-            {
-                MessageType.Question   => "#f59e0b",
-                MessageType.Answer     => "#22c55e",
-                MessageType.Feedback   => "#6366f1",
-                MessageType.SystemNote => "#475569",
-                _                      => "#64748b",
-            };
-
-            string RenderMsgs(IEnumerable<AgentMessage> msgs) =>
-                string.Concat(msgs.Select(m => $@"
-    <div class=""msg-item"" style=""border-left-color:{MsgColor(m.MessageType)}"">
-      <div class=""msg-meta"">
-        <strong>{EscHtml(m.AgentRole.ToString())}</strong>
-        <span class=""msg-type-label"">[{EscHtml(m.MessageType.ToString())}]</span>
-        <span class=""msg-time"">{m.CreatedAt:yyyy-MM-dd HH:mm}</span>
-      </div>
-      <div class=""msg-body"">{EscHtml(m.Content)}</div>
-    </div>"));
-
-            var grouped = msgList.GroupBy(m => m.ChapterId).ToList();
-            var groups  = new StringBuilder();
-            foreach (var ch in chapters)
-            {
-                var group = grouped.FirstOrDefault(g => g.Key == ch.Id);
-                if (group is null) continue;
-                var titleSuffix = ch.Title.Length > 0 ? $": {EscHtml(ch.Title)}" : "";
-                groups.Append($@"
-  <div class=""msg-group"">
-    <h3>Chapter {ch.Number}{titleSuffix}</h3>
-    {RenderMsgs(group)}
-  </div>");
-            }
-            var general = grouped.FirstOrDefault(g => g.Key is null);
-            if (general is not null)
-                groups.Append($@"
-  <div class=""msg-group"">
-    <h3>General</h3>
-    {RenderMsgs(general)}
-  </div>");
-
-            messagesHtml = $@"
-<section id=""agent-messages"" class=""md-section"">
-  <h2>Agent Messages</h2>
-  {groups}
-</section>";
-        }
-
-        var tokenStatsHtml = "";
-        if (tuList.Count > 0)
-        {
-            var total = tuList.Sum(r => (long)r.PromptTokens + r.CompletionTokens);
-            var rows = string.Concat(tuList.Select(r =>
-            {
-                var chLabel = r.ChapterId.HasValue && chapterMap.TryGetValue(r.ChapterId.Value, out var ch)
-                    ? $"Ch.{ch.Number}"
-                    : r.ChapterId.HasValue ? $"Ch.{r.ChapterId}" : "—";
-                return $@"
-      <tr>
-        <td>{r.CreatedAt:yyyy-MM-dd HH:mm}</td>
-        <td>{EscHtml(r.AgentRole.ToString())}</td>
-        <td>{EscHtml(chLabel)}</td>
-        <td class=""num"">{r.PromptTokens:N0}</td>
-        <td class=""num"">{r.CompletionTokens:N0}</td>
-        <td class=""num"">{(r.PromptTokens + r.CompletionTokens):N0}</td>
-      </tr>";
-            }));
-            var callWord = tuList.Count == 1 ? "call" : "calls";
-            tokenStatsHtml = $@"
-<section id=""token-stats"" class=""md-section"">
-  <h2>Token Statistics</h2>
-  <table class=""stats-table"">
-    <thead><tr><th>Time</th><th>Agent</th><th>Chapter</th><th>Prompt</th><th>Completion</th><th>Total</th></tr></thead>
-    <tbody>{rows}</tbody>
-  </table>
-  <p class=""stats-total"">Grand total: <strong>{total:N0}</strong> tokens across {tuList.Count} {callWord}</p>
-</section>";
-        }
-
-        var presets = new (string bg, string fg, string border, string name)[]
-        {
-            ("#ffffff", "#1a1a1a", "#aaaaaa", "Light"),
-            ("#1c1c1e", "#e8e8e8", "#e8e8e8", "Dark"),
-            ("#000000", "#ffff00", "#ffff00", "Hi-Contrast"),
-            ("#f4ecd8", "#5c4a1e", "#5c4a1e", "Sepia"),
-            ("#002b36", "#93a1a1", "#93a1a1", "Solarized"),
-            ("#0d0d0d", "#00e676", "#00e676", "Retro"),
-        };
-        var presetBtns = string.Join("\n    ", presets.Select((p, i) =>
-            $"<button class=\"preset-btn\" data-index=\"{i}\" " +
-            $"style=\"background:{p.bg};color:{p.fg};border:2px solid {p.border}\" " +
-            $"title=\"{p.name}\">{p.name}</button>"));
-
-        var genreMeta = EscHtml(book.Genre) +
-            (book.Language.Length > 0 ? " &middot; " + EscHtml(book.Language) : "");
-
-        var sb = new StringBuilder();
-        sb.Append("<!DOCTYPE html>\n");
-        sb.Append($"<html lang=\"{lang}\">\n<head>\n");
-        sb.Append("  <meta charset=\"UTF-8\">\n");
-        sb.Append("  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
-        sb.Append($"  <title>{EscHtml(book.Title)} \u2014 Metadata</title>\n");
-        sb.Append("  <style>"); sb.Append(MetaCss); sb.Append("\n  </style>\n</head>\n<body>\n");
-        sb.Append("  <div id=\"toolbar\">\n");
-        sb.Append("    <span class=\"toolbar-label\">Theme</span>\n");
-        sb.Append($"    {presetBtns}\n");
-        sb.Append("    <div class=\"toolbar-sep\"></div>\n");
-        sb.Append("    <span class=\"toolbar-label\">Size</span>\n");
-        sb.Append("    <button class=\"size-btn\" id=\"font-smaller\" title=\"Decrease font size\">A\u2212</button>\n");
-        sb.Append("    <span id=\"font-size-label\">18</span>\n");
-        sb.Append("    <button class=\"size-btn\" id=\"font-larger\" title=\"Increase font size\">A+</button>\n");
-        sb.Append("  </div>\n  <main>\n");
-        sb.Append("    <header class=\"doc-header\">\n");
-        sb.Append($"      <h1>{EscHtml(book.Title)}</h1>\n");
-        sb.Append($"      <p class=\"subtitle\">Metadata &amp; Planning Document &middot; {genreMeta}</p>\n");
-        sb.Append("    </header>\n    <nav id=\"toc\">\n      <h2>Contents</h2>\n      <ol>\n");
-        sb.Append(toc);
-        sb.Append("\n      </ol>\n    </nav>\n");
-        sb.Append(bookInfoHtml);
-        sb.Append(storyBibleHtml);
-        sb.Append(chapterOutlinesHtml);
-        sb.Append(charactersHtml);
-        sb.Append(plotThreadsHtml);
-        sb.Append(messagesHtml);
-        sb.Append(tokenStatsHtml);
-        sb.Append("\n  </main>\n  <script>\n");
-        sb.Append(MetaJs);
-        sb.Append("\n  </script>\n</body>\n</html>\n");
-        return sb.ToString();
-    }
 
     // ── FB2 ───────────────────────────────────────────────────────────────────
 
@@ -1007,13 +642,13 @@ public class BookExportService
 
     // ── Shared helpers ────────────────────────────────────────────────────────
 
-    private static string EscHtml(string? text) =>
+    internal static string EscHtml(string? text) =>
         (text ?? "").Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
 
     private static string EscXml(string? text) =>
         (text ?? "").Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
 
-    private static string GetLang2(string language)
+    internal static string GetLang2(string language)
     {
         var l = (language ?? "").Trim();
         return (l.Length >= 2 ? l[..2] : l.PadRight(2, 'x')).ToLowerInvariant();

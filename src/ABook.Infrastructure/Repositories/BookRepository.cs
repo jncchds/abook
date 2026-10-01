@@ -1095,6 +1095,9 @@ public class BookRepository : IBookRepository
     public async Task<IEnumerable<AgentRun>> GetRunsByStatusAsync(AgentRunPersistStatus status) =>
         await _db.AgentRuns.Where(r => r.Status == status).ToListAsync();
 
+    public async Task<IReadOnlyList<AgentRun>> GetRunsForBookAsync(int bookId) =>
+        await _db.AgentRuns.AsNoTracking().Where(r => r.BookId == bookId).OrderBy(r => r.CreatedAt).ToListAsync();
+
     // ── LLM Presets ───────────────────────────────────────────────────────────
 
     public async Task<IEnumerable<LlmPreset>> GetPresetsAsync(int? userId) =>

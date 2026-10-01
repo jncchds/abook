@@ -529,8 +529,7 @@ public class BookExportIllustrationTests
         };
         var scene = new BookExportService.ExportImage("img-5", "At the gate", Png, "image/png", ParagraphIndex: 1);
         var cover = new BookExportService.ExportImage("img-6", "Cover", Png, "image/png", ParagraphIndex: -1);
-        var art = new BookExportService.ExportArt(
-            cover, new[] { (10, scene) }.ToLookup(x => x.Item1, x => x.Item2), new Dictionary<int, BookExportService.ExportImage>());
+        var art = new BookExportService.ExportArt(cover, new[] { (10, scene) }.ToLookup(x => x.Item1, x => x.Item2));
         return (book, art);
     }
 

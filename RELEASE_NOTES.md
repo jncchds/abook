@@ -8,6 +8,9 @@
 - feat: downloaded books are much smaller — illustrations are re-encoded as JPEG (longest side up to 1600 px) in the HTML, EPUB, FB2 and metadata exports; the stored originals stay lossless
 - feat: Unsloth Studio as an image provider — pick **Unsloth Studio** in the image settings, enter the Studio address and an `sk-unsloth-…` API key, and optionally an **Image model** that ABook loads when Studio has none loaded (Studio swaps out its text model by itself, so one Studio can serve both: use it as an **OpenAI Compatible** text provider at `…/v1`). Seeds, steps, CFG and negative prompts are all honoured, so character consistency works as with Z-Image. MCP `set_llm_config` gains `imageProvider`, `imageApiKey` and `imageModel`
 
+### Exports
+- feat: **Download Metadata** is now a chronological log of how the book was made — one timeline (grouped by day) of book and story-bible edits, generated and edited characters and plot threads, chapter outlines and versions (word counts and planning changes, never the prose), agent questions and answers, feedback, notes and folded reasoning, runs, workflow steps, every LLM call, and illustration plans and renders. An overview sums up LLM calls and tokens by agent and by model, and a toolbar filters the timeline by category. The book text and the images shown in the book are left out; character portraits stay
+
 ## v0.2.0 — 2026-09-30
 
 ### Illustrations

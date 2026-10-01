@@ -59,8 +59,7 @@ public class ArchivedChapterExportTests
     [Fact]
     public void GenerateMetadataHtml_ArchivedChapter_Excluded()
     {
-        var html = BookExportService.GenerateMetadataHtml(
-            BookWithArchivedChapter(), bible: null, characters: [], plotThreads: [], messages: [], tokenUsage: []);
+        var html = MetadataExport.Generate(new MetadataSources { Book = BookWithArchivedChapter() });
 
         Assert.Contains("Live Chapter", html);
         Assert.DoesNotContain("Dead Chapter", html);
