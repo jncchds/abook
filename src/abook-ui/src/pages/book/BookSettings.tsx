@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import type { LlmConfig, LlmPreset, ProviderModel, Book, DefaultPrompts } from '../../api'
-import { getLlmConfig, updateLlmConfig, updateBook, getBook, getModels, getDefaultPrompts, getPresets, createPreset, updatePreset } from '../../api'
+import { getLlmConfig, updateLlmConfig, updateBook, getBook, getModels, getDefaultPrompts, getPresets, createPreset, updatePreset, modelsErrorMessage } from '../../api'
 import { PROVIDERS, PROVIDER_LABELS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, INITIAL_LLM_CONFIG, pickImageSettings } from '../../config/providers'
 import ImageGenSettingsFields from '../../components/ImageGenSettingsFields'
 import ToggleField from '../../components/ToggleField'
@@ -23,6 +23,7 @@ export default function BookSettings() {
   })
   const [models, setModels] = useState<ProviderModel[]>([])
   const [modelsLoading, setModelsLoading] = useState(false)
+  const [modelsError, setModelsError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [bookSaved, setBookSaved] = useState(false)
@@ -36,11 +37,12 @@ export default function BookSettings() {
 
   const fetchModels = (endpoint: string, provider?: string, apiKey?: string | null) => {
     const prov = provider ?? config.provider
+    setModelsError(null)
     if (!MODEL_LIST_PROVIDERS.has(prov)) { setModels([]); return }
     setModelsLoading(true)
     getModels(endpoint, prov, apiKey)
       .then(r => setModels(r.data))
-      .catch(() => setModels([]))
+      .catch(err => { setModels([]); setModelsError(modelsErrorMessage(err)) })
       .finally(() => setModelsLoading(false))
   }
 
@@ -233,6 +235,7 @@ export default function BookSettings() {
                 disabled={modelsLoading}
               >{modelsLoading ? '…' : '↺ Refresh'}</button>
             </div>
+            {modelsError && <span className="error-msg" role="alert">{modelsError}</span>}
 
             {API_KEY_REQUIRED_PROVIDERS.has(config.provider) && (
               <span className="hint">

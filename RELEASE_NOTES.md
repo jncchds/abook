@@ -34,6 +34,9 @@
 - fix: refreshing the page (or losing the connection) during a run no longer loses track of it — the sidebar shows the step actually running (e.g. "Editing Ch. 3…" rather than the step the run started with), the latest progress message comes back, and the text streamed so far reappears on the Story Bible, Characters, Plot Threads, Chapters and chapter pages, with new text continuing from where it left off
 - fix: the Chapters page no longer shows the **+ Add** button to viewers who can't edit the book
 
+### Settings
+- fix: loading the model list from an endpoint that rejects the API key no longer signs you out — the provider's 401 used to be passed through and mistaken for an expired session. Failures (wrong key, wrong URL, timeouts, replies that aren't a model list) no longer crash the request either, and the Presets and book Settings pages now show why the list couldn't be loaded
+
 ## v0.2.0 — 2026-09-30
 
 ### Illustrations

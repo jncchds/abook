@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { LlmPreset, PresetInput, ProviderModel } from '../api'
-import { getPresets, createPreset, updatePreset, deletePreset, getModels, getDefaultPreset, setDefaultPreset } from '../api'
+import { getPresets, createPreset, updatePreset, deletePreset, getModels, getDefaultPreset, setDefaultPreset, modelsErrorMessage } from '../api'
 import { PROVIDERS, PROVIDER_LABELS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, pickImageSettings } from '../config/providers'
 import ImageGenSettingsFields from '../components/ImageGenSettingsFields'
 import { useAuth } from '../hooks/useAuth'
@@ -32,13 +32,16 @@ export default function Presets() {
   // Model fetching — same pattern as BookSettings LLM config form
   const [models, setModels] = useState<ProviderModel[]>([])
   const [modelsLoading, setModelsLoading] = useState(false)
+  const [modelsError, setModelsError] = useState<string | null>(null)
 
   const fetchModels = () => {
     const prov = form.provider
+    setModelsError(null)
     if (!MODEL_LIST_PROVIDERS.has(prov)) { setModels([]); return }
     setModelsLoading(true)
     getModels(form.endpoint || DEFAULT_ENDPOINTS[prov], prov, form.apiKey ?? undefined)
-      .then(r => setModels(r.data)).catch(() => setModels([]))
+      .then(r => setModels(r.data))
+      .catch(err => { setModels([]); setModelsError(modelsErrorMessage(err)) })
       .finally(() => setModelsLoading(false))
   }
 
@@ -174,6 +177,7 @@ export default function Presets() {
                 >{modelsLoading ? '…' : '↺ Refresh'}</button>
               )}
             </div>
+            {modelsError && <span className="error-msg" role="alert">{modelsError}</span>}
             {API_KEY_REQUIRED_PROVIDERS.has(form.provider) && (
               <span className="hint">Enter your API key below, then click ↺ Refresh to load the model list.</span>
             )}

@@ -366,6 +366,9 @@ export const getModels = (endpoint?: string | null, provider?: string | null, ap
     params: { endpoint: endpoint ?? undefined, provider: provider ?? undefined },
     headers: apiKey ? { 'X-Api-Key': apiKey } : undefined,
   })
+/** The server's explanation of a failed model list request, for showing next to the model picker. */
+export const modelsErrorMessage = (err: unknown) =>
+  (axios.isAxiosError(err) && err.response?.data?.message) || 'Could not load the model list.'
 
 // Story Bible
 export interface StoryBible {

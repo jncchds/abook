@@ -53,7 +53,7 @@ public class ModelsController : ControllerBase
                 var resp = await client.GetAsync(
                     $"https://generativelanguage.googleapis.com/v1beta/models?key={Uri.EscapeDataString(apiKey)}");
                 if (!resp.IsSuccessStatusCode)
-                    return StatusCode((int)resp.StatusCode, new { message = "Failed to reach Google AI Studio." });
+                    return UpstreamError(resp, "Google AI Studio");
                 var json = await resp.Content.ReadAsStringAsync();
                 using var doc = JsonDocument.Parse(json);
                 var models = doc.RootElement.GetProperty("models")
@@ -78,7 +78,7 @@ public class ModelsController : ControllerBase
                     request.Headers.Add("Authorization", $"Bearer {apiKey}");
                 var resp = await client.SendAsync(request);
                 if (!resp.IsSuccessStatusCode)
-                    return StatusCode((int)resp.StatusCode, new { message = "Failed to reach OpenAI." });
+                    return UpstreamError(resp, "OpenAI");
                 var json = await resp.Content.ReadAsStringAsync();
                 using var doc = JsonDocument.Parse(json);
                 var models = doc.RootElement.GetProperty("data")
@@ -97,7 +97,7 @@ public class ModelsController : ControllerBase
                     request.Headers.Add("Authorization", $"Bearer {apiKey}");
                 var resp = await client.SendAsync(request);
                 if (!resp.IsSuccessStatusCode)
-                    return StatusCode((int)resp.StatusCode, new { message = "Failed to reach OpenAI-compatible endpoint." });
+                    return UpstreamError(resp, "The OpenAI-compatible endpoint");
                 var json = await resp.Content.ReadAsStringAsync();
                 using var doc = JsonDocument.Parse(json);
                 var models = doc.RootElement.GetProperty("data")
@@ -111,7 +111,7 @@ public class ModelsController : ControllerBase
             // Ollama (default) — no apiKey needed
             var ollamaResp = await client.GetAsync($"{baseUrl}/api/tags");
             if (!ollamaResp.IsSuccessStatusCode)
-                return StatusCode((int)ollamaResp.StatusCode, new { message = "Failed to reach Ollama." });
+                return UpstreamError(ollamaResp, "Ollama");
             var ollamaJson = await ollamaResp.Content.ReadAsStringAsync();
             using var ollamaDoc = JsonDocument.Parse(ollamaJson);
             var ollamaModels = ollamaDoc.RootElement.GetProperty("models")
@@ -129,6 +129,30 @@ public class ModelsController : ControllerBase
         {
             return StatusCode(503, new { message = "LLM provider is not reachable." });
         }
+        catch (TaskCanceledException)
+        {
+            return StatusCode(504, new { message = "LLM provider did not respond in time." });
+        }
+        catch (Exception ex) when (ex is UriFormatException or InvalidOperationException && !Uri.IsWellFormedUriString(baseUrl, UriKind.Absolute))
+        {
+            return BadRequest(new { message = $"'{baseUrl}' is not a valid endpoint URL." });
+        }
+        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            _logger.LogWarning(ex, "Unexpected model list response from {Provider} at {Endpoint}", provider, baseUrl);
+            return StatusCode(502, new { message = "LLM provider returned an unexpected response — check the endpoint (OpenAI-compatible endpoints usually end in /v1)." });
+        }
+    }
+
+    /// <summary>
+    /// Reports a failed provider call as 502. The provider's own status must not be passed through: its 401
+    /// (a missing or wrong API key) would look like our session expiring and sign the user out.
+    /// </summary>
+    private ObjectResult UpstreamError(HttpResponseMessage resp, string providerName)
+    {
+        var status = (int)resp.StatusCode;
+        var hint = status is 401 or 403 ? " — check the API key" : status == 404 ? " — check the endpoint URL" : "";
+        return StatusCode(502, new { message = $"{providerName} returned {status} {resp.ReasonPhrase}{hint}." });
     }
 
     [HttpPost("ollama/pull")]
