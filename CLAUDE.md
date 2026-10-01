@@ -100,7 +100,7 @@ React is built at image-build time and served from `wwwroot/` — there is no se
 
 ### MCP server
 
-Built-in at `/mcp` using `ModelContextProtocol.AspNetCore 1.2.0`. Tool classes in `src/ABook.Api/Mcp/`. Authenticated via `Authorization: Bearer <api-token>` (the `ApiToken` scheme in `ApiTokenAuthenticationHandler`) or session cookie.
+Built-in at `/mcp` using `ModelContextProtocol.AspNetCore 1.2.0`. Tool classes in `src/ABook.Api/Mcp/`. Authenticated via `Authorization: Bearer <api-token>` (the `ApiToken` scheme in `ApiTokenAuthenticationHandler`) or a browser JWT access token.
 
 ## Mandatory workflow rules
 

@@ -1,8 +1,7 @@
+using ABook.Api.Auth;
 using ABook.Api.Services;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -16,11 +15,15 @@ public class AuthController : ControllerBase
 {
     private readonly IUserRepository _users;
     private readonly IPasswordHasher<AppUser> _hasher;
+    private readonly JwtTokenService _tokens;
+    private readonly JwtKeyService _keys;
 
-    public AuthController(IUserRepository users, IPasswordHasher<AppUser> hasher)
+    public AuthController(IUserRepository users, IPasswordHasher<AppUser> hasher, JwtTokenService tokens, JwtKeyService keys)
     {
         _users = users;
         _hasher = hasher;
+        _tokens = tokens;
+        _keys = keys;
     }
 
     /// <summary>Returns whether any users exist (used to show Register vs Login on first launch).</summary>
@@ -46,8 +49,8 @@ public class AuthController : ControllerBase
         user.PasswordHash = _hasher.HashPassword(user, req.Password);
         user = await provisioning.CreateAsync(user);
 
-        await SignInAsync(user);
-        return Ok(UserDto(user));
+        await _tokens.IssueRefreshTokenAsync(user, HttpContext);
+        return Ok(SessionDto(user, _tokens.CreateAccessToken(user)));
     }
 
     [HttpPost("login")]
@@ -66,15 +69,27 @@ public class AuthController : ControllerBase
             await _users.UpdateAsync(user);
         }
 
-        await SignInAsync(user);
-        return Ok(UserDto(user));
+        await _tokens.IssueRefreshTokenAsync(user, HttpContext);
+        return Ok(SessionDto(user, _tokens.CreateAccessToken(user)));
     }
 
+    /// <summary>
+    /// Exchanges the httpOnly refresh cookie for a fresh access token (rotating the cookie). The SPA calls it on
+    /// load and whenever its access token has expired.
+    /// </summary>
+    [HttpPost("refresh")]
+    public async Task<IActionResult> Refresh()
+    {
+        var session = await _tokens.RefreshAsync(HttpContext);
+        if (session is not var (user, accessToken)) return Unauthorized(new { message = "Not signed in." });
+        return Ok(SessionDto(user, accessToken));
+    }
+
+    /// <summary>Anonymous on purpose: the access token may already have expired when the user signs out.</summary>
     [HttpPost("logout")]
-    [Authorize]
     public async Task<IActionResult> Logout()
     {
-        await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        await _tokens.SignOutAsync(HttpContext);
         return NoContent();
     }
 
@@ -109,21 +124,6 @@ public class AuthController : ControllerBase
         return Ok(new { displayName = user.DisplayName ?? user.Username });
     }
 
-    private async Task SignInAsync(AppUser user)
-    {
-        var claims = new List<Claim>
-        {
-            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new(ClaimTypes.Name, user.Username),
-            new(ClaimTypes.Role, user.IsAdmin ? "Admin" : "User")
-        };
-        var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-        await HttpContext.SignInAsync(
-            CookieAuthenticationDefaults.AuthenticationScheme,
-            new ClaimsPrincipal(identity),
-            new AuthenticationProperties { IsPersistent = true, ExpiresUtc = DateTimeOffset.UtcNow.AddDays(30) });
-    }
-
     [HttpGet("api-token")]
     [Authorize]
     public async Task<IActionResult> GetApiToken()
@@ -145,6 +145,17 @@ public class AuthController : ControllerBase
     }
 
     private static object UserDto(AppUser u) => new { u.Id, u.Username, DisplayName = u.DisplayName ?? u.Username, u.IsAdmin };
+
+    private object SessionDto(AppUser user, AccessToken accessToken) => new
+    {
+        user = UserDto(user),
+        accessToken = accessToken.Token,
+        accessTokenExpiresAt = accessToken.ExpiresAt,
+        // Deployment problems only an admin can fix, shown as a banner in the UI.
+        serverWarnings = user.IsAdmin && _keys.FromDatabase
+            ? new[] { $"The sign-in signing key is stored in the database. Run `docker compose exec abook-api dotnet ABook.Api.dll secrets show` and set it as the {JwtKeyService.EnvVarName} environment variable." }
+            : Array.Empty<string>(),
+    };
 }
 
 public record AuthRequest(string Username, string Password);

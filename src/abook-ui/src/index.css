@@ -942,3 +942,7 @@ button:disabled:hover { background: var(--accent); }
   .illustration-edit-row { grid-template-columns: 1fr; }
   .illustrations-step { grid-template-columns: 1fr; gap: 0.3rem; }
 }
+
+/* ── Server warnings (admins only) ── */
+.server-warning { border: 1px solid var(--warning); border-left-width: 4px; border-radius: 6px; padding: 0.6rem 0.9rem; margin-bottom: 1rem; font-size: 0.85rem; overflow-wrap: anywhere; }
+.server-warning code { font-size: 0.8rem; }

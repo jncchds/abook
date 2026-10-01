@@ -41,12 +41,15 @@ public class UsersController : ControllerBase
     }
 
     [HttpPut("{id:int}/password")]
-    public async Task<IActionResult> ChangePassword(int id, [FromBody] ChangePasswordRequest req)
+    public async Task<IActionResult> ChangePassword(
+        int id, [FromBody] ChangePasswordRequest req, [FromServices] IRefreshTokenRepository refreshTokens)
     {
         var user = await _users.GetByIdAsync(id);
         if (user is null) return NotFound();
         user.PasswordHash = _hasher.HashPassword(user, req.NewPassword);
         await _users.UpdateAsync(user);
+        // A new password signs the user out of every browser (open tabs keep working until their access token expires).
+        await refreshTokens.RevokeAllForUserAsync(id);
         return NoContent();
     }
 

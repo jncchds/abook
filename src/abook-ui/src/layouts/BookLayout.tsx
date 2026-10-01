@@ -63,7 +63,7 @@ function BookSidebar() {
         <>
           {(book.chapters ?? []).some(c => !c.isArchived && c.content?.trim()) && (
             <div className="sidebar-split-wrap" ref={exportMenuRef}>
-              <button className="sidebar-btn sidebar-split-main" title="Download Book as HTML" onClick={() => { window.location.href = `/api/books/${id}/export?format=html` }}>
+              <button className="sidebar-btn sidebar-split-main" title="Download Book as HTML" onClick={() => { void downloadFile(`/books/${id}/export?format=html`) }}>
                 <span className="s-icon">⬇</span>
                 <span className="s-label">Download Book</span>
               </button>
@@ -74,9 +74,9 @@ function BookSidebar() {
               >▾</button>
               {showExportMenu && (
                 <div className="sidebar-split-menu">
-                  <button onClick={() => { window.location.href = `/api/books/${id}/export?format=html`; setShowExportMenu(false) }}>HTML</button>
-                  <button onClick={() => { window.location.href = `/api/books/${id}/export?format=fb2`; setShowExportMenu(false) }}>FB2</button>
-                  <button onClick={() => { window.location.href = `/api/books/${id}/export?format=epub`; setShowExportMenu(false) }}>EPUB</button>
+                  <button onClick={() => { void downloadFile(`/books/${id}/export?format=html`); setShowExportMenu(false) }}>HTML</button>
+                  <button onClick={() => { void downloadFile(`/books/${id}/export?format=fb2`); setShowExportMenu(false) }}>FB2</button>
+                  <button onClick={() => { void downloadFile(`/books/${id}/export?format=epub`); setShowExportMenu(false) }}>EPUB</button>
                 </div>
               )}
             </div>
@@ -84,7 +84,7 @@ function BookSidebar() {
           <SidebarBtn
             icon="📄"
             label="Download Metadata"
-            onClick={() => { window.location.href = `/api/books/${id}/export?format=metadata` }}
+            onClick={() => { void downloadFile(`/books/${id}/export?format=metadata`) }}
           />
           <SidebarBtn icon="⚙" label="Settings" onClick={() => navigate(`/books/${id}/settings`)} />
         </>

@@ -29,6 +29,8 @@ public class AppDbContext : DbContext
     public DbSet<AgentRun> AgentRuns => Set<AgentRun>();
     public DbSet<ChapterEmbedding> ChapterEmbeddings => Set<ChapterEmbedding>();
     public DbSet<LlmPreset> LlmPresets => Set<LlmPreset>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<ServerSecret> ServerSecrets => Set<ServerSecret>();
     public DbSet<StoryBibleSnapshot> StoryBibleSnapshots => Set<StoryBibleSnapshot>();
     public DbSet<CharactersSnapshot> CharactersSnapshots => Set<CharactersSnapshot>();
     public DbSet<PlotThreadsSnapshot> PlotThreadsSnapshots => Set<PlotThreadsSnapshot>();
@@ -229,6 +231,26 @@ public class AppDbContext : DbContext
              .HasForeignKey(x => x.PlotThreadId)
              .OnDelete(DeleteBehavior.Cascade);
             v.HasIndex(x => new { x.PlotThreadId, x.VersionNumber }).IsUnique();
+        });
+
+        modelBuilder.Entity<RefreshToken>(r =>
+        {
+            r.HasKey(x => x.Id);
+            r.Property(x => x.TokenHash).IsRequired().HasMaxLength(64);
+            r.Property(x => x.ReplacedByHash).HasMaxLength(64);
+            r.HasIndex(x => x.TokenHash).IsUnique();
+            r.HasIndex(x => x.UserId);
+            r.HasOne(x => x.User)
+             .WithMany()
+             .HasForeignKey(x => x.UserId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ServerSecret>(s =>
+        {
+            s.HasKey(x => x.Name);
+            s.Property(x => x.Name).HasMaxLength(100);
+            s.Property(x => x.Value).IsRequired();
         });
 
         modelBuilder.Entity<LlmPreset>(p =>

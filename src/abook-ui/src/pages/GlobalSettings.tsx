@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import type { LlmPreset } from '../api'
-import { getPresets, getDefaultPreset, setDefaultPreset, getApiToken, regenerateApiToken, updateProfile } from '../api'
+import { getPresets, getDefaultPreset, setDefaultPreset, getApiToken, regenerateApiToken, updateProfile, authFetch } from '../api'
 import { PROVIDER_LABELS } from '../config/providers'
 import { useNotifications } from '../hooks/useNotifications'
 import { useAuth } from '../hooks/useAuth'
@@ -62,12 +62,11 @@ export default function GlobalSettings() {
     abortRef.current = new AbortController()
     setPullStatus('Connecting to Ollama…')
     try {
-      const resp = await fetch('/api/ollama/pull', {
+      const resp = await authFetch('/api/ollama/pull', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: pullModel.trim() }),
         signal: abortRef.current.signal,
-        credentials: 'include',
       })
       if (!resp.body) { setPullStatus('No response stream.'); return }
       const reader = resp.body.getReader()

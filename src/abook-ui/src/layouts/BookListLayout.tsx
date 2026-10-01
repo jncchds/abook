@@ -4,6 +4,7 @@ import type { Book } from '../api'
 import { getBooks, authLogout } from '../api'
 import { useAuth } from '../hooks/useAuth'
 import Sidebar, { SidebarBtn, SidebarDivider, SidebarSection } from '../components/Sidebar'
+import ServerWarnings from '../components/ServerWarnings'
 
 export default function BookListLayout() {
   const [books, setBooks] = useState<Book[]>([])
@@ -52,6 +53,7 @@ export default function BookListLayout() {
         </div>
       </Sidebar>
       <main className="app-main">
+        <ServerWarnings />
         <Outlet context={{ books, setBooks }} />
       </main>
     </div>

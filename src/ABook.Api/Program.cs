@@ -10,7 +10,7 @@ using ABook.Infrastructure.Llm;
 using ABook.Infrastructure.Repositories;
 using ABook.Infrastructure.VectorStore;
 using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Pgvector.EntityFrameworkCore;
@@ -23,6 +23,10 @@ builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, relo
 // ── Database ──────────────────────────────────────────────────────────────────
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? "Host=localhost;Port=5432;Database=abook;Username=abook;Password=abook";
+
+// `dotnet ABook.Api.dll secrets show` — print database-stored secrets as env vars, then exit.
+if (SecretsCommand.Matches(args))
+    return await SecretsCommand.RunAsync(args, connectionString, builder.Configuration);
 
 // AddDbContextFactory registers IDbContextFactory<AppDbContext> (Singleton) and also
 // AppDbContext as a Scoped service, so repositories that inject it directly still work.
@@ -40,25 +44,34 @@ builder.Services.AddScoped<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>();
 builder.Services.AddHttpClient("ollama");
 builder.Services.AddHttpContextAccessor();
 
-// ── Auth (cookie-based + ApiToken for MCP) ────────────────────────────────────
-builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
-    .AddCookie(o =>
+// ── Auth (JWT access tokens for the SPA + ApiToken for MCP) ───────────────────
+// The browser holds a short-lived access token in memory and refreshes it with an httpOnly cookie that is only
+// sent to /api/auth (see JwtTokenService). The signing key is resolved per request because it is only known
+// once the database is migrated (JwtKeyService may generate and store it).
+builder.Services.AddSingleton<JwtKeyService>();
+builder.Services.AddScoped<JwtTokenService>();
+builder.Services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(o =>
     {
-        o.Cookie.SameSite = SameSiteMode.Strict;
-        o.Cookie.HttpOnly = true;
-        o.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
-        o.Events.OnRedirectToLogin = ctx =>
+        o.MapInboundClaims = false;
+        o.TokenValidationParameters = JwtTokenService.ValidationParameters();
+        o.Events = new JwtBearerEvents
         {
-            ctx.Response.StatusCode = 401;
-            return Task.CompletedTask;
-        };
-        o.Events.OnRedirectToAccessDenied = ctx =>
-        {
-            ctx.Response.StatusCode = 403;
-            return Task.CompletedTask;
+            // Browsers cannot set headers on WebSocket/SSE requests, so SignalR passes the token in the query string.
+            OnMessageReceived = ctx =>
+            {
+                if (ctx.HttpContext.Request.Path.StartsWithSegments("/hubs")
+                    && ctx.Request.Query["access_token"] is { Count: > 0 } token)
+                    ctx.Token = token;
+                return Task.CompletedTask;
+            }
         };
     })
     .AddScheme<AuthenticationSchemeOptions, ApiTokenAuthenticationHandler>("ApiToken", null);
+builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+    .Configure<JwtKeyService>((o, keys) =>
+        o.TokenValidationParameters.IssuerSigningKeyResolver = (_, _, _, _) => [keys.SigningKey]);
 builder.Services.AddAuthorization();
 
 // Shared serializer settings used by both SignalR and MVC controllers
@@ -128,6 +141,12 @@ using (var scope = app.Services.CreateScope())
     app.Logger.LogInformation("Applying database migrations…");
     await db.Database.MigrateAsync();
     app.Logger.LogInformation("Database migrations applied.");
+
+    await app.Services.GetRequiredService<JwtKeyService>().InitializeAsync(app.Configuration, db, app.Logger);
+    var staleSessions = await scope.ServiceProvider.GetRequiredService<IRefreshTokenRepository>()
+        .DeleteStaleAsync(DateTime.UtcNow.AddDays(-7));
+    if (staleSessions > 0)
+        app.Logger.LogInformation("Deleted {Count} expired or revoked sign-in sessions.", staleSessions);
 }
 
 app.UseAuthentication();
@@ -138,10 +157,10 @@ app.MapControllers();
 app.MapHub<BookHub>("/hubs/book");
 app.MapHealthChecks("/health").AllowAnonymous();
 
-// ── MCP endpoint (authenticated via ApiToken Bearer or session cookie) ────────
+// ── MCP endpoint (authenticated via ApiToken Bearer or a browser access token) ──
 app.MapMcp("/mcp")
    .RequireAuthorization(policy => policy
-       .AddAuthenticationSchemes("ApiToken", CookieAuthenticationDefaults.AuthenticationScheme)
+       .AddAuthenticationSchemes("ApiToken", JwtBearerDefaults.AuthenticationScheme)
        .RequireAuthenticatedUser());
 
 // React SPA fallback — serve index.html for all non-API routes
@@ -153,3 +172,4 @@ app.Logger.LogInformation("ABook API starting.");
 // to enable production monitoring and cost tracking.
 
 app.Run();
+return 0;

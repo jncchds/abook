@@ -26,6 +26,8 @@ RUN dotnet publish src/ABook.Api/ABook.Api.csproj -c Release -o /app/publish --n
 
 # ── Stage 3: Runtime ──────────────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+# Npgsql probes for GSSAPI on every connection and prints an error when the library is missing.
+RUN apt-get update && apt-get install -y --no-install-recommends libgssapi-krb5-2 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=api-build /app/publish ./
 

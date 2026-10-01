@@ -1,21 +1,106 @@
 import axios from 'axios'
 
-const api = axios.create({ baseURL: '/api', withCredentials: true })
+const api = axios.create({ baseURL: '/api' })
 
-/**
- * Calls `handler` whenever a request fails with 401 (session expired or signed out elsewhere),
- * so the app can drop the user instead of every call failing silently. Returns an unsubscribe.
- * The sign-in probes are excluded — a 401 there just means "not signed in yet" / "wrong password".
- */
-const SIGN_IN_PROBES = new Set(['/auth/me', '/auth/login', '/auth/register', '/auth/setup'])
-export function onUnauthorized(handler: () => void): () => void {
-  const id = api.interceptors.response.use(undefined, (error) => {
-    if (axios.isAxiosError(error) && error.response?.status === 401 && !SIGN_IN_PROBES.has(error.config?.url ?? ''))
-      handler()
-    return Promise.reject(error)
-  })
-  return () => api.interceptors.response.eject(id)
+// ── Session ───────────────────────────────────────────────────────────────────
+// Sign-in uses a short-lived JWT access token kept only in memory (never in storage), sent as
+// `Authorization: Bearer`. It is renewed with POST /auth/refresh, which reads an httpOnly cookie the
+// browser sends only to /api/auth — so a reload or a new tab signs in silently while that cookie lives.
+
+export interface Session {
+  user: AppUser
+  accessToken: string
+  accessTokenExpiresAt: string
+  /** Deployment problems only an admin can fix (empty for everyone else). */
+  serverWarnings: string[]
 }
+
+let accessToken: string | null = null
+let accessTokenExpiresAt = 0
+let refreshInFlight: Promise<Session | null> | null = null
+const sessionListeners = new Set<(session: Session | null) => void>()
+
+function applySession(session: Session | null) {
+  accessToken = session?.accessToken ?? null
+  accessTokenExpiresAt = session ? Date.parse(session.accessTokenExpiresAt) : 0
+  sessionListeners.forEach(l => l(session))
+}
+
+/** Notified on every sign-in, refresh and sign-out (null = signed out). Returns an unsubscribe. */
+export function onSessionChange(listener: (session: Session | null) => void): () => void {
+  sessionListeners.add(listener)
+  return () => { sessionListeners.delete(listener) }
+}
+
+/** Renews the access token from the refresh cookie; concurrent callers share one request. */
+export function refreshSession(): Promise<Session | null> {
+  refreshInFlight ??= axios.post<Session>('/api/auth/refresh')
+    .then(r => { applySession(r.data); return r.data })
+    .catch(err => {
+      // Only a rejected cookie ends the session; a network error leaves it for the next attempt.
+      if (axios.isAxiosError(err) && err.response?.status === 401) applySession(null)
+      return null
+    })
+    .finally(() => { refreshInFlight = null })
+  return refreshInFlight
+}
+
+/** A usable access token (refreshed first when it expires within a minute), or null when signed out. */
+export async function getAccessToken(): Promise<string | null> {
+  if (accessToken && accessTokenExpiresAt - Date.now() > 60_000) return accessToken
+  return (await refreshSession())?.accessToken ?? null
+}
+
+/** Endpoints that work without an access token; a 401 there means "wrong password", not "session expired". */
+const PUBLIC_AUTH_ENDPOINTS = new Set(['/auth/setup', '/auth/login', '/auth/register', '/auth/logout', '/auth/refresh'])
+
+api.interceptors.request.use(async config => {
+  if (!PUBLIC_AUTH_ENDPOINTS.has(config.url ?? '')) {
+    const token = await getAccessToken()
+    if (token) config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+// A 401 outside the auth endpoints means the access token was rejected (e.g. the server's signing key
+// changed): refresh once and retry; if that fails too, the session is over and listeners see null.
+api.interceptors.response.use(undefined, async error => {
+  const config = axios.isAxiosError(error) ? error.config as (typeof error.config & { _retried?: boolean }) : undefined
+  if (axios.isAxiosError(error) && error.response?.status === 401 && config && !config._retried && !PUBLIC_AUTH_ENDPOINTS.has(config.url ?? '')) {
+    config._retried = true
+    accessToken = null
+    if (await refreshSession()) return api.request(config)
+  }
+  return Promise.reject(error)
+})
+
+/** `fetch` with the current access token, for streaming responses axios cannot read incrementally. */
+export async function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const token = await getAccessToken()
+  const headers = new Headers(init.headers)
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  return fetch(url, { ...init, headers })
+}
+
+/** Downloads an authenticated file (a plain link cannot carry the access token). `url` is relative to /api. */
+export async function downloadFile(url: string): Promise<void> {
+  const r = await api.get<Blob>(url, { responseType: 'blob' })
+  const disposition = String(r.headers['content-disposition'] ?? '')
+  const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(disposition)
+  const name = match ? decodeURIComponent(match[1] ?? match[2]) : url.split('/').pop() ?? 'download'
+  const href = URL.createObjectURL(r.data)
+  const a = document.createElement('a')
+  a.href = href
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(href), 60_000)
+}
+
+/** Loads an authenticated image as a blob URL for `<img src>`; the caller revokes it. `url` is relative to /api. */
+export const fetchImageObjectUrl = (url: string, signal?: AbortSignal) =>
+  api.get<Blob>(url, { responseType: 'blob', signal }).then(r => URL.createObjectURL(r.data))
 
 export interface Book {
   id: number
@@ -150,10 +235,11 @@ export interface AppUser {
 // Auth
 export const authSetup = () => api.get<{ needsSetup: boolean }>('/auth/setup')
 export const authLogin = (username: string, password: string) =>
-  api.post<AppUser>('/auth/login', { username, password })
+  api.post<Session>('/auth/login', { username, password }).then(r => { applySession(r.data); return r.data })
 export const authRegister = (username: string, password: string) =>
-  api.post<AppUser>('/auth/register', { username, password })
-export const authLogout = () => api.post('/auth/logout')
+  api.post<Session>('/auth/register', { username, password }).then(r => { applySession(r.data); return r.data })
+/** Revokes this browser's refresh cookie; the in-memory access token is dropped either way. */
+export const authLogout = () => api.post('/auth/logout').finally(() => applySession(null))
 export const authMe = () => api.get<AppUser>('/auth/me')
 export const getApiToken = () => api.get<{ token: string | null }>('/auth/api-token')
 export const regenerateApiToken = () => api.post<{ token: string }>('/auth/api-token/regenerate')
@@ -674,7 +760,10 @@ export const planIllustrations = (bookId: number, scope: IllustrationPlanScope, 
   api.post(`/books/${bookId}/illustrations/plan`, { scope, targetId })
 export const renderIllustrations = (bookId: number, scope: RenderScope, targetId?: number, reroll = false) =>
   api.post(`/books/${bookId}/illustrations/render`, { scope, targetId, reroll })
-/** Image URLs are immutable: a re-render produces a new image id. */
-export const bookImageUrl = (bookId: number, imageId: number) => `/api/books/${bookId}/images/${imageId}`
-export const publicBookImageUrl = (bookId: number, imageId: number) => `/api/public/books/${bookId}/images/${imageId}`
+/**
+ * Image paths relative to /api, loaded with `useAuthedImage` (they need the access token).
+ * They are immutable: a re-render produces a new image id.
+ */
+export const bookImagePath = (bookId: number, imageId: number) => `/books/${bookId}/images/${imageId}`
+export const publicBookImagePath = (bookId: number, imageId: number) => `/public/books/${bookId}/images/${imageId}`
 

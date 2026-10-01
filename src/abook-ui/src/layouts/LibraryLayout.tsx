@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Outlet, useParams, useNavigate, useLocation } from 'react-router-dom'
 import Sidebar, { SidebarBtn, SidebarDivider } from '../components/Sidebar'
 import { useAuth } from '../hooks/useAuth'
-import { getPublicBook, authLogout } from '../api'
+import { getPublicBook, authLogout, downloadFile } from '../api'
 import type { PublicBookDetail } from '../api'
 
 export interface LibraryOutletContext {
@@ -59,7 +59,7 @@ export default function LibraryLayout() {
           <button
             className="sidebar-btn sidebar-split-main"
             title="Download as HTML"
-            onClick={() => { window.location.href = `/api/public/books/${id}/export?format=html` }}
+            onClick={() => { void downloadFile(`/public/books/${id}/export?format=html`) }}
           >
             <span className="s-icon">⬇</span>
             <span className="s-label">Download Book</span>
@@ -71,9 +71,9 @@ export default function LibraryLayout() {
           >▾</button>
           {showExportMenu && (
             <div className="sidebar-split-menu">
-              <button onClick={() => { window.location.href = `/api/public/books/${id}/export?format=html`; setShowExportMenu(false) }}>HTML</button>
-              <button onClick={() => { window.location.href = `/api/public/books/${id}/export?format=fb2`; setShowExportMenu(false) }}>FB2</button>
-              <button onClick={() => { window.location.href = `/api/public/books/${id}/export?format=epub`; setShowExportMenu(false) }}>EPUB</button>
+              <button onClick={() => { void downloadFile(`/public/books/${id}/export?format=html`); setShowExportMenu(false) }}>HTML</button>
+              <button onClick={() => { void downloadFile(`/public/books/${id}/export?format=fb2`); setShowExportMenu(false) }}>FB2</button>
+              <button onClick={() => { void downloadFile(`/public/books/${id}/export?format=epub`); setShowExportMenu(false) }}>EPUB</button>
             </div>
           )}
         </div>

@@ -30,6 +30,10 @@ public class ApiTokenAuthenticationHandler : AuthenticationHandler<Authenticatio
         if (string.IsNullOrEmpty(token))
             return AuthenticateResult.Fail("Empty token.");
 
+        // A JWT (header.payload.signature) belongs to the JwtBearer scheme, not to us.
+        if (token.Contains('.'))
+            return AuthenticateResult.NoResult();
+
         // Reject obviously malformed tokens (tokens are GUIDs: 32 hex + 4 dashes = 36 chars)
         if (token.Length > 128)
             return AuthenticateResult.Fail("Invalid token.");

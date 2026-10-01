@@ -8,7 +8,14 @@ services:
     environment:
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=abook;Username=abook;Password=abook
       - ASPNETCORE_ENVIRONMENT=Production
-      # ── LLM defaults (override the built-in Ollama settings) ──────────────────
+      # ── Sign-in (JWT) ─────────────────────────────────────────────────────────
+      # Key that signs sign-in tokens: any random string of 32+ characters, e.g. `openssl rand -base64 48`.
+      # Unset = ABook generates one and keeps it in the database (with a warning). To move that key here:
+      #   docker compose exec abook-api dotnet ABook.Api.dll secrets show
+      # - Jwt__SigningKey=
+      # - Jwt__AccessTokenMinutes=15            # lifetime of an access token
+      # - Jwt__RefreshTokenDays=30              # how long a browser stays signed in without using ABook
+      # ── Seed for each new user's "Default" LLM preset ─────────────────────────
       # - LlmDefaults__Provider=Ollama          # Ollama | OpenAI | OpenAICompatible (e.g. Unsloth Studio …/v1) | GoogleAIStudio
       # - LlmDefaults__ModelName=llama3
       # - LlmDefaults__Endpoint=http://host.docker.internal:11434

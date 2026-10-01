@@ -49,7 +49,7 @@ A self-hosted web application that uses AI agents to collaboratively write books
 - **Health endpoint** — `GET /health` reports whether the database is reachable (for Docker/uptime checks)
 - **Token usage statistics** — per-agent prompt and completion token counts, persisted to the database and displayed in a collapsible panel. Calls that error, time out, or are cancelled are recorded too, with a Status column and the failure reason shown next to their partial counts
 - **MCP server** — built-in Model Context Protocol server at `/mcp`; connect Claude Desktop, VS Code Copilot, or any MCP client using a per-user API token
-- **Multi-user** — cookie-based authentication with admin role for user management
+- **Multi-user** — JWT sign-in (short-lived access token, httpOnly refresh cookie) with an admin role for user management
 - **Ollama model management** — browse installed models, pull new ones with live progress
 - **Global concurrency limit** — cap simultaneous agent runs across all books/users with `AgentSettings__MaxConcurrentRuns`
 - **PWA support** — installable, works offline for cached content
@@ -161,12 +161,29 @@ volumes:
 | `LlmDefaults__ImageModel` | — | Unsloth Studio: image model to load when none is loaded |
 | `LlmDefaults__ImageVisualStyle` | — | Default visual style for illustrations |
 | `LlmDefaults__ImagesPerChapter` | 2 | Base number of illustrations per chapter (the illustrator may plan more when a chapter needs them) |
+| `Jwt__SigningKey` | *generated* | Key that signs sign-in tokens — any random string of 32+ characters (e.g. `openssl rand -base64 48`). If unset, ABook generates one and stores it in the database, logs a ⚠️ warning at startup and shows admins a banner; see [Sign-in](#sign-in) |
+| `Jwt__AccessTokenMinutes` | `15` | Lifetime of an access token |
+| `Jwt__RefreshTokenDays` | `30` | How long a browser stays signed in without using ABook |
 | `AgentSettings__MaxConcurrentRuns` | `3` | Max simultaneous agent runs across all books/users |
 | `PublicMode` | `false` | Enable public library (anonymous access to published books) |
 
 > Changing `AgentSettings__MaxConcurrentRuns` requires restarting the API process/container.
 
 For local development, copy `src/ABook.Api/appsettings.Local.example.json` → `appsettings.Local.json` and fill in your values.
+
+### Sign-in
+
+> ⚠️ **Since v0.3.0 ABook uses JWT sign-in instead of cookie sessions.** Everyone has to sign in once after updating; books, presets and MCP API tokens are not affected.
+
+The browser gets a short-lived access token (kept in memory, never in storage) and a refresh token in an httpOnly cookie that is only sent to `/api/auth`, rotated on every use and revocable (sign-out, password change). A browser stays signed in for `Jwt__RefreshTokenDays` after its last visit.
+
+Tokens are signed with `Jwt__SigningKey`. **You don't have to set it** — if it is missing, ABook generates a random key on first start and keeps it in its database, so sessions survive restarts and updates. It does log a ⚠️ warning at every startup and shows admins a banner, because anyone with a copy of the database could then forge sign-ins. To move the key into your configuration:
+
+```bash
+docker compose exec abook-api dotnet ABook.Api.dll secrets show
+```
+
+Copy the printed `Jwt__SigningKey=…` line into the `environment:` section of `abook-api`, then `docker compose up -d` (any other random 32+ character value works just as well). Changing the key never signs anyone out: it only invalidates access tokens, and browsers fetch a new one with their refresh cookie.
 
 ### LLM Providers
 
@@ -367,7 +384,7 @@ Set `LLM_DEBUG_LOGGING=true` to print the full chat history and LLM responses to
 | Database | PostgreSQL 16 via EF Core 10 + Npgsql |
 | Vector store | pgvector (in-DB, `Pgvector.EntityFrameworkCore`) |
 | Real-time | SignalR |
-| Auth | Cookie-based, `IPasswordHasher<T>`, Bearer API token for MCP |
+| Auth | JWT (JwtBearer) + rotating refresh tokens, `IPasswordHasher<T>`, Bearer API token for MCP |
 | MCP | `ModelContextProtocol.AspNetCore` 1.2.0 — HTTP/SSE transport, 37 tools |
 | Container | Docker, Docker Compose |
 

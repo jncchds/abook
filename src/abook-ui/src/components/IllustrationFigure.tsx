@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { CharacterCard, Illustration, IllustrationOrientation } from '../api'
-import { bookImageUrl, deleteIllustration, updateIllustration } from '../api'
+import { bookImagePath, deleteIllustration, updateIllustration } from '../api'
+import { useAuthedImage } from '../hooks/useAuthedImage'
 
 interface Props {
   bookId: number
@@ -12,7 +13,8 @@ interface Props {
   characters?: CharacterCard[]
   /** Paragraph count of the chapter, to bound Move up/down. Omit for covers and portraits. */
   paragraphCount?: number
-  imageUrl?: (imageId: number) => string
+  /** Image path relative to /api (defaults to the owner's image endpoint). */
+  imagePath?: (imageId: number) => string
   onRender?: (illustration: Illustration, reroll: boolean) => void
   onChanged?: () => void
   compact?: boolean
@@ -30,7 +32,7 @@ const STATUS_LABEL: Record<string, string> = {
  */
 export default function IllustrationFigure({
   bookId, illustration: ill, editable = false, canRender = false, characters = [], paragraphCount,
-  imageUrl, onRender, onChanged, compact = false,
+  imagePath, onRender, onChanged, compact = false,
 }: Props) {
   const [editing, setEditing] = useState(false)
   const [showPrompt, setShowPrompt] = useState(false)
@@ -40,8 +42,9 @@ export default function IllustrationFigure({
     orientation: ill.orientation, focusCharacterId: ill.focusCharacterId ?? 0,
   })
 
-  const src = ill.imageId ? (imageUrl ?? (id => bookImageUrl(bookId, id)))(ill.imageId) : null
-  const outdated = !!src && ill.status !== 'Rendered'
+  const hasImage = !!ill.imageId
+  const src = useAuthedImage(ill.imageId ? (imagePath ?? (id => bookImagePath(bookId, id)))(ill.imageId) : null)
+  const outdated = hasImage && ill.status !== 'Rendered'
 
   const startEdit = () => {
     setForm({
@@ -79,6 +82,8 @@ export default function IllustrationFigure({
         <a href={src} target="_blank" rel="noreferrer">
           <img src={src} alt={ill.caption || 'Illustration'} loading="lazy" className={outdated ? 'outdated' : undefined} />
         </a>
+      ) : hasImage ? (
+        <div className="illustration-placeholder" aria-busy="true" />
       ) : (
         <div className="illustration-placeholder" onClick={() => setShowPrompt(v => !v)}>
           <span className="illustration-placeholder-icon">🎨</span>
@@ -94,7 +99,7 @@ export default function IllustrationFigure({
             {outdated ? 'Changed — re-render' : STATUS_LABEL[ill.status] ?? ill.status}
           </span>
           {!editing && <button className="btn-sm btn-ghost" onClick={startEdit} title="Edit prompt and placement">✎</button>}
-          {src && !editing && (
+          {hasImage && !editing && (
             <button className="btn-sm btn-ghost" onClick={() => setShowPrompt(v => !v)} title="Show prompt">ⓘ</button>
           )}
           {paragraphCount !== undefined && ill.kind === 'Scene' && (
@@ -106,7 +111,7 @@ export default function IllustrationFigure({
           {onRender && (
             <>
               <button className="btn-sm btn-ghost" disabled={!canRender} onClick={() => onRender(ill, false)}
-                title="Render with the current seed">{src ? '↻ Re-render' : '▶ Render'}</button>
+                title="Render with the current seed">{hasImage ? '↻ Re-render' : '▶ Render'}</button>
               <button className="btn-sm btn-ghost" disabled={!canRender} onClick={() => onRender(ill, true)}
                 title={ill.kind === 'Portrait'
                   ? 'Render with a new seed — it becomes the character’s seed for scenes centred on them'

@@ -1,5 +1,6 @@
 import { HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr'
 import { useEffect, useRef, useState } from 'react'
+import { getAccessToken } from '../api'
 
 type StreamHandler = (bookId: number, chapterId: number | null, agentRole: string, token: string) => void
 type QuestionHandler = (bookId: number, message: unknown) => void
@@ -37,7 +38,8 @@ export function useBookHub(bookId: number | null) {
     let retryTimer: ReturnType<typeof setTimeout> | undefined
 
     const conn = new HubConnectionBuilder()
-      .withUrl('/hubs/book')
+      // Asked again on every (re)connect, so a reconnect after the token expired gets a fresh one.
+      .withUrl('/hubs/book', { accessTokenFactory: async () => (await getAccessToken()) ?? '' })
       .withAutomaticReconnect()
       .configureLogging(LogLevel.Warning)
       .build()

@@ -1,15 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { authLogin, authRegister, authSetup } from '../api'
-import { useAuth } from '../hooks/useAuth'
-import { useEffect } from 'react'
+
+/** Set after the first sign-in since the switch to token sign-in (v0.3.0), which signed everyone out once. */
+const JWT_NOTICE_KEY = 'abook:jwt-signin-notice'
 
 export default function Login() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [isSetup, setIsSetup] = useState(false)
-  const { setUser } = useAuth()
+  const [showJwtNotice] = useState(() => {
+    try { return localStorage.getItem(JWT_NOTICE_KEY) !== 'seen' } catch { return false }
+  })
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -21,8 +24,8 @@ export default function Login() {
     setError('')
     try {
       const fn = isSetup ? authRegister : authLogin
-      const { data } = await fn(username, password)
-      setUser(data)
+      await fn(username, password) // the session store hands the user to useAuth
+      try { localStorage.setItem(JWT_NOTICE_KEY, 'seen') } catch { /* private mode */ }
       navigate('/')
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
@@ -36,6 +39,11 @@ export default function Login() {
         <h1>ABook</h1>
         <h2>{isSetup ? 'Create Admin Account' : 'Sign In'}</h2>
         {isSetup && <p className="setup-hint">No users yet. The first account becomes admin.</p>}
+        {!isSetup && showJwtNotice && (
+          <p className="setup-hint">
+            ABook 0.3 changed how sign-in works, so everyone needs to sign in once more. Your books and settings are unchanged.
+          </p>
+        )}
         <form onSubmit={handleSubmit}>
           <label>
             Username

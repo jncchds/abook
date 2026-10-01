@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Build a Docker-packaged ASP.NET Core 10 web app with a React (TypeScript/Vite) UI **served as static files from wwwroot** (NOT a separate Docker service) that uses Semantic Kernel to orchestrate four AI agents (Planner, Writer, Editor, Continuity Checker) for collaborative book writing. Agents stream progress via SignalR and can pause to ask the user plot-clarifying questions. PostgreSQL stores relational data; **pgvector** (PostgreSQL extension) stores chapter embeddings for RAG-based context retrieval. LLM provider is pluggable (Ollama by default, swappable to OpenAI/Azure via configuration). Multi-user with cookie-based authentication.
+Build a Docker-packaged ASP.NET Core 10 web app with a React (TypeScript/Vite) UI **served as static files from wwwroot** (NOT a separate Docker service) that uses Semantic Kernel to orchestrate four AI agents (Planner, Writer, Editor, Continuity Checker) for collaborative book writing. Agents stream progress via SignalR and can pause to ask the user plot-clarifying questions. PostgreSQL stores relational data; **pgvector** (PostgreSQL extension) stores chapter embeddings for RAG-based context retrieval. LLM provider is pluggable (Ollama by default, swappable to OpenAI/Azure via configuration). Multi-user with JWT authentication (short-lived access token + rotating refresh cookie).
 
 ---
 
@@ -166,7 +166,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
     - **Chapter View**: Rendered markdown content, edit capability
     - **Agent Chat Panel**: Sidebar/panel showing agent messages, questions, answer input
     - **Settings**: LLM provider + Ollama model management (dropdown of installed/common models, pull with SSE progress), per-book language, per-agent system prompt overrides (collapsible)
-    - **Login**: Cookie-based auth login form
+    - **Login**: Login form (JWT sign-in; shows a one-time "sign in again" notice after the v0.3.0 switch)
     - **Admin → Users**: Admin-only page for user CRUD
     - **Real-time indicators**: Streaming text as agents write, status badges per agent, planning output progressively parsed into chapter cards (`parsePlanningStream`)
 16. SignalR integration:
@@ -232,7 +232,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - `src/ABook.Infrastructure/Llm/LlmHttp.cs` — shared connection pool for the Ollama / OpenAI-compatible chat clients
 - `src/ABook.Core/Models/AgentRun.cs` — Persisted agent run entity (Id GUID, BookId, RunType, Status, CurrentRole, ChapterId, PendingMessageId, WorkflowContext, timestamps)
 - `src/ABook.Api/HostedServices/RunRecoveryService.cs` — Startup `BackgroundService`: marks every run left `Running` or `WaitingForInput` by a previous process as `Orphaned`, resolves its dangling question and tells the author to use Continue
-- `src/ABook.Api/Program.cs` — App configuration (cookie auth, EF Core, SignalR, pgvector, SK)
+- `src/ABook.Api/Program.cs` — App configuration (JWT + ApiToken auth, `secrets show` command, EF Core, SignalR, pgvector, SK)
 - `src/ABook.Api/appsettings.json` / `src/ABook.Api/appsettings.Local.example.json` — Includes `AgentSettings.MaxConcurrentRuns` (global concurrent run cap)
 - `src/abook-ui/src/layouts/BookListLayout.tsx` — Shared layout for Dashboard and global pages (Settings, Presets, AdminUsers); fetches books for sidebar; passes `{ books, setBooks }` via Outlet context; "New Book" → `/?new=1`
 - `src/abook-ui/src/layouts/BookLayout.tsx` — Shared layout for all book sub-pages at `/books/:bookId`; wraps `BookContextProvider`; renders `BookSidebar` (with chapter list) + `<Outlet />`; redirects index → `overview`
@@ -291,7 +291,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **Agents use Semantic Kernel function calling** for the "ask question" tool — agent invokes a `AskUser` function which triggers the pause mechanism
 - **Agent runs are fire-and-forget** — `AgentController` returns 202 immediately; `AgentRunStateService` singleton tracks state; duplicate run returns 409
 - **Global agent run concurrency cap (env-based)** — `AgentRunStateService` enforces a process-wide max for simultaneous runs (`Running` + `WaitingForInput`) across all books/users. Configure via `AgentSettings__MaxConcurrentRuns` (`AgentSettings:MaxConcurrentRuns`), default `3`. Value is read at startup in `Program.cs`; changing it requires restart.
-- **Cookie authentication** — multi-user support with `IPasswordHasher<AppUser>`; admin role for user management
+- **JWT authentication** — multi-user support with `IPasswordHasher<AppUser>`; admin role for user management
 - **Per-book customization** — `Language` field and per-agent system prompt overrides stored on `Book` entity
 - **Ollama model management** — `ModelsController` proxies Ollama's `/api/tags` and streams pull progress via SSE (replaced the old separate `OllamaController` file)
 - **Markdown only** for book output — no DOCX/PDF export (can be added later)
@@ -423,7 +423,14 @@ the- **Agent error logging & UI notifications**: `IBookNotifier` gains `NotifyAg
 - **`QuestionAgent.AskSingleOptionalAsync`**: thin wrapper around `AskUserAndWaitAsync(..., isOptional: true)` for a single optional question.
 - **MCP tools are organized in two tiers**: `UserMcpTools` for user-level operations (profile, LLM config, presets, `generate_book`); `BookMcpTools` / `ContentMcpTools` / `AgentMcpTools` for per-book operations. `generate_book` creates a book and immediately fires `StartWorkflowAsync` in background — single tool for end-to-end book generation.
 - **MCP server embedded in `ABook.Api`**: `ModelContextProtocol.AspNetCore 1.2.0` package; `AddMcpServer().WithHttpTransport().WithTools<T>()` registration; mounted at `/mcp` via `app.MapMcp("/mcp").RequireAuthorization(...)`
-- **ApiToken auth for MCP**: `ApiTokenAuthenticationHandler` implements `Authorization: Bearer {guid}` scheme registered as `"ApiToken"` alongside cookie scheme. MCP endpoint accepts either scheme. `AppUser.ApiToken` column (nullable string) added via `AddApiToken` migration. Plaintext GUID — acceptable for local dev tool; threat model excludes DB-level attackers.
+- **JWT authentication (v0.3.0, replaced cookie auth)**:
+  - **Access token** — HS256 JWT (`JwtTokenService.CreateAccessToken`), 15 min by default (`Jwt__AccessTokenMinutes`), claims written with the full `ClaimTypes.NameIdentifier/Name/Role` URIs and `MapInboundClaims = false`, so controllers read the same claims as before. The SPA keeps it in memory only (`api.ts` session store) and sends `Authorization: Bearer`. SignalR passes it as `?access_token=` (`OnMessageReceived`, `/hubs` only) via `accessTokenFactory`.
+  - **Refresh token** — 32 random bytes in the httpOnly, `SameSite=Strict` cookie `abook_refresh`, `Path=/api/auth`, 30 days by default (`Jwt__RefreshTokenDays`). The `RefreshTokens` table stores only its SHA-256 hash. `POST /api/auth/refresh` rotates it (old row revoked, `ReplacedByHash` set). Presenting a revoked token signs the user out everywhere (theft detection), except within 30 s of its rotation (parallel tabs), when an access token is returned without rotating again. Logout revokes the row; an admin password change revokes all of the user's rows. Expired/revoked rows older than 7 days are deleted at startup.
+  - **Endpoints** — login/register/refresh return `{ user, accessToken, accessTokenExpiresAt, serverWarnings }`; logout is anonymous (the access token may have expired). `serverWarnings` is non-empty only for admins.
+  - **Signing key** — `JwtKeyService` (singleton, initialised after migrations) uses `Jwt__SigningKey` (≥ 32 chars) when set; otherwise it generates a random key once, stores it in `ServerSecrets` (`Name = "Jwt:SigningKey"`), logs a ⚠️ warning at every startup and sends an admin `serverWarnings` banner. `dotnet ABook.Api.dll secrets show` (`SecretsCommand`, runs before the web host is built) prints stored secrets as env lines. The JwtBearer handler resolves the key per request (`IssuerSigningKeyResolver`) because it is only known after the database is migrated.
+  - **Browser requests that cannot carry a header** — export downloads use `downloadFile` (axios blob + object URL); images use `useAuthedImage` (blob URL; the image responses are immutable so the HTTP cache still applies); the Ollama pull stream uses `authFetch`.
+  - **Client refresh** — `getAccessToken()` refreshes when the token has under a minute left; concurrent refreshes share one request; a 401 from the API triggers one refresh + retry. Only a 401 from `/auth/refresh` ends the session (network errors do not).
+- **ApiToken auth for MCP**: `ApiTokenAuthenticationHandler` implements `Authorization: Bearer {guid}` scheme registered as `"ApiToken"` alongside the JwtBearer scheme (it ignores bearer values that look like a JWT). MCP endpoint accepts either scheme. `AppUser.ApiToken` column (nullable string) added via `AddApiToken` migration. Plaintext GUID — acceptable for local dev tool; threat model excludes DB-level attackers.
 - **One token per user**: simple UX; regenerate to rotate via `POST /api/auth/api-token/regenerate`. `GET /api/auth/api-token` returns current token for display.
 - **MCP tool DI pattern**: tool classes (Scoped) inject `IBookRepository`, `AgentRunStateService`, `IServiceScopeFactory`, `IHttpContextAccessor`. User ID extracted from `ClaimTypes.NameIdentifier` on `IHttpContextAccessor.HttpContext.User`.
 - **`AddHttpContextAccessor()`** registered in `Program.cs` — required so `IHttpContextAccessor` resolves correctly in MCP tool classes.
