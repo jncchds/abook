@@ -24,7 +24,7 @@ public class StoryBibleAgent : AgentBase
     {
         var bookId = book.Id;
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 1/4 - Story Bible...", false, ct);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.StoryBibleAgent, RunStates.Running, ct: ct);
+        await ReportRunningAsync(bookId, AgentRole.StoryBibleAgent, null, ct);
 
         var (client, config) = await GetChatClientAsync(bookId);
         var messages = new List<LlmChatMessage>();

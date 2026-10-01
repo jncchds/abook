@@ -16,6 +16,9 @@
 - feat: **Clarifications page** — the planner's clarifying questions now appear together on the book's new Clarifications page (sidebar ❓) instead of one by one in Agent Messages; answer each in its own box or skip it, and submitting the last answer completes the clarification step and planning carries on. Answers are saved as you go, so nothing is lost if planning is stopped or the server restarts, and a completed round is not asked again (reopen it from the page to get fresh questions). Edit, add, archive or restore clarifications there at any time. Agent Messages keeps its answer box for the human-assisted pauses; a note you add after a planning phase is kept as a clarification too
 - feat: clarifications are part of the premise wherever an agent uses it — all planning phases, the writer, editor, checker and illustrator prompts, custom system prompts using `{PREMISE}`, and the prior-book context of sequels — so decisions made in the round are never dropped, even if planning was interrupted. Existing answers from the chat are imported on upgrade. MCP gains `list_clarifications`, `add_clarification` and `update_clarification`
 
+### Runs
+- fix: refreshing the page (or losing the connection) during a run no longer loses track of it — the sidebar shows the step actually running (e.g. "Editing Ch. 3…" rather than the step the run started with), the latest progress message comes back, and the text streamed so far reappears on the Story Bible, Characters, Plot Threads, Chapters and chapter pages, with new text continuing from where it left off
+
 ## v0.2.0 — 2026-09-30
 
 ### Illustrations

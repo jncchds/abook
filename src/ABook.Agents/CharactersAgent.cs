@@ -28,7 +28,7 @@ public class CharactersAgent : AgentBase
     {
         var bookId = book.Id;
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 2/4 - Characters...", false, ct);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.CharactersAgent, RunStates.Running, ct: ct);
+        await ReportRunningAsync(bookId, AgentRole.CharactersAgent, null, ct);
 
         var (client, config) = await GetChatClientAsync(bookId);
         var messages = new List<LlmChatMessage>();

@@ -29,7 +29,7 @@ public class ContinuityCheckerAgent : AgentBase
         var chapter = EnsureNotArchived(await Repo.GetChapterAsync(bookId, chapterId)
             ?? throw new InvalidOperationException($"Chapter {chapterId} not found."));
 
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, RunStates.Running, chapterId, ct);
+        await ReportRunningAsync(bookId, AgentRole.ContinuityChecker, chapterId, ct);
 
         var (client, config) = await GetChatClientAsync(bookId);
         var establishedFacts = await BuildEstablishedFactsAsync(bookId, chapter);
@@ -95,7 +95,7 @@ public class ContinuityCheckerAgent : AgentBase
         var book = await Repo.GetByIdWithActiveDetailsAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
 
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, RunStates.Running, chapterId, ct);
+        await ReportRunningAsync(bookId, AgentRole.ContinuityChecker, chapterId, ct);
 
         var (client, config) = await GetChatClientAsync(bookId);
         var doneChapters = book.Chapters.Where(c => c.Status == ChapterStatus.Done || c.Status == ChapterStatus.Review).ToList();

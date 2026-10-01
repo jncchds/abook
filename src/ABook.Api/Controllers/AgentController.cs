@@ -82,26 +82,25 @@ public class AgentController : ControllerBase
         return Ok();
     }
 
+    /// <summary>
+    /// The book's run status, plus what a page loaded mid-run needs to catch up: the latest progress
+    /// message and the content streamed so far by the call in progress. 204 when the book never ran.
+    /// </summary>
     [HttpGet("status")]
     public async Task<IActionResult> Status(int bookId)
     {
         var denied = await this.RequireBookOwnershipAsync(bookId, _repo);
         if (denied is not null) return denied;
         var status = _runState.GetStatus(bookId);
-        return status is null ? NoContent() : Ok(status);
-    }
-
-    /// <summary>
-    /// Returns the accumulated stream buffer for a specific agent role / chapter.
-    /// Used by the UI on hard-refresh to restore in-progress generation.
-    /// Returns { content: "" } when there is no active buffer.
-    /// </summary>
-    [HttpGet("stream-buffer")]
-    public async Task<IActionResult> StreamBuffer(int bookId, [FromQuery] string? agentRole, [FromQuery] int? chapterId)
-    {
-        var denied = await this.RequireBookOwnershipAsync(bookId, _repo);
-        if (denied is not null) return denied;
-        var content = _runState.GetStreamBufferContent(bookId, chapterId, agentRole) ?? string.Empty;
-        return Ok(new { content });
+        if (status is null) return NoContent();
+        if (!status.IsActive) return Ok(new { status.Role, status.State, status.ChapterId });
+        return Ok(new
+        {
+            status.Role,
+            status.State,
+            status.ChapterId,
+            Step = _runState.GetLastProgress(bookId),
+            Stream = _runState.GetLiveStream(bookId),
+        });
     }
 }

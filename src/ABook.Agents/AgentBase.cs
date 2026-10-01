@@ -77,7 +77,7 @@ public abstract class AgentBase
         };
 
         var sb = StateService.GetOrCreateStreamBuffer(bookId, chapterId, role.ToString());
-        sb.Clear();
+        sb.Begin(live: forwardToUi);
         int promptTokens = messages.Sum(m => m.Content.Length) / 4;
 
         if (DebugLoggingEnabled)
@@ -103,11 +103,15 @@ public abstract class AgentBase
             sb.Append(part.Content);
             if (forward && onElementClosed is not null && part.Content.AsSpan().IndexOfAny('}', ']') >= 0)
                 await onElementClosed(sb.ToString());
+            if (!forward) sb.HideFrom(sb.Length - part.Content.Length);
             if (!forward || stopStreaming) return;
             // The stop patterns are line-anchored headings, so the last few lines are enough —
             // matching the whole buffer on every chunk would be quadratic in the chapter length.
             if (stopStreamingAt is not null && stopStreamingAt.IsMatch(sb.TailFromLineStart(StopPatternWindow)))
+            {
                 stopStreaming = true;
+                sb.HideFrom(sb.Length - part.Content.Length);
+            }
             else
                 await Notifier.StreamTokenAsync(bookId, chapterId, role, part.Content, ct);
         }
@@ -153,6 +157,10 @@ public abstract class AgentBase
                 config.Endpoint, config.ModelName, DescribeFailure(ex, false, config.TimeoutMs), ct);
             await SaveThinkingAsync(bookId, chapterId, role, thinkingSb.ToString());
             throw;
+        }
+        finally
+        {
+            sb.End();
         }
 
         var result = sb.ToString();
@@ -323,6 +331,16 @@ public abstract class AgentBase
         await Notifier.NotifyStatusChangedAsync(bookId, role, RunStates.Running, chapterId, ct);
 
         return answer;
+    }
+
+    /// <summary>
+    /// Announces the step the run is now on. The server-side status is updated too, so a page loaded
+    /// mid-run shows the current step (and finds its stream) rather than the role the run started with.
+    /// </summary>
+    protected async Task ReportRunningAsync(int bookId, AgentRole role, int? chapterId, CancellationToken ct)
+    {
+        StateService.UpdateRunRole(bookId, role, chapterId);
+        await Notifier.NotifyStatusChangedAsync(bookId, role, RunStates.Running, chapterId, ct);
     }
 
     protected Task ReportErrorAsync(int bookId, int? chapterId, AgentRole role, string message, CancellationToken ct = default) =>

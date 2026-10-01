@@ -473,6 +473,7 @@ public class AgentOrchestrator : IAgentOrchestrator
     {
         var book = await ReloadBookAsync(bookId);
 
+        _state.UpdateRunRole(bookId, AgentRole.Planner, null);
         await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, RunStates.Running, ct: ct);
 
         // Clarifications: asked once. The questions are saved open and answered on the Clarifications

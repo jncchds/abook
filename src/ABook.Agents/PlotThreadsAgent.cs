@@ -31,7 +31,7 @@ public class PlotThreadsAgent : AgentBase
     {
         var bookId = book.Id;
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 3/4 - Plot Threads...", false, ct);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.PlotThreadsAgent, RunStates.Running, ct: ct);
+        await ReportRunningAsync(bookId, AgentRole.PlotThreadsAgent, null, ct);
 
         var (client, config) = await GetChatClientAsync(bookId);
         var messages = new List<LlmChatMessage>();

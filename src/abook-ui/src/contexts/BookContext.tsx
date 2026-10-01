@@ -116,6 +116,15 @@ interface BookContextValue {
 
 const BookContext = createContext<BookContextValue | null>(null)
 
+interface LiveToken { agentRole: string; chapterId: number | null; token: string }
+
+/** Length of the longest prefix of `tail` that `text` already ends with. */
+function overlapLength(text: string, tail: string) {
+  for (let k = Math.min(text.length, tail.length); k > 0; k--)
+    if (text.endsWith(tail.slice(0, k))) return k
+  return 0
+}
+
 export function useBookContext() {
   const ctx = useContext(BookContext)
   if (!ctx) throw new Error('useBookContext must be used within BookContextProvider')
@@ -151,7 +160,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   const [submittingAnswer, setSubmittingAnswer] = useState(false)
   const [answerError, setAnswerError] = useState<string | null>(null)
 
-  const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnIllustrationsUpdated, setOnReconnected } = useBookHub(bookId)
+  const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnIllustrationsUpdated, setOnReconnected, setOnJoined } = useBookHub(bookId)
   const { notify } = useNotifications()
   const notifyRef = useRef(notify)
   useEffect(() => { notifyRef.current = notify })
@@ -222,23 +231,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     const signal = controller.signal
 
     refreshBook()
-    Promise.all([
-      getMessages(bookId, signal),
-      getAgentStatus(bookId).catch(() => ({ data: null as AgentRunStatus | null }))
-    ]).then(([msgRes, statusRes]) => {
-      if (signal.aborted) return
-      setMessages(msgRes.data)
-      // Only restore active states — terminal states (Done/Failed/Cancelled) from a
-      // previous run should not show the spinner or block the action buttons on reload.
-      const status = statusRes.data
-      if (status && (status.state === 'Running' || status.state === 'WaitingForInput')) {
-        setRunStatus(status)
-        if (status.state === 'WaitingForInput') {
-          const q = [...msgRes.data].reverse().find(m => m.messageType === 'Question' && !m.isResolved)
-          if (q) setPendingQuestion(q)
-        }
-      }
-    }).catch(() => {})
+    getMessages(bookId, signal).then(r => { if (!signal.aborted) setMessages(r.data) }).catch(() => {})
     refreshTokenStats(signal).catch(() => {})
     getStoryBible(bookId, signal).then(r => { if (!signal.aborted) setStoryBible(r.data) }).catch(() => {})
     getCharacters(bookId, true, signal).then(r => { if (!signal.aborted) setCharacters(r.data) }).catch(() => {})
@@ -249,6 +242,29 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     return () => { controller.abort() }
   }, [refreshBook, refreshTokenStats, bookId])
 
+  // Routes streamed content to the buffer of the page that shows it.
+  const writeStream = useCallback((agentRole: string, cId: number | null, update: (prev: string) => string) => {
+    if (agentRole === 'StoryBibleAgent') {
+      setStoryBibleStream(update)
+    } else if (agentRole === 'CharactersAgent') {
+      setCharactersStream(update)
+    } else if (agentRole === 'PlotThreadsAgent') {
+      setPlotThreadsStream(update)
+    } else if (agentRole === 'ContinuityChecker') {
+      // Checker output is structural analysis saved to chat — never display in chapter view
+    } else if (agentRole === 'ChaptersAgent' || cId === null) {
+      setPlannerBuffer(update)
+    } else {
+      setStreamingChapterId(cId)
+      setStreamBuffer(update)
+    }
+  }, [])
+
+  // Tokens received while a status request is in flight. The server's snapshot may or may not
+  // include them, so they are merged onto it by overlap instead of being dropped or doubled.
+  const liveCaptures = useRef(new Set<LiveToken[]>())
+  const statusRequestSeq = useRef(0)
+
   const clearStreams = useCallback(() => {
     setPlannerBuffer('')
     setStreamBuffer('')
@@ -258,22 +274,56 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     setPlotThreadsStream('')
   }, [])
 
+  /**
+   * Brings the run state up to date from the server: status, current step, pending question and the
+   * content streamed so far. Runs on load and after every (re)join of the hub group, so a refreshed
+   * page or a dropped connection picks up exactly where the live events left off.
+   */
+  const syncRunState = useCallback(async () => {
+    const seq = ++statusRequestSeq.current
+    const captured: LiveToken[] = []
+    liveCaptures.current.add(captured)
+    try {
+      const status = (await getAgentStatus(bookId)).data as AgentRunStatus | '' | null
+      if (seq !== statusRequestSeq.current) return
+      // Only restore active states — terminal states (Done/Failed/Cancelled) from a
+      // previous run should not show the spinner or block the action buttons.
+      if (!status || (status.state !== 'Running' && status.state !== 'WaitingForInput')) {
+        setRunStatus(null)
+        setPendingQuestion(null)
+        clearStreams()
+        return
+      }
+      setRunStatus({ role: status.role, state: status.state, chapterId: status.chapterId ?? undefined })
+      const step = status.step
+      if (step) setWorkflowLog(prev => prev[prev.length - 1] === step ? prev : [...prev, step])
+      const stream = status.stream
+      if (stream) {
+        const tail = captured
+          .filter(t => t.agentRole === stream.agentRole && t.chapterId === stream.chapterId)
+          .map(t => t.token).join('')
+        const merged = stream.content + tail.slice(overlapLength(stream.content, tail))
+        writeStream(stream.agentRole, stream.chapterId, () => merged)
+      }
+      if (status.state === 'WaitingForInput') {
+        getMessages(bookId).then(m => {
+          const q = [...m.data].reverse().find(msg => msg.messageType === 'Question' && !msg.isResolved)
+          if (q) setPendingQuestion(q)
+        }).catch(() => {})
+      }
+    } catch {
+      // Keep the current state; the next join retries.
+    } finally {
+      liveCaptures.current.delete(captured)
+    }
+  }, [bookId, clearStreams, writeStream])
+
+  useEffect(() => { void syncRunState() }, [syncRunState])
+
   useEffect(() => {
     setOnStream((_bId, cId, agentRole, token) => {
-      if (agentRole === 'StoryBibleAgent') {
-        setStoryBibleStream(prev => prev + token)
-      } else if (agentRole === 'CharactersAgent') {
-        setCharactersStream(prev => prev + token)
-      } else if (agentRole === 'PlotThreadsAgent') {
-        setPlotThreadsStream(prev => prev + token)
-      } else if (agentRole === 'ContinuityChecker') {
-        // Checker output is structural analysis saved to chat — never display in chapter view
-      } else if (agentRole === 'ChaptersAgent' || cId === null) {
-        setPlannerBuffer(prev => prev + token)
-      } else {
-        setStreamingChapterId(cId)
-        setStreamBuffer(prev => prev + token)
-      }
+      for (const captured of liveCaptures.current) captured.push({ agentRole, chapterId: cId, token })
+      writeStream(agentRole, cId, prev => prev + token)
     })
     setOnQuestion((_bId, msg) => {
       const m = msg as AgentMessage
@@ -294,9 +344,8 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         refreshBook()
         refreshMessages()
       } else if (state === 'Running' || state === 'WaitingForInput') {
-        // Transition to a new agent step — update role/state but keep the run active.
-        // Preserve chapterId that was set on page load via the status API.
-        setRunStatus(prev => ({ role, state, chapterId: prev?.chapterId }))
+        // Transition to a new agent step — update role/state/chapter but keep the run active.
+        setRunStatus({ role, state, chapterId: cId ?? undefined })
         // The planner waits for its clarifying questions on the Clarifications page, not in the chat.
         if (state === 'WaitingForInput' && role === 'Planner') {
           refreshClarifications().then(list => {
@@ -441,24 +490,10 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       refreshTokenStats().catch(() => {})
       refreshIllustrations()
       refreshClarifications()
-      getAgentStatus(bookId).then(r => {
-        const status = r.data
-        if (status && (status.state === 'Running' || status.state === 'WaitingForInput')) {
-          setRunStatus(prev => ({ ...status, chapterId: status.chapterId ?? prev?.chapterId }))
-          if (status.state === 'WaitingForInput') {
-            getMessages(bookId).then(m => {
-              const q = [...m.data].reverse().find(msg => msg.messageType === 'Question' && !msg.isResolved)
-              if (q) setPendingQuestion(q)
-            }).catch(() => {})
-          }
-        } else {
-          setRunStatus(null)
-          setPendingQuestion(null)
-          clearStreams()
-        }
-      }).catch(() => {})
+      // Run status and streams are re-read by the join handler.
     })
-  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnIllustrationsUpdated, setOnReconnected, refreshBook, refreshMessages, refreshTokenStats, refreshIllustrations, refreshClarifications, clearStreams, bookId, navigate])
+    setOnJoined(() => { void syncRunState() })
+  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnIllustrationsUpdated, setOnReconnected, setOnJoined, refreshBook, refreshMessages, refreshTokenStats, refreshIllustrations, refreshClarifications, clearStreams, writeStream, syncRunState, bookId, navigate])
 
   const isWaitingForInput = runStatus?.state === 'WaitingForInput'
   const isRunning = runStatus?.state === 'Running' || isWaitingForInput

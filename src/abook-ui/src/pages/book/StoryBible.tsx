@@ -4,12 +4,10 @@ import { updateStoryBible, getStoryBibleHistory, restoreStoryBibleSnapshot } fro
 import type { StoryBible, StoryBibleSnapshotMeta } from '../../api'
 import { parseStoryBibleStream } from '../../utils/streamParsers'
 import PhaseActionBar from '../../components/PhaseActionBar'
-import { useRestoreStream } from '../../hooks/useRestoreStream'
 
 export default function StoryBiblePage() {
   const {
     book, storyBible, setStoryBible, storyBibleStream,
-    isRunning, setStoryBibleStream,
   } = useBookContext()
 
   const [editingBible, setEditingBible] = useState(false)
@@ -19,9 +17,6 @@ export default function StoryBiblePage() {
   const [previewSnapshot, setPreviewSnapshot] = useState<StoryBibleSnapshotMeta | null>(null)
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [restoring, setRestoring] = useState(false)
-
-  useRestoreStream(book?.id, isRunning, storyBibleStream, 'StoryBibleAgent', undefined,
-    (content) => setStoryBibleStream(prev => prev.length >= content.length ? prev : content))
 
   if (!book) return null
 

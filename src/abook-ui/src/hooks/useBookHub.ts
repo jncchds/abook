@@ -11,6 +11,7 @@ type AgentErrorHandler = (bookId: number, agentRole: string, errorMessage: strin
 type MessagesUpdatedHandler = (bookId: number) => void
 type IllustrationsUpdatedHandler = (bookId: number, illustrationId: number | null) => void
 type ReconnectedHandler = () => void
+type JoinedHandler = () => void
 
 const START_RETRY_MS = 5000
 
@@ -28,6 +29,7 @@ export function useBookHub(bookId: number | null) {
   const onMessagesUpdated = useRef<MessagesUpdatedHandler | null>(null)
   const onIllustrationsUpdated = useRef<IllustrationsUpdatedHandler | null>(null)
   const onReconnected = useRef<ReconnectedHandler | null>(null)
+  const onJoined = useRef<JoinedHandler | null>(null)
 
   useEffect(() => {
     if (!bookId) return
@@ -57,6 +59,7 @@ export function useBookHub(bookId: number | null) {
       try {
         await conn.invoke('JoinBook', String(bookId))
         setConnected(true)
+        onJoined.current?.()
         onReconnected.current?.()
       } catch (err) {
         console.error(err)
@@ -76,6 +79,7 @@ export function useBookHub(bookId: number | null) {
         if (disposed) return
         await conn.invoke('JoinBook', String(bookId))
         setConnected(true)
+        onJoined.current?.()
         if (isRestart) onReconnected.current?.()
       } catch (err) {
         console.error(err)
@@ -107,5 +111,7 @@ export function useBookHub(bookId: number | null) {
     setOnMessagesUpdated: (fn: MessagesUpdatedHandler) => { onMessagesUpdated.current = fn },
     setOnIllustrationsUpdated: (fn: IllustrationsUpdatedHandler) => { onIllustrationsUpdated.current = fn },
     setOnReconnected: (fn: ReconnectedHandler) => { onReconnected.current = fn },
+    /** Fires after every (re)join of the book group — from then on no live event is missed. */
+    setOnJoined: (fn: JoinedHandler) => { onJoined.current = fn },
   }
 }

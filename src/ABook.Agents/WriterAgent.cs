@@ -25,7 +25,7 @@ public class WriterAgent : AgentBase
 
         chapter.Status = ChapterStatus.Writing;
         await Repo.UpdateChapterAsync(chapter);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Writer, RunStates.Running, chapterId, ct);
+        await ReportRunningAsync(bookId, AgentRole.Writer, chapterId, ct);
 
         var (client, config) = await GetChatClientAsync(bookId);
 

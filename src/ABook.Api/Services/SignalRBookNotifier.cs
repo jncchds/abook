@@ -1,3 +1,4 @@
+using ABook.Agents;
 using ABook.Api.Hubs;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
@@ -10,11 +11,13 @@ public class SignalRBookNotifier : IBookNotifier
 {
     private readonly IHubContext<BookHub> _hub;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly AgentRunStateService _runState;
 
-    public SignalRBookNotifier(IHubContext<BookHub> hub, IServiceScopeFactory scopeFactory)
+    public SignalRBookNotifier(IHubContext<BookHub> hub, IServiceScopeFactory scopeFactory, AgentRunStateService runState)
     {
         _hub = hub;
         _scopeFactory = scopeFactory;
+        _runState = runState;
     }
 
     public Task StreamTokenAsync(int bookId, int? chapterId, AgentRole agentRole, string token, CancellationToken ct = default) =>
@@ -31,6 +34,8 @@ public class SignalRBookNotifier : IBookNotifier
 
     public async Task NotifyWorkflowProgressAsync(int bookId, string step, bool isComplete, CancellationToken ct = default)
     {
+        // Kept for pages loaded mid-run, which never saw the event.
+        _runState.SetLastProgress(bookId, step);
         await _hub.Clients.Group(bookId.ToString()).SendAsync("WorkflowProgress", bookId, step, isComplete, ct);
         // Persist step to DB for history (best-effort, non-fatal)
         try

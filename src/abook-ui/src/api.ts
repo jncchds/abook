@@ -128,6 +128,10 @@ export interface AgentRunStatus {
   role: string
   state: string
   chapterId?: number
+  /** Latest progress message of an active run. */
+  step?: string | null
+  /** The call streaming to the UI and the content it has sent so far (active runs only). */
+  stream?: { agentRole: string; chapterId: number | null; content: string } | null
 }
 
 export interface ProviderModel {
@@ -253,8 +257,6 @@ export const getTokenUsage = (bookId: number, signal?: AbortSignal) =>
 export const clearTokenUsage = (bookId: number) =>
   api.delete(`/books/${bookId}/token-usage`)
 
-export const getStreamBuffer = (bookId: number, agentRole?: string, chapterId?: number) =>
-  api.get<{ content: string }>(`/books/${bookId}/agent/stream-buffer`, { params: { agentRole, chapterId } })
 
 // LLM Config
 export const getLlmConfig = (bookId?: number) =>

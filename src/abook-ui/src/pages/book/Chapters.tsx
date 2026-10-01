@@ -6,7 +6,6 @@ import type { ChapterVersionMeta, ChapterVersionFull } from '../../api'
 import { parsePlanningStream } from '../../utils/streamParsers'
 import { chapterStatusColor } from '../../utils/chapterStatus'
 import PhaseActionBar from '../../components/PhaseActionBar'
-import { useRestoreStream } from '../../hooks/useRestoreStream'
 
 export default function Chapters() {
   const { bookId } = useParams<{ bookId: string }>()
@@ -15,12 +14,9 @@ export default function Chapters() {
 
   const {
     book, setBook,
-    isRunning, canEdit,
-    plannerBuffer, setPlannerBuffer, runStatus,
+    canEdit,
+    plannerBuffer, runStatus,
   } = useBookContext()
-
-  useRestoreStream(book?.id, isRunning, plannerBuffer, 'ChaptersAgent', undefined,
-    (content) => setPlannerBuffer(prev => prev.length >= content.length ? prev : content))
 
   const [addingChapter, setAddingChapter] = useState(false)
   const [newTitle, setNewTitle] = useState('')

@@ -31,7 +31,7 @@ public class PlannerAgent : AgentBase
         CancellationToken ct = default)
     {
         var bookId = book.Id;
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ChaptersAgent, RunStates.Running, ct: ct);
+        await ReportRunningAsync(bookId, AgentRole.ChaptersAgent, null, ct);
         await Notifier.NotifyWorkflowProgressAsync(bookId, "Planning: Phase 4/4 - Chapter Outlines...", false, ct);
 
         var (client, config) = await GetChatClientAsync(bookId);

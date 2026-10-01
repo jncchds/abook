@@ -43,6 +43,9 @@ public class AgentRunStateService
     // Cleared when a run reaches a terminal state.
     private readonly ConcurrentDictionary<(int BookId, int? ChapterId, string AgentRole), StreamBuffer> _streamBuffers = new();
 
+    // bookId -> latest WorkflowProgress message of the current run
+    private readonly ConcurrentDictionary<int, string> _lastProgress = new();
+
     public AgentRunStateService(IServiceScopeFactory scopeFactory, ILogger<AgentRunStateService> logger)
     {
         _scopeFactory = scopeFactory;
@@ -79,6 +82,7 @@ public class AgentRunStateService
                 return RunStartResult.AtCapacity;
 
             _status[bookId] = new AgentRunStatus(role, RunStates.Running, chapterId);
+            _lastProgress.TryRemove(bookId, out _);
 
             // Any previous source belongs to a finished run — nothing can still be observing it.
             if (_cts.TryRemove(bookId, out var old)) old.Dispose();
@@ -208,17 +212,27 @@ public class AgentRunStateService
         _streamBuffers.GetOrAdd((bookId, chapterId, agentRole), _ => new StreamBuffer());
 
     /// <summary>Returns the accumulated content for a specific streaming call, or null if not found.</summary>
-    public string? GetStreamBufferContent(int bookId, int? chapterId, string? agentRole)
-    {
-        if (agentRole is not null)
-            return _streamBuffers.TryGetValue((bookId, chapterId, agentRole), out var sb) ? sb.ToString() : null;
+    public string? GetStreamBufferContent(int bookId, int? chapterId, string agentRole) =>
+        _streamBuffers.TryGetValue((bookId, chapterId, agentRole), out var sb) ? sb.ToString() : null;
 
-        // No role specified — return the first non-empty buffer for this book+chapter combination
+    /// <summary>
+    /// The call currently streaming to the UI for a book, with the text sent so far — what a page
+    /// loaded mid-call needs to show the content it missed. Null when nothing is streaming.
+    /// </summary>
+    public LiveStream? GetLiveStream(int bookId)
+    {
         foreach (var kvp in _streamBuffers)
-            if (kvp.Key.BookId == bookId && kvp.Key.ChapterId == chapterId && kvp.Value.Length > 0)
-                return kvp.Value.ToString();
+            if (kvp.Key.BookId == bookId && kvp.Value.IsLive)
+                return new LiveStream(kvp.Key.AgentRole, kvp.Key.ChapterId, kvp.Value.VisibleText());
         return null;
     }
+
+    // ─── Progress ───────────────────────────────────────────────────────────────
+
+    /// <summary>Records the run's latest progress message, so a page loaded mid-run can show it.</summary>
+    public void SetLastProgress(int bookId, string step) => _lastProgress[bookId] = step;
+
+    public string? GetLastProgress(int bookId) => _lastProgress.GetValueOrDefault(bookId);
 
     /// <summary>Removes all stream buffers for a book. Call when the run reaches a terminal state.</summary>
     public void ClearStreamBuffers(int bookId)
@@ -295,6 +309,9 @@ public class AgentRunStateService
         _status[bookId] = new AgentRunStatus(role, RunStates.Running, chapterId);
 }
 
+/// <summary>The call streaming to the UI and the text it has sent so far.</summary>
+public record LiveStream(string AgentRole, int? ChapterId, string Content);
+
 /// <summary>
 /// Accumulated content of one streaming LLM call. Written by the agent while it streams and read
 /// concurrently by the HTTP endpoint that restores a stream after a page refresh, so every access
@@ -305,8 +322,34 @@ public sealed class StreamBuffer
 {
     private readonly System.Text.StringBuilder _sb = new();
     private readonly object _lock = new();
+    private bool _live;
+    private int _visibleLength = -1;
 
     public int Length { get { lock (_lock) return _sb.Length; } }
+
+    /// <summary>True while a call is streaming this buffer to the UI.</summary>
+    public bool IsLive { get { lock (_lock) return _live; } }
+
+    /// <summary>Clears the buffer for a new call; <paramref name="live"/> when the call streams to the UI.</summary>
+    public void Begin(bool live)
+    {
+        lock (_lock) { _sb.Clear(); _live = live; _visibleLength = -1; }
+    }
+
+    /// <summary>Ends the live phase; the content stays readable for partial-response salvage.</summary>
+    public void End() { lock (_lock) _live = false; }
+
+    /// <summary>Stops the UI copy at <paramref name="length"/> characters — what follows is accumulated but never streamed.</summary>
+    public void HideFrom(int length)
+    {
+        lock (_lock) if (_visibleLength < 0) _visibleLength = Math.Clamp(length, 0, _sb.Length);
+    }
+
+    /// <summary>The part of the content the UI has been sent.</summary>
+    public string VisibleText()
+    {
+        lock (_lock) return _visibleLength < 0 ? _sb.ToString() : _sb.ToString(0, _visibleLength);
+    }
 
     public void Append(string text) { lock (_lock) _sb.Append(text); }
 

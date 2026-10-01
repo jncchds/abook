@@ -8,12 +8,11 @@ import {
 import type { CharacterCard, CharacterCardVersion, CharactersSnapshotMeta } from '../../api'
 import { parseCharactersStream } from '../../utils/streamParsers'
 import PhaseActionBar from '../../components/PhaseActionBar'
-import { useRestoreStream } from '../../hooks/useRestoreStream'
 import CharacterVisualPanel from '../../components/CharacterVisualPanel'
 
 export default function Characters() {
   const {
-    book, characters, setCharacters, charactersStream, setCharactersStream,
+    book, characters, setCharacters, charactersStream,
     isRunning, canEdit, illustrations, refreshIllustrations, handleRenderIllustrations, handlePlanIllustrations,
   } = useBookContext()
 
@@ -33,9 +32,6 @@ export default function Characters() {
   const [itemVersions, setItemVersions] = useState<CharacterCardVersion[]>([])
   const [loadingItemHistory, setLoadingItemHistory] = useState(false)
   const [restoringVersion, setRestoringVersion] = useState(false)
-
-  useRestoreStream(book?.id, isRunning, charactersStream, 'CharactersAgent', undefined,
-    (content) => setCharactersStream(prev => prev.length >= content.length ? prev : content))
 
   if (!book) return null
 

@@ -68,6 +68,45 @@ public class AgentRunStateServiceTests
     {
         Assert.False(NewService().CancelRun(42));
     }
+
+    [Fact]
+    public void GetLiveStream_ReturnsOnlyTheCallStreamingNow()
+    {
+        var state = NewService();
+        var bible = state.GetOrCreateStreamBuffer(1, null, nameof(AgentRole.StoryBibleAgent));
+        bible.Begin(live: true);
+        bible.Append("# Bible");
+        bible.End();
+        var writer = state.GetOrCreateStreamBuffer(1, 4, nameof(AgentRole.Writer));
+        writer.Begin(live: true);
+        writer.Append("Once upon");
+
+        var live = state.GetLiveStream(1);
+        Assert.Equal(new LiveStream(nameof(AgentRole.Writer), 4, "Once upon"), live);
+        Assert.Null(state.GetLiveStream(2));
+
+        writer.End();
+        Assert.Null(state.GetLiveStream(1));
+    }
+
+    [Fact]
+    public void GetLiveStream_IgnoresCallsNotForwardedToUi()
+    {
+        var state = NewService();
+        var checker = state.GetOrCreateStreamBuffer(1, null, nameof(AgentRole.ContinuityChecker));
+        checker.Begin(live: false);
+        checker.Append("{\"issues\": []}");
+        Assert.Null(state.GetLiveStream(1));
+    }
+
+    [Fact]
+    public void TryStartRun_ClearsPreviousRunsProgress()
+    {
+        var state = NewService();
+        state.SetLastProgress(1, "Workflow complete!");
+        state.TryStartRun(1, AgentRole.Planner, null, out _);
+        Assert.Null(state.GetLastProgress(1));
+    }
 }
 
 public class StreamBufferTests
@@ -97,6 +136,23 @@ public class StreamBufferTests
         b.Set("final");
         Assert.Equal("final", b.ToString());
         Assert.Equal(5, b.Length);
+    }
+
+    [Fact]
+    public void HideFrom_KeepsContentButLimitsVisibleText()
+    {
+        var b = new StreamBuffer();
+        b.Begin(live: true);
+        b.Append("Prose.\n");
+        b.HideFrom(b.Length);
+        b.Append("## Editorial Notes\n");
+        b.HideFrom(0); // only the first stop point counts
+        Assert.Equal("Prose.\n", b.VisibleText());
+        Assert.Equal("Prose.\n## Editorial Notes\n", b.ToString());
+
+        b.Begin(live: true);
+        b.Append("Next call");
+        Assert.Equal("Next call", b.VisibleText());
     }
 }
 

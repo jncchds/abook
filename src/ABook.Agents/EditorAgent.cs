@@ -83,7 +83,7 @@ public class EditorAgent : AgentBase
 
         chapter.Status = ChapterStatus.Editing;
         await Repo.UpdateChapterAsync(chapter);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, RunStates.Running, chapterId, ct);
+        await ReportRunningAsync(bookId, AgentRole.Editor, chapterId, ct);
     }
 
     private async Task ApplyPatchesAsync(int bookId, int chapterId, CheckerResult result,

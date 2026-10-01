@@ -99,8 +99,9 @@ function BookSidebar() {
       {isRunning ? (
         <>
           {(() => {
-            const chNum = streamingChapterId
-              ? (book.chapters ?? []).find(c => c.id === streamingChapterId)?.number ?? null
+            const chId = runStatus?.chapterId ?? streamingChapterId
+            const chNum = chId
+              ? (book.chapters ?? []).find(c => c.id === chId)?.number ?? null
               : null
             const label = runStatus?.state === 'WaitingForInput' && openClarificationCount > 0
               ? 'Waiting for your clarifications…'

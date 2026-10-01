@@ -8,12 +8,10 @@ import {
 import type { PlotThread, PlotThreadVersion, PlotThreadsSnapshotMeta } from '../../api'
 import { parsePlotThreadsStream } from '../../utils/streamParsers'
 import PhaseActionBar from '../../components/PhaseActionBar'
-import { useRestoreStream } from '../../hooks/useRestoreStream'
 
 export default function PlotThreads() {
   const {
-    book, plotThreads, setPlotThreads, plotThreadsStream, setPlotThreadsStream,
-    isRunning,
+    book, plotThreads, setPlotThreads, plotThreadsStream,
   } = useBookContext()
 
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -32,9 +30,6 @@ export default function PlotThreads() {
   const [itemVersions, setItemVersions] = useState<PlotThreadVersion[]>([])
   const [loadingItemHistory, setLoadingItemHistory] = useState(false)
   const [restoringVersion, setRestoringVersion] = useState(false)
-
-  useRestoreStream(book?.id, isRunning, plotThreadsStream, 'PlotThreadsAgent', undefined,
-    (content) => setPlotThreadsStream(prev => prev.length >= content.length ? prev : content))
 
   if (!book) return null
 

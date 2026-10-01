@@ -5,7 +5,6 @@ import { useBookContext } from '../../contexts/BookContext'
 import { updateChapter, clearChapterContent, archiveChapter, restoreChapter, getChapterVersions, getChapterVersion, activateChapterVersion } from '../../api'
 import type { ChapterVersionMeta, ChapterVersionFull } from '../../api'
 import { chapterStatusColor } from '../../utils/chapterStatus'
-import { useRestoreStream } from '../../hooks/useRestoreStream'
 import ChapterContent from '../../components/ChapterContent'
 import IllustrationFigure from '../../components/IllustrationFigure'
 import { splitParagraphs } from '../../utils/paragraphs'
@@ -14,7 +13,7 @@ export default function ChapterView() {
   const { chapterId } = useParams<{ chapterId: string }>()
   const navigate = useNavigate()
   const {
-    book, setBook, streamBuffer, streamingChapterId, isRunning, canEdit, isWaitingForInput, runStatus, setStreamBuffer, setStreamingChapterId,
+    book, setBook, streamBuffer, streamingChapterId, isRunning, canEdit, isWaitingForInput,
     illustrations, characters, refreshIllustrations, handlePlanIllustrations, handleRenderIllustrations,
   } = useBookContext()
 
@@ -30,18 +29,6 @@ export default function ChapterView() {
   const [activating, setActivating] = useState(false)
 
   const chapter = book?.chapters?.find(c => c.id === Number(chapterId))
-  // Pass the active role so the stream buffer can be located by agentRole on hard-refresh.
-  // Exclude ContinuityChecker — its output is structural analysis, not chapter content.
-  const activeRole = runStatus?.chapterId === chapter?.id && runStatus?.role !== 'ContinuityChecker'
-    ? runStatus?.role
-    : undefined
-
-  // Restore in-progress stream on hard-refresh (must be before early returns)
-  useRestoreStream(book?.id, isRunning, streamBuffer, activeRole, chapter?.id, (content) => {
-    setStreamBuffer(prev => prev.length >= content.length ? prev : content)
-    if (chapter) setStreamingChapterId(chapter.id)
-  })
-
   if (!book) return null
   if (!chapter) return <p className="empty">Chapter not found.</p>
 
