@@ -20,13 +20,13 @@ export default function ChatPage() {
   const {
     messages, pendingQuestion, answerText, setAnswerText,
     handleAnswer, isRunning, clearMessagesForBook, submittingAnswer, answerError,
-    book, sectionTarget, sectionChat,
+    book, sectionTarget, sectionChat, completeSectionChat, sectionChatError,
   } = useBookContext()
   const navigate = useNavigate()
 
   const chatBottomRef = useRef<HTMLDivElement>(null)
-  // The section snapshot sent to the section chat's LLM is not a message anyone wrote.
-  const visible = messages.filter(m => m.messageType !== 'ChatContext')
+  // The section snapshots the section chat keeps (for its LLM, its diffs and Undo) are not messages anyone wrote.
+  const visible = messages.filter(m => m.messageType !== 'ChatContext' && m.messageType !== 'ChatChange')
   const chapterNumber = sectionTarget?.chapterId
     ? book?.chapters?.find(c => c.id === sectionTarget.chapterId)?.number
     : null
@@ -92,7 +92,7 @@ export default function ChatPage() {
               placeholder="Optional instructions for the creative rewrite…"
             />
           )}
-          {answerError && <p className="error-msg" role="alert">{answerError}</p>}
+          {sectionChatError && <p className="error-msg" role="alert">{sectionChatError}</p>}
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             <button onClick={() => navigate(sectionPath(book.id, sectionTarget))}>
               💬 Open the {sectionLabel(sectionTarget, chapterNumber)} chat
@@ -100,7 +100,8 @@ export default function ChatPage() {
             <button
               className="btn-sm btn-ghost"
               disabled={submittingAnswer || !!sectionChat?.busy}
-              onClick={() => handleAnswer(sectionTarget.section === 'Chapter' ? answerText : '')}
+              title="Continue without a note — open the chat to save the decisions from it"
+              onClick={() => void completeSectionChat(null, sectionTarget.section === 'Chapter' ? answerText : null)}
             >
               {submittingAnswer ? 'Completing…' : '✓ Complete'}
             </button>

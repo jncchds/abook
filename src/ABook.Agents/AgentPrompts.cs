@@ -864,6 +864,21 @@ public static class PromptTemplates
         "Repeat every thread you keep, with the exact same \"name\"; threads you leave out are archived.";
     public const string SectionChatOutlinesRemoval =
         "Repeat every chapter you keep with its \"number\"; chapters you leave out are removed, except those already written.";
+    public const string SectionChatOneOutlineRemoval =
+        "One object for this chapter only, keeping its \"number\". Put the details the author adds into \"outline\" " +
+        "(or the notes fields) so the writer of the chapter sees them.";
+
+    /// <summary>The background block for one chapter's outline: the plan, the chapters before it and the thread names.</summary>
+    public static string SectionChatOutlineBackground(string planBackground, string synopses, IEnumerable<string> threadNames)
+    {
+        var threads = string.Join(", ", threadNames);
+        return string.Join("\n\n", new[]
+        {
+            planBackground,
+            threads.Length > 0 ? $"Plot threads: {threads}" : "",
+            synopses.Length > 0 ? $"Earlier chapters:\n{synopses}" : "",
+        }.Where(s => s.Length > 0));
+    }
 
     /// <summary>The first author turn: the section as it stood when the discussion began, then the author's message.</summary>
     public static string SectionChatOpening(string sectionLabel, string original, string authorMessage) =>
@@ -892,6 +907,23 @@ public static class PromptTemplates
 
         {authorMessage}
         """;
+
+    /// <summary>Reply of a summary call when the discussion holds nothing worth keeping.</summary>
+    public const string SectionChatNothingToKeep = "NONE";
+
+    /// <summary>The last turn of the summary call made when the author completes a review pause.</summary>
+    public static string SectionChatSummaryRequest(string sectionLabel) =>
+        $"""
+        We are done with the {sectionLabel}. Write a short note of the decisions and preferences I expressed in this
+        discussion that should guide the rest of the book — style, tone, characters, plot, rules or things to avoid.
+        Write it as a few bullet points ("- ") in the language I wrote in, addressed to whoever writes the next parts.
+        Leave out changes that only concern the wording of this section and are already made in it.
+        If nothing is worth keeping, reply with exactly {SectionChatNothingToKeep}.
+        Reply with the note only — no introduction and no {SectionChatUpdateMarker} line.
+        """;
+
+    /// <summary>The question a saved section-chat summary is filed under as a clarification.</summary>
+    public static string SectionChatSummaryQuestion(string sectionLabel) => $"Decisions from the {sectionLabel} discussion";
 
     /// <summary>The background block for chapter prose: the chapter's outline and the story so far.</summary>
     public static string SectionChatChapterBackground(Chapter chapter, string synopses) =>

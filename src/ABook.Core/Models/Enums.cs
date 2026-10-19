@@ -20,6 +20,11 @@ public enum MessageType
     ChatUser,
     /// <summary>Section chat: the LLM's reply.</summary>
     ChatReply,
+    /// <summary>
+    /// Section chat: one change made to the section — JSON <c>{ replyId, before, after }</c> holding the
+    /// section rendered before and after it. Shown as a diff on its reply and used by Undo; hidden in the UI.
+    /// </summary>
+    ChatChange,
 }
 
 public enum LlmProvider { Ollama, OpenAI, GoogleAIStudio, OpenAICompatible }
@@ -42,10 +47,10 @@ public enum PlotThreadStatus { Active, Resolved, Dormant }
 
 /// <summary>
 /// Where a clarification came from: a planner question answered on the Clarifications page, an author
-/// note after a planning phase (also in the chat), one the author added, or one imported from the
-/// chat-based Q&amp;A of older books.
+/// note after a planning phase (up to v0.3.0), one the author added, one imported from the chat-based
+/// Q&amp;A of older books, or the decisions of a section chat the author saved when completing a review pause.
 /// </summary>
-public enum ClarificationSource { Planner, PhaseNote, Author, Imported }
+public enum ClarificationSource { Planner, PhaseNote, Author, Imported, ChatSummary }
 
 public enum AgentRunPersistStatus
 {

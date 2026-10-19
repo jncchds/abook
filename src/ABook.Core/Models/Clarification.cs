@@ -21,6 +21,7 @@ public class Clarification
     public DateTime? AnsweredAt { get; set; }
     /// <summary>
     /// For a PhaseNote: the chat question it answers (its answer message points back at that question).
+    /// For a ChatSummary: the review pause whose section chat it summarises.
     /// Null for other sources and for phase notes saved before v0.3.0.
     /// </summary>
     public int? QuestionMessageId { get; set; }

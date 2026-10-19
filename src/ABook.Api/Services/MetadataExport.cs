@@ -218,6 +218,10 @@ internal static class MetadataExport
                     yield return new Ev(c.CreatedAt, Cat.Planning, Author, "Added a clarification",
                         ClarificationQa(c) + aftermath);
                     break;
+                case ClarificationSource.ChatSummary:
+                    yield return new Ev(c.CreatedAt, Cat.Planning, Author, "Kept the decisions of a section chat",
+                        ClarificationQa(c) + aftermath);
+                    break;
                 default:
                     if (c.IsArchived)
                         yield return new Ev(c.UpdatedAt, Cat.Planning, Author, "Archived a clarification", ClarificationQa(c));
@@ -530,8 +534,8 @@ internal static class MetadataExport
             }
             if (m.MessageType == MessageType.Answer && m.QuestionMessageId is int answered && questionIds.Contains(answered))
                 continue;
-            // The section snapshot sent to the section chat's LLM — the section's own history covers it.
-            if (m.MessageType == MessageType.ChatContext)
+            // Section snapshots of the section chat — the section's own history covers them.
+            if (m.MessageType is MessageType.ChatContext or MessageType.ChatChange)
                 continue;
             if (m.MessageType == MessageType.Question && answerTo.TryGetValue(m.Id, out var answer))
             {

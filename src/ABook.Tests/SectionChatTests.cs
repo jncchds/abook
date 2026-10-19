@@ -107,6 +107,7 @@ public class SectionChatTests
     [InlineData(AgentRole.PlotThreadsAgent, null, ChatSection.PlotThreads)]
     [InlineData(AgentRole.Planner, null, ChatSection.ChapterOutlines)]
     [InlineData(AgentRole.Editor, 7, ChatSection.Chapter)]
+    [InlineData(AgentRole.Writer, 7, ChatSection.ChapterOutline)]
     public void FromPause_MapsHumanAssistedPauses(AgentRole role, int? chapterId, ChatSection expected)
     {
         var target = SectionChatTarget.FromPause(new AgentMessage
@@ -116,6 +117,37 @@ public class SectionChatTests
         Assert.NotNull(target);
         Assert.Equal(expected, target!.Section);
         Assert.Equal(chapterId, target.ChapterId);
+    }
+
+    [Fact]
+    public void Change_RoundTripsThroughItsMessage()
+    {
+        var json = new SectionChatChange(0, 42, "before\n\"quoted\"", "after").ToJson();
+        var change = SectionChatChange.FromMessage(new AgentMessage { Id = 9, MessageType = MessageType.ChatChange, Content = json });
+        Assert.Equal(new SectionChatChange(9, 42, "before\n\"quoted\"", "after"), change);
+    }
+
+    [Fact]
+    public void Change_UnreadableMessage_IsNull() =>
+        Assert.Null(SectionChatChange.FromMessage(new AgentMessage { Content = "not json" }));
+
+    [Theory]
+    [InlineData("NONE", true)]
+    [InlineData("none.", true)]
+    [InlineData("**NONE**", true)]
+    [InlineData("", true)]
+    [InlineData("- Keep the tone dry.", false)]
+    public void Summary_NothingToKeep(string note, bool expected) =>
+        Assert.Equal(expected, SectionChatAgent.IsNothingToKeep(note));
+
+    [Fact]
+    public void Returning_RestoresLatestArchivedRowOfReturningNamesOnly()
+    {
+        var restored = SectionChatAgent.Returning(
+            incoming: ["Ann", "bob", "Cleo", "Dan"],
+            active: ["Ann"],
+            archived: [(1, "Bob"), (5, "Bob"), (3, "Ann"), (7, "Eve")]).ToList();
+        Assert.Equal([5], restored);   // Ann is active, Cleo/Dan are new, Eve is not returning
     }
 
     [Fact]

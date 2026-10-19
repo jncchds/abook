@@ -972,6 +972,21 @@ button:disabled:hover { background: var(--accent); }
 .section-chat-input { border-top: 1px solid var(--border); padding: 0.6rem 0.75rem; display: flex; flex-direction: column; gap: 0.4rem; }
 .section-chat-input textarea { resize: vertical; }
 
+.section-chat-change-actions { display: flex; gap: 0.4rem; margin-top: 0.4rem; flex-wrap: wrap; }
+.section-chat-diff {
+  margin-top: 0.4rem; max-height: 320px; overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.74rem; line-height: 1.45;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--surface);
+}
+.section-chat-diff > div { padding: 0 0.4rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.section-chat-diff .diff-added { background: rgba(34,197,94,0.15); }
+.section-chat-diff .diff-removed { background: rgba(239,68,68,0.15); text-decoration: line-through; text-decoration-color: rgba(239,68,68,0.5); }
+.section-chat-diff .diff-same { color: var(--text-muted); }
+.section-chat-diff .diff-skip { color: var(--text-muted); font-style: italic; text-align: center; }
+.section-chat-note { flex: 1; overflow-y: auto; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; min-height: 0; }
+.section-chat-note textarea { resize: vertical; }
+.section-chat-note-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+
 /* Narrow screens: the chat becomes a sheet over the bottom of the page. */
 @media (max-width: 900px) {
   .section-chat {

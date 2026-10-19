@@ -14,6 +14,7 @@ export function pauseTarget(q: AgentMessage | null | undefined): SectionTarget |
     case 'PlotThreadsAgent': return { section: 'PlotThreads', chapterId: null }
     case 'Planner':          return q.chapterId ? null : { section: 'ChapterOutlines', chapterId: null }
     case 'Editor':           return q.chapterId ? { section: 'Chapter', chapterId: q.chapterId } : null
+    case 'Writer':           return q.chapterId ? { section: 'ChapterOutline', chapterId: q.chapterId } : null
     default:                 return null
   }
 }
@@ -25,6 +26,7 @@ export function sectionPath(bookId: number, t: SectionTarget): string {
     case 'Characters':      return `/books/${bookId}/characters`
     case 'PlotThreads':     return `/books/${bookId}/plot-threads`
     case 'ChapterOutlines': return `/books/${bookId}/chapters`
+    case 'ChapterOutline':
     case 'Chapter':         return `/books/${bookId}/chapters/${t.chapterId}`
   }
 }
@@ -35,6 +37,7 @@ export function sectionLabel(t: SectionTarget, chapterNumber?: number | null): s
     case 'Characters':      return 'Characters'
     case 'PlotThreads':     return 'Plot Threads'
     case 'ChapterOutlines': return 'Chapter Outlines'
+    case 'ChapterOutline':  return chapterNumber ? `Chapter ${chapterNumber} outline` : 'chapter outline'
     case 'Chapter':         return chapterNumber ? `Chapter ${chapterNumber}` : 'Chapter'
   }
 }

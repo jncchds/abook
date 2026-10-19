@@ -179,17 +179,30 @@ export interface AgentMessage {
 }
 
 /** The section a human-assisted pause lets the author discuss with the LLM. */
-export type ChatSection = 'StoryBible' | 'Characters' | 'PlotThreads' | 'ChapterOutlines' | 'Chapter'
+/** `ChapterOutline` = one chapter's outline before it is written; `Chapter` = its prose before the rewrite. */
+export type ChatSection = 'StoryBible' | 'Characters' | 'PlotThreads' | 'ChapterOutlines' | 'ChapterOutline' | 'Chapter'
+
+/** One change the chat made: the section before and after it, and the reply that made it. */
+export interface SectionChatChange {
+  id: number
+  replyId: number
+  before: string
+  after: string
+}
 
 export interface SectionChatState {
   section: ChatSection
   chapterId: number | null
-  /** The LLM is writing a reply; the pause cannot be completed meanwhile. */
+  /** The LLM is working; the pause cannot be completed meanwhile. */
   busy: boolean
   /** The run is still parked on this pause. */
   live: boolean
   /** ChatUser and ChatReply messages, oldest first. */
   messages: AgentMessage[]
+  /** Oldest first; Undo reverts the last one. */
+  changes: SectionChatChange[]
+  /** False when the section was edited by hand after the latest change — Undo would discard that edit. */
+  undoKeepsEdits: boolean
 }
 
 export interface LlmSettings {
@@ -322,6 +335,15 @@ export const getSectionChat = (bookId: number, questionMessageId: number) =>
 /** The reply arrives later over SignalR (SectionChatUpdated). */
 export const postSectionChat = (bookId: number, questionMessageId: number, message: string) =>
   api.post(`/books/${bookId}/section-chat/${questionMessageId}`, { message })
+/** Runs in the background like a reply. */
+export const undoSectionChat = (bookId: number, questionMessageId: number) =>
+  api.post(`/books/${bookId}/section-chat/${questionMessageId}/undo`)
+/** Waits for the LLM; `summary` is empty when there is nothing worth keeping. */
+export const summarizeSectionChat = (bookId: number, questionMessageId: number) =>
+  api.post<{ summary: string }>(`/books/${bookId}/section-chat/${questionMessageId}/summary`)
+/** Saves `note` as a clarification (when given) and resumes the run. */
+export const completeSectionReview = (bookId: number, questionMessageId: number, note: string | null, answer: string | null) =>
+  api.post(`/books/${bookId}/section-chat/${questionMessageId}/complete`, { note, answer })
 
 // Agent actions
 export const startPlanning = (bookId: number) => api.post(`/books/${bookId}/agent/plan`)

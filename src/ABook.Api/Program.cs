@@ -114,6 +114,7 @@ builder.Services.AddMcpServer()
     .WithTools<BookMcpTools>()
     .WithTools<ContentMcpTools>()
     .WithTools<AgentMcpTools>()
+    .WithTools<SectionChatMcpTools>()
     .WithTools<IllustrationMcpTools>();
 // ── Public mode ───────────────────────────────────────────────────────────────
 var isPublicMode = builder.Configuration.GetValue<bool>("PublicMode");

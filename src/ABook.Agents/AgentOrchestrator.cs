@@ -343,6 +343,18 @@ public class AgentOrchestrator : IAgentOrchestrator
             await _continuity.PreWriteCheckAndFixAsync(bookId, chapter.Id, ct);
             ct.ThrowIfCancellationRequested();
 
+            // Human pause on the checked outline: the author adds details (by hand or in the section chat)
+            // before the Writer reads it — the Writer loads the chapter fresh.
+            if (humanAssisted)
+            {
+                _state.UpdateRunRole(bookId, AgentRole.Writer, chapter.Id);
+                await _questions.AskSingleOptionalAsync(bookId, chapter.Id, AgentRole.Writer,
+                    $"The outline of Chapter {chapter.Number} (\"{chapter.Title}\") has been checked. Edit it yourself " +
+                    "or ask the LLM for changes in the chat on the chapter's page — add any details the Writer should " +
+                    "use — then press Complete to write the chapter.", ct);
+                ct.ThrowIfCancellationRequested();
+            }
+
             _state.UpdateRunRole(bookId, AgentRole.Writer, chapter.Id);
             await _notifier.NotifyWorkflowProgressAsync(bookId,
                 $"Writing Chapter {chapter.Number}: {chapter.Title}…", false, ct);

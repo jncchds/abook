@@ -4,6 +4,7 @@ import axios from 'axios'
 import type { Book, AgentMessage, AgentRunStatus, StoryBible, CharacterCard, PlotThread, Illustration, IllustrationPlanScope, RenderScope, Clarification, SectionChatState } from '../api'
 import {
   getBook, getMessages, postAnswer, getAgentStatus, getSectionChat, postSectionChat,
+  undoSectionChat, summarizeSectionChat, completeSectionReview,
   startPlanning, continuePlanning, completePlanningPhase, reopenPlanningPhase, clearPlanningPhase,
   startWorkflow, continueWorkflow, stopWorkflow,
   getTokenUsage, clearMessages, clearTokenUsage,
@@ -112,6 +113,12 @@ interface BookContextValue {
   sectionChatError: string | null
   /** Sends a message; resolves true when it was accepted. */
   sendSectionChatMessage: (text: string) => Promise<boolean>
+  /** Reverts the chat's latest change (runs in the background like a reply). */
+  undoSectionChatChange: () => Promise<void>
+  /** Drafts the note of decisions for Complete; null when the request failed. */
+  draftSectionChatSummary: () => Promise<string | null>
+  /** Saves `note` as a clarification when given and resumes the run; resolves true on success. */
+  completeSectionChat: (note: string | null, answer?: string | null) => Promise<boolean>
   handleWriteBook: () => Promise<void>
   handlePlanBook: () => Promise<void>
   handleStop: () => Promise<void>
@@ -364,7 +371,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     else if (t.section === 'Characters') getCharacters(bookId, true).then(r => setCharacters(r.data)).catch(() => {})
     else if (t.section === 'PlotThreads') getPlotThreads(bookId, true).then(r => setPlotThreads(r.data)).catch(() => {})
     else if (t.section === 'ChapterOutlines') getChapters(bookId).then(r => setBook(prev => prev ? { ...prev, chapters: r.data } : prev)).catch(() => {})
-    else if (t.chapterId !== null) {
+    else if (t.chapterId !== null) {   // Chapter and ChapterOutline
       const cId = t.chapterId
       getChapter(bookId, cId)
         .then(r => setBook(prev => prev ? { ...prev, chapters: prev.chapters?.map(ch => ch.id === cId ? r.data : ch) } : prev))
@@ -398,6 +405,50 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       const message = axios.isAxiosError(err) ? (err.response?.data?.message ?? err.message) : String(err)
       setSectionChatError(`Could not send the message: ${message}`)
       return false
+    }
+  }
+
+  const errorText = (err: unknown) =>
+    axios.isAxiosError(err) ? (err.response?.data?.message ?? err.message) : String(err)
+
+  const undoSectionChatChange = async () => {
+    if (chatPauseId === null) return
+    setSectionChatError(null)
+    try {
+      await undoSectionChat(bookId, chatPauseId)
+      setSectionChat(prev => prev ? { ...prev, busy: true } : prev)
+    } catch (err) {
+      setSectionChatError(`Could not undo: ${errorText(err)}`)
+    }
+  }
+
+  const draftSectionChatSummary = async () => {
+    if (chatPauseId === null) return null
+    setSectionChatError(null)
+    try {
+      return (await summarizeSectionChat(bookId, chatPauseId)).data.summary
+    } catch (err) {
+      setSectionChatError(`Could not draft the summary: ${errorText(err)}`)
+      return null
+    }
+  }
+
+  const completeSectionChat = async (note: string | null, answer: string | null = null) => {
+    if (chatPauseId === null) return false
+    setSectionChatError(null)
+    setSubmittingAnswer(true)
+    try {
+      await completeSectionReview(bookId, chatPauseId, note?.trim() || null, answer?.trim() || null)
+      setAnswerText('')
+      setPendingQuestion(null)
+      refreshMessages()
+      if (note?.trim()) refreshClarifications()
+      return true
+    } catch (err) {
+      setSectionChatError(`Could not complete: ${errorText(err)}`)
+      return false
+    } finally {
+      setSubmittingAnswer(false)
     }
   }
 
@@ -732,6 +783,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     refreshBook, refreshMessages,
     handleAnswer,
     sectionTarget, sectionChat, sectionChatStream, sectionChatError, sendSectionChatMessage,
+    undoSectionChatChange, draftSectionChatSummary, completeSectionChat,
     handleWriteBook, handlePlanBook, handleStop, handleContinue,
     handleCompletePhase, handleReopenPhase, handleClearPhase, isPhaseComplete,
     clearMessagesForBook, clearTokenUsageForBook,
