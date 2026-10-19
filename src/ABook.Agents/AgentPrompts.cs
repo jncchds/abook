@@ -412,9 +412,6 @@ public static class PromptTemplates
     /// <summary>Joins passage blocks retrieved by separate RAG queries.</summary>
     public static string JoinRagGroups(IEnumerable<string> groups) => string.Join("\n\n===\n\n", groups);
 
-    /// <summary>The question a human-assisted planning note is saved under as a clarification.</summary>
-    public static string NoteAfterPhaseQuestion(string phaseLabel) => $"Anything to add after the {phaseLabel}?";
-
     /// <summary>One answered clarifying question, as appended to the premise.</summary>
     public static string QuestionAndAnswer(string question, string answer) =>
         $"Q: {question}\nA: {answer}\n";
@@ -819,6 +816,110 @@ public static class PromptTemplates
                       "the affected element appears. Preserve all other prose exactly as written.");
 
         return sb.ToString();
+    }
+
+    // ── Section chat (human-assisted pauses) ──────────────────────────────────
+
+    /// <summary>The line that separates the chat reply from the updated section in a section-chat response.</summary>
+    public const string SectionChatUpdateMarker = "<<<UPDATED SECTION>>>";
+
+    /// <summary>
+    /// System prompt for the chat the author holds with the LLM about one section while the run is paused.
+    /// <paramref name="updateFormat"/> says what the updated section must look like (JSON shape or prose);
+    /// <paramref name="background"/> is the rest of the plan the section must stay consistent with.
+    /// </summary>
+    public static string SectionChatSystem(Book book, string sectionLabel, string updateFormat, string background) =>
+        $"""
+        You are the writing partner of the author of the book "{book.Title}" ({book.Genre}; written in {book.Language}).
+        The author paused the generation pipeline to review the {sectionLabel} and is discussing it with you.
+
+        Premise: {Premise(book)}
+        {(background.Length > 0 ? $"\n{background}\n" : "")}
+        How to respond:
+        - Answer the author's questions and comments directly and concisely, in the language the author writes in.
+        - When the author asks for a change, or agrees to a change you proposed, make it. Change only what is
+          needed; keep everything else exactly as it is.
+        - Do not change the section when the author only asks a question or makes a comment that needs no change.
+          Propose a change and wait for agreement when the request is ambiguous.
+        - To change the section, finish your reply with a line containing exactly
+          {SectionChatUpdateMarker}
+          followed by the complete updated {sectionLabel}: {updateFormat}
+          Write nothing after it. Never write that line otherwise, and never paste the section into your reply.
+        - Briefly say in your reply what you changed.
+        """;
+
+    /// <summary>What a section-chat update must look like for a planning section held as JSON.</summary>
+    public static string SectionChatJsonFormat(string removal) =>
+        $"JSON in exactly the shape you were given it, with the same field names, without code fences. {removal}";
+
+    /// <summary>What a section-chat update must look like for chapter prose.</summary>
+    public static string SectionChatProseFormat(Book book) =>
+        $"the full chapter prose in {book.Language} as plain text — every paragraph, not only the changed ones — " +
+        "with no chapter heading, no commentary and no code fences.";
+
+    public const string SectionChatStoryBibleRemoval = "One object holding every field.";
+    public const string SectionChatCharactersRemoval =
+        "Repeat every character you keep, with the exact same \"name\"; characters you leave out are archived.";
+    public const string SectionChatPlotThreadsRemoval =
+        "Repeat every thread you keep, with the exact same \"name\"; threads you leave out are archived.";
+    public const string SectionChatOutlinesRemoval =
+        "Repeat every chapter you keep with its \"number\"; chapters you leave out are removed, except those already written.";
+
+    /// <summary>The first author turn: the section as it stood when the discussion began, then the author's message.</summary>
+    public static string SectionChatOpening(string sectionLabel, string original, string authorMessage) =>
+        $"""
+        This is the {sectionLabel} as it stands at the start of our discussion:
+
+        {original}
+
+        ---
+
+        {authorMessage}
+        """;
+
+    /// <summary>
+    /// The latest author turn when the section changed since the discussion began (the LLM's updates or the
+    /// author's own edits): the current version, so the model always works from what is saved.
+    /// </summary>
+    public static string SectionChatWithCurrent(string sectionLabel, string current, string authorMessage) =>
+        $"""
+        The {sectionLabel} has changed since the start of our discussion (your updates and/or my own edits).
+        This is its current version — work from it:
+
+        {current}
+
+        ---
+
+        {authorMessage}
+        """;
+
+    /// <summary>The background block for chapter prose: the chapter's outline and the story so far.</summary>
+    public static string SectionChatChapterBackground(Chapter chapter, string synopses) =>
+        $"""
+        {(synopses.Length > 0 ? $"Story so far:\n{synopses}\n\n" : "")}Chapter {chapter.Number} "{chapter.Title}" outline: {chapter.Outline}
+        """;
+
+    /// <summary>The background block for planning sections: the parts of the plan already settled.</summary>
+    public static string SectionChatPlanBackground(StoryBible? bible, IEnumerable<CharacterCard>? characters)
+    {
+        var sb = new StringBuilder();
+        if (bible is not null)
+        {
+            sb.AppendLine("Story Bible:");
+            sb.AppendLine($"Setting: {bible.SettingDescription}");
+            sb.AppendLine($"Time period: {bible.TimePeriod}");
+            sb.AppendLine($"Themes: {bible.Themes}");
+            sb.AppendLine($"Tone & style: {bible.ToneAndStyle}");
+            sb.AppendLine($"World rules: {bible.WorldRules}");
+        }
+        var cast = characters?.ToList() ?? [];
+        if (cast.Count > 0)
+        {
+            if (sb.Length > 0) sb.AppendLine();
+            sb.AppendLine("Characters:");
+            sb.AppendLine(CharacterSummary(cast));
+        }
+        return sb.ToString().TrimEnd();
     }
 
     // ── Pre-write outline check (Continuity Checker) ──────────────────────────

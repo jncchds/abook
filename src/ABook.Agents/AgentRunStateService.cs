@@ -262,6 +262,33 @@ public class AgentRunStateService
     public void SetPending(int bookId, int messageId, TaskCompletionSource<string> tcs) =>
         _pending[bookId] = (messageId, tcs);
 
+    /// <summary>The question message a live run of this book is parked on, or null when none is.</summary>
+    public int? GetPendingMessageId(int bookId) =>
+        _pending.TryGetValue(bookId, out var pending) && !pending.Tcs.Task.IsCompleted ? pending.MessageId : null;
+
+    /// <summary>The cancellation token of the book's live run (cancelled by Stop), or false when no run owns one.</summary>
+    public bool TryGetRunToken(int bookId, out CancellationToken ct)
+    {
+        ct = CancellationToken.None;
+        if (!_cts.TryGetValue(bookId, out var cts)) return false;
+        try { ct = cts.Token; return true; }
+        catch (ObjectDisposedException) { return false; }
+    }
+
+    // ── Section chat ────────────────────────────────────────────────────────────
+
+    // bookId → pause question whose section chat is waiting for an LLM reply
+    private readonly ConcurrentDictionary<int, int> _sectionChatBusy = new();
+
+    /// <summary>Claims the book's section chat for one reply. False when a reply is already in progress.</summary>
+    public bool TryBeginSectionChat(int bookId, int questionMessageId) =>
+        _sectionChatBusy.TryAdd(bookId, questionMessageId);
+
+    public void EndSectionChat(int bookId) => _sectionChatBusy.TryRemove(bookId, out _);
+
+    /// <summary>True while the section chat is waiting for a reply — the pause must not be answered then.</summary>
+    public bool IsSectionChatBusy(int bookId) => _sectionChatBusy.ContainsKey(bookId);
+
     public bool TryResolvePending(int bookId, int messageId, string answer)
     {
         if (_pending.TryGetValue(bookId, out var pending) && pending.MessageId == messageId)

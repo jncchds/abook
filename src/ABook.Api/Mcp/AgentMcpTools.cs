@@ -134,7 +134,7 @@ public class AgentMcpTools : McpToolBase
     // ── Human-in-the-loop ─────────────────────────────────────────────────────
 
     [McpServerTool(Name = "answer_agent_question")]
-    [Description("Answer a question posed by a paused agent (human-assisted pauses). Use get_agent_status to detect WaitingForInput state, then get_agent_messages to find the unanswered Question message and its ID. Submitting the answer unblocks the agent and it resumes generation. The planner's clarifying questions are not messages — answer those with list_clarifications / update_clarification.")]
+    [Description("Answer a question posed by a paused agent (human-assisted pauses). Use get_agent_status to detect WaitingForInput state, then get_agent_messages to find the unanswered Question message and its ID. Submitting the answer unblocks the agent and it resumes generation. After a planning phase the pause is a review step and the answer text is ignored (send e.g. \"ok\"); before a chapter's creative rewrite the answer is passed to the rewrite as author instructions. The planner's clarifying questions are not messages — answer those with list_clarifications / update_clarification.")]
     public async Task<string> AnswerAgentQuestion(
         [Description("The ID of the AgentMessage with MessageType=Question that you are answering (from get_agent_messages).")] int messageId,
         [Description("Your answer to the agent's question.")] string answer)
@@ -145,6 +145,8 @@ public class AgentMcpTools : McpToolBase
         var message = await _repo.FindMessageByIdAsync(messageId)
             ?? throw new McpException($"Message {messageId} not found.");
         await EnsureBookOwnershipAsync(message.BookId, _repo);
+        if (_runState.IsSectionChatBusy(message.BookId))
+            throw new McpException("The LLM is still answering in the section chat. Wait for its reply, then answer.");
 
         using var scope = _scopeFactory.CreateScope();
         var orchestrator = scope.ServiceProvider.GetRequiredService<IAgentOrchestrator>();

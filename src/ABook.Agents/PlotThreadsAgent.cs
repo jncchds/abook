@@ -176,7 +176,11 @@ public class PlotThreadsAgent : AgentBase
     }
 
     private Task SaveVersionsAsync(int bookId, IReadOnlyList<PlotThread> threads) =>
-        Repo.AddPlotThreadVersionsBatchAsync(threads.Select(thread => new ABook.Core.Models.PlotThreadVersion
+        Repo.AddPlotThreadVersionsBatchAsync(VersionsOf(bookId, threads, AgentCreatedBy.PlotThreads));
+
+    /// <summary>One history version per saved thread, attributed to <paramref name="createdBy"/>.</summary>
+    internal static IEnumerable<PlotThreadVersion> VersionsOf(int bookId, IEnumerable<PlotThread> threads, string createdBy) =>
+        threads.Select(thread => new PlotThreadVersion
         {
             PlotThreadId = thread.Id,
             BookId = bookId,
@@ -186,8 +190,8 @@ public class PlotThreadsAgent : AgentBase
             IntroducedChapterNumber = thread.IntroducedChapterNumber,
             ResolvedChapterNumber = thread.ResolvedChapterNumber,
             Status = thread.Status,
-            CreatedBy = AgentCreatedBy.PlotThreads,
-        }));
+            CreatedBy = createdBy,
+        });
 
     /// <param name="skipped">Receives one line per rejected element, naming the reason and the offending JSON.</param>
     internal static List<PlotThread> Parse(int bookId, string raw, List<string>? skipped = null)

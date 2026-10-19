@@ -451,8 +451,9 @@ public class AgentOrchestrator : IAgentOrchestrator
 
         var question =
             $"Chapter {chapter.Number} (\"{chapter.Title}\") — {applied}. {next}\n\n" +
-            "You can edit the chapter, characters, plot threads or outlines right now; the next step " +
-            "reads them fresh. Anything you type here is passed to the rewrite as author instructions.";
+            "You can edit the chapter, characters, plot threads or outlines right now, or discuss the chapter " +
+            "with the LLM in the chat on its page; the next step reads them fresh. Anything you type here is " +
+            "passed to the rewrite as author instructions.";
 
         return (await _questions.AskSingleOptionalAsync(
             bookId, chapter.Id, AgentRole.Editor, question, ct)).Trim();
@@ -516,9 +517,9 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             bible = await _storyBibleAgent.RunAsync(book, ct);
 
-            book = await ApplyHumanAssistedNoteAsync(bookId, book, AgentRole.StoryBibleAgent,
-                "Story Bible is complete. Want anything to add before moving to Characters?",
-                "Story Bible", ct);
+            // Edited during the pause (by hand or in the section chat)? The next phase must see that.
+            if (await PauseForReviewAsync(bookId, book, AgentRole.StoryBibleAgent, "Story Bible", "Characters", ct))
+                bible = await _repo.GetStoryBibleAsync(bookId) ?? bible;
         }
 
         // Phase 2: Character Cards
@@ -532,9 +533,8 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             characters = await _charactersAgent.RunAsync(book, bible, ct);
 
-            book = await ApplyHumanAssistedNoteAsync(bookId, book, AgentRole.CharactersAgent,
-                "Characters are complete. Want anything to add before moving to Plot Threads?",
-                "Characters", ct);
+            if (await PauseForReviewAsync(bookId, book, AgentRole.CharactersAgent, "Characters", "Plot Threads", ct))
+                characters = (await _repo.GetCharacterCardsAsync(bookId)).ToList();
         }
 
         // Phase 3: Plot Threads
@@ -548,9 +548,8 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             threads = await _plotThreadsAgent.RunAsync(book, bible, characters, ct);
 
-            book = await ApplyHumanAssistedNoteAsync(bookId, book, AgentRole.PlotThreadsAgent,
-                "Plot Threads are complete. Want anything to add before generating Chapter Outlines?",
-                "Plot Threads", ct);
+            if (await PauseForReviewAsync(bookId, book, AgentRole.PlotThreadsAgent, "Plot Threads", "Chapter Outlines", ct))
+                threads = (await _repo.GetPlotThreadsAsync(bookId)).ToList();
         }
 
         // Phase 4: Chapter Outlines
@@ -564,9 +563,9 @@ public class AgentOrchestrator : IAgentOrchestrator
         {
             chapters = await _planner.RunAsync(book, bible, characters, threads, ct);
 
-            book = await ApplyHumanAssistedNoteAsync(bookId, book, AgentRole.Planner,
-                "Chapter Outlines are complete. Any final notes before writing begins?",
-                "Chapter Outlines", ct);
+            // The section chat may have added or removed chapters, which changes their ids.
+            if (await PauseForReviewAsync(bookId, book, AgentRole.Planner, "Chapter Outlines", "writing", ct))
+                chapters = (await _repo.GetChaptersAsync(bookId)).ToList();
         }
 
         await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, RunStates.Done, ct: ct);
@@ -574,20 +573,20 @@ public class AgentOrchestrator : IAgentOrchestrator
     }
 
     /// <summary>
-    /// Prompts the user for optional feedback after a planning phase completes (when HumanAssisted is true).
-    /// A non-empty note is saved as a clarification, and the book is reloaded so later phases see it.
+    /// Human-assisted pause after a planning phase: the author reviews the result — editing it by hand or
+    /// through the section chat — and presses Complete. Returns true when the run paused, so the caller
+    /// re-reads what the author may have changed.
     /// </summary>
-    private async Task<Book> ApplyHumanAssistedNoteAsync(
-        int bookId, Book book, AgentRole role, string question, string label, CancellationToken ct)
+    private async Task<bool> PauseForReviewAsync(
+        int bookId, Book book, AgentRole role, string phaseLabel, string nextStep, CancellationToken ct)
     {
-        if (!book.HumanAssisted) return book;
+        if (!book.HumanAssisted) return false;
 
-        var (questionMessageId, answer) = await _questions.AskSingleOptionalWithIdAsync(bookId, null, role, question, ct);
-        var note = answer.Trim();
-        if (note.Length == 0) return book;
-
-        await _questions.SaveClarificationAsync(bookId, PromptTemplates.NoteAfterPhaseQuestion(label), note, questionMessageId);
-        return await ReloadBookAsync(bookId);
+        var question =
+            $"{phaseLabel} is ready for review. Edit it yourself or ask the LLM for changes in the chat on the " +
+            $"{phaseLabel} page, then press Complete to move on to {nextStep}.";
+        await _questions.AskSingleOptionalAsync(bookId, null, role, question, ct);
+        return true;
     }
 
     /// <summary>The book with its active chapters and clarifications, freshly read.</summary>

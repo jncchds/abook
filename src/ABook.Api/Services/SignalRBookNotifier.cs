@@ -66,4 +66,7 @@ public class SignalRBookNotifier : IBookNotifier
 
     public Task NotifyIllustrationsUpdatedAsync(int bookId, int? illustrationId, CancellationToken ct = default) =>
         _hub.Clients.Group(bookId.ToString()).SendAsync("IllustrationsUpdated", bookId, illustrationId, ct);
+
+    public Task NotifySectionChatAsync(int bookId, int questionMessageId, bool busy, CancellationToken ct = default) =>
+        _hub.Clients.Group(bookId.ToString()).SendAsync("SectionChatUpdated", bookId, questionMessageId, busy, ct);
 }

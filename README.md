@@ -19,6 +19,7 @@ A self-hosted web application that uses AI agents to collaboratively write books
 ### Planning & guidance
 - **Guided planning Q&A** — before planning, the planner posts its clarifying questions to the book's **Clarifications** page and waits; answer each one there (or skip it), and submitting the last answer completes the round and planning carries on. Answers are kept as **clarifications** and added to the premise in every prompt, so nothing is lost if planning is interrupted, and the round isn't repeated once it's done. Edit, add, archive or restore them on the same page, or reopen the round to be asked again
 - **Human-assisted generation** — pauses after each planning phase, and after each chapter's mechanical fixes so you can edit the book and steer the creative rewrite; pending questions are restored after page refresh; supports **Ctrl+Enter** to submit
+- **Section chat** — during a human-assisted pause, chat with the LLM next to the section you are reviewing: ask questions or ask for changes, and the LLM rewrites the section in place (with history). Press **Complete** to continue the run
 - **Flexible workflow controls** — **Plan Only**, **Write Book**, **Continue**, **Continue Planning**, and individual per-chapter agent buttons; **Stop** cancels any running agent cleanly
 - **Refresh-safe progress** — reloading the page (or losing the connection) mid-run keeps the current step, the latest progress message and everything streamed so far; new text continues where it left off
 - **Interrupted runs keep their output** — if a Characters, Plot Threads, or Chapter Outlines run times out, drops, or is stopped part-way, everything that finished streaming is saved instead of discarded; run the phase again to pick up where it left off
@@ -278,7 +279,8 @@ User creates book (title, premise, genre, target chapters)
   │   Phase 4: Chapter Outlines (title + synopsis each)  │
   │                                                      │
   │   Asks clarifying questions up front; optionally     │
-  │   pauses after each phase in Human-assisted mode     │
+  │   pauses after each phase for review and chat in     │
+  │   Human-assisted mode                                │
   └──────────────────────────────────────────────────────┘
          │
          │  ← "Plan Only" stops here so you can review
@@ -317,7 +319,11 @@ Agents stream tokens via SignalR as they write.
 | **Continue Planning** | Re-runs only the incomplete planning phases |
 | **Stop** | Cancels any running agent cleanly |
 
-In **Human-assisted** mode the app also pauses after each planning phase, and once per chapter — after the Editor's mechanical fixes are applied but before the creative rewrite. While it is paused nothing is generating, so you are free to edit the chapter (title, outline and prose), the characters, the plot threads or the story bible; the next step re-reads all of it. Whatever you type in the answer box is passed to the rewrite as author instructions, and the rewrite is skipped altogether when the Checker found nothing to rewrite and you left the box empty.
+In **Human-assisted** mode the app also pauses after each planning phase, and once per chapter — after the Editor's mechanical fixes are applied but before the creative rewrite. While it is paused nothing is generating, so you are free to edit the chapter (title, outline and prose), the characters, the plot threads or the story bible; the next step re-reads all of it.
+
+Each pause opens the page of the section under review (Story Bible, Characters, Plot Threads, Chapters, or the chapter itself) with a **chat panel** beside it (a sheet at the bottom on narrow screens). Ask the LLM about the section or tell it what to change: every message is sent with the section as it stood when the chat began, the whole conversation so far, and the current version if it has changed since. When a change is needed the LLM returns the updated section, which is saved immediately and appears on the page — the Story Bible and character/thread sets get history snapshots, characters and threads keep their portraits and are archived (not deleted) when removed, chapter outlines with prose are never removed, and chapter prose is saved as a new version. Press **Complete** to continue the run (it waits while a reply is still coming in); **Stop** also stops a reply.
+
+Before a chapter's rewrite you can also type instructions in the box on the **Agent Messages** page; they are passed to the rewrite as author instructions, and the rewrite is skipped altogether when the Checker found nothing to rewrite and you gave none.
 
 Chapter edits you make by hand are re-embedded in the background, so retrieval for later chapters sees your text rather than the version the agent wrote.
 

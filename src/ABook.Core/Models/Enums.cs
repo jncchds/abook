@@ -6,9 +6,21 @@ public enum PlanningPhaseStatus { NotStarted, Complete }
 
 public enum ChapterStatus { Outlined, Writing, Review, Editing, Done }
 
-public enum AgentRole { Planner, Writer, Editor, ContinuityChecker, Embedder, StoryBibleAgent, CharactersAgent, PlotThreadsAgent, ChaptersAgent, IllustrationPlanner, Illustrator, WorkflowStep = 99 }
+public enum AgentRole { Planner, Writer, Editor, ContinuityChecker, Embedder, StoryBibleAgent, CharactersAgent, PlotThreadsAgent, ChaptersAgent, IllustrationPlanner, Illustrator,
+    /// <summary>The LLM the author chats with about a section during a human-assisted pause.</summary>
+    SectionChat,
+    WorkflowStep = 99 }
 
-public enum MessageType { Content, Question, Answer, SystemNote, Feedback }
+public enum MessageType
+{
+    Content, Question, Answer, SystemNote, Feedback,
+    /// <summary>Section chat: the section as it stood when the chat began (sent to the LLM, hidden in the UI).</summary>
+    ChatContext,
+    /// <summary>Section chat: a message the author typed.</summary>
+    ChatUser,
+    /// <summary>Section chat: the LLM's reply.</summary>
+    ChatReply,
+}
 
 public enum LlmProvider { Ollama, OpenAI, GoogleAIStudio, OpenAICompatible }
 

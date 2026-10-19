@@ -1,9 +1,9 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
-import type { Book, AgentMessage, AgentRunStatus, StoryBible, CharacterCard, PlotThread, Illustration, IllustrationPlanScope, RenderScope, Clarification } from '../api'
+import type { Book, AgentMessage, AgentRunStatus, StoryBible, CharacterCard, PlotThread, Illustration, IllustrationPlanScope, RenderScope, Clarification, SectionChatState } from '../api'
 import {
-  getBook, getMessages, postAnswer, getAgentStatus,
+  getBook, getMessages, postAnswer, getAgentStatus, getSectionChat, postSectionChat,
   startPlanning, continuePlanning, completePlanningPhase, reopenPlanningPhase, clearPlanningPhase,
   startWorkflow, continueWorkflow, stopWorkflow,
   getTokenUsage, clearMessages, clearTokenUsage,
@@ -12,6 +12,7 @@ import {
 } from '../api'
 import { useBookHub } from '../hooks/useBookHub'
 import { useNotifications } from '../hooks/useNotifications'
+import { pauseTarget, sectionPath, type SectionTarget } from '../utils/sectionChat'
 
 export interface TokenStat {
   id: number
@@ -101,6 +102,16 @@ interface BookContextValue {
 
   /** Sends the typed answer, or `text` when given (Skip passes ''). */
   handleAnswer: (text?: string) => Promise<void>
+
+  /** The section the pending human-assisted pause is about, or null. */
+  sectionTarget: SectionTarget | null
+  /** The chat about that section (null while loading or when there is no such pause). */
+  sectionChat: SectionChatState | null
+  /** The reply the LLM is streaming right now. */
+  sectionChatStream: string
+  sectionChatError: string | null
+  /** Sends a message; resolves true when it was accepted. */
+  sendSectionChatMessage: (text: string) => Promise<boolean>
   handleWriteBook: () => Promise<void>
   handlePlanBook: () => Promise<void>
   handleStop: () => Promise<void>
@@ -145,6 +156,9 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   const [storyBibleStream, setStoryBibleStream] = useState('')
   const [charactersStream, setCharactersStream] = useState('')
   const [plotThreadsStream, setPlotThreadsStream] = useState('')
+  const [sectionChatStream, setSectionChatStream] = useState('')
+  const [sectionChat, setSectionChat] = useState<SectionChatState | null>(null)
+  const [sectionChatError, setSectionChatError] = useState<string | null>(null)
 
   const [storyBible, setStoryBible] = useState<StoryBible | null>(null)
   const [characters, setCharacters] = useState<CharacterCard[]>([])
@@ -160,7 +174,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   const [submittingAnswer, setSubmittingAnswer] = useState(false)
   const [answerError, setAnswerError] = useState<string | null>(null)
 
-  const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnIllustrationsUpdated, setOnReconnected, setOnJoined } = useBookHub(bookId)
+  const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnIllustrationsUpdated, setOnSectionChatUpdated, setOnReconnected, setOnJoined } = useBookHub(bookId)
   const { notify } = useNotifications()
   const notifyRef = useRef(notify)
   useEffect(() => { notifyRef.current = notify })
@@ -244,7 +258,9 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
 
   // Routes streamed content to the buffer of the page that shows it.
   const writeStream = useCallback((agentRole: string, cId: number | null, update: (prev: string) => string) => {
-    if (agentRole === 'StoryBibleAgent') {
+    if (agentRole === 'SectionChat') {
+      setSectionChatStream(update)
+    } else if (agentRole === 'StoryBibleAgent') {
       setStoryBibleStream(update)
     } else if (agentRole === 'CharactersAgent') {
       setCharactersStream(update)
@@ -272,6 +288,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     setStoryBibleStream('')
     setCharactersStream('')
     setPlotThreadsStream('')
+    setSectionChatStream('')
   }, [])
 
   /**
@@ -320,6 +337,70 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
 
   useEffect(() => { void syncRunState() }, [syncRunState])
 
+  // ── Section chat (human-assisted review pauses) ──────────────────────────────
+  const sectionTarget = pauseTarget(pendingQuestion)
+  const chatPauseId = sectionTarget ? pendingQuestion!.id : null
+  const sectionTargetRef = useRef(sectionTarget)
+  useEffect(() => { sectionTargetRef.current = sectionTarget })
+
+  const chatRequestSeq = useRef(0)
+  const refreshSectionChat = useCallback(async (questionMessageId: number) => {
+    const seq = ++chatRequestSeq.current
+    try {
+      const r = await getSectionChat(bookId, questionMessageId)
+      if (seq === chatRequestSeq.current) setSectionChat(r.data)
+    } catch { /* keep the current chat */ }
+  }, [bookId])
+
+  useEffect(() => {
+    setSectionChat(null)
+    setSectionChatError(null)
+    if (chatPauseId !== null) void refreshSectionChat(chatPauseId)
+  }, [chatPauseId, refreshSectionChat])
+
+  /** Re-reads the section a chat reply may have changed. */
+  const reloadSection = useCallback((t: SectionTarget) => {
+    if (t.section === 'StoryBible') getStoryBible(bookId).then(r => setStoryBible(r.data)).catch(() => {})
+    else if (t.section === 'Characters') getCharacters(bookId, true).then(r => setCharacters(r.data)).catch(() => {})
+    else if (t.section === 'PlotThreads') getPlotThreads(bookId, true).then(r => setPlotThreads(r.data)).catch(() => {})
+    else if (t.section === 'ChapterOutlines') getChapters(bookId).then(r => setBook(prev => prev ? { ...prev, chapters: r.data } : prev)).catch(() => {})
+    else if (t.chapterId !== null) {
+      const cId = t.chapterId
+      getChapter(bookId, cId)
+        .then(r => setBook(prev => prev ? { ...prev, chapters: prev.chapters?.map(ch => ch.id === cId ? r.data : ch) } : prev))
+        .catch(() => {})
+    }
+  }, [bookId])
+
+  useEffect(() => {
+    setOnSectionChatUpdated((_bId, questionMessageId, busy) => {
+      if (busy) {
+        setSectionChatStream('')
+        setSectionChat(prev => prev ? { ...prev, busy: true } : prev)
+        void refreshSectionChat(questionMessageId)
+        return
+      }
+      const t = sectionTargetRef.current
+      if (t) reloadSection(t)
+      // The streamed reply stays visible until the saved one has loaded.
+      void refreshSectionChat(questionMessageId).finally(() => setSectionChatStream(''))
+    })
+  }, [setOnSectionChatUpdated, refreshSectionChat, reloadSection])
+
+  const sendSectionChatMessage = async (text: string) => {
+    if (chatPauseId === null || !text.trim()) return false
+    setSectionChatError(null)
+    try {
+      await postSectionChat(bookId, chatPauseId, text.trim())
+      setSectionChat(prev => prev ? { ...prev, busy: true } : prev)
+      return true
+    } catch (err) {
+      const message = axios.isAxiosError(err) ? (err.response?.data?.message ?? err.message) : String(err)
+      setSectionChatError(`Could not send the message: ${message}`)
+      return false
+    }
+  }
+
   useEffect(() => {
     setOnStream((_bId, cId, agentRole, token) => {
       for (const captured of liveCaptures.current) captured.push({ agentRole, chapterId: cId, token })
@@ -329,11 +410,14 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       const m = msg as AgentMessage
       setPendingQuestion(m)
       setMessages(prev => [...prev, m])
-      navigate(`/books/${bookId}/chat`)
+      // A review pause opens the section's page, where its chat is.
+      const target = pauseTarget(m)
+      const where = target ? sectionPath(bookId, target) : `/books/${bookId}/chat`
+      navigate(where)
       notifyRef.current('ABook — Input needed', {
         body: m.content,
         tag: `question-${bookId}`,
-        onClick: () => navigate(`/books/${bookId}/chat`),
+        onClick: () => navigate(where),
       })
     })
     setOnStatus((_bId, role, state, cId) => {
@@ -646,7 +730,9 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     tokenStats, setTokenStats, workflowSteps, setWorkflowSteps, workflowLog,
     answerText, setAnswerText, submittingAnswer, answerError,
     refreshBook, refreshMessages,
-    handleAnswer, handleWriteBook, handlePlanBook, handleStop, handleContinue,
+    handleAnswer,
+    sectionTarget, sectionChat, sectionChatStream, sectionChatError, sendSectionChatMessage,
+    handleWriteBook, handlePlanBook, handleStop, handleContinue,
     handleCompletePhase, handleReopenPhase, handleClearPhase, isPhaseComplete,
     clearMessagesForBook, clearTokenUsageForBook,
   }

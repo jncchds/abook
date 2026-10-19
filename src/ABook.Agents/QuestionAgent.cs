@@ -117,32 +117,11 @@ public class QuestionAgent : AgentBase
     }
 
     /// <summary>
-    /// Saves a non-empty phase note as a clarification linked to the chat question it answers;
-    /// blank (skipped) notes are dropped.
-    /// </summary>
-    public async Task SaveClarificationAsync(int bookId, string question, string answer, int questionMessageId)
-    {
-        if (string.IsNullOrWhiteSpace(answer)) return;
-        await Repo.AddClarificationAsync(new Clarification
-        {
-            BookId = bookId,
-            Source = ClarificationSource.PhaseNote,
-            Question = question.Trim(),
-            Answer = answer.Trim(),
-            QuestionMessageId = questionMessageId,
-        });
-    }
-
-    /// <summary>
     /// Asks a single optional question and returns the user's response (may be empty if skipped).
-    /// Used for human-assisted pauses after planning phases and chapter checks.
+    /// Used for the human-assisted pauses after planning phases and chapter checks — the pauses the
+    /// section chat is about (see <see cref="SectionChatTarget.FromPause"/>).
     /// </summary>
     public Task<string> AskSingleOptionalAsync(
         int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct) =>
         AskUserAndWaitAsync(bookId, chapterId, role, question, ct, isOptional: true);
-
-    /// <summary>Same as <see cref="AskSingleOptionalAsync"/>, also returning the id of the question message.</summary>
-    public Task<(int QuestionMessageId, string Answer)> AskSingleOptionalWithIdAsync(
-        int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct) =>
-        AskUserAndWaitForAnswerAsync(bookId, chapterId, role, question, ct, isOptional: true);
 }

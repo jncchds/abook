@@ -4,6 +4,8 @@ import { BookContextProvider, useBookContext } from '../contexts/BookContext'
 import Sidebar, { SidebarBtn, SidebarDivider } from '../components/Sidebar'
 import { chapterStatusColor } from '../utils/chapterStatus'
 import { downloadFile } from '../api'
+import SectionChatPanel from '../components/SectionChatPanel'
+import { sectionPath } from '../utils/sectionChat'
 
 function agentCaption(role: string | undefined, state: string | undefined, chapterNum: number | null): string {
   if (state === 'WaitingForInput') return 'Waiting for your answer…'
@@ -33,7 +35,7 @@ function BookSidebar() {
     book, isRunning, runStatus, pendingQuestion,
     streamingChapterId,
     handleWriteBook, handlePlanBook, handleStop, isPhaseComplete,
-    illustrations, handleRenderIllustrations, openClarificationCount,
+    illustrations, handleRenderIllustrations, openClarificationCount, sectionTarget,
   } = useBookContext()
 
   const [showExportMenu, setShowExportMenu] = useState(false)
@@ -106,7 +108,9 @@ function BookSidebar() {
               : null
             const label = runStatus?.state === 'WaitingForInput' && openClarificationCount > 0
               ? 'Waiting for your clarifications…'
-              : agentCaption(runStatus?.role, runStatus?.state, chNum)
+              : runStatus?.state === 'WaitingForInput' && sectionTarget
+                ? 'Waiting for your review…'
+                : agentCaption(runStatus?.role, runStatus?.state, chNum)
             return (
               <div className="agent-running-banner" style={{ margin: '0 4px 4px', fontSize: '0.75rem' }}>
                 <span className="spinner" />
@@ -185,7 +189,7 @@ function BookSidebar() {
 function BookLayoutInner() {
   const { bookId } = useParams<{ bookId: string }>()
   const location = useLocation()
-  const { book } = useBookContext()
+  const { book, sectionTarget } = useBookContext()
 
   if (!book) return <div className="loading">Loading…</div>
 
@@ -195,13 +199,16 @@ function BookLayoutInner() {
   }
 
   const isChatView = location.pathname.endsWith('/chat')
+  // The section chat sits next to the page of the section the run is paused on.
+  const showSectionChat = !!sectionTarget && location.pathname === sectionPath(book.id, sectionTarget)
 
   return (
     <div className="app-layout">
       <BookSidebar />
-      <main className={`app-main${isChatView ? ' view-chat' : ''}`}>
+      <main className={`app-main${isChatView ? ' view-chat' : ''}${showSectionChat ? ' with-section-chat' : ''}`}>
         <Outlet />
       </main>
+      {showSectionChat && <SectionChatPanel />}
     </div>
   )
 }

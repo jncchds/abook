@@ -12,7 +12,10 @@ public class AgentMessage
     public string Content { get; set; } = string.Empty;
     public bool IsResolved { get; set; }
     public bool IsOptional { get; set; }
-    /// <summary>On an Answer: the Question message it answers. Null on answers saved before v0.3.0.</summary>
+    /// <summary>
+    /// On an Answer: the Question message it answers (null on answers saved before v0.3.0).
+    /// On a section-chat message (ChatContext / ChatUser / ChatReply): the human-assisted pause it belongs to.
+    /// </summary>
     public int? QuestionMessageId { get; set; }
     public bool IsDeleted { get; set; }
     public DateTime CreatedAt { get; set; }

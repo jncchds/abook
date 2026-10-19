@@ -946,3 +946,40 @@ button:disabled:hover { background: var(--accent); }
 /* ── Server warnings (admins only) ── */
 .server-warning { border: 1px solid var(--warning); border-left-width: 4px; border-radius: 6px; padding: 0.6rem 0.9rem; margin-bottom: 1rem; font-size: 0.85rem; overflow-wrap: anywhere; }
 .server-warning code { font-size: 0.8rem; }
+
+/* ── Section chat (human-assisted review pauses) ── */
+.section-chat {
+  width: min(400px, 36vw);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  min-height: 0;
+}
+.section-chat-header { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); }
+.section-chat-title { flex: 1; text-align: left; font-weight: 600; font-size: 0.9rem; background: none; color: var(--text); padding: 0.2rem 0; }
+.section-chat-title:hover { background: none; color: var(--accent); }
+.section-chat-messages { flex: 1; overflow-y: auto; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; min-height: 0; }
+.section-chat-intro { font-size: 0.8rem; color: var(--text-muted); line-height: 1.45; }
+.section-chat-hint { font-size: 0.8rem; color: var(--text-muted); background: var(--accent-faint); border-left: 3px solid var(--accent); border-radius: 4px; padding: 0.4rem 0.6rem; line-height: 1.45; }
+.section-chat-msg { font-size: 0.875rem; line-height: 1.5; padding: 0.5rem 0.7rem; border-radius: 8px; max-width: 92%; overflow-wrap: anywhere; }
+.section-chat-msg p { margin: 0 0 0.4rem; white-space: pre-wrap; }
+.section-chat-msg p:last-child { margin-bottom: 0; }
+.section-chat-msg.from-author { align-self: flex-end; background: var(--accent-faint); border: 1px solid var(--accent); }
+.section-chat-msg.from-llm { align-self: flex-start; background: var(--bg); border: 1px solid var(--border); }
+.section-chat-typing { display: flex; align-items: center; gap: 0.4rem; color: var(--text-muted); }
+.section-chat-input { border-top: 1px solid var(--border); padding: 0.6rem 0.75rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.section-chat-input textarea { resize: vertical; }
+
+/* Narrow screens: the chat becomes a sheet over the bottom of the page. */
+@media (max-width: 900px) {
+  .section-chat {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    width: auto; max-height: 60vh;
+    border-left: none; border-top: 1px solid var(--border);
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.25);
+  }
+  .section-chat.collapsed { max-height: none; }
+  .app-main.with-section-chat { padding-bottom: 60vh; }
+}

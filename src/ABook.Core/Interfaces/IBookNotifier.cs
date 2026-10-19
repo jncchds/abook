@@ -15,4 +15,9 @@ public interface IBookNotifier
     Task NotifyMessagesUpdatedAsync(int bookId, CancellationToken ct = default);
     /// <summary>An illustration was planned, edited or rendered; null <paramref name="illustrationId"/> means several changed.</summary>
     Task NotifyIllustrationsUpdatedAsync(int bookId, int? illustrationId, CancellationToken ct = default);
+    /// <summary>
+    /// The section chat of the pause <paramref name="questionMessageId"/> started (<paramref name="busy"/>) or
+    /// finished a reply. On finish the chat history and the section itself may have changed.
+    /// </summary>
+    Task NotifySectionChatAsync(int bookId, int questionMessageId, bool busy, CancellationToken ct = default);
 }

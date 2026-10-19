@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { useBookContext } from '../../contexts/BookContext'
+import { sectionLabel, sectionPath } from '../../utils/sectionChat'
 
 function splitContent(content: string): [string, string] {
   const dnIdx = content.indexOf('\n\n')
@@ -18,9 +20,16 @@ export default function ChatPage() {
   const {
     messages, pendingQuestion, answerText, setAnswerText,
     handleAnswer, isRunning, clearMessagesForBook, submittingAnswer, answerError,
+    book, sectionTarget, sectionChat,
   } = useBookContext()
+  const navigate = useNavigate()
 
   const chatBottomRef = useRef<HTMLDivElement>(null)
+  // The section snapshot sent to the section chat's LLM is not a message anyone wrote.
+  const visible = messages.filter(m => m.messageType !== 'ChatContext')
+  const chapterNumber = sectionTarget?.chapterId
+    ? book?.chapters?.find(c => c.id === sectionTarget.chapterId)?.number
+    : null
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -30,17 +39,18 @@ export default function ChatPage() {
     <div>
       <div className="page-header">
         <h2>Agent Messages</h2>
-        {messages.length > 0 && !isRunning && (
+        {visible.length > 0 && !isRunning && (
           <button className="btn-sm btn-archive" title="Archive all messages" onClick={clearMessagesForBook}>🗄 Archive</button>
         )}
       </div>
       <div style={{ overflowY: 'auto' }}>
-        {messages.length === 0 ? (
+        {visible.length === 0 ? (
           <p className="empty" style={{ padding: '1rem 0.75rem' }}>No messages yet.</p>
         ) : (
           <div className="book-list">
-            {messages.map(m => {
-              const isMarkdown = m.messageType === 'SystemNote' || m.messageType === 'Feedback' || m.messageType === 'Question'
+            {visible.map(m => {
+              const isMarkdown = m.messageType === 'SystemNote' || m.messageType === 'Feedback'
+                || m.messageType === 'Question' || m.messageType === 'ChatReply'
               const [rawHeader, body] = splitContent(m.content)
               const header = cleanHeader(rawHeader)
               const hasBody = body.length > 0
@@ -69,7 +79,35 @@ export default function ChatPage() {
         )}
         <div ref={chatBottomRef} />
       </div>
-      {pendingQuestion && (
+      {pendingQuestion && sectionTarget && book && (
+        <div style={{ borderTop: '1px solid var(--border)', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <p className="question-label">Waiting for your review:</p>
+          <p className="question-text">{pendingQuestion.content}</p>
+          {sectionTarget.section === 'Chapter' && (
+            <textarea
+              rows={3}
+              value={answerText}
+              onChange={e => setAnswerText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); handleAnswer() } }}
+              placeholder="Optional instructions for the creative rewrite…"
+            />
+          )}
+          {answerError && <p className="error-msg" role="alert">{answerError}</p>}
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button onClick={() => navigate(sectionPath(book.id, sectionTarget))}>
+              💬 Open the {sectionLabel(sectionTarget, chapterNumber)} chat
+            </button>
+            <button
+              className="btn-sm btn-ghost"
+              disabled={submittingAnswer || !!sectionChat?.busy}
+              onClick={() => handleAnswer(sectionTarget.section === 'Chapter' ? answerText : '')}
+            >
+              {submittingAnswer ? 'Completing…' : '✓ Complete'}
+            </button>
+          </div>
+        </div>
+      )}
+      {pendingQuestion && !sectionTarget && (
         <div style={{ borderTop: '1px solid var(--border)', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <p className="question-label">Agent is waiting for your answer:</p>
           <p className="question-text">{pendingQuestion.content}</p>

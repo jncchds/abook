@@ -176,7 +176,11 @@ public class CharactersAgent : AgentBase
     }
 
     private Task SaveVersionsAsync(int bookId, IReadOnlyList<CharacterCard> cards) =>
-        Repo.AddCharacterVersionsBatchAsync(cards.Select(card => new ABook.Core.Models.CharacterCardVersion
+        Repo.AddCharacterVersionsBatchAsync(VersionsOf(bookId, cards, AgentCreatedBy.Characters));
+
+    /// <summary>One history version per saved card, attributed to <paramref name="createdBy"/>.</summary>
+    internal static IEnumerable<CharacterCardVersion> VersionsOf(int bookId, IEnumerable<CharacterCard> cards, string createdBy) =>
+        cards.Select(card => new CharacterCardVersion
         {
             CharacterCardId = card.Id,
             BookId = bookId,
@@ -189,8 +193,8 @@ public class CharactersAgent : AgentBase
             Arc = card.Arc,
             FirstAppearanceChapterNumber = card.FirstAppearanceChapterNumber,
             Notes = card.Notes,
-            CreatedBy = AgentCreatedBy.Characters,
-        }));
+            CreatedBy = createdBy,
+        });
 
     /// <param name="skipped">Receives one line per rejected element, naming the reason and the offending JSON.</param>
     internal static List<CharacterCard> Parse(int bookId, string raw, List<string>? skipped = null)

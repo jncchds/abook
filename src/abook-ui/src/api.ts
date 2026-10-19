@@ -173,7 +173,23 @@ export interface AgentMessage {
   content: string
   isResolved: boolean
   isOptional?: boolean
+  /** On an Answer: the question it answers. On a section-chat message: the pause it belongs to. */
+  questionMessageId?: number | null
   createdAt: string
+}
+
+/** The section a human-assisted pause lets the author discuss with the LLM. */
+export type ChatSection = 'StoryBible' | 'Characters' | 'PlotThreads' | 'ChapterOutlines' | 'Chapter'
+
+export interface SectionChatState {
+  section: ChatSection
+  chapterId: number | null
+  /** The LLM is writing a reply; the pause cannot be completed meanwhile. */
+  busy: boolean
+  /** The run is still parked on this pause. */
+  live: boolean
+  /** ChatUser and ChatReply messages, oldest first. */
+  messages: AgentMessage[]
 }
 
 export interface LlmSettings {
@@ -301,6 +317,11 @@ export const clearMessages = (bookId: number) =>
   api.delete(`/books/${bookId}/messages`)
 export const postAnswer = (bookId: number, messageId: number, answer: string) =>
   api.post(`/books/${bookId}/messages/answer`, { messageId, answer })
+export const getSectionChat = (bookId: number, questionMessageId: number) =>
+  api.get<SectionChatState>(`/books/${bookId}/section-chat/${questionMessageId}`)
+/** The reply arrives later over SignalR (SectionChatUpdated). */
+export const postSectionChat = (bookId: number, questionMessageId: number, message: string) =>
+  api.post(`/books/${bookId}/section-chat/${questionMessageId}`, { message })
 
 // Agent actions
 export const startPlanning = (bookId: number) => api.post(`/books/${bookId}/agent/plan`)

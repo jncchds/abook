@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.3.1 — 2026-10-19
+
+### Human-assisted mode
+- feat: **chat with the LLM about the section you are reviewing.** When a human-assisted run pauses — after the Story Bible, Characters, Plot Threads and Chapter Outlines, and before each chapter's creative rewrite — the section's page opens with a chat panel beside it. Ask questions or say what to change; the LLM sees the section as it was when the chat began, the whole conversation, and its current version, and answers or rewrites the section, which is saved straight away (with history: snapshots, versions and archived — not deleted — characters and threads) and shows on the page. Press **Complete** to continue the run. Replies stream live, Stop also stops a reply, and Complete waits until a reply has finished. Token stats list the calls as `SectionChat`
+- change: the "Want anything to add?" question after each planning phase is gone — the pause is now a review step (edit, chat, Complete), and nothing is saved as a clarification any more. Notes saved by earlier versions are kept. The pause before a chapter's rewrite still takes optional rewrite instructions on the Agent Messages page
+- fix: edits made during a planning pause now reach the next phase — before, the next phase worked from the copy made before the pause
+- REST: `GET/POST /api/books/{bookId}/section-chat/{questionMessageId}`; SignalR `SectionChatUpdated(bookId, questionMessageId, busy)`. `POST messages/answer` (and MCP `answer_agent_question`) return 409 while a chat reply is in progress
+
 ## v0.3.0 — 2026-10-01
 
 ### ⚠️ Breaking changes

@@ -530,6 +530,9 @@ internal static class MetadataExport
             }
             if (m.MessageType == MessageType.Answer && m.QuestionMessageId is int answered && questionIds.Contains(answered))
                 continue;
+            // The section snapshot sent to the section chat's LLM — the section's own history covers it.
+            if (m.MessageType == MessageType.ChatContext)
+                continue;
             if (m.MessageType == MessageType.Question && answerTo.TryGetValue(m.Id, out var answer))
             {
                 var outcome = string.IsNullOrWhiteSpace(answer.Content)
@@ -547,6 +550,8 @@ internal static class MetadataExport
                 MessageType.Answer   => (Author, $"Answered the {Role(m.AgentRole)} agent"),
                 MessageType.Feedback => (Role(m.AgentRole), "Feedback"),
                 MessageType.SystemNote => (Role(m.AgentRole), "Note"),
+                MessageType.ChatUser  => (Author, "Section chat"),
+                MessageType.ChatReply => (Role(m.AgentRole), "Section chat reply"),
                 _                    => (Role(m.AgentRole), "Message"),
             };
             yield return new Ev(m.CreatedAt, Cat.Conversation, actor, title, LongText(m.Content), chapter);
@@ -801,6 +806,7 @@ internal static class MetadataExport
         AgentRole.ChaptersAgent       => "Chapter Outlines",
         AgentRole.ContinuityChecker   => "Continuity Checker",
         AgentRole.IllustrationPlanner => "Illustration Planner",
+        AgentRole.SectionChat         => "Section Chat",
         AgentRole.WorkflowStep        => "Workflow",
         _                             => role.ToString(),
     };
