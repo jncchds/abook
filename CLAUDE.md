@@ -84,6 +84,8 @@ React is built at image-build time and served from `wwwroot/` — there is no se
 
 **Checker → mechanical patch apply** — `ContinuityCheckerAgent` outputs structured JSON (`CheckerResult`) with `originalText`, `replacementText`, and optional `position` (1-indexed line hint). `EditorAgent.ApplyPatchesAsync` locates patches via `IndexOf` with whitespace normalization and applies them end-first — no LLM call for the edit step.
 
+**Interactive books (book chat)** — `Book.Mode` is Autonomous (pipeline) or Interactive. Interactive books are written in a chat: `BookChatAgent` replies with JSON (message, conflicts, actions), `BookChatActions.Normalize` turns actions into `ChatProposal`s, and nothing changes until the author applies them via `ProposalExecutor` → `BookContentService` (which returns before/after renderings for undo). Chapters are append-only. The premise and Story Bible lock when writing starts (`StoryBibleLockedAt`); only the author unlocks them. Keep the chat context bounded: digest + rolling `ChatMemory` + last few messages — never resend the whole history. See AGENTS.md "Interactive books".
+
 **RAG** — `PgvectorVectorStoreService` stores chunked chapter embeddings. Writer uses 3 targeted queries; Editor uses 4 (adds repeated-phrase detection). Ancestry-aware: `SearchAsync` accepts `scopeBookIds` so sequel books include ancestor embeddings.
 
 **Versioning** — `VERSION` at repo root is the single source of truth. Vite reads it at build time and injects it as `__APP_VERSION__`. Before bumping the version, check whether the current `VERSION` value has already been pushed to origin (`git log origin/main..HEAD -- VERSION`); if it hasn't, reuse the existing version rather than bumping again.

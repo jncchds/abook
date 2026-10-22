@@ -17,6 +17,8 @@ public class BookChatAgent : AgentBase
     private readonly BookContentService _content;
     private readonly ChapterSummarizer _summarizer;
 
+    private const string FailedPrefix = "❌";
+
     /// <summary>Stale chapter summaries refreshed before a reply, at most — the rest wait for the next one.</summary>
     private const int SummaryRefreshPerTurn = 2;
 
@@ -70,7 +72,7 @@ public class BookChatAgent : AgentBase
         {
             Logger.LogWarning(ex, "[Book {BookId}] Book chat reply failed.", bookId);
             await MarkFailedAsync(bookId, author);
-            await AddEventAsync(bookId, $"❌ The reply failed: {DescribeFailure(ex, false)}");
+            await AddEventAsync(bookId, $"{FailedPrefix} The reply failed: {DescribeFailure(ex, false)}");
             return;
         }
 
@@ -84,6 +86,9 @@ public class BookChatAgent : AgentBase
         if (author is null) return;
         try
         {
+            // The failure may have been a save: drop whatever it left queued before saving again.
+            Repo.DiscardPendingChanges();
+            author = await Repo.GetChatMessageAsync(bookId, author.Id) ?? author;
             author.Status = BookChatMessageStatus.Failed;
             await Repo.UpdateChatMessageAsync(author);
             await Notifier.NotifyBookChatAsync(bookId, author.Id, CancellationToken.None);
@@ -296,7 +301,8 @@ public class BookChatAgent : AgentBase
     private async Task<IReadOnlyList<(LlmChatRole Role, string Content)>> HistoryAsync(int bookId, int beforeId)
     {
         var recent = await Repo.GetChatMessagesAsync(bookId, beforeId, PromptTemplates.BookChatHistoryMessages);
-        return recent.Select(Turn).ToList();
+        // A failed call is not part of the conversation.
+        return recent.Where(m => !(m.Role == BookChatRole.Event && m.Content.StartsWith(FailedPrefix))).Select(Turn).ToList();
     }
 
     internal static (LlmChatRole Role, string Content) Turn(BookChatMessage m)

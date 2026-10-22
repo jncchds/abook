@@ -753,6 +753,8 @@ public class BookRepository : IBookRepository
         await _db.SaveChangesAsync();
     }
 
+    public void DiscardPendingChanges() => _db.ChangeTracker.Clear();
+
     public async Task<int> FailInterruptedChatAsync()
     {
         var messages = await _db.BookChatMessages

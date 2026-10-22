@@ -221,7 +221,8 @@ public class BookContentService : AgentBase
 
         if (card.Id == 0) card = await Repo.AddCharacterCardAsync(card);
         else await Repo.UpdateCharacterCardAsync(card);
-        await Repo.AddCharacterVersionsBatchAsync(CharactersAgent.VersionsOf(bookId, [card], AgentCreatedBy.BookChat));
+        // One at a time: the single-version save numbers it after the card's earlier versions.
+        await Repo.AddCharacterVersionAsync(CharactersAgent.VersionsOf(bookId, [card], AgentCreatedBy.BookChat).Single());
         await MarkPhaseCompleteAsync(bookId, b => b.CharactersStatus = PlanningPhaseStatus.Complete);
         return new ContentChange($"{verb} character {card.Name}.", before, BookContentRender.Render(card));
     }
@@ -269,7 +270,7 @@ public class BookContentService : AgentBase
 
         if (thread.Id == 0) thread = await Repo.AddPlotThreadAsync(thread);
         else await Repo.UpdatePlotThreadAsync(thread);
-        await Repo.AddPlotThreadVersionsBatchAsync(PlotThreadsAgent.VersionsOf(bookId, [thread], AgentCreatedBy.BookChat));
+        await Repo.AddPlotThreadVersionAsync(PlotThreadsAgent.VersionsOf(bookId, [thread], AgentCreatedBy.BookChat).Single());
         await MarkPhaseCompleteAsync(bookId, b => b.PlotThreadsStatus = PlanningPhaseStatus.Complete);
         return new ContentChange($"{verb} plot thread {thread.Name}.", before, BookContentRender.Render(thread));
     }

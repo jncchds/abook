@@ -300,7 +300,7 @@ export default function BookChat() {
 
       <div className="studio-messages" ref={scrollRef} onScroll={onScroll}>
         {chat?.hasMore && <button className="btn-sm btn-ghost studio-older" onClick={() => void loadOlder()}>Load earlier messages</button>}
-        {chat && messages.length === 0 && !busy && (
+        {chat && !chat.hasMore && messages.every(m => m.role === 'Event') && !busy && (
           <div className="studio-empty">
             <p>Start by letting the LLM read your premise: it proposes a Story Bible and asks what it needs to know.</p>
             <button onClick={() => void run(() => kickoffBookChat(bookId))}>Start the book chat</button>

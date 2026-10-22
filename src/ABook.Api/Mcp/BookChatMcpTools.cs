@@ -13,7 +13,8 @@ namespace ABook.Api.Mcp;
 /// changes it proposes. Unlocking the premise and Story Bible is deliberately not offered here — only the author
 /// can do that, in Book Settings.
 /// </summary>
-public class BookChatMcpTools(BookChatService chat, IBookRepository repo, IHttpContextAccessor http) : McpToolBase(http)
+public class BookChatMcpTools(BookChatService chat, IBookRepository repo, IServiceScopeFactory scopeFactory, IHttpContextAccessor http)
+    : McpToolBase(http)
 {
     private const string WaitHelp = "Seconds to wait for the work to finish (0 returns at once; max 600).";
 
@@ -112,8 +113,11 @@ public class BookChatMcpTools(BookChatService chat, IBookRepository repo, IHttpC
 
     private async Task<string> SnapshotAsync(Book book, int limit, string? note = null)
     {
-        var fresh = await repo.GetByIdAsync(book.Id) ?? book;
-        var messages = await repo.GetChatMessagesAsync(book.Id, limit: Math.Clamp(limit, 1, 100));
+        // A fresh scope: the work ran in its own scope, and this request's context still caches what it read before.
+        using var scope = scopeFactory.CreateScope();
+        var freshRepo = scope.ServiceProvider.GetRequiredService<IBookRepository>();
+        var fresh = await freshRepo.GetByIdAsync(book.Id) ?? book;
+        var messages = await freshRepo.GetChatMessagesAsync(book.Id, limit: Math.Clamp(limit, 1, 100));
         return JsonSerializer.Serialize(new
         {
             bookId = book.Id,

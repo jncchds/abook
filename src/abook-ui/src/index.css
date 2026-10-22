@@ -702,6 +702,10 @@ button:disabled:hover { background: var(--accent); }
 @media (max-width: 767px) {
   .app-sidebar.expanded { width: min(75vw, 220px); }
   .app-main { padding: 1rem; }
+  /* Phones: the expanded sidebar overlays the page instead of squeezing it; the page keeps the collapsed width. */
+  .app-layout { position: relative; }
+  .app-sidebar.expanded { position: absolute; top: 0; bottom: 0; left: 0; z-index: 60; box-shadow: 4px 0 16px rgba(0,0,0,0.35); }
+  .app-sidebar.expanded + .app-main { margin-left: 48px; }
 }
 
 /* ── Mobile responsive ── */
@@ -997,7 +1001,7 @@ button:disabled:hover { background: var(--accent); }
 .proposal-card.proposal-applied { border-color: var(--success); }
 .proposal-card.proposal-failed { border-color: var(--danger); }
 .proposal-card.proposal-rejected, .proposal-card.proposal-superseded, .proposal-card.proposal-undone { opacity: 0.6; }
-.proposal-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
+.proposal-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; white-space: nowrap; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
 .proposal-status { display: inline-flex; align-items: center; gap: 0.3rem; }
 .proposal-label { font-weight: 500; font-size: 0.88rem; }
 .proposal-instructions { font-size: 0.82rem; color: var(--text-muted); white-space: pre-wrap; }
@@ -1008,7 +1012,9 @@ button:disabled:hover { background: var(--accent); }
 .proposal-actions button { width: auto; }
 .proposal-open { font-size: 0.8rem; margin-left: auto; }
 .proposal-option { border: 1px dashed var(--border); border-radius: 8px; padding: 0.45rem; display: flex; flex-direction: column; gap: 0.45rem; }
-.proposal-option-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.82rem; }
+.proposal-option-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-weight: 600; font-size: 0.82rem; }
+.proposal-option-head span { white-space: nowrap; }
+.proposal-option-head button { width: auto; }
 .proposal-bulk { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .proposal-bulk button { width: auto; }
 

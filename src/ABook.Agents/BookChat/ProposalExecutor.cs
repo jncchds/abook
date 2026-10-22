@@ -48,9 +48,17 @@ public class ProposalExecutor(
         if (p.Type is BookChatActions.UpdatePremise or BookChatActions.UpdateStoryBible
             && await repo.GetByIdAsync(bookId) is { } book && BookContentService.IsBibleLocked(book))
             return "The premise and Story Bible are locked. Unlock them in Book Settings first.";
-        var later = (await repo.GetProposalsByStatusAsync(bookId, ChatProposalStatus.Applied))
-            .FirstOrDefault(o => o.Id != p.Id && o.Target == p.Target && p.Target is not null && o.AppliedAt > p.AppliedAt);
-        return later is null ? null : $"\"{later.Label}\" changed the same thing later — undo it first.";
+        var applied = await repo.GetProposalsByStatusAsync(bookId, ChatProposalStatus.Applied);
+        var later = applied.FirstOrDefault(o => o.Id != p.Id && o.Target == p.Target && p.Target is not null && o.AppliedAt > p.AppliedAt);
+        if (later is not null) return $"\"{later.Label}\" changed the same thing later — undo it first.";
+        var dependent = applied.FirstOrDefault(o => o.DependsOnProposalId == p.Id);
+        if (dependent is not null) return $"\"{dependent.Label}\" builds on this change — undo it first.";
+        // Undoing an added chapter removes it: not while it holds prose (written in the chat or by hand).
+        if (p.Type == BookChatActions.AddChapter && p.Target is { } t && t.StartsWith("chapter:")
+            && int.TryParse(t[8..], out var chapterId)
+            && await repo.GetChapterAsync(bookId, chapterId) is { IsArchived: false } chapter && chapter.Content.Trim().Length > 0)
+            return $"Chapter {chapter.Number} has been written — undo its writing first.";
+        return null;
     }
 
     /// <summary>True when the target no longer reads as the change left it (edited since): undo would discard that edit.</summary>
@@ -135,6 +143,8 @@ public class ProposalExecutor(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "[Book {BookId}] Applying proposal {ProposalId} ({Type}) failed.", bookId, p.Id, p.Type);
+            // A failed save stays queued in the context — drop it, or recording the failure would fail too.
+            repo.DiscardPendingChanges();
             await FinishAsync(bookId, p, ChatProposalStatus.Failed, ex.Message);
             return null;
         }
@@ -142,6 +152,14 @@ public class ProposalExecutor(
 
     private async Task FinishAsync(int bookId, ChatProposal p, ChatProposalStatus status, string note)
     {
+        // Reloaded after a discarded save: the instance in hand may no longer be the tracked one.
+        var tracked = await repo.GetProposalAsync(bookId, p.Id) ?? p;
+        if (!ReferenceEquals(tracked, p))
+        {
+            tracked.BeforeJson = p.BeforeJson; tracked.AfterJson = p.AfterJson; tracked.AppliedAt = p.AppliedAt;
+            tracked.BeforeVersionId = p.BeforeVersionId; tracked.AfterVersionId = p.AfterVersionId; tracked.Target = p.Target;
+            p = tracked;
+        }
         p.Status = status;
         p.ResultNote = note;
         await repo.UpdateProposalAsync(p);
@@ -263,7 +281,10 @@ public class ProposalExecutor(
                 foreach (var c in summary.NewCharacters)
                     actions.Add(Raw(BookChatActions.UpsertCharacter, $"Add {c.Name}, who appears in Chapter {chapter.Number}", name: c.Name,
                         changes: [new("role", c.Role.ToString()), new("notes", c.Description), new("firstAppearanceChapterNumber", chapter.Number.ToString())]));
-                foreach (var t in summary.ThreadChanges)
+                var statuses = (await repo.GetPlotThreadsAsync(bookId))
+                    .ToDictionary(t => t.Name, t => t.Status, StringComparer.OrdinalIgnoreCase);
+                // A "change" to the status the thread already has is no change.
+                foreach (var t in summary.ThreadChanges.Where(t => statuses.GetValueOrDefault(t.Name) != t.Status))
                 {
                     List<KeyValuePair<string, string>> changes = [new("status", t.Status.ToString())];
                     if (t.Status == PlotThreadStatus.Resolved) changes.Add(new("resolvedChapterNumber", chapter.Number.ToString()));
@@ -356,6 +377,8 @@ public class ProposalExecutor(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "[Book {BookId}] Undoing proposal {ProposalId} failed.", bookId, p.Id);
+            repo.DiscardPendingChanges();
+            p = await repo.GetProposalAsync(bookId, proposalId) ?? p;
             p.ResultNote = $"Undo failed: {ex.Message}";
         }
         await repo.UpdateProposalAsync(p);

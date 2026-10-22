@@ -872,6 +872,8 @@ public static class PromptTemplates
             {{catalogue}}
 
             Rules:
+            - Nothing changes until the author applies it: in your message, speak of your changes as proposals ("I propose…",
+              "Here is…"), never as done.
             - Propose only what the author asked for or agreed to, plus what is needed to keep the book consistent with it.
               Never invent characters, plot threads or chapters on your own.
             - Chapters are only ever added at the end of the book; there is no inserting or reordering.

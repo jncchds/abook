@@ -18,8 +18,8 @@ A self-hosted web application that uses AI agents to collaboratively write books
 
 ### Planning & guidance
 - **Guided planning Q&A** — before planning, the planner posts its clarifying questions to the book's **Clarifications** page and waits; answer each one there (or skip it), and submitting the last answer completes the round and planning carries on. Answers are kept as **clarifications** and added to the premise in every prompt, so nothing is lost if planning is interrupted, and the round isn't repeated once it's done. Edit, add, archive or restore them on the same page, or reopen the round to be asked again
-- **Human-assisted generation** — pauses after each planning phase, and after each chapter's mechanical fixes so you can edit the book and steer the creative rewrite; pending questions are restored after page refresh; supports **Ctrl+Enter** to submit
-- **Section chat** — during a human-assisted pause, chat with the LLM next to the section you are reviewing: ask questions or ask for changes, and the LLM rewrites the section in place (with history, a diff of each change and Undo). Press **Complete** to continue the run, optionally keeping a note of the decisions as a clarification. Also available over MCP
+- **Two ways to write a book** — **Interactive**: write it in a chat with the LLM, in any order, approving every change; **Autonomous**: the LLM plans the whole book and writes it on its own
+- **Book chat (Interactive books)** — say what you want (a character, a plot thread, a chapter, a change); the LLM answers, flags **conflicts** with what the book already establishes, and proposes changes as cards with a diff — nothing changes until you **Apply** them, and every applied change can be **Undone**. No chapter count, no up-front outline: chapters are added at the end as you go, and each written chapter is summarized and checked, with the fixes proposed back in the chat. The premise and Story Bible are settled first and then **locked** while you write (only you can unlock them). Works on a phone; also available over MCP
 - **Flexible workflow controls** — **Plan Only**, **Write Book**, **Continue**, **Continue Planning**, and individual per-chapter agent buttons; **Stop** cancels any running agent cleanly
 - **Refresh-safe progress** — reloading the page (or losing the connection) mid-run keeps the current step, the latest progress message and everything streamed so far; new text continues where it left off
 - **Interrupted runs keep their output** — if a Characters, Plot Threads, or Chapter Outlines run times out, drops, or is stopped part-way, everything that finished streaming is saved instead of discarded; run the phase again to pick up where it left off
@@ -266,6 +266,8 @@ ABook includes a built-in [Model Context Protocol](https://modelcontextprotocol.
 ## Agent Workflow
 
 ```
+Autonomous books (Interactive books are written in the book chat — see below):
+
 User creates book (title, premise, genre, target chapters)
          │
          ├─ optional: choose a base book (settings + context copied)
@@ -278,9 +280,7 @@ User creates book (title, premise, genre, target chapters)
   │   Phase 3: Plot Threads (subplots, themes, arcs)     │
   │   Phase 4: Chapter Outlines (title + synopsis each)  │
   │                                                      │
-  │   Asks clarifying questions up front; optionally     │
-  │   pauses after each phase for review and chat in     │
-  │   Human-assisted mode                                │
+  │   Asks clarifying questions up front                 │
   └──────────────────────────────────────────────────────┘
          │
          │  ← "Plan Only" stops here so you can review
@@ -289,8 +289,6 @@ User creates book (title, premise, genre, target chapters)
   For each chapter:
   [Checker]  ── pre-write: checks outline for contradictions
          │
-         │  ← optional human pause in assisted mode: review the
-         │    outline and add details (edit it or use the chat)
          ▼
   [Writer]  ── writes full chapter prose
          │
@@ -300,11 +298,8 @@ User creates book (title, premise, genre, target chapters)
          ▼
   [Editor]  ── applies patches mechanically (skipped if no issues)
          │
-         │  ← optional human pause in assisted mode: read the patched
-         │    chapter, edit anything, and steer the rewrite
          ▼
   [Editor]  ── creative rewrite — only when the Checker asked for one
-         │      or you gave instructions during the pause
          ▼
       Done ✓
 ```
@@ -321,15 +316,18 @@ Agents stream tokens via SignalR as they write.
 | **Continue Planning** | Re-runs only the incomplete planning phases |
 | **Stop** | Cancels any running agent cleanly |
 
-In **Human-assisted** mode the app also pauses after each planning phase, and twice per chapter — on its outline after the pre-write check (add details before the Writer starts), and after the Editor's mechanical fixes are applied but before the creative rewrite. While it is paused nothing is generating, so you are free to edit the chapter (title, outline and prose), the characters, the plot threads or the story bible; the next step re-reads all of it.
+### Interactive books — the book chat
 
-Each pause opens the page of the section under review (Story Bible, Characters, Plot Threads, Chapters, or the chapter itself — its outline or its prose) with a **chat panel** beside it (a sheet at the bottom on narrow screens). Ask the LLM about the section or tell it what to change: every message is sent with the section as it stood when the chat began, the whole conversation so far, and the current version if it has changed since. When a change is needed the LLM returns the updated section, which is saved immediately and appears on the page — the Story Bible and character/thread sets get history snapshots, characters and threads keep their portraits and are archived (not deleted) when removed, chapter outlines with prose are never removed, and chapter prose is saved as a new version. **Show changes** under a reply shows what it changed, and **Undo** restores the section as it was before the latest change (undo again to redo).
+Choose **Interactive** when you create a book (it is the default; the mode can be changed in Book Settings). The book opens on **Book Chat**:
 
-Press **Complete** to continue the run (it waits while a reply is still coming in); **Stop** also stops a reply. If you chatted, the LLM first drafts a short note of the decisions and preferences from the discussion; edit it and save it — it becomes a clarification, editable on the Clarifications page, that every later prompt includes — or complete without it.
+1. **Foundation.** The LLM reads your premise, proposes a Story Bible and asks what it needs to know. Discuss it, add characters and plot threads, and apply the changes you like. When the world feels settled, press **Lock bible & start writing** (writing the first chapter locks it too).
+2. **Writing.** Ask for whatever comes next, in any order — "introduce Tobin, Mara's old partner", "add a chapter where…, and write it", "make chapter 3 darker". Chapters are only ever added at the end; there is no chapter count to reach and no outline to plan up front.
+3. **Every change is a proposal.** Each reply shows its changes as cards — **Show changes** for a diff, **Apply**, **Reject**, **Apply all**; applied changes have **Undo**. When a request contradicts the book (the Story Bible, a character, something a written chapter established), the reply lists the **conflicts** and offers alternatives: adapt the request (option A) or change the book to fit it (option B).
+4. **After a chapter is written** it is summarized (the summary is what later prompts use as "the story so far") and checked; the fixes the checker suggests, the new characters the chapter introduced and plot threads it moved on are proposed in the chat for you to apply.
 
-The same is available over MCP: `get_section_chat`, `send_section_chat_message`, `undo_section_chat_change`, `summarize_section_chat` and `complete_section_review`.
+While writing, the premise and Story Bible are **locked**: the chat cannot change them and the Story Bible page is read-only. You can unlock them in **Book Settings** if you really need to — the LLM never does.
 
-Before a chapter's rewrite you can also type instructions in the box on the **Agent Messages** page; they are passed to the rewrite as author instructions, and the rewrite is skipped altogether when the Checker found nothing to rewrite and you gave none.
+Each request sends the LLM a compact digest of the book plus only the last few messages (older ones are kept as a short running summary), so long chats stay fast and cheap. The page works on a phone. Over MCP: `send_book_chat_message`, `get_book_chat`, `apply_book_chat_proposals`, `reject_book_chat_proposals`, `undo_book_chat_proposal`, `start_book_chat`, `lock_story_bible`.
 
 Chapter edits you make by hand are re-embedded in the background, so retrieval for later chapters sees your text rather than the version the agent wrote.
 

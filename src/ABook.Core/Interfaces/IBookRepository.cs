@@ -168,6 +168,11 @@ public interface IBookRepository
     Task<IReadOnlyList<ChatProposal>> GetProposalsByStatusAsync(int bookId, ChatProposalStatus status);
     Task UpdateProposalAsync(ChatProposal proposal);
     /// <summary>
+    /// Forgets unsaved changes and cached rows after a failed save, so the next save does not retry the failed
+    /// one and the next read sees the database.
+    /// </summary>
+    void DiscardPendingChanges();
+    /// <summary>
     /// After a restart: author messages still waiting for a reply and proposals still being applied are
     /// marked Failed (their run is gone). Returns how many rows changed.
     /// </summary>

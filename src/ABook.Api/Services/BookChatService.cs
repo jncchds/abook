@@ -68,14 +68,18 @@ public class BookChatService(
             : FromRunStart(result, message.Id);
     }
 
-    /// <summary>The opening reply of a new Interactive book: a Story Bible proposal and questions. Only on an empty chat.</summary>
+    /// <summary>
+    /// The opening reply of a new Interactive book: a Story Bible proposal and questions. Only while nobody has
+    /// written in the chat yet — events (such as a failed first attempt) do not count, so it can be retried.
+    /// </summary>
     public async Task<BookChatOutcome> KickoffAsync(int bookId)
     {
         using var scope = scopeFactory.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBookRepository>();
         if (await RequireInteractiveAsync(repo, bookId) is { } refused) return refused;
-        if ((await repo.GetChatMessagesAsync(bookId, limit: 1)).Count > 0)
+        if ((await repo.GetChatMessagesAsync(bookId)).Any(m => m.Role != BookChatRole.Event))
             return new(BookChatResult.Invalid, "The chat has already started.");
+        if (IsBusy(bookId)) return Busy();
         return Start(bookId, (o, c) => o.RunBookChatTurnAsync(bookId, null, c));
     }
 

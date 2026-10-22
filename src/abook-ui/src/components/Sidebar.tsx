@@ -8,7 +8,11 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ hasPendingQuestion, children, bottomChildren }: SidebarProps) {
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true')
+  // No saved choice yet: start collapsed on phones, where the expanded sidebar would cover the page.
+  const [collapsed, setCollapsed] = useState(() => {
+    const saved = localStorage.getItem('sidebarCollapsed')
+    return saved !== null ? saved === 'true' : window.matchMedia('(max-width: 767px)').matches
+  })
   const { theme, setTheme } = useTheme()
 
   const toggle = () => {
