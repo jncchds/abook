@@ -6,5 +6,6 @@ internal static class AgentCreatedBy
     public const string Editor = "agent:Editor";
     public const string Characters = "agent:Characters";
     public const string PlotThreads = "agent:PlotThreads";
-    public const string SectionChat = "agent:SectionChat";
+    /// <summary>A change the author approved in the book chat of an Interactive book.</summary>
+    public const string BookChat = "agent:BookChat";
 }

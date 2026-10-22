@@ -275,20 +275,6 @@ public class AgentRunStateService
         catch (ObjectDisposedException) { return false; }
     }
 
-    // ── Section chat ────────────────────────────────────────────────────────────
-
-    // bookId → pause question whose section chat is waiting for an LLM reply
-    private readonly ConcurrentDictionary<int, int> _sectionChatBusy = new();
-
-    /// <summary>Claims the book's section chat for one reply. False when a reply is already in progress.</summary>
-    public bool TryBeginSectionChat(int bookId, int questionMessageId) =>
-        _sectionChatBusy.TryAdd(bookId, questionMessageId);
-
-    public void EndSectionChat(int bookId) => _sectionChatBusy.TryRemove(bookId, out _);
-
-    /// <summary>True while the section chat is waiting for a reply — the pause must not be answered then.</summary>
-    public bool IsSectionChatBusy(int bookId) => _sectionChatBusy.ContainsKey(bookId);
-
     public bool TryResolvePending(int bookId, int messageId, string answer)
     {
         if (_pending.TryGetValue(bookId, out var pending) && pending.MessageId == messageId)

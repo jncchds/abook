@@ -13,6 +13,15 @@ public interface IAgentOrchestrator
     Task ContinueWorkflowAsync(int bookId, CancellationToken ct = default);
     Task ContinuePlanningAsync(int bookId, CancellationToken ct = default);
     Task ResumeWithAnswerAsync(int messageId, string answer, CancellationToken ct = default);
+    /// <summary>
+    /// Interactive books: answers the author's chat message <paramref name="authorMessageId"/>, or writes the
+    /// opening reply of a new book when null. The reply's changes are only proposed.
+    /// </summary>
+    Task RunBookChatTurnAsync(int bookId, int? authorMessageId, CancellationToken ct = default);
+    /// <summary>Interactive books: applies the proposals the author approved (writing chapters when asked).</summary>
+    Task ApplyProposalsAsync(int bookId, IReadOnlyList<int> proposalIds, CancellationToken ct = default);
+    /// <summary>Interactive books: undoes an applied proposal.</summary>
+    Task UndoProposalAsync(int bookId, int proposalId, CancellationToken ct = default);
     /// <summary>LLM-only: writes illustration prompts and positions. Nothing is rendered.</summary>
     Task StartIllustrationPlanningAsync(int bookId, IllustrationPlanRequest request, CancellationToken ct = default);
     /// <summary>Image-model only: renders planned illustrations. Makes no LLM calls.</summary>

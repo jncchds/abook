@@ -45,13 +45,22 @@ public class AgentController : ControllerBase
         return result == RunStartResult.Success ? Accepted() : Conflict(new { message = result.ToMessage() });
     }
 
+    /// <summary>The planning pipeline and the workflow belong to Autonomous books; Interactive books grow in the chat.</summary>
+    private async Task<IActionResult> StartAutonomousAsync(
+        int bookId, AgentRole role, Func<IAgentOrchestrator, CancellationToken, Task> action)
+    {
+        if (await _repo.GetByIdAsync(bookId) is { Mode: BookMode.Interactive })
+            return Conflict(new { message = "This is an Interactive book: it is planned and written in the book chat. Switch its mode in Book Settings to use the automatic pipeline." });
+        return await StartAsync(bookId, role, null, action);
+    }
+
     [HttpPost("plan")]
     public Task<IActionResult> Plan(int bookId) =>
-        StartAsync(bookId, AgentRole.Planner, null, (o, c) => o.StartPlanningAsync(bookId, c));
+        StartAutonomousAsync(bookId, AgentRole.Planner, (o, c) => o.StartPlanningAsync(bookId, c));
 
     [HttpPost("plan/continue")]
     public Task<IActionResult> ContinuePlanning(int bookId) =>
-        StartAsync(bookId, AgentRole.Planner, null, (o, c) => o.ContinuePlanningAsync(bookId, c));
+        StartAutonomousAsync(bookId, AgentRole.Planner, (o, c) => o.ContinuePlanningAsync(bookId, c));
 
     [HttpPost("write/{chapterId:int}")]
     public Task<IActionResult> Write(int bookId, int chapterId) =>
@@ -67,11 +76,11 @@ public class AgentController : ControllerBase
 
     [HttpPost("workflow/start")]
     public Task<IActionResult> StartWorkflow(int bookId) =>
-        StartAsync(bookId, AgentRole.Planner, null, (o, c) => o.StartWorkflowAsync(bookId, c));
+        StartAutonomousAsync(bookId, AgentRole.Planner, (o, c) => o.StartWorkflowAsync(bookId, c));
 
     [HttpPost("workflow/continue")]
     public Task<IActionResult> ContinueWorkflow(int bookId) =>
-        StartAsync(bookId, AgentRole.Writer, null, (o, c) => o.ContinueWorkflowAsync(bookId, c));
+        StartAutonomousAsync(bookId, AgentRole.Writer, (o, c) => o.ContinueWorkflowAsync(bookId, c));
 
     [HttpPost("workflow/stop")]
     public async Task<IActionResult> StopWorkflow(int bookId)

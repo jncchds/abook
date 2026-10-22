@@ -21,6 +21,8 @@ export default function StoryBiblePage() {
   if (!book) return null
 
   const bookId = book.id
+  // Interactive books lock the premise and Story Bible once writing starts; only Book Settings unlocks them.
+  const locked = book.mode === 'Interactive' && !!book.storyBibleLockedAt
 
   const handleOpenHistory = async () => {
     setLoadingHistory(true)
@@ -67,7 +69,7 @@ export default function StoryBiblePage() {
                   <button className="btn-sm btn-ghost" onClick={() => setPreviewSnapshot(previewSnapshot?.id === s.id ? null : s)}>
                     {previewSnapshot?.id === s.id ? 'Hide' : 'Preview'}
                   </button>
-                  <button className="btn-sm" disabled={restoring} onClick={() => handleRestore(s.id)}>Restore</button>
+                  {!locked && <button className="btn-sm" disabled={restoring} onClick={() => handleRestore(s.id)}>Restore</button>}
                 </div>
                 {previewSnapshot?.id === s.id && (
                   <div className="history-preview">
@@ -106,9 +108,18 @@ export default function StoryBiblePage() {
         <div className="bible-view">
           <div className="page-header">
             <h2>Story Bible</h2>
-            <button className="btn-edit-book" onClick={() => { setBibleForm(storyBible ?? {}); setEditingBible(true) }}>✎ Edit</button>
+            {locked
+              ? <button className="btn-sm btn-ghost" onClick={handleOpenHistory}>📜 History</button>
+              : <button className="btn-edit-book" onClick={() => { setBibleForm(storyBible ?? {}); setEditingBible(true) }}>✎ Edit</button>}
           </div>
-          <PhaseActionBar phase="storybible" onClear={() => setStoryBible(null)} onHistory={handleOpenHistory} />
+          {locked && (
+            <div className="locked-banner">
+              🔒 Locked since writing started — the premise and Story Bible are fixed canon. Unlock them in Book Settings to change them.
+            </div>
+          )}
+          {book.mode !== 'Interactive' && (
+            <PhaseActionBar phase="storybible" onClear={() => setStoryBible(null)} onHistory={handleOpenHistory} />
+          )}
           {(() => {
             const preview = storyBibleStream ? parseStoryBibleStream(storyBibleStream) : null
             const data: Partial<StoryBible> = storyBible ?? preview ?? {}

@@ -113,10 +113,11 @@ internal static class MetadataExport
     // ── Book details ──────────────────────────────────────────────────────────
 
     private static List<(string, string?)> BookFields(
-        string title, string genre, string language, int target, bool humanAssisted, string premise) =>
+        string title, string genre, string language, int target, BookMode mode, string premise) =>
     [
-        ("Title", title), ("Genre", genre), ("Language", language), ("Target chapters", target.ToString()),
-        ("Human-assisted", humanAssisted ? "yes" : "no"), ("Premise", premise),
+        ("Title", title), ("Genre", genre), ("Language", language),
+        ("Target chapters", target > 0 ? target.ToString() : "open-ended"),
+        ("Mode", mode.ToString()), ("Premise", premise),
     ];
 
     /// <summary>
@@ -126,8 +127,8 @@ internal static class MetadataExport
     private static IEnumerable<Ev> BookEvents(Book book, IReadOnlyList<BookSnapshot> snapshots)
     {
         var states = snapshots.OrderBy(x => x.CreatedAt)
-            .Select(x => BookFields(x.Title, x.Genre, x.Language, x.TargetChapterCount, x.HumanAssisted, x.Premise))
-            .Append(BookFields(book.Title, book.Genre, book.Language, book.TargetChapterCount, book.HumanAssisted, book.Premise))
+            .Select(x => BookFields(x.Title, x.Genre, x.Language, x.TargetChapterCount, x.Mode, x.Premise))
+            .Append(BookFields(book.Title, book.Genre, book.Language, book.TargetChapterCount, book.Mode, book.Premise))
             .ToList();
 
         var created = Fields(states[0]);
@@ -811,6 +812,8 @@ internal static class MetadataExport
         AgentRole.ContinuityChecker   => "Continuity Checker",
         AgentRole.IllustrationPlanner => "Illustration Planner",
         AgentRole.SectionChat         => "Section Chat",
+        AgentRole.BookChat            => "Book Chat",
+        AgentRole.ChapterSummarizer   => "Chapter Summarizer",
         AgentRole.WorkflowStep        => "Workflow",
         _                             => role.ToString(),
     };

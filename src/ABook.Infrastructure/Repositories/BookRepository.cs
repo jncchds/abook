@@ -689,7 +689,83 @@ public class BookRepository : IBookRepository
         return touched;
     }
 
-    // ── Visual assets ─────────────────────────────────────────────────────────
+    // ── Book chat ─────────────────────────────────────────────────────────────
+
+    public async Task<IReadOnlyList<BookChatMessage>> GetChatMessagesAsync(int bookId, int? beforeId = null, int? limit = null)
+    {
+        var query = _db.BookChatMessages.Where(m => m.BookId == bookId);
+        if (beforeId is int before) query = query.Where(m => m.Id < before);
+        query = query.OrderByDescending(m => m.Id);
+        if (limit is int n) query = query.Take(n);
+        var messages = await query.Include(m => m.Proposals).AsSplitQuery().ToListAsync();
+        foreach (var m in messages)
+            m.Proposals = m.Proposals.OrderBy(p => p.Ordinal).ToList();
+        messages.Reverse();
+        return messages;
+    }
+
+    public async Task<BookChatMessage?> GetChatMessageAsync(int bookId, int messageId) =>
+        await _db.BookChatMessages.Include(m => m.Proposals)
+            .FirstOrDefaultAsync(m => m.BookId == bookId && m.Id == messageId);
+
+    public async Task<BookChatMessage> AddChatMessageAsync(BookChatMessage message)
+    {
+        var now = DateTime.UtcNow;
+        message.CreatedAt = now;
+        foreach (var p in message.Proposals)
+        {
+            p.BookId = message.BookId;
+            p.CreatedAt = p.UpdatedAt = now;
+        }
+        _db.BookChatMessages.Add(message);
+        await _db.SaveChangesAsync();
+        return message;
+    }
+
+    public async Task UpdateChatMessageAsync(BookChatMessage message)
+    {
+        _db.BookChatMessages.Update(message);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<ChatProposal?> GetProposalAsync(int bookId, int proposalId) =>
+        await _db.ChatProposals.FirstOrDefaultAsync(p => p.BookId == bookId && p.Id == proposalId);
+
+    public async Task<IReadOnlyList<ChatProposal>> GetProposalsAsync(int bookId, IEnumerable<int> proposalIds)
+    {
+        var ids = proposalIds.ToArray();
+        return await _db.ChatProposals
+            .Where(p => p.BookId == bookId && ids.Contains(p.Id))
+            .OrderBy(p => p.MessageId).ThenBy(p => p.Ordinal)
+            .ToListAsync();
+    }
+
+    public async Task<IReadOnlyList<ChatProposal>> GetProposalsByStatusAsync(int bookId, ChatProposalStatus status) =>
+        await _db.ChatProposals
+            .Where(p => p.BookId == bookId && p.Status == status)
+            .OrderBy(p => p.MessageId).ThenBy(p => p.Ordinal)
+            .ToListAsync();
+
+    public async Task UpdateProposalAsync(ChatProposal proposal)
+    {
+        proposal.UpdatedAt = DateTime.UtcNow;
+        _db.ChatProposals.Update(proposal);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<int> FailInterruptedChatAsync()
+    {
+        var messages = await _db.BookChatMessages
+            .Where(m => m.Status == BookChatMessageStatus.Pending)
+            .ExecuteUpdateAsync(s => s.SetProperty(m => m.Status, BookChatMessageStatus.Failed));
+        var proposals = await _db.ChatProposals
+            .Where(p => p.Status == ChatProposalStatus.Applying)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.Status, ChatProposalStatus.Failed)
+                .SetProperty(p => p.ResultNote, "Interrupted by a server restart.")
+                .SetProperty(p => p.UpdatedAt, DateTime.UtcNow));
+        return messages + proposals;
+    }
 
     // ── Clarifications ────────────────────────────────────────────────────────
 

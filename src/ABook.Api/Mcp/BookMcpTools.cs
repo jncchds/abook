@@ -14,14 +14,15 @@ public class BookMcpTools : McpToolBase
 {
     private readonly IBookRepository _repo;
     private readonly AgentRunStateService _runState;
+    private readonly ABook.Api.Services.BookChatService _chat;
 
-    public BookMcpTools(IBookRepository repo, AgentRunStateService runState, IHttpContextAccessor http)
+    public BookMcpTools(IBookRepository repo, AgentRunStateService runState, ABook.Api.Services.BookChatService chat, IHttpContextAccessor http)
         : base(http)
     {
         _repo = repo;
         _runState = runState;
+        _chat = chat;
     }
-
 
 
     // ── Books ─────────────────────────────────────────────────────────────────
@@ -41,7 +42,7 @@ public class BookMcpTools : McpToolBase
             CharactersStatus = b.CharactersStatus.ToString(),
             PlotThreadsStatus = b.PlotThreadsStatus.ToString(),
             ChaptersStatus = b.ChaptersStatus.ToString(),
-            b.TargetChapterCount, b.Language, b.CreatedAt
+            b.TargetChapterCount, b.Language, b.Mode, b.CreatedAt
         });
         return JsonSerializer.Serialize(result, JsonOptions);
     }
@@ -56,6 +57,8 @@ public class BookMcpTools : McpToolBase
         {
             book.Id, book.Title, book.Genre, book.Premise, book.Language,
             book.TargetChapterCount,
+            book.Mode,
+            StoryBibleLocked = book.StoryBibleLockedAt is not null,
             Status = book.Status.ToString(),
             ClarificationsStatus = book.ClarificationsStatus.ToString(),
             StoryBibleStatus = book.StoryBibleStatus.ToString(),
@@ -72,20 +75,26 @@ public class BookMcpTools : McpToolBase
         [Description("The book title.")] string title,
         [Description("A concise synopsis of the book's premise and plot.")] string premise,
         [Description("The genre (e.g. Fantasy, Thriller, Romance, Sci-Fi).")] string genre,
-        [Description("Target number of chapters.")] int targetChapterCount,
-        [Description("Language for the book text (e.g. English, Spanish). Defaults to English.")] string language = "English")
+        [Description("Target number of chapters. Required for Autonomous books; Interactive books are open-ended (0).")] int targetChapterCount = 0,
+        [Description("Language for the book text (e.g. English, Spanish). Defaults to English.")] string language = "English",
+        [Description("Autonomous (the planning pipeline and workflow) or Interactive (written in the book chat — see send_book_chat_message). Defaults to Autonomous.")] BookMode mode = BookMode.Autonomous)
     {
+        if (mode == BookMode.Autonomous && targetChapterCount < 1)
+            throw new McpException("An Autonomous book needs a target chapter count.");
         var userId = CurrentUserId();
         var book = await _repo.AddAsync(new Book
         {
             Title = title,
             Premise = premise,
             Genre = genre,
-            TargetChapterCount = targetChapterCount,
+            TargetChapterCount = Math.Max(0, targetChapterCount),
             Language = language,
+            Mode = mode,
             UserId = userId
         });
-        return JsonSerializer.Serialize(new { book.Id, book.Title, book.Genre, book.Premise, book.Language, book.TargetChapterCount }, JsonOptions);
+        if (mode == BookMode.Interactive) await _chat.KickoffAsync(book.Id);
+        return JsonSerializer.Serialize(new { book.Id, book.Title, book.Genre, book.Premise, book.Language, book.TargetChapterCount, book.Mode,
+            next = mode == BookMode.Interactive ? "The LLM is writing its opening reply (a Story Bible proposal) — read it with get_book_chat." : null }, JsonOptions);
     }
 
     [McpServerTool(Name = "update_book")]
@@ -97,9 +106,15 @@ public class BookMcpTools : McpToolBase
         [Description("New genre (leave null to keep existing).")] string? genre = null,
         [Description("New target chapter count (leave null to keep existing).")] int? targetChapterCount = null,
         [Description("New language (leave null to keep existing).")] string? language = null,
-        [Description("Plan illustrations (image prompts and positions) for each chapter the workflow finishes, and the cover at the end (leave null to keep existing).")] bool? illustrationsEnabled = null)
+        [Description("Plan illustrations (image prompts and positions) for each chapter the workflow finishes, and the cover at the end (leave null to keep existing).")] bool? illustrationsEnabled = null,
+        [Description("Autonomous or Interactive (leave null to keep existing). Autonomous needs a target chapter count.")] BookMode? mode = null)
     {
         var book = await GetOwnedBookAsync(bookId, _repo);
+        if (premise != null && premise.Trim() != book.Premise.Trim() && ABook.Agents.BookContentService.IsBibleLocked(book))
+            throw new McpException(new ABook.Agents.StoryBibleLockedException().Message);
+        if (mode == BookMode.Autonomous && (targetChapterCount ?? book.TargetChapterCount) < 1)
+            throw new McpException("An Autonomous book needs a target chapter count.");
+        if (mode.HasValue) book.Mode = mode.Value;
         if (illustrationsEnabled.HasValue) book.IllustrationsEnabled = illustrationsEnabled.Value;
         if (title != null) book.Title = title;
         if (premise != null) book.Premise = premise;
@@ -108,7 +123,7 @@ public class BookMcpTools : McpToolBase
         if (language != null) book.Language = language;
         book.UpdatedAt = DateTime.UtcNow;
         await _repo.UpdateAsync(book);
-        return JsonSerializer.Serialize(new { book.Id, book.Title, book.Genre, book.Premise, book.Language, book.TargetChapterCount, book.IllustrationsEnabled }, JsonOptions);
+        return JsonSerializer.Serialize(new { book.Id, book.Title, book.Genre, book.Premise, book.Language, book.TargetChapterCount, book.IllustrationsEnabled, book.Mode }, JsonOptions);
     }
 
     [McpServerTool(Name = "delete_book", Destructive = true)]

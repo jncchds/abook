@@ -47,7 +47,9 @@ public class BookSnapshot
     public string Genre { get; set; } = string.Empty;
     public int TargetChapterCount { get; set; }
     public string Language { get; set; } = string.Empty;
+    /// <summary>Legacy (up to v0.3.1): the book's human-assisted flag. Newer snapshots record <see cref="Mode"/>.</summary>
     public bool HumanAssisted { get; set; }
+    public BookMode Mode { get; set; } = BookMode.Autonomous;
     public string Reason { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
 }

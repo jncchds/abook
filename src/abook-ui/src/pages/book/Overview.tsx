@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useBookContext } from '../../contexts/BookContext'
+import axios from 'axios'
 import { updateBook } from '../../api'
-import ToggleField from '../../components/ToggleField'
 
 export default function Overview() {
   const { book, setBook, canEdit } = useBookContext()
@@ -11,22 +11,29 @@ export default function Overview() {
   const [bookEditPremise, setBookEditPremise] = useState('')
   const [bookEditGenre, setBookEditGenre] = useState('')
   const [bookEditTargetChapters, setBookEditTargetChapters] = useState(0)
-  const [bookEditHumanAssisted, setBookEditHumanAssisted] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   if (!book) return null
+  const interactive = book.mode === 'Interactive'
+  const premiseLocked = interactive && !!book.storyBibleLockedAt
 
   const handleSaveBookEdit = async () => {
-    const r = await updateBook(book.id, {
-      title: bookEditTitle,
-      premise: bookEditPremise,
-      genre: bookEditGenre,
-      targetChapterCount: bookEditTargetChapters,
-      status: book.status as never,
-      language: book.language,
-      humanAssisted: bookEditHumanAssisted,
-    })
-    setBook(r.data)
-    setEditingBook(false)
+    setError(null)
+    try {
+      const r = await updateBook(book.id, {
+        title: bookEditTitle,
+        premise: bookEditPremise,
+        genre: bookEditGenre,
+        targetChapterCount: bookEditTargetChapters,
+        status: book.status as never,
+        language: book.language,
+        mode: book.mode,
+      })
+      setBook(r.data)
+      setEditingBook(false)
+    } catch (err) {
+      setError(axios.isAxiosError(err) ? (err.response?.data?.message ?? err.message) : String(err))
+    }
   }
 
   return (
@@ -37,14 +44,14 @@ export default function Overview() {
           <label>Genre<input value={bookEditGenre} onChange={e => setBookEditGenre(e.target.value)} placeholder="Fantasy, Adventure" />
             <span className="hint">Comma-separated list of genres</span>
           </label>
-          <label>Target chapters<input type="number" min={1} value={bookEditTargetChapters} onChange={e => setBookEditTargetChapters(+e.target.value)} /></label>
-          <label>Premise / Plot<textarea rows={6} value={bookEditPremise} onChange={e => setBookEditPremise(e.target.value)} /></label>
-          <ToggleField
-            checked={bookEditHumanAssisted}
-            onChange={setBookEditHumanAssisted}
-            label="Human-assisted generation"
-            hint="Pauses after each planning phase, and after each chapter's mechanical fixes."
-          />
+          {!interactive && (
+            <label>Target chapters<input type="number" min={1} value={bookEditTargetChapters} onChange={e => setBookEditTargetChapters(+e.target.value)} /></label>
+          )}
+          <label>Premise / Plot
+            <textarea rows={6} value={bookEditPremise} onChange={e => setBookEditPremise(e.target.value)} disabled={premiseLocked} />
+            {premiseLocked && <span className="hint">🔒 Locked while writing — unlock the Story Bible in Book Settings to change it.</span>}
+          </label>
+          {error && <p className="error-msg" role="alert">{error}</p>}
           <div className="book-edit-actions">
             <button onClick={handleSaveBookEdit}>Save</button>
             <button className="btn-ghost" onClick={() => setEditingBook(false)}>Cancel</button>
@@ -55,7 +62,7 @@ export default function Overview() {
           <div className="page-header">
             <h2>{book.title}</h2>
             {canEdit && (
-              <button className="btn-edit-book" onClick={() => { setBookEditTitle(book.title); setBookEditPremise(book.premise); setBookEditGenre(book.genre); setBookEditTargetChapters(book.targetChapterCount); setBookEditHumanAssisted(book.humanAssisted ?? false); setEditingBook(true) }} title="Edit book details">✎ Edit</button>
+              <button className="btn-edit-book" onClick={() => { setBookEditTitle(book.title); setBookEditPremise(book.premise); setBookEditGenre(book.genre); setBookEditTargetChapters(book.targetChapterCount); setError(null); setEditingBook(true) }} title="Edit book details">✎ Edit</button>
             )}
           </div>
           {book.baseBookId && (
@@ -65,7 +72,9 @@ export default function Overview() {
             </p>
           )}
           <p><strong>Premise:</strong> {book.premise}</p>
-          <p><strong>Genre:</strong> {book.genre} · <strong>Language:</strong> {book.language} · <strong>Target chapters:</strong> {book.targetChapterCount}{book.humanAssisted ? ' · 🤝 Human-assisted' : ''}</p>
+          <p><strong>Genre:</strong> {book.genre} · <strong>Language:</strong> {book.language} · {interactive
+            ? <><strong>Mode:</strong> ✍ Interactive{book.storyBibleLockedAt ? ' · 🔒 writing' : ' · 🌱 foundation'}</>
+            : <><strong>Target chapters:</strong> {book.targetChapterCount}</>}</p>
 
 
         </>

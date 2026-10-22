@@ -41,6 +41,8 @@ public class AppDbContext : DbContext
     public DbSet<BookImage> BookImages => Set<BookImage>();
     public DbSet<VisualAsset> VisualAssets => Set<VisualAsset>();
     public DbSet<Clarification> Clarifications => Set<Clarification>();
+    public DbSet<BookChatMessage> BookChatMessages => Set<BookChatMessage>();
+    public DbSet<ChatProposal> ChatProposals => Set<ChatProposal>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -70,6 +72,8 @@ public class AppDbContext : DbContext
             b.Property(x => x.Status).HasConversion<string>();
             b.Property(x => x.Language).HasMaxLength(100).HasDefaultValue("English");
             b.Property(x => x.IllustrationsEnabled).HasDefaultValue(false);
+            b.Property(x => x.Mode).HasConversion<string>().HasMaxLength(20);
+            b.Property(x => x.ChatMemory).HasDefaultValue(string.Empty);
             b.HasMany(x => x.Chapters).WithOne(x => x.Book).HasForeignKey(x => x.BookId).OnDelete(DeleteBehavior.Cascade);
             b.HasMany(x => x.AgentMessages).WithOne(x => x.Book).HasForeignKey(x => x.BookId).OnDelete(DeleteBehavior.Cascade);
             b.HasMany(x => x.LlmConfigurations).WithOne(x => x.Book).HasForeignKey(x => x.BookId).OnDelete(DeleteBehavior.Cascade);
@@ -191,6 +195,34 @@ public class AppDbContext : DbContext
              .HasForeignKey(x => x.BookId)
              .OnDelete(DeleteBehavior.Cascade);
             c.HasIndex(x => x.BookId);
+        });
+
+        modelBuilder.Entity<BookChatMessage>(m =>
+        {
+            m.HasKey(x => x.Id);
+            m.Property(x => x.Role).HasConversion<string>().HasMaxLength(20);
+            m.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+            m.Property(x => x.ConflictsJson).HasDefaultValue("[]");
+            m.HasOne(x => x.Book)
+             .WithMany()
+             .HasForeignKey(x => x.BookId)
+             .OnDelete(DeleteBehavior.Cascade);
+            m.HasMany(x => x.Proposals)
+             .WithOne(x => x.Message)
+             .HasForeignKey(x => x.MessageId)
+             .OnDelete(DeleteBehavior.Cascade);
+            m.HasIndex(x => x.BookId);
+        });
+
+        modelBuilder.Entity<ChatProposal>(p =>
+        {
+            p.HasKey(x => x.Id);
+            p.Property(x => x.Type).IsRequired().HasMaxLength(50);
+            p.Property(x => x.Label).HasMaxLength(500);
+            p.Property(x => x.Target).HasMaxLength(400);
+            p.Property(x => x.OptionGroup).HasMaxLength(20);
+            p.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+            p.HasIndex(x => new { x.BookId, x.Status });
         });
 
         modelBuilder.Entity<CharacterCardVersion>(v =>
@@ -417,6 +449,7 @@ public class AppDbContext : DbContext
             b.Property(x => x.Title).HasMaxLength(500);
             b.Property(x => x.Genre).HasMaxLength(100);
             b.Property(x => x.Language).HasMaxLength(100);
+            b.Property(x => x.Mode).HasConversion<string>().HasMaxLength(20);
             b.Property(x => x.Reason).HasMaxLength(500);
             b.HasIndex(x => x.BookId);
         });

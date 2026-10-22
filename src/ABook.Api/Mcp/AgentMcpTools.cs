@@ -33,7 +33,11 @@ public class AgentMcpTools : McpToolBase
     private async Task StartAsync(
         int bookId, AgentRole role, int? chapterId, Func<IAgentOrchestrator, CancellationToken, Task> action)
     {
-        await EnsureBookOwnershipAsync(bookId, _repo);
+        var book = await GetOwnedBookAsync(bookId, _repo);
+
+        // Planning and the workflow (Planner, or Writer without a chapter) belong to Autonomous books.
+        if (book.Mode == BookMode.Interactive && chapterId is null && role is AgentRole.Planner or AgentRole.Writer)
+            throw new McpException("This is an Interactive book: it is planned and written in the book chat (send_book_chat_message). Switch its mode with update_book to use the automatic pipeline.");
 
         if (chapterId is int id)
         {
@@ -51,7 +55,7 @@ public class AgentMcpTools : McpToolBase
     // ── Planning ──────────────────────────────────────────────────────────────
 
     [McpServerTool(Name = "start_planning")]
-    [Description("Start the planning pipeline for a book. Runs four sequential phases: Story Bible → Characters → Plot Threads → Chapter Outlines. It may first ask clarifying questions and wait (WaitingForInput in get_agent_status): answer the open ones from list_clarifications with update_clarification — the last answer resumes planning. Human-assisted pauses after phases are answered with answer_agent_question. The run is asynchronous; returns immediately after scheduling.")]
+    [Description("Start the planning pipeline for a book. Runs four sequential phases: Story Bible → Characters → Plot Threads → Chapter Outlines. It may first ask clarifying questions and wait (WaitingForInput in get_agent_status): answer the open ones from list_clarifications with update_clarification — the last answer resumes planning. Autonomous books only. The run is asynchronous; returns immediately after scheduling.")]
     public async Task<string> StartPlanning(
         [Description("The book ID to plan.")] int bookId)
     {
@@ -145,8 +149,6 @@ public class AgentMcpTools : McpToolBase
         var message = await _repo.FindMessageByIdAsync(messageId)
             ?? throw new McpException($"Message {messageId} not found.");
         await EnsureBookOwnershipAsync(message.BookId, _repo);
-        if (_runState.IsSectionChatBusy(message.BookId))
-            throw new McpException("The LLM is still answering in the section chat. Wait for its reply, then answer.");
 
         using var scope = _scopeFactory.CreateScope();
         var orchestrator = scope.ServiceProvider.GetRequiredService<IAgentOrchestrator>();

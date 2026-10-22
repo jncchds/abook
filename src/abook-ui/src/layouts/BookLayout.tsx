@@ -4,8 +4,6 @@ import { BookContextProvider, useBookContext } from '../contexts/BookContext'
 import Sidebar, { SidebarBtn, SidebarDivider } from '../components/Sidebar'
 import { chapterStatusColor } from '../utils/chapterStatus'
 import { downloadFile } from '../api'
-import SectionChatPanel from '../components/SectionChatPanel'
-import { sectionPath } from '../utils/sectionChat'
 
 function agentCaption(role: string | undefined, state: string | undefined, chapterNum: number | null): string {
   if (state === 'WaitingForInput') return 'Waiting for your answer…'
@@ -22,6 +20,8 @@ function agentCaption(role: string | undefined, state: string | undefined, chapt
     case 'Embedder':            return `Indexing${ch}…`
     case 'IllustrationPlanner': return `Planning illustrations${ch}…`
     case 'Illustrator':         return 'Rendering illustrations…'
+    case 'BookChat':            return 'Working on the book chat…'
+    case 'ChapterSummarizer':   return `Summarizing${ch}…`
     default:                    return `${role ?? 'Agent'} running…`
   }
 }
@@ -35,7 +35,7 @@ function BookSidebar() {
     book, isRunning, runStatus, pendingQuestion,
     streamingChapterId,
     handleWriteBook, handlePlanBook, handleStop, isPhaseComplete,
-    illustrations, handleRenderIllustrations, openClarificationCount, sectionTarget,
+    illustrations, handleRenderIllustrations, openClarificationCount,
   } = useBookContext()
 
   const [showExportMenu, setShowExportMenu] = useState(false)
@@ -58,6 +58,7 @@ function BookSidebar() {
   const startsAt = (suffix: string) => location.pathname.startsWith(`/books/${id}/${suffix}`)
 
   const statusColor = chapterStatusColor
+  const interactive = book.mode === 'Interactive'
 
   return (
     <Sidebar
@@ -108,9 +109,7 @@ function BookSidebar() {
               : null
             const label = runStatus?.state === 'WaitingForInput' && openClarificationCount > 0
               ? 'Waiting for your clarifications…'
-              : runStatus?.state === 'WaitingForInput' && sectionTarget
-                ? 'Waiting for your review…'
-                : agentCaption(runStatus?.role, runStatus?.state, chNum)
+              : agentCaption(runStatus?.role, runStatus?.state, chNum)
             return (
               <div className="agent-running-banner" style={{ margin: '0 4px 4px', fontSize: '0.75rem' }}>
                 <span className="spinner" />
@@ -122,8 +121,8 @@ function BookSidebar() {
         </>
       ) : (
         <>
-          <SidebarBtn icon="▶" label="Write Book" onClick={handleWriteBook} />
-          <SidebarBtn icon="🗗" label="Plan Book" onClick={handlePlanBook} />
+          {!interactive && <SidebarBtn icon="▶" label="Write Book" onClick={handleWriteBook} />}
+          {!interactive && <SidebarBtn icon="🗗" label="Plan Book" onClick={handlePlanBook} />}
           {(book.illustrationsEnabled || illustrations.length > 0) && (() => {
             // Rendering is its own run (image model only), started once the book is written.
             const liveChapters = new Set((book.chapters ?? []).filter(c => !c.isArchived).map(c => c.id))
@@ -143,6 +142,7 @@ function BookSidebar() {
         </>
       )}
       <SidebarDivider />
+      {interactive && <SidebarBtn icon="✍" label="Book Chat" active={isAt('studio')} onClick={() => navigate(`/books/${id}/studio`)} />}
       <SidebarBtn icon="📖" label="Overview" active={isAt('overview')} onClick={() => navigate(`/books/${id}/overview`)} />
       <SidebarBtn
         icon="❓"
@@ -152,9 +152,9 @@ function BookSidebar() {
         dot={openClarificationCount > 0 || isPhaseComplete('clarifications')}
         dotColor={openClarificationCount > 0 ? 'var(--warning)' : undefined}
       />
-      <SidebarBtn icon="🌍" label="Story Bible" active={isAt('story-bible')} onClick={() => navigate(`/books/${id}/story-bible`)} dot={isPhaseComplete('storybible')} />
-      <SidebarBtn icon="👤" label="Characters" active={isAt('characters')} onClick={() => navigate(`/books/${id}/characters`)} dot={isPhaseComplete('characters')} />
-      <SidebarBtn icon="🧵" label="Plot Threads" active={isAt('plot-threads')} onClick={() => navigate(`/books/${id}/plot-threads`)} dot={isPhaseComplete('plotthreads')} />
+      <SidebarBtn icon={interactive && book.storyBibleLockedAt ? '🔒' : '🌍'} label="Story Bible" active={isAt('story-bible')} onClick={() => navigate(`/books/${id}/story-bible`)} dot={!interactive && isPhaseComplete('storybible')} />
+      <SidebarBtn icon="👤" label="Characters" active={isAt('characters')} onClick={() => navigate(`/books/${id}/characters`)} dot={!interactive && isPhaseComplete('characters')} />
+      <SidebarBtn icon="🧵" label="Plot Threads" active={isAt('plot-threads')} onClick={() => navigate(`/books/${id}/plot-threads`)} dot={!interactive && isPhaseComplete('plotthreads')} />
       <SidebarBtn icon="🎨" label="Illustrations" active={isAt('illustrations')} onClick={() => navigate(`/books/${id}/illustrations`)} />
       <SidebarDivider />
       <SidebarBtn icon="💬" label="Agent Messages" active={isAt('chat')} onClick={() => navigate(`/books/${id}/chat`)} dot={!!pendingQuestion} dotColor={pendingQuestion ? 'var(--warning)' : undefined} />
@@ -165,7 +165,7 @@ function BookSidebar() {
         label="Chapters"
         active={location.pathname === `/books/${id}/chapters`}
         onClick={() => navigate(`/books/${id}/chapters`)}
-        dot={isPhaseComplete('chapters')}
+        dot={!interactive && isPhaseComplete('chapters')}
       />
       <div className="sidebar-chapters">
         {(book.chapters ?? []).filter(c => !c.isArchived).map(c => (
@@ -189,26 +189,24 @@ function BookSidebar() {
 function BookLayoutInner() {
   const { bookId } = useParams<{ bookId: string }>()
   const location = useLocation()
-  const { book, sectionTarget } = useBookContext()
+  const { book } = useBookContext()
 
   if (!book) return <div className="loading">Loading…</div>
 
-  // Redirect /books/:id to /books/:id/overview
-  if (location.pathname === `/books/${bookId}`) {
-    return <Navigate to={`/books/${bookId}/overview`} replace />
+  // /books/:id opens the book chat of an Interactive book, the overview of an Autonomous one.
+  if (location.pathname === `/books/${bookId}` || location.pathname === `/books/${bookId}/`) {
+    return <Navigate to={`/books/${bookId}/${book.mode === 'Interactive' ? 'studio' : 'overview'}`} replace />
   }
 
   const isChatView = location.pathname.endsWith('/chat')
-  // The section chat sits next to the page of the section the run is paused on.
-  const showSectionChat = !!sectionTarget && location.pathname === sectionPath(book.id, sectionTarget)
+  const isStudio = location.pathname.endsWith('/studio')
 
   return (
     <div className="app-layout">
       <BookSidebar />
-      <main className={`app-main${isChatView ? ' view-chat' : ''}${showSectionChat ? ' with-section-chat' : ''}`}>
+      <main className={`app-main${isChatView ? ' view-chat' : ''}${isStudio ? ' view-studio' : ''}`}>
         <Outlet />
       </main>
-      {showSectionChat && <SectionChatPanel />}
     </div>
   )
 }

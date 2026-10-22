@@ -51,6 +51,33 @@ export function parseCharactersStream(raw: string): Partial<CharacterCard>[] {
   return results
 }
 
+/**
+ * The value of the top-level string field `key` of a JSON object that is still streaming in — as much of it as
+ * has arrived. The book chat streams its reply as JSON; this shows the "message" while the rest is written.
+ */
+export function partialJsonString(raw: string, key: string): string {
+  const match = new RegExp(`"${key}"\\s*:\\s*"`).exec(raw)
+  if (!match) return ''
+  let out = ''
+  for (let i = match.index + match[0].length; i < raw.length; i++) {
+    const c = raw[i]
+    if (c === '"') break
+    if (c !== '\\') { out += c; continue }
+    const next = raw[++i]
+    if (next === undefined) break
+    if (next === 'n') out += '\n'
+    else if (next === 't') out += '\t'
+    else if (next === 'u') {
+      const hex = raw.slice(i + 1, i + 5)
+      if (hex.length < 4) break
+      out += String.fromCharCode(parseInt(hex, 16))
+      i += 4
+    }
+    else if (next !== 'r') out += next
+  }
+  return out
+}
+
 export function parsePlotThreadsStream(raw: string): Partial<PlotThread>[] {
   const results: Partial<PlotThread>[] = []
   let depth = 0, start = -1

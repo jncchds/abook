@@ -15,6 +15,7 @@ import PlotThreads from './pages/book/PlotThreads'
 import ChapterView from './pages/book/ChapterView'
 import Chapters from './pages/book/Chapters'
 import ChatPage from './pages/book/ChatPage'
+import BookChat from './pages/book/BookChat'
 import TokenStatsPage from './pages/book/TokenStatsPage'
 import BookSettings from './pages/book/BookSettings'
 import Illustrations from './pages/book/Illustrations'
@@ -37,7 +38,6 @@ function ProtectedRoutes() {
         <Route path="/admin/users" element={<AdminUsers />} />
       </Route>
       <Route path="/books/:bookId" element={<BookLayout />}>
-        <Route index element={<Navigate to="overview" replace />} />
         <Route path="overview" element={<Overview />} />
         <Route path="clarifications" element={<Clarifications />} />
         <Route path="story-bible" element={<StoryBible />} />
@@ -46,6 +46,7 @@ function ProtectedRoutes() {
         <Route path="chapters" element={<Chapters />} />
         <Route path="chapters/:chapterId" element={<ChapterView />} />
         <Route path="chat" element={<ChatPage />} />
+        <Route path="studio" element={<BookChat />} />
         <Route path="token-stats" element={<TokenStatsPage />} />
         <Route path="illustrations" element={<Illustrations />} />
         <Route path="settings" element={<BookSettings />} />

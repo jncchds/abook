@@ -15,15 +15,18 @@ public class BooksController : ControllerBase
     private readonly IBookRepository _repo;
     private readonly IVectorStoreService _vectorStore;
     private readonly ILlmProviderFactory _llmFactory;
+    private readonly ABook.Api.Services.BookChatService _chat;
     private readonly ILogger<BooksController> _logger;
 
     public BooksController(
         IBookRepository repo,
         IVectorStoreService vectorStore,
         ILlmProviderFactory llmFactory,
+        ABook.Api.Services.BookChatService chat,
         ILogger<BooksController> logger)
     {
         _repo = repo;
+        _chat = chat;
         _vectorStore = vectorStore;
         _llmFactory = llmFactory;
         _logger = logger;
@@ -62,14 +65,19 @@ public class BooksController : ControllerBase
             if (baseBook.UserId is not null && baseBook.UserId != CurrentUserId) return Forbid();
         }
 
+        var mode = req.Mode ?? baseBook?.Mode ?? BookMode.Autonomous;
+        var target = req.TargetChapterCount ?? baseBook?.TargetChapterCount ?? 0;
+        if (mode == BookMode.Autonomous && target < 1)
+            return BadRequest(new { message = "An Autonomous book needs a target chapter count." });
+
         var book = new Book
         {
             Title = req.Title,
             Premise = req.Premise,
             Genre = NormalizeGenre(req.Genre),
-            TargetChapterCount = baseBook?.TargetChapterCount ?? req.TargetChapterCount,
+            TargetChapterCount = Math.Max(0, target),
             Language = baseBook?.Language ?? req.Language ?? "English",
-            HumanAssisted = baseBook?.HumanAssisted ?? req.HumanAssisted,
+            Mode = mode,
             UserId = CurrentUserId
         };
 
@@ -98,6 +106,10 @@ public class BooksController : ControllerBase
             await _repo.UpsertLlmConfigAsync(copy);
         }
 
+        // An Interactive book opens with the LLM's first reply: a Story Bible proposal and questions.
+        if (created.Mode == BookMode.Interactive)
+            await _chat.KickoffAsync(created.Id);
+
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
     }
 
@@ -117,14 +129,20 @@ public class BooksController : ControllerBase
             Genre = book.Genre,
             TargetChapterCount = book.TargetChapterCount,
             Language = book.Language,
-            HumanAssisted = book.HumanAssisted,
+            Mode = book.Mode,
             Reason = "user-update"
         });
+
+        var mode = req.Mode ?? book.Mode;
+        if (mode == BookMode.Autonomous && req.TargetChapterCount < 1)
+            return BadRequest(new { message = "An Autonomous book needs a target chapter count." });
+        if (BookContentService.IsBibleLocked(book) && req.Premise.Trim() != book.Premise.Trim())
+            return Conflict(new { message = new StoryBibleLockedException().Message });
 
         book.Title = req.Title;
         book.Premise = req.Premise;
         book.Genre = NormalizeGenre(req.Genre);
-        book.TargetChapterCount = req.TargetChapterCount;
+        book.TargetChapterCount = Math.Max(0, req.TargetChapterCount);
         book.Status = req.Status;
         book.Language = req.Language ?? book.Language;
         book.StoryBibleSystemPrompt = req.StoryBibleSystemPrompt;
@@ -135,7 +153,7 @@ public class BooksController : ControllerBase
         book.EditorSystemPrompt = req.EditorSystemPrompt;
         book.ContinuityCheckerSystemPrompt = req.ContinuityCheckerSystemPrompt;
         book.IllustratorSystemPrompt = req.IllustratorSystemPrompt;
-        book.HumanAssisted = req.HumanAssisted;
+        book.Mode = mode;
         if (req.IllustrationsEnabled is bool illustrate) book.IllustrationsEnabled = illustrate;
         await _repo.UpdateAsync(book);
         return Ok(book);
@@ -306,9 +324,9 @@ public record CreateBookRequest(
     string Title,
     string Premise,
     string Genre,
-    int TargetChapterCount,
+    int? TargetChapterCount = null,
     string? Language = "English",
-    bool HumanAssisted = false,
+    BookMode? Mode = null,
     int? BaseBookId = null);
 
 public record UpdateBookRequest(
@@ -325,7 +343,7 @@ public record UpdateBookRequest(
     string? WriterSystemPrompt = null,
     string? EditorSystemPrompt = null,
     string? ContinuityCheckerSystemPrompt = null,
-    bool HumanAssisted = false,
+    BookMode? Mode = null,
     string? IllustratorSystemPrompt = null,
     bool? IllustrationsEnabled = null);
 

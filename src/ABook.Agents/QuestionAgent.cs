@@ -115,13 +115,4 @@ public class QuestionAgent : AgentBase
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, RunStates.Running, null, ct);
         return roundComplete;
     }
-
-    /// <summary>
-    /// Asks a single optional question and returns the user's response (may be empty if skipped).
-    /// Used for the human-assisted pauses after planning phases and chapter checks — the pauses the
-    /// section chat is about (see <see cref="SectionChatTarget.FromPause"/>).
-    /// </summary>
-    public Task<string> AskSingleOptionalAsync(
-        int bookId, int? chapterId, AgentRole role, string question, CancellationToken ct) =>
-        AskUserAndWaitAsync(bookId, chapterId, role, question, ct, isOptional: true);
 }

@@ -1,8 +1,6 @@
 import { useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { useBookContext } from '../../contexts/BookContext'
-import { sectionLabel, sectionPath } from '../../utils/sectionChat'
 
 function splitContent(content: string): [string, string] {
   const dnIdx = content.indexOf('\n\n')
@@ -20,16 +18,11 @@ export default function ChatPage() {
   const {
     messages, pendingQuestion, answerText, setAnswerText,
     handleAnswer, isRunning, clearMessagesForBook, submittingAnswer, answerError,
-    book, sectionTarget, sectionChat, completeSectionChat, sectionChatError,
   } = useBookContext()
-  const navigate = useNavigate()
 
   const chatBottomRef = useRef<HTMLDivElement>(null)
-  // The section snapshots the section chat keeps (for its LLM, its diffs and Undo) are not messages anyone wrote.
+  // The section snapshots the old section chat kept (up to v0.3.1) are not messages anyone wrote.
   const visible = messages.filter(m => m.messageType !== 'ChatContext' && m.messageType !== 'ChatChange')
-  const chapterNumber = sectionTarget?.chapterId
-    ? book?.chapters?.find(c => c.id === sectionTarget.chapterId)?.number
-    : null
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -79,36 +72,7 @@ export default function ChatPage() {
         )}
         <div ref={chatBottomRef} />
       </div>
-      {pendingQuestion && sectionTarget && book && (
-        <div style={{ borderTop: '1px solid var(--border)', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <p className="question-label">Waiting for your review:</p>
-          <p className="question-text">{pendingQuestion.content}</p>
-          {sectionTarget.section === 'Chapter' && (
-            <textarea
-              rows={3}
-              value={answerText}
-              onChange={e => setAnswerText(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); handleAnswer() } }}
-              placeholder="Optional instructions for the creative rewrite…"
-            />
-          )}
-          {sectionChatError && <p className="error-msg" role="alert">{sectionChatError}</p>}
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <button onClick={() => navigate(sectionPath(book.id, sectionTarget))}>
-              💬 Open the {sectionLabel(sectionTarget, chapterNumber)} chat
-            </button>
-            <button
-              className="btn-sm btn-ghost"
-              disabled={submittingAnswer || !!sectionChat?.busy}
-              title="Continue without a note — open the chat to save the decisions from it"
-              onClick={() => void completeSectionChat(null, sectionTarget.section === 'Chapter' ? answerText : null)}
-            >
-              {submittingAnswer ? 'Completing…' : '✓ Complete'}
-            </button>
-          </div>
-        </div>
-      )}
-      {pendingQuestion && !sectionTarget && (
+      {pendingQuestion && (
         <div style={{ borderTop: '1px solid var(--border)', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <p className="question-label">Agent is waiting for your answer:</p>
           <p className="question-text">{pendingQuestion.content}</p>

@@ -11,7 +11,7 @@ type TokenStatsHandler = (bookId: number, chapterId: number | null, agentRole: s
 type AgentErrorHandler = (bookId: number, agentRole: string, errorMessage: string) => void
 type MessagesUpdatedHandler = (bookId: number) => void
 type IllustrationsUpdatedHandler = (bookId: number, illustrationId: number | null) => void
-type SectionChatUpdatedHandler = (bookId: number, questionMessageId: number, busy: boolean) => void
+type BookChatUpdatedHandler = (bookId: number, messageId: number | null) => void
 type ReconnectedHandler = () => void
 type JoinedHandler = () => void
 
@@ -30,7 +30,7 @@ export function useBookHub(bookId: number | null) {
   const onAgentError = useRef<AgentErrorHandler | null>(null)
   const onMessagesUpdated = useRef<MessagesUpdatedHandler | null>(null)
   const onIllustrationsUpdated = useRef<IllustrationsUpdatedHandler | null>(null)
-  const onSectionChatUpdated = useRef<SectionChatUpdatedHandler | null>(null)
+  const onBookChatUpdated = useRef<BookChatUpdatedHandler | null>(null)
   const onReconnected = useRef<ReconnectedHandler | null>(null)
   const onJoined = useRef<JoinedHandler | null>(null)
 
@@ -55,7 +55,7 @@ export function useBookHub(bookId: number | null) {
     conn.on('AgentError', (bId, role, msg) => onAgentError.current?.(bId, role, msg))
     conn.on('MessagesUpdated', (bId) => onMessagesUpdated.current?.(bId))
     conn.on('IllustrationsUpdated', (bId, iId) => onIllustrationsUpdated.current?.(bId, iId ?? null))
-    conn.on('SectionChatUpdated', (bId, qId, busy) => onSectionChatUpdated.current?.(bId, qId, busy))
+    conn.on('BookChatUpdated', (bId, mId) => onBookChatUpdated.current?.(bId, mId ?? null))
 
     // A reconnect gets a new connection id, so the server-side group membership is gone:
     // rejoin, then let the consumer re-read whatever it missed while disconnected.
@@ -115,7 +115,7 @@ export function useBookHub(bookId: number | null) {
     setOnAgentError: (fn: AgentErrorHandler) => { onAgentError.current = fn },
     setOnMessagesUpdated: (fn: MessagesUpdatedHandler) => { onMessagesUpdated.current = fn },
     setOnIllustrationsUpdated: (fn: IllustrationsUpdatedHandler) => { onIllustrationsUpdated.current = fn },
-    setOnSectionChatUpdated: (fn: SectionChatUpdatedHandler) => { onSectionChatUpdated.current = fn },
+    setOnBookChatUpdated: (fn: BookChatUpdatedHandler) => { onBookChatUpdated.current = fn },
     setOnReconnected: (fn: ReconnectedHandler) => { onReconnected.current = fn },
     /** Fires after every (re)join of the book group — from then on no live event is missed. */
     setOnJoined: (fn: JoinedHandler) => { onJoined.current = fn },

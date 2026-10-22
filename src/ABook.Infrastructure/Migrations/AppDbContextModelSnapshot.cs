@@ -187,6 +187,15 @@ namespace ABook.Infrastructure.Migrations
                     b.Property<string>("CharactersSystemPrompt")
                         .HasColumnType("text");
 
+                    b.Property<string>("ChatMemory")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("");
+
+                    b.Property<int?>("ChatMemoryThroughMessageId")
+                        .HasColumnType("integer");
+
                     b.Property<int>("ClarificationsStatus")
                         .HasColumnType("integer");
 
@@ -203,9 +212,6 @@ namespace ABook.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
-
-                    b.Property<bool>("HumanAssisted")
-                        .HasColumnType("boolean");
 
                     b.Property<string>("IllustrationNegativePrompt")
                         .HasColumnType("text");
@@ -234,6 +240,11 @@ namespace ABook.Infrastructure.Migrations
                         .HasColumnType("character varying(100)")
                         .HasDefaultValue("English");
 
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<int>("PlotThreadsStatus")
                         .HasColumnType("integer");
 
@@ -250,6 +261,9 @@ namespace ABook.Infrastructure.Migrations
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<DateTime?>("StoryBibleLockedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("StoryBibleStatus")
                         .HasColumnType("integer");
@@ -281,6 +295,47 @@ namespace ABook.Infrastructure.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("Books");
+                });
+
+            modelBuilder.Entity("ABook.Core.Models.BookChatMessage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BookId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ConflictsJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("[]");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BookId");
+
+                    b.ToTable("BookChatMessages");
                 });
 
             modelBuilder.Entity("ABook.Core.Models.BookImage", b =>
@@ -348,6 +403,11 @@ namespace ABook.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("Premise")
                         .IsRequired()
@@ -733,6 +793,97 @@ namespace ABook.Infrastructure.Migrations
                     b.HasIndex("BookId");
 
                     b.ToTable("CharactersSnapshots");
+                });
+
+            modelBuilder.Entity("ABook.Core.Models.ChatProposal", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AfterJson")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("AfterVersionId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("AppliedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("BeforeJson")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("BeforeVersionId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("BookId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ConflictNote")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("DependsOnProposalId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("MessageId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("OptionGroup")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PreviewAfter")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PreviewBefore")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ResultNote")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Target")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MessageId");
+
+                    b.HasIndex("BookId", "Status");
+
+                    b.ToTable("ChatProposals");
                 });
 
             modelBuilder.Entity("ABook.Core.Models.Clarification", b =>
@@ -1598,6 +1749,17 @@ namespace ABook.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("ABook.Core.Models.BookChatMessage", b =>
+                {
+                    b.HasOne("ABook.Core.Models.Book", "Book")
+                        .WithMany()
+                        .HasForeignKey("BookId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Book");
+                });
+
             modelBuilder.Entity("ABook.Core.Models.BookImage", b =>
                 {
                     b.HasOne("ABook.Core.Models.Book", "Book")
@@ -1651,6 +1813,17 @@ namespace ABook.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("CharacterCard");
+                });
+
+            modelBuilder.Entity("ABook.Core.Models.ChatProposal", b =>
+                {
+                    b.HasOne("ABook.Core.Models.BookChatMessage", "Message")
+                        .WithMany("Proposals")
+                        .HasForeignKey("MessageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Message");
                 });
 
             modelBuilder.Entity("ABook.Core.Models.Clarification", b =>
@@ -1818,6 +1991,11 @@ namespace ABook.Infrastructure.Migrations
                     b.Navigation("PlotThreads");
 
                     b.Navigation("StoryBible");
+                });
+
+            modelBuilder.Entity("ABook.Core.Models.BookChatMessage", b =>
+                {
+                    b.Navigation("Proposals");
                 });
 
             modelBuilder.Entity("ABook.Core.Models.Chapter", b =>

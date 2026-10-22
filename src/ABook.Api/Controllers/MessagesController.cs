@@ -44,10 +44,6 @@ public class MessagesController : ControllerBase
         var msg = await _repo.FindMessageByIdAsync(req.MessageId);
         if (msg is null || msg.BookId != bookId) return NotFound();
 
-        // The reply may still change the section — the next step must not start before it is saved.
-        if (runState.IsSectionChatBusy(bookId))
-            return Conflict(new { message = "The LLM is still answering in the section chat. Wait for its reply, then complete." });
-
         await orchestrator.ResumeWithAnswerAsync(req.MessageId, req.Answer);
         return Ok();
     }

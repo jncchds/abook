@@ -101,8 +101,10 @@ builder.Services.AddScoped<ABook.Agents.ContinuityCheckerAgent>();
 builder.Services.AddScoped<ABook.Agents.IllustrationPlannerAgent>();
 builder.Services.AddScoped<ABook.Agents.IllustrationRenderer>();
 builder.Services.AddScoped<ABook.Agents.ChapterSummarizer>();
-builder.Services.AddScoped<ABook.Agents.SectionChatAgent>();
-builder.Services.AddSingleton<ABook.Api.Services.SectionChatService>();
+builder.Services.AddScoped<ABook.Agents.BookContentService>();
+builder.Services.AddScoped<ABook.Agents.BookChatAgent>();
+builder.Services.AddScoped<ABook.Agents.ProposalExecutor>();
+builder.Services.AddSingleton<ABook.Api.Services.BookChatService>();
 builder.Services.AddSingleton<IImageGeneratorFactory, ABook.Infrastructure.Imaging.ImageGeneratorFactory>();
 builder.Services.AddSingleton<ILlmModelUnloader, ABook.Infrastructure.Imaging.LlmModelUnloader>();
 builder.Services.AddScoped<IAgentOrchestrator, ABook.Agents.AgentOrchestrator>();
@@ -115,7 +117,7 @@ builder.Services.AddMcpServer()
     .WithTools<BookMcpTools>()
     .WithTools<ContentMcpTools>()
     .WithTools<AgentMcpTools>()
-    .WithTools<SectionChatMcpTools>()
+    .WithTools<BookChatMcpTools>()
     .WithTools<IllustrationMcpTools>();
 // ── Public mode ───────────────────────────────────────────────────────────────
 var isPublicMode = builder.Configuration.GetValue<bool>("PublicMode");

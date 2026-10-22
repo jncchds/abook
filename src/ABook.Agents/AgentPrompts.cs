@@ -658,7 +658,7 @@ public static class PromptTemplates
         {(previousEnding.Length > 0 ? $"\nThe previous chapter ended with:\n{previousEnding}\nContinue the story naturally from this point." : "")}
         """;
 
-    public static string WriterUser(Chapter chapter, string synopsesBlock) =>
+    public static string WriterUser(Chapter chapter, string synopsesBlock, string? authorInstructions = null) =>
         $"""
         {(synopsesBlock.Length > 0 ? $"## Story So Far — Chapter Synopses\nRefer to this to avoid re-introducing or restating anything already established in prior chapters.\n{synopsesBlock}\n\n" : "")}Write the full content for:
         Chapter {chapter.Number}: {chapter.Title}
@@ -666,6 +666,7 @@ public static class PromptTemplates
         {(chapter.PovCharacter.Length > 0 ? $"Point of view: {chapter.PovCharacter}" : "")}
         {(chapter.ForeshadowingNotes.Length > 0 ? $"Plant in this chapter (foreshadowing): {chapter.ForeshadowingNotes}" : "")}
         {(chapter.PayoffNotes.Length > 0 ? $"Pay off in this chapter: {chapter.PayoffNotes}" : "")}
+        {(string.IsNullOrWhiteSpace(authorInstructions) ? "" : $"Author's instructions for this chapter (follow them): {authorInstructions.Trim()}")}
 
         Write at least 1000 words of narrative prose. Output markdown only. Do NOT include a chapter heading.
         """;
@@ -835,141 +836,210 @@ public static class PromptTemplates
         return sb.ToString();
     }
 
-    // ── Section chat (human-assisted pauses) ──────────────────────────────────
+    // ── Book chat (Interactive books) ─────────────────────────────────────────
 
-    /// <summary>The line that separates the chat reply from the updated section in a section-chat response.</summary>
-    public const string SectionChatUpdateMarker = "<<<UPDATED SECTION>>>";
+    /// <summary>Most characters of book digest sent with each chat request; older chapters shrink to fit.</summary>
+    public const int BookChatDigestBudget = 24_000;
+    /// <summary>Chat messages sent verbatim with each request — older ones only reach the model through the rolling memory.</summary>
+    public const int BookChatHistoryMessages = 6;
+    /// <summary>Longest a resent chat message may be; longer ones are cut.</summary>
+    public const int BookChatHistoryMessageChars = 1_500;
+    /// <summary>Messages that fall out of the window before the rolling memory is rewritten to cover them.</summary>
+    public const int BookChatMemoryBatch = 6;
 
-    /// <summary>
-    /// System prompt for the chat the author holds with the LLM about one section while the run is paused.
-    /// <paramref name="updateFormat"/> says what the updated section must look like (JSON shape or prose);
-    /// <paramref name="background"/> is the rest of the plan the section must stay consistent with.
-    /// </summary>
-    public static string SectionChatSystem(Book book, string sectionLabel, string updateFormat, string background) =>
-        $"""
-        You are the writing partner of the author of the book "{book.Title}" ({book.Genre}; written in {book.Language}).
-        The author paused the generation pipeline to review the {sectionLabel} and is discussing it with you.
+    /// <summary>The question a lasting decision from the book chat is filed under as a clarification.</summary>
+    public const string BookChatNoteQuestion = "Decision from the book chat";
 
-        Premise: {Premise(book)}
-        {(background.Length > 0 ? $"\n{background}\n" : "")}
-        How to respond:
-        - Answer the author's questions and comments directly and concisely, in the language the author writes in.
-        - When the author asks for a change, or agrees to a change you proposed, make it. Change only what is
-          needed; keep everything else exactly as it is.
-        - Do not change the section when the author only asks a question or makes a comment that needs no change.
-          Propose a change and wait for agreement when the request is ambiguous.
-        - To change the section, finish your reply with a line containing exactly
-          {SectionChatUpdateMarker}
-          followed by the complete updated {sectionLabel}: {updateFormat}
-          Write nothing after it. Never write that line otherwise, and never paste the section into your reply.
-        - Briefly say in your reply what you changed.
-        """;
-
-    /// <summary>What a section-chat update must look like for a planning section held as JSON.</summary>
-    public static string SectionChatJsonFormat(string removal) =>
-        $"JSON in exactly the shape you were given it, with the same field names, without code fences. {removal}";
-
-    /// <summary>What a section-chat update must look like for chapter prose.</summary>
-    public static string SectionChatProseFormat(Book book) =>
-        $"the full chapter prose in {book.Language} as plain text — every paragraph, not only the changed ones — " +
-        "with no chapter heading, no commentary and no code fences.";
-
-    public const string SectionChatStoryBibleRemoval = "One object holding every field.";
-    public const string SectionChatCharactersRemoval =
-        "Repeat every character you keep, with the exact same \"name\"; characters you leave out are archived.";
-    public const string SectionChatPlotThreadsRemoval =
-        "Repeat every thread you keep, with the exact same \"name\"; threads you leave out are archived.";
-    public const string SectionChatOutlinesRemoval =
-        "Repeat every chapter you keep with its \"number\"; chapters you leave out are removed, except those already written.";
-    public const string SectionChatOneOutlineRemoval =
-        "One object for this chapter only, keeping its \"number\". Put the details the author adds into \"outline\" " +
-        "(or the notes fields) so the writer of the chapter sees them.";
-
-    /// <summary>The background block for one chapter's outline: the plan, the chapters before it and the thread names.</summary>
-    public static string SectionChatOutlineBackground(string planBackground, string synopses, IEnumerable<string> threadNames)
+    public static string BookChatSystem(Book book, bool bibleLocked, IReadOnlyList<string> actionTypes)
     {
-        var threads = string.Join(", ", threadNames);
-        return string.Join("\n\n", new[]
-        {
-            planBackground,
-            threads.Length > 0 ? $"Plot threads: {threads}" : "",
-            synopses.Length > 0 ? $"Earlier chapters:\n{synopses}" : "",
-        }.Where(s => s.Length > 0));
+        var catalogue = string.Join("\n", actionTypes.Select(t => $"  - {t}: {BookChatActionHelp(t)}"));
+        var stage = bibleLocked ? BookChatBibleLockedRules : BookChatFoundationRules;
+        return $$"""
+            You are the co-author of the book "{{book.Title}}" ({{book.Genre}}), written in {{book.Language}}. The author tells you
+            what they want — a new character, a plot thread, a chapter, a change — in any order, and you build the book together.
+            You never change the book yourself: you propose changes, and the author applies the ones they want.
+
+            Every reply is one JSON object with exactly these keys:
+            - "message": what you say to the author, in the language they write in. Short and concrete. When a request is
+              unclear, ask instead of guessing.
+            - "conflicts": every way the request contradicts the book as it stands — the Story Bible, characters, plot threads,
+              the author's notes, or what written chapters established. Each has "description", "canon" (quote or name the
+              fact it contradicts) and "chapter" (its number, or null). Empty when there are none.
+            - "actions": the changes you propose, at most {{BookChatActions.MaxActions}}. Each action has every key — "type", "label"
+              (a short description for the author), "chapter", "name", "changes" (a list of {"field", "value"}), "instructions",
+              "originalText", "replacementText", "text", "option" — with the ones it does not use set to null ([] for "changes").
+            The action types:
+            {{catalogue}}
+
+            Rules:
+            - Propose only what the author asked for or agreed to, plus what is needed to keep the book consistent with it.
+              Never invent characters, plot threads or chapters on your own.
+            - Chapters are only ever added at the end of the book; there is no inserting or reordering.
+            - A chapter is written from its outline: to write a new chapter, propose add_chapter with its outline and, if the
+              author wants it written now, write_chapter for the same number in the same reply. The writer writes prose,
+              never you — do not put chapter prose in your message.
+            - When the request conflicts with the book: list the conflict, explain it in your message, and offer the fixes as
+              alternatives — option "A": adapt the request so it fits the book; option "B": change the book (outlines,
+              characters, threads, or revise/patch written chapters) so the request fits. Give every action of an alternative
+              the same "option"; leave "option" null for actions that are not alternatives.
+            - Propose add_note for a lasting decision of the author (style, tone, rules, things to avoid) so it guides every
+              later chapter.
+            - Refer to chapters by number and to characters and plot threads by their exact names.
+            {{stage}}
+
+            Example reply:
+            {"message":"Mara is in the cast. Should she appear in Chapter 2?","conflicts":[],"actions":[{"type":"upsert_character","label":"Add Mara, a smuggler","chapter":null,"name":"Mara","changes":[{"field":"role","value":"Supporting"},{"field":"personality","value":"Wry, loyal to her crew"}],"instructions":null,"originalText":null,"replacementText":null,"text":null,"option":null}]}
+            """;
     }
 
-    /// <summary>The first author turn: the section as it stood when the discussion began, then the author's message.</summary>
-    public static string SectionChatOpening(string sectionLabel, string original, string authorMessage) =>
-        $"""
-        This is the {sectionLabel} as it stands at the start of our discussion:
+    private static string BookChatActionHelp(string type) => type switch
+    {
+        BookChatActions.UpdatePremise => "\"text\" = the new premise.",
+        BookChatActions.UpdateStoryBible => "\"changes\" among settingDescription, timePeriod, themes, toneAndStyle, worldRules, notes.",
+        BookChatActions.UpsertCharacter => "\"name\"; \"changes\" among role (Protagonist|Antagonist|Supporting|Minor), physicalDescription, " +
+                                           "personality, backstory, goalMotivation, arc, firstAppearanceChapterNumber, notes. Adds the character, or updates the one with that name.",
+        BookChatActions.ArchiveCharacter => "\"name\" — removes the character (kept in the archive).",
+        BookChatActions.UpsertPlotThread => "\"name\"; \"changes\" among description, type (MainPlot|Subplot|CharacterArc|Mystery|Foreshadowing|" +
+                                            "WorldBuilding|ThematicThread), status (Active|Resolved|Dormant), introducedChapterNumber, resolvedChapterNumber.",
+        BookChatActions.ArchivePlotThread => "\"name\" — removes the plot thread (kept in the archive).",
+        BookChatActions.AddChapter => "\"changes\" among title, outline (3-6 sentences: the key events and decisions), povCharacter, " +
+                                      "charactersInvolved and plotThreads (comma-separated names), foreshadowingNotes, payoffNotes. Always added after the last chapter.",
+        BookChatActions.UpdateChapterOutline => "\"chapter\"; \"changes\" with the same fields as add_chapter.",
+        BookChatActions.ArchiveChapter => "\"chapter\" — removes the last chapter (only the last one).",
+        BookChatActions.WriteChapter => "\"chapter\"; optional \"instructions\" for the writer. Writes (or rewrites) the chapter's prose from its outline.",
+        BookChatActions.ReviseChapter => "\"chapter\"; \"instructions\" = what to change in the written prose.",
+        BookChatActions.PatchChapter => "\"chapter\"; \"originalText\" = text copied exactly from the chapter (a whole sentence or more); " +
+                                        "\"replacementText\" = what replaces it. For small, precise fixes.",
+        BookChatActions.AddNote => "\"text\" = the decision to remember.",
+        _ => "",
+    };
 
-        {original}
+    private const string BookChatFoundationRules =
+        """
+        - The book is in its foundation stage: settle the premise and the Story Bible with the author (update_premise,
+          update_story_bible). When they feel settled, suggest that the author press "Lock bible & start writing" — from
+          then on they cannot change. Writing the first chapter locks them too.
+        """;
 
-        ---
-
-        {authorMessage}
+    public const string BookChatBibleLockedRules =
+        """
+        - The premise and the Story Bible are locked: they are fixed canon and you cannot change them. When a request
+          contradicts them, list the conflict (quote the Story Bible in "canon") and offer to adapt the request so it fits.
+          If the author insists, tell them the Story Bible can be unlocked in Book Settings.
         """;
 
     /// <summary>
-    /// The latest author turn when the section changed since the discussion began (the LLM's updates or the
-    /// author's own edits): the current version, so the model always works from what is saved.
+    /// The book as it stands, within <paramref name="budget"/> characters: premise (with the author's notes), Story
+    /// Bible, one line per character and thread (full cards for <paramref name="focusNames"/>), and the chapters with
+    /// what each tells. Older chapters shrink to their title when the book outgrows the budget.
     /// </summary>
-    public static string SectionChatWithCurrent(string sectionLabel, string current, string authorMessage) =>
-        $"""
-        The {sectionLabel} has changed since the start of our discussion (your updates and/or my own edits).
-        This is its current version — work from it:
-
-        {current}
-
-        ---
-
-        {authorMessage}
-        """;
-
-    /// <summary>Reply of a summary call when the discussion holds nothing worth keeping.</summary>
-    public const string SectionChatNothingToKeep = "NONE";
-
-    /// <summary>The last turn of the summary call made when the author completes a review pause.</summary>
-    public static string SectionChatSummaryRequest(string sectionLabel) =>
-        $"""
-        We are done with the {sectionLabel}. Write a short note of the decisions and preferences I expressed in this
-        discussion that should guide the rest of the book — style, tone, characters, plot, rules or things to avoid.
-        Write it as a few bullet points ("- ") in the language I wrote in, addressed to whoever writes the next parts.
-        Leave out changes that only concern the wording of this section and are already made in it.
-        If nothing is worth keeping, reply with exactly {SectionChatNothingToKeep}.
-        Reply with the note only — no introduction and no {SectionChatUpdateMarker} line.
-        """;
-
-    /// <summary>The question a saved section-chat summary is filed under as a clarification.</summary>
-    public static string SectionChatSummaryQuestion(string sectionLabel) => $"Decisions from the {sectionLabel} discussion";
-
-    /// <summary>The background block for chapter prose: the chapter's outline and the story so far.</summary>
-    public static string SectionChatChapterBackground(Chapter chapter, string synopses) =>
-        $"""
-        {(synopses.Length > 0 ? $"Story so far:\n{synopses}\n\n" : "")}Chapter {chapter.Number} "{chapter.Title}" outline: {chapter.Outline}
-        """;
-
-    /// <summary>The background block for planning sections: the parts of the plan already settled.</summary>
-    public static string SectionChatPlanBackground(StoryBible? bible, IEnumerable<CharacterCard>? characters)
+    public static string BookChatDigest(
+        Book book, bool bibleLocked, StoryBible? bible, IReadOnlyList<CharacterCard> characters, IReadOnlyList<PlotThread> threads,
+        IReadOnlyList<Chapter> chapters, IReadOnlyCollection<string> focusNames, int budget = BookChatDigestBudget)
     {
-        var sb = new StringBuilder();
-        if (bible is not null)
+        var head = new StringBuilder();
+        head.AppendLine("## The book as it stands");
+        head.AppendLine($"Title: {book.Title} | Genre: {book.Genre} | Language: {book.Language}");
+        head.AppendLine($"Stage: {(bibleLocked ? "writing (premise and Story Bible locked)" : "foundation (premise and Story Bible open)")}");
+        head.AppendLine($"Premise: {Premise(book)}");
+
+        head.AppendLine("\n## Story Bible");
+        if (bible is null) head.AppendLine("(none yet)");
+        else
+            foreach (var (field, value) in BookContentRender.Fields(bible))
+                if (!string.IsNullOrWhiteSpace(value)) head.AppendLine($"{field}: {value}");
+
+        head.AppendLine("\n## Characters");
+        if (characters.Count == 0) head.AppendLine("(none yet)");
+        var focus = focusNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in characters)
         {
-            sb.AppendLine("Story Bible:");
-            sb.AppendLine($"Setting: {bible.SettingDescription}");
-            sb.AppendLine($"Time period: {bible.TimePeriod}");
-            sb.AppendLine($"Themes: {bible.Themes}");
-            sb.AppendLine($"Tone & style: {bible.ToneAndStyle}");
-            sb.AppendLine($"World rules: {bible.WorldRules}");
+            if (focus.Contains(c.Name)) { AppendCharacterCard(c, head); continue; }
+            head.Append($"- {c.Name} ({c.Role})");
+            if (!string.IsNullOrWhiteSpace(c.GoalMotivation)) head.Append($": {c.GoalMotivation}");
+            if (!string.IsNullOrWhiteSpace(c.PhysicalDescription)) head.Append($" | Looks: {c.PhysicalDescription}");
+            head.AppendLine();
         }
-        var cast = characters?.ToList() ?? [];
-        if (cast.Count > 0)
+
+        head.AppendLine("\n## Plot threads");
+        if (threads.Count == 0) head.AppendLine("(none yet)");
+        foreach (var t in threads)
+            head.AppendLine($"- {t.Name} ({t.Type}, {t.Status}): {t.Description}");
+
+        head.AppendLine("\n## Chapters");
+        if (chapters.Count == 0) head.AppendLine("(none yet)");
+
+        string Line(Chapter c, bool brief) =>
+            brief
+                ? $"{c.Number}. {c.Title} [{(c.Content.Length > 0 ? "written" : "outline only")}]"
+                : c.Content.Length > 0
+                    ? $"{c.Number}. {c.Title} [written] — {Gist(c)}"
+                    : $"{c.Number}. {c.Title} [outline only] — planned: {c.Outline}";
+
+        // Shrink the oldest chapters first; the latest five always keep their full line.
+        var ordered = chapters.OrderBy(c => c.Number).ToList();
+        var brief = new bool[ordered.Count];
+        string Lines() => string.Join("\n", ordered.Select((c, i) => Line(c, brief[i])));
+        var text = Lines();
+        for (int i = 0; i < ordered.Count - 5 && head.Length + text.Length > budget; i++)
         {
-            if (sb.Length > 0) sb.AppendLine();
-            sb.AppendLine("Characters:");
-            sb.AppendLine(CharacterSummary(cast));
+            brief[i] = true;
+            text = Lines();
         }
-        return sb.ToString().TrimEnd();
+        var digest = head + text;
+        return digest.Length <= budget ? digest : digest[..budget] + "\n…";
     }
+
+    /// <summary>A resent assistant turn: what it said and what became of what it proposed — never the proposals' content.</summary>
+    public static string BookChatPastReply(string message, IEnumerable<(string Label, string Status)> proposals)
+    {
+        var list = proposals.Select(p => $"{p.Label} ({p.Status.ToLowerInvariant()})").ToList();
+        return list.Count == 0 ? message : $"{message}\n[Proposed: {string.Join("; ", list)}]";
+    }
+
+    /// <summary>A resent book event (bible locked, chapter written …).</summary>
+    public static string BookChatPastEvent(string content) => $"[Book event] {content}";
+
+    /// <summary>The digest and the rolling memory, sent as the first author turn of every request.</summary>
+    public static string BookChatContext(string digest, string memory) =>
+        memory.Trim().Length > 0
+            ? $"{digest}\n\n## Our conversation so far (summary of earlier messages)\n{memory.Trim()}"
+            : digest;
+
+    /// <summary>The author's latest message, with the passages of the written chapters it brings up.</summary>
+    public static string BookChatTurn(string ragPassages, string authorText) =>
+        ragPassages.Trim().Length > 0
+            ? $"Passages from the written chapters that may be relevant:\n{ragPassages}\n\n---\n\n{authorText}"
+            : authorText;
+
+    /// <summary>What the first reply of a new Interactive book answers instead of an author message.</summary>
+    public const string BookChatKickoff =
+        """
+        I just created this book. Read the premise, propose a Story Bible for it with update_story_bible (set all six
+        fields), and ask me up to three questions about anything the premise leaves open that would change the book.
+        """;
+
+    public const string BookChatRepairRequest =
+        """
+        Your last reply was not a valid JSON object of the required shape. Give the same answer again as one JSON object
+        with exactly the keys "message", "conflicts" and "actions" — nothing before or after it.
+        """;
+
+    public const string BookChatMemorySystem =
+        """
+        You keep the memory of a conversation between an author and their co-author about the book they are writing.
+        Rewrite the memory so it also covers the new messages: the author's decisions and preferences, open questions,
+        and what was proposed and rejected. At most 200 words, in the language the author writes in. Output only the memory.
+        """;
+
+    public static string BookChatMemoryUser(string memory, IEnumerable<string> transcript) =>
+        $"""
+        Current memory:
+        {(memory.Trim().Length > 0 ? memory.Trim() : "(empty)")}
+
+        New messages:
+        {string.Join("\n", transcript)}
+        """;
 
     // ── Chapter summary (what a written chapter actually tells) ───────────────
 

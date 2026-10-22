@@ -947,54 +947,98 @@ button:disabled:hover { background: var(--accent); }
 .server-warning { border: 1px solid var(--warning); border-left-width: 4px; border-radius: 6px; padding: 0.6rem 0.9rem; margin-bottom: 1rem; font-size: 0.85rem; overflow-wrap: anywhere; }
 .server-warning code { font-size: 0.8rem; }
 
-/* ── Section chat (human-assisted review pauses) ── */
-.section-chat {
-  width: min(400px, 36vw);
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  border-left: 1px solid var(--border);
-  background: var(--surface);
-  min-height: 0;
+/* ── Book chat of Interactive books ("studio"): one column, messages scroll, input pinned at the bottom ── */
+.app-main.view-studio { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.studio { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; max-width: 860px; width: 100%; margin: 0 auto; }
+.studio-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;
+  padding: 0.6rem 1rem; border-bottom: 1px solid var(--border); background: var(--bg);
 }
-.section-chat-header { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); }
-.section-chat-title { flex: 1; text-align: left; font-weight: 600; font-size: 0.9rem; background: none; color: var(--text); padding: 0.2rem 0; }
-.section-chat-title:hover { background: none; color: var(--accent); }
-.section-chat-messages { flex: 1; overflow-y: auto; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; min-height: 0; }
-.section-chat-intro { font-size: 0.8rem; color: var(--text-muted); line-height: 1.45; }
-.section-chat-hint { font-size: 0.8rem; color: var(--text-muted); background: var(--accent-faint); border-left: 3px solid var(--accent); border-radius: 4px; padding: 0.4rem 0.6rem; line-height: 1.45; }
-.section-chat-msg { font-size: 0.875rem; line-height: 1.5; padding: 0.5rem 0.7rem; border-radius: 8px; max-width: 92%; overflow-wrap: anywhere; }
-.section-chat-msg p { margin: 0 0 0.4rem; white-space: pre-wrap; }
-.section-chat-msg p:last-child { margin-bottom: 0; }
-.section-chat-msg.from-author { align-self: flex-end; background: var(--accent-faint); border: 1px solid var(--accent); }
-.section-chat-msg.from-llm { align-self: flex-start; background: var(--bg); border: 1px solid var(--border); }
-.section-chat-typing { display: flex; align-items: center; gap: 0.4rem; color: var(--text-muted); }
-.section-chat-input { border-top: 1px solid var(--border); padding: 0.6rem 0.75rem; display: flex; flex-direction: column; gap: 0.4rem; }
-.section-chat-input textarea { resize: vertical; }
+.studio-title { display: flex; align-items: center; gap: 0.5rem; min-width: 0; flex: 1; }
+.studio-book { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.studio-stage { font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--text-muted); white-space: nowrap; }
+.studio-stage.locked { border-color: var(--accent); color: var(--accent); }
+.studio-messages {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: 0.75rem 1rem; display: flex; flex-direction: column; gap: 0.6rem;
+}
+.studio-older { align-self: center; }
+.studio-empty { margin: auto; text-align: center; color: var(--text-muted); max-width: 32rem; display: flex; flex-direction: column; gap: 0.75rem; align-items: center; padding: 1rem; }
+.studio-running { align-self: center; }
+.studio-input {
+  border-top: 1px solid var(--border); background: var(--surface);
+  padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 0.35rem;
+}
+.studio-input-row { display: flex; gap: 0.5rem; align-items: flex-end; }
+.studio-input-row textarea { flex: 1; resize: none; min-height: 2.6rem; max-height: 40vh; font-size: 16px; /* 16px: no zoom on iOS */ }
+.studio-input-row button { flex: none; width: auto; min-height: 2.6rem; }
 
-.section-chat-change-actions { display: flex; gap: 0.4rem; margin-top: 0.4rem; flex-wrap: wrap; }
-.section-chat-diff {
-  margin-top: 0.4rem; max-height: 320px; overflow: auto;
+.chat-msg { font-size: 0.9rem; line-height: 1.55; padding: 0.55rem 0.75rem; border-radius: 10px; max-width: min(92%, 680px); overflow-wrap: anywhere; }
+.chat-msg p { margin: 0 0 0.45rem; }
+.chat-msg p:last-child { margin-bottom: 0; }
+.chat-msg.from-author { align-self: flex-end; background: var(--accent-faint); border: 1px solid var(--accent); }
+.chat-msg.from-author p { white-space: pre-wrap; }
+.chat-msg.from-llm { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); width: min(92%, 680px); }
+.chat-msg-failed { margin-top: 0.35rem; font-size: 0.8rem; color: var(--danger); }
+.chat-event { align-self: center; text-align: center; font-size: 0.8rem; color: var(--text-muted); max-width: 90%; }
+.chat-event p { margin: 0; }
+.chat-typing { display: flex; align-items: center; gap: 0.4rem; color: var(--text-muted); margin: 0; }
+.btn-link { background: none !important; border: none !important; padding: 0 !important; color: var(--accent) !important; cursor: pointer; font-size: inherit; width: auto; }
+.btn-link:hover { text-decoration: underline; }
+
+.chat-conflicts { margin-top: 0.6rem; border-left: 3px solid var(--warning); background: rgba(245,158,11,0.08); border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.82rem; }
+.chat-conflicts-title { font-weight: 600; margin-bottom: 0.2rem; }
+.chat-conflicts ul { margin: 0; padding-left: 1.1rem; }
+.chat-conflict-canon { color: var(--text-muted); }
+
+.proposals { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.proposal-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.6rem; background: var(--bg); display: flex; flex-direction: column; gap: 0.3rem; }
+.proposal-card.proposal-applied { border-color: var(--success); }
+.proposal-card.proposal-failed { border-color: var(--danger); }
+.proposal-card.proposal-rejected, .proposal-card.proposal-superseded, .proposal-card.proposal-undone { opacity: 0.6; }
+.proposal-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
+.proposal-status { display: inline-flex; align-items: center; gap: 0.3rem; }
+.proposal-label { font-weight: 500; font-size: 0.88rem; }
+.proposal-instructions { font-size: 0.82rem; color: var(--text-muted); white-space: pre-wrap; }
+.proposal-hint { font-size: 0.78rem; color: var(--warning); }
+.proposal-note { font-size: 0.78rem; color: var(--text-muted); }
+.proposal-toggle { align-self: flex-start; font-size: 0.8rem; }
+.proposal-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+.proposal-actions button { width: auto; }
+.proposal-open { font-size: 0.8rem; margin-left: auto; }
+.proposal-option { border: 1px dashed var(--border); border-radius: 8px; padding: 0.45rem; display: flex; flex-direction: column; gap: 0.45rem; }
+.proposal-option-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.82rem; }
+.proposal-bulk { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.proposal-bulk button { width: auto; }
+
+.change-diff {
+  max-height: 320px; overflow: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.74rem; line-height: 1.45;
   border: 1px solid var(--border); border-radius: 6px; background: var(--surface);
 }
-.section-chat-diff > div { padding: 0 0.4rem; white-space: pre-wrap; overflow-wrap: anywhere; }
-.section-chat-diff .diff-added { background: rgba(34,197,94,0.15); }
-.section-chat-diff .diff-removed { background: rgba(239,68,68,0.15); text-decoration: line-through; text-decoration-color: rgba(239,68,68,0.5); }
-.section-chat-diff .diff-same { color: var(--text-muted); }
-.section-chat-diff .diff-skip { color: var(--text-muted); font-style: italic; text-align: center; }
-.section-chat-note { flex: 1; overflow-y: auto; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; min-height: 0; }
-.section-chat-note textarea { resize: vertical; }
-.section-chat-note-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+.change-diff > div { padding: 0 0.4rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.change-diff .diff-added { background: rgba(34,197,94,0.15); }
+.change-diff .diff-removed { background: rgba(239,68,68,0.15); text-decoration: line-through; text-decoration-color: rgba(239,68,68,0.5); }
+.change-diff .diff-same { color: var(--text-muted); }
+.change-diff .diff-skip { color: var(--text-muted); font-style: italic; text-align: center; }
 
-/* Narrow screens: the chat becomes a sheet over the bottom of the page. */
-@media (max-width: 900px) {
-  .section-chat {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
-    width: auto; max-height: 60vh;
-    border-left: none; border-top: 1px solid var(--border);
-    box-shadow: 0 -4px 16px rgba(0,0,0,0.25);
-  }
-  .section-chat.collapsed { max-height: none; }
-  .app-main.with-section-chat { padding-bottom: 60vh; }
+.mode-field { border: none; padding: 0; margin: 0 0 0.75rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.mode-field legend { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem; }
+.mode-option { display: flex; gap: 0.6rem; align-items: flex-start; border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.7rem; margin: 0; cursor: pointer; color: var(--text); }
+.mode-option.selected { border-color: var(--accent); background: var(--accent-faint); }
+.mode-option input { width: auto; margin-top: 0.2rem; }
+.mode-option-text { display: flex; flex-direction: column; gap: 0.15rem; }
+.mode-option-label { font-weight: 600; font-size: 0.9rem; }
+
+.locked-banner { border: 1px solid var(--accent); background: var(--accent-faint); border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.85rem; margin-bottom: 1rem; }
+
+@media (max-width: 767px) {
+  .studio-header { padding: 0.5rem 0.6rem; }
+  .studio-messages { padding: 0.6rem; }
+  .chat-msg, .chat-msg.from-llm { max-width: 100%; }
+  .chat-msg.from-llm { width: 100%; }
+  .chat-msg.from-author { max-width: 88%; }
+  .proposal-actions button, .proposal-bulk button, .proposal-option-head button { min-height: 2.25rem; }
 }
+

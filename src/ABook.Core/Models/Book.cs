@@ -32,7 +32,18 @@ public class Book
     public string? IllustrationNegativePrompt { get; set; }
     /// <summary>The configured visual style the art direction was written from; a change rewrites it.</summary>
     public string? IllustrationStyleSource { get; set; }
-    public bool HumanAssisted { get; set; } = false;
+    /// <summary>Autonomous (the planning pipeline) or Interactive (the book chat). Replaces the old human-assisted flag.</summary>
+    public BookMode Mode { get; set; } = BookMode.Autonomous;
+    /// <summary>
+    /// Interactive books only: when the premise and Story Bible were locked and writing began. Null while the
+    /// book is in its foundation stage, where the chat may still change them; set, they are fixed canon.
+    /// Only the author can unlock them again (Book Settings).
+    /// </summary>
+    public DateTime? StoryBibleLockedAt { get; set; }
+    /// <summary>Rolling summary of the book chat older than the turns sent verbatim with each request.</summary>
+    [JsonIgnore] public string ChatMemory { get; set; } = string.Empty;
+    /// <summary>The last chat message <see cref="ChatMemory"/> covers.</summary>
+    [JsonIgnore] public int? ChatMemoryThroughMessageId { get; set; }
     /// <summary>Complete once the planner's clarifying questions have been asked; later planning runs skip them.</summary>
     public PlanningPhaseStatus ClarificationsStatus { get; set; } = PlanningPhaseStatus.NotStarted;
     public PlanningPhaseStatus StoryBibleStatus { get; set; } = PlanningPhaseStatus.NotStarted;

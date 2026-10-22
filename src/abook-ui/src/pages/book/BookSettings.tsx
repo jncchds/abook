@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import type { LlmConfig, LlmPreset, ProviderModel, Book, DefaultPrompts } from '../../api'
-import { getLlmConfig, updateLlmConfig, updateBook, getBook, getModels, getDefaultPrompts, getPresets, createPreset, updatePreset, modelsErrorMessage } from '../../api'
+import axios from 'axios'
+import type { LlmConfig, LlmPreset, ProviderModel, Book, BookMode, DefaultPrompts } from '../../api'
+import { getLlmConfig, updateLlmConfig, updateBook, getBook, getModels, getDefaultPrompts, getPresets, createPreset, updatePreset, modelsErrorMessage, unlockStoryBible } from '../../api'
+import ModeField from '../../components/ModeField'
 import { PROVIDERS, PROVIDER_LABELS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, INITIAL_LLM_CONFIG, pickImageSettings } from '../../config/providers'
 import ImageGenSettingsFields from '../../components/ImageGenSettingsFields'
 import ToggleField from '../../components/ToggleField'
@@ -14,7 +16,8 @@ export default function BookSettings() {
   const [book, setBook] = useState<Book | null>(null)
   const [bookForm, setBookForm] = useState({
     language: 'English',
-    humanAssisted: false,
+    mode: 'Autonomous' as BookMode,
+    targetChapterCount: 0,
     illustrationsEnabled: false,
     storyBibleSystemPrompt: '', charactersSystemPrompt: '',
     plotThreadsSystemPrompt: '', chapterOutlinesSystemPrompt: '',
@@ -58,7 +61,8 @@ export default function BookSettings() {
       setBook(r.data)
       setBookForm({
         language: r.data.language ?? 'English',
-        humanAssisted: r.data.humanAssisted ?? false,
+        mode: r.data.mode ?? 'Autonomous',
+        targetChapterCount: r.data.targetChapterCount ?? 0,
         illustrationsEnabled: r.data.illustrationsEnabled ?? false,
         storyBibleSystemPrompt: r.data.storyBibleSystemPrompt ?? '',
         charactersSystemPrompt: r.data.charactersSystemPrompt ?? '',
@@ -91,11 +95,18 @@ export default function BookSettings() {
     e.preventDefault()
     if (!book) return
     setBookSaveError('')
+    if (bookForm.mode === 'Autonomous' && bookForm.targetChapterCount < 1) {
+      setBookSaveError('An Autonomous book needs a target chapter count.')
+      return
+    }
+    if (bookForm.mode !== book.mode && bookForm.mode === 'Autonomous'
+      && !confirm('Switch to Autonomous? The automatic pipeline plans and writes the remaining chapters on its own; the book chat is no longer used.')) return
     try {
-      await updateBook(book.id, {
+      const r = await updateBook(book.id, {
         ...book,
         language: bookForm.language,
-        humanAssisted: bookForm.humanAssisted,
+        mode: bookForm.mode,
+        targetChapterCount: bookForm.targetChapterCount,
         illustrationsEnabled: bookForm.illustrationsEnabled,
         storyBibleSystemPrompt: bookForm.storyBibleSystemPrompt || undefined,
         charactersSystemPrompt: bookForm.charactersSystemPrompt || undefined,
@@ -106,11 +117,26 @@ export default function BookSettings() {
         continuityCheckerSystemPrompt: bookForm.continuityCheckerSystemPrompt || undefined,
         illustratorSystemPrompt: bookForm.illustratorSystemPrompt || undefined,
       })
+      setBook(r.data)
       setBookSaved(true)
       setTimeout(() => setBookSaved(false), 2000)
     } catch (err) {
-      setBookSaveError('Failed to save book settings. Please try again.')
+      const message = axios.isAxiosError(err) ? err.response?.data?.message : null
+      setBookSaveError(message ?? 'Failed to save book settings. Please try again.')
       console.error('Failed to save book settings', err)
+    }
+  }
+
+  const [unlockError, setUnlockError] = useState('')
+  const handleUnlock = async () => {
+    if (!book) return
+    if (!confirm('Unlock the premise and Story Bible? The chat can change them again — chapters already written may then contradict them. Writing the next chapter, or "Lock bible & start writing", locks them again.')) return
+    setUnlockError('')
+    try {
+      await unlockStoryBible(book.id)
+      setBook((await getBook(book.id)).data)
+    } catch (err) {
+      setUnlockError(axios.isAxiosError(err) ? (err.response?.data?.message ?? err.message) : String(err))
     }
   }
 
@@ -358,10 +384,27 @@ export default function BookSettings() {
         </p>
       </section>
 
+      {/* The author-only escape hatch: the chat never proposes it and MCP does not offer it. */}
+      {book?.mode === 'Interactive' && book.storyBibleLockedAt && (
+        <section className="settings-section">
+          <h2>Story Bible lock</h2>
+          <div className="card settings-form">
+            <p className="hint">
+              🔒 The premise and Story Bible have been locked since {new Date(book.storyBibleLockedAt).toLocaleString()}: they are
+              fixed canon, and the book chat flags any request that contradicts them instead of changing them.
+            </p>
+            {unlockError && <p className="error-msg" role="alert">{unlockError}</p>}
+            <div className="actions">
+              <button type="button" className="delete-btn" onClick={() => void handleUnlock()}>🔓 Unlock premise &amp; Story Bible</button>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Book-specific settings */}
       {book && (
         <section className="settings-section">
-          <h2>Agent Prompts &amp; Language</h2>
+          <h2>Mode, Agent Prompts &amp; Language</h2>
           {book.baseBookId && (
             <p className="lineage-hint">
               ↪ This book is based on book #{book.baseBookId}
@@ -377,12 +420,14 @@ export default function BookSettings() {
                 placeholder="English"
               />
             </label>
-            <ToggleField
-              checked={bookForm.humanAssisted}
-              onChange={v => setBookForm(f => ({ ...f, humanAssisted: v }))}
-              label="Human-assisted generation"
-              hint="Pauses after each planning phase, and after each chapter's mechanical fixes are applied — so you can edit the book before the creative rewrite runs."
-            />
+            <ModeField value={bookForm.mode} onChange={mode => setBookForm(f => ({ ...f, mode }))} />
+            {bookForm.mode === 'Autonomous' && (
+              <label>
+                Target chapters
+                <input type="number" min={1} max={100} value={bookForm.targetChapterCount || ''}
+                  onChange={e => setBookForm(f => ({ ...f, targetChapterCount: +e.target.value }))} />
+              </label>
+            )}
             <ToggleField
               checked={bookForm.illustrationsEnabled}
               onChange={v => setBookForm(f => ({ ...f, illustrationsEnabled: v }))}

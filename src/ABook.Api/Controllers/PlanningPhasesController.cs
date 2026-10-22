@@ -53,6 +53,8 @@ public class PlanningPhasesController : ControllerBase
     {
         var (error, book) = await this.RequireBookOwnershipAndLoadAsync(bookId, _repo);
         if (error is not null) return error;
+        if (phase.Equals("storybible", StringComparison.OrdinalIgnoreCase) && ABook.Agents.BookContentService.IsBibleLocked(book!))
+            return Conflict(new { message = new ABook.Agents.StoryBibleLockedException().Message });
 
         switch (phase.ToLowerInvariant())
         {

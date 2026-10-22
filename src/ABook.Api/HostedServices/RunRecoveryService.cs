@@ -52,6 +52,11 @@ public class RunRecoveryService : BackgroundService
         var repo = scope.ServiceProvider.GetRequiredService<IBookRepository>();
         var notifier = scope.ServiceProvider.GetRequiredService<IBookNotifier>();
 
+        // Book chat: replies and applies whose run is gone can be retried from the chat.
+        var interruptedChat = await repo.FailInterruptedChatAsync();
+        if (interruptedChat > 0)
+            _logger.LogWarning("RunRecoveryService: marked {Count} interrupted book-chat message(s)/change(s) Failed.", interruptedChat);
+
         var waiting = (await repo.GetRunsByStatusAsync(AgentRunPersistStatus.WaitingForInput)).ToList();
         var running = (await repo.GetRunsByStatusAsync(AgentRunPersistStatus.Running)).ToList();
 
@@ -76,8 +81,14 @@ public class RunRecoveryService : BackgroundService
                     await repo.UpdateMessageAsync(question);
                 }
 
+                var isChat = run.RunType.StartsWith("chat");
+                if (isChat)
+                    await notifier.NotifyBookChatAsync(run.BookId, null, ct);
+
                 // No pending message: the run was waiting for clarifications, which outlive the run.
-                var reason = !wasWaiting
+                var reason = isChat
+                    ? "The book chat was interrupted by a server restart. Retry your message, or apply the change again."
+                    : !wasWaiting
                     ? "Agent run was interrupted by a server restart."
                     : pendingMessageId is null
                         ? "The server restarted while the planner was waiting for your clarifications. Your answers are kept — answer the open ones on the Clarifications page."
@@ -88,7 +99,9 @@ public class RunRecoveryService : BackgroundService
                     ChapterId = run.ChapterId,
                     AgentRole = run.CurrentRole,
                     MessageType = MessageType.SystemNote,
-                    Content = $"❌ {reason} Use Continue (or Continue Planning) to pick up where it stopped. (run {run.Id})",
+                    Content = isChat
+                        ? $"❌ {reason} (run {run.Id})"
+                        : $"❌ {reason} Use Continue (or Continue Planning) to pick up where it stopped. (run {run.Id})",
                     IsResolved = true
                 });
 
@@ -100,7 +113,7 @@ public class RunRecoveryService : BackgroundService
                 }
 
                 await notifier.NotifyAgentErrorAsync(run.BookId, run.CurrentRole.ToString(),
-                    $"{reason} Use Continue to pick up where it stopped.", ct);
+                    isChat ? reason : $"{reason} Use Continue to pick up where it stopped.", ct);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)

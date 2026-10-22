@@ -23,6 +23,8 @@ public class AgentOrchestrator : IAgentOrchestrator
     private readonly IllustrationRenderer _illustrationRenderer;
     private readonly AgentRunStateService _state;
     private readonly IBookNotifier _notifier;
+    private readonly BookChatAgent _bookChat;
+    private readonly ProposalExecutor _proposals;
     private readonly ILogger<AgentOrchestrator> _logger;
 
     public AgentOrchestrator(
@@ -39,8 +41,12 @@ public class AgentOrchestrator : IAgentOrchestrator
         IllustrationRenderer illustrationRenderer,
         AgentRunStateService state,
         IBookNotifier notifier,
+        BookChatAgent bookChat,
+        ProposalExecutor proposals,
         ILogger<AgentOrchestrator> logger)
     {
+        _bookChat = bookChat;
+        _proposals = proposals;
         _repo = repo;
         _questions = questions;
         _storyBibleAgent = storyBibleAgent;
@@ -131,7 +137,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                     continue;
                 }
 
-                await ProcessChapterAsync(bookId, chapter, c, book.HumanAssisted, resumeFromStatus: chapter.Status);
+                await ProcessChapterAsync(bookId, chapter, c, resumeFromStatus: chapter.Status);
             }
 
             c.ThrowIfCancellationRequested();
@@ -170,7 +176,7 @@ public class AgentOrchestrator : IAgentOrchestrator
                     continue;
                 }
 
-                await ProcessChapterAsync(bookId, chapter, c, book.HumanAssisted, resumeFromStatus: chapter.Status);
+                await ProcessChapterAsync(bookId, chapter, c, resumeFromStatus: chapter.Status);
             }
 
             c.ThrowIfCancellationRequested();
@@ -210,6 +216,20 @@ public class AgentOrchestrator : IAgentOrchestrator
         ExecuteAgentRunAsync(bookId, AgentRole.Illustrator, null, ct,
             c => _illustrationRenderer.RenderAsync(bookId, request, c));
 
+    // ── Book chat (Interactive books) ───────────────────────────────────────────
+
+    public Task RunBookChatTurnAsync(int bookId, int? authorMessageId, CancellationToken ct = default) =>
+        ExecuteAgentRunAsync(bookId, AgentRole.BookChat, null, ct,
+            c => _bookChat.ReplyAsync(bookId, authorMessageId, c), runType: "chat");
+
+    public Task ApplyProposalsAsync(int bookId, IReadOnlyList<int> proposalIds, CancellationToken ct = default) =>
+        ExecuteAgentRunAsync(bookId, AgentRole.BookChat, null, ct,
+            c => _proposals.ApplyAsync(bookId, proposalIds, c), runType: "chat-apply");
+
+    public Task UndoProposalAsync(int bookId, int proposalId, CancellationToken ct = default) =>
+        ExecuteAgentRunAsync(bookId, AgentRole.BookChat, null, ct,
+            c => _proposals.UndoAsync(bookId, proposalId, c), runType: "chat-undo");
+
     // ── Private helpers ─────────────────────────────────────────────────────────
 
     /// <summary>
@@ -232,14 +252,14 @@ public class AgentOrchestrator : IAgentOrchestrator
     /// </summary>
     private async Task ExecuteAgentRunAsync(
         int bookId, AgentRole role, int? chapterId,
-        CancellationToken ct, Func<CancellationToken, Task> body)
+        CancellationToken ct, Func<CancellationToken, Task> body, string? runType = null)
     {
         if (_state.GetStatus(bookId) is not { IsActive: true })
             throw new InvalidOperationException(
                 $"Run for book {bookId} was not started through AgentRunnerService.TryStart.");
 
         // Determine run type from role for recovery service
-        var runType = role switch
+        runType ??= role switch
         {
             AgentRole.Planner or AgentRole.StoryBibleAgent
             or AgentRole.CharactersAgent or AgentRole.PlotThreadsAgent or AgentRole.ChaptersAgent => "plan",
@@ -295,6 +315,9 @@ public class AgentOrchestrator : IAgentOrchestrator
             "plan"       => "Planning complete.",
             "illustrate-plan" => "Illustration planning complete.",
             "illustrate" => "Illustrating complete.",
+            "chat"       => "Reply ready.",
+            "chat-apply" => "Changes applied.",
+            "chat-undo"  => "Change undone.",
             _            => "Workflow complete!",
         };
         await NotifySafelyAsync(bookId, () => _notifier.NotifyWorkflowProgressAsync(bookId, completionMsg, true, CancellationToken.None));
@@ -327,7 +350,6 @@ public class AgentOrchestrator : IAgentOrchestrator
     /// </summary>
     private async Task ProcessChapterAsync(
         int bookId, Chapter chapter, CancellationToken ct,
-        bool humanAssisted,
         ChapterStatus? resumeFromStatus = null)
     {
         bool needsWrite = resumeFromStatus is null
@@ -342,18 +364,6 @@ public class AgentOrchestrator : IAgentOrchestrator
                 $"Pre-write review for Chapter {chapter.Number}…", false, ct);
             await _continuity.PreWriteCheckAndFixAsync(bookId, chapter.Id, ct);
             ct.ThrowIfCancellationRequested();
-
-            // Human pause on the checked outline: the author adds details (by hand or in the section chat)
-            // before the Writer reads it — the Writer loads the chapter fresh.
-            if (humanAssisted)
-            {
-                _state.UpdateRunRole(bookId, AgentRole.Writer, chapter.Id);
-                await _questions.AskSingleOptionalAsync(bookId, chapter.Id, AgentRole.Writer,
-                    $"The outline of Chapter {chapter.Number} (\"{chapter.Title}\") has been checked. Edit it yourself " +
-                    "or ask the LLM for changes in the chat on the chapter's page — add any details the Writer should " +
-                    "use — then press Complete to write the chapter.", ct);
-                ct.ThrowIfCancellationRequested();
-            }
 
             _state.UpdateRunRole(bookId, AgentRole.Writer, chapter.Id);
             await _notifier.NotifyWorkflowProgressAsync(bookId,
@@ -397,23 +407,13 @@ public class AgentOrchestrator : IAgentOrchestrator
                     $"Chapter {chapter.Number} checks passed.", false, ct);
             }
 
-            // Human pause AFTER the mechanical corrections and BEFORE the creative rewrite: the
-            // author reads the patched prose and may edit the chapter, characters or outlines —
-            // the rewrite re-reads everything from the DB, so those edits are what it works on.
-            var authorNotes = humanAssisted
-                ? await AskBeforeRewriteAsync(bookId, chapter, patches.Length, rewrites.Count, ct)
-                : string.Empty;
-            ct.ThrowIfCancellationRequested();
-
-            // The creative pass costs a full-chapter LLM call — only run it when the checker asked
-            // for one or the author gave instructions.
-            if (rewrites.Count > 0 || authorNotes.Length > 0)
+            // The creative pass costs a full-chapter LLM call — only run it when the checker asked for one.
+            if (rewrites.Count > 0)
             {
                 _state.UpdateRunRole(bookId, AgentRole.Editor, chapter.Id);
                 await _notifier.NotifyWorkflowProgressAsync(bookId,
                     $"Creative rewrite for Chapter {chapter.Number}…", false, ct);
-                await _editor.RewriteAsync(bookId, chapter.Id, rewrites,
-                    authorNotes.Length > 0 ? authorNotes : null, finalizeStatus: false, ct);
+                await _editor.RewriteAsync(bookId, chapter.Id, rewrites, authorNotes: null, finalizeStatus: false, ct);
                 ct.ThrowIfCancellationRequested();
             }
             // No final check — patches are deterministic; any failures reported in the chat panel
@@ -443,32 +443,6 @@ public class AgentOrchestrator : IAgentOrchestrator
             _state.UpdateRunRole(bookId, AgentRole.IllustrationPlanner, chapter.Id);
             await _illustrationPlanner.PlanChapterOrNoteAsync(bookId, chapter, ct);
         }
-    }
-
-    /// <summary>
-    /// Human-assisted pause between the mechanical fixes and the creative rewrite. Returns the
-    /// author's instructions for the rewrite, or an empty string when they skipped.
-    /// </summary>
-    private async Task<string> AskBeforeRewriteAsync(
-        int bookId, Chapter chapter, int patchCount, int rewriteCount, CancellationToken ct)
-    {
-        _state.UpdateRunRole(bookId, AgentRole.Editor, chapter.Id);
-
-        var applied = patchCount > 0
-            ? $"{patchCount} mechanical fix(es) applied"
-            : "no mechanical fixes were needed";
-        var next = rewriteCount > 0
-            ? $"{rewriteCount} issue(s) still need a creative rewrite, which runs next."
-            : "Nothing needs a creative rewrite — leave this blank to move on to the next chapter.";
-
-        var question =
-            $"Chapter {chapter.Number} (\"{chapter.Title}\") — {applied}. {next}\n\n" +
-            "You can edit the chapter, characters, plot threads or outlines right now, or discuss the chapter " +
-            "with the LLM in the chat on its page; the next step reads them fresh. Anything you type here is " +
-            "passed to the rewrite as author instructions.";
-
-        return (await _questions.AskSingleOptionalAsync(
-            bookId, chapter.Id, AgentRole.Editor, question, ct)).Trim();
     }
 
     /// <summary>
@@ -528,10 +502,6 @@ public class AgentOrchestrator : IAgentOrchestrator
         else
         {
             bible = await _storyBibleAgent.RunAsync(book, ct);
-
-            // Edited during the pause (by hand or in the section chat)? The next phase must see that.
-            if (await PauseForReviewAsync(bookId, book, AgentRole.StoryBibleAgent, "Story Bible", "Characters", ct))
-                bible = await _repo.GetStoryBibleAsync(bookId) ?? bible;
         }
 
         // Phase 2: Character Cards
@@ -544,9 +514,6 @@ public class AgentOrchestrator : IAgentOrchestrator
         else
         {
             characters = await _charactersAgent.RunAsync(book, bible, ct);
-
-            if (await PauseForReviewAsync(bookId, book, AgentRole.CharactersAgent, "Characters", "Plot Threads", ct))
-                characters = (await _repo.GetCharacterCardsAsync(bookId)).ToList();
         }
 
         // Phase 3: Plot Threads
@@ -559,9 +526,6 @@ public class AgentOrchestrator : IAgentOrchestrator
         else
         {
             threads = await _plotThreadsAgent.RunAsync(book, bible, characters, ct);
-
-            if (await PauseForReviewAsync(bookId, book, AgentRole.PlotThreadsAgent, "Plot Threads", "Chapter Outlines", ct))
-                threads = (await _repo.GetPlotThreadsAsync(bookId)).ToList();
         }
 
         // Phase 4: Chapter Outlines
@@ -574,31 +538,10 @@ public class AgentOrchestrator : IAgentOrchestrator
         else
         {
             chapters = await _planner.RunAsync(book, bible, characters, threads, ct);
-
-            // The section chat may have added or removed chapters, which changes their ids.
-            if (await PauseForReviewAsync(bookId, book, AgentRole.Planner, "Chapter Outlines", "writing", ct))
-                chapters = (await _repo.GetChaptersAsync(bookId)).ToList();
         }
 
         await _notifier.NotifyStatusChangedAsync(bookId, AgentRole.Planner, RunStates.Done, ct: ct);
         return chapters;
-    }
-
-    /// <summary>
-    /// Human-assisted pause after a planning phase: the author reviews the result — editing it by hand or
-    /// through the section chat — and presses Complete. Returns true when the run paused, so the caller
-    /// re-reads what the author may have changed.
-    /// </summary>
-    private async Task<bool> PauseForReviewAsync(
-        int bookId, Book book, AgentRole role, string phaseLabel, string nextStep, CancellationToken ct)
-    {
-        if (!book.HumanAssisted) return false;
-
-        var question =
-            $"{phaseLabel} is ready for review. Edit it yourself or ask the LLM for changes in the chat on the " +
-            $"{phaseLabel} page, then press Complete to move on to {nextStep}.";
-        await _questions.AskSingleOptionalAsync(bookId, null, role, question, ct);
-        return true;
     }
 
     /// <summary>The book with its active chapters and clarifications, freshly read.</summary>

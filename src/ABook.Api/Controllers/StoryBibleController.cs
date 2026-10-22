@@ -22,11 +22,18 @@ public class StoryBibleController : ControllerBase
         return bible is null ? Ok(new StoryBible { BookId = bookId }) : Ok(bible);
     }
 
+    /// <summary>409 when the book is an Interactive book whose premise and Story Bible are locked.</summary>
+    private async Task<IActionResult?> RefuseIfLockedAsync(int bookId) =>
+        await _repo.GetByIdAsync(bookId) is { } book && ABook.Agents.BookContentService.IsBibleLocked(book)
+            ? Conflict(new { message = new ABook.Agents.StoryBibleLockedException().Message })
+            : null;
+
     [HttpPut]
     public async Task<IActionResult> Upsert(int bookId, [FromBody] StoryBibleRequest req)
     {
         var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
+        if (await RefuseIfLockedAsync(bookId) is { } locked) return locked;
 
         // Snapshot the existing bible before overwriting
         var existing = await _repo.GetStoryBibleAsync(bookId);
@@ -74,6 +81,7 @@ public class StoryBibleController : ControllerBase
     {
         var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
         if (ownershipError is not null) return ownershipError;
+        if (await RefuseIfLockedAsync(bookId) is { } locked) return locked;
 
         try
         {

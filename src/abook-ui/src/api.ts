@@ -130,7 +130,9 @@ export interface Book {
   charactersStatus?: string
   plotThreadsStatus?: string
   chaptersStatus?: string
-  humanAssisted?: boolean
+  mode?: BookMode
+  /** Interactive books: set once writing started — the premise and Story Bible are then fixed. */
+  storyBibleLockedAt?: string | null
   createdAt: string
   updatedAt: string
   chapters?: Chapter[]
@@ -140,9 +142,10 @@ export interface CreateBookRequest {
   title: string
   premise: string
   genre: string
-  targetChapterCount: number
+  /** Required for Autonomous books; 0 = open-ended. */
+  targetChapterCount?: number
   language?: string
-  humanAssisted?: boolean
+  mode?: BookMode
   baseBookId?: number
 }
 
@@ -160,6 +163,8 @@ export interface Chapter {
   foreshadowingNotes: string
   payoffNotes: string
   isArchived?: boolean
+  /** What the written prose tells, with the facts it establishes (Interactive books). */
+  summary?: string
   createdAt: string
   updatedAt: string
 }
@@ -173,36 +178,68 @@ export interface AgentMessage {
   content: string
   isResolved: boolean
   isOptional?: boolean
-  /** On an Answer: the question it answers. On a section-chat message: the pause it belongs to. */
+  /** On an Answer: the question it answers. */
   questionMessageId?: number | null
   createdAt: string
 }
 
-/** The section a human-assisted pause lets the author discuss with the LLM. */
-/** `ChapterOutline` = one chapter's outline before it is written; `Chapter` = its prose before the rewrite. */
-export type ChatSection = 'StoryBible' | 'Characters' | 'PlotThreads' | 'ChapterOutlines' | 'ChapterOutline' | 'Chapter'
+export type BookMode = 'Autonomous' | 'Interactive'
 
-/** One change the chat made: the section before and after it, and the reply that made it. */
-export interface SectionChatChange {
+export type ChatProposalStatus = 'Pending' | 'Applying' | 'Applied' | 'Rejected' | 'Superseded' | 'Failed' | 'Undone'
+
+/** A change the book chat LLM proposed; nothing happens to the book until it is applied. */
+export interface ChatProposal {
   id: number
-  replyId: number
-  before: string
-  after: string
+  messageId: number
+  ordinal: number
+  /** upsert_character, write_chapter, … */
+  type: string
+  label: string
+  payloadJson: string
+  /** premise, bible, character:Name, thread:Name, chapter:Id, prose:Id, note:Id */
+  target?: string | null
+  dependsOnProposalId?: number | null
+  /** Alternatives offered for a conflict ("A", "B"); applying one rejects the others. */
+  optionGroup?: string | null
+  status: ChatProposalStatus
+  previewBefore: string
+  previewAfter: string
+  resultNote?: string | null
+  appliedAt?: string | null
 }
 
-export interface SectionChatState {
-  section: ChatSection
-  chapterId: number | null
-  /** The LLM is working; the pause cannot be completed meanwhile. */
+export interface ChatConflict {
+  description: string
+  canon: string
+  chapter: number | null
+}
+
+export interface BookChatMessage {
+  id: number
+  role: 'Author' | 'Assistant' | 'Event'
+  content: string
+  /** JSON array of ChatConflict. */
+  conflictsJson: string
+  status: 'Pending' | 'Done' | 'Failed'
+  createdAt: string
+  proposals: ChatProposal[]
+}
+
+export interface BookChatState {
+  mode: BookMode
+  storyBibleLockedAt: string | null
+  /** A reply or change is in progress (any run of the book). */
   busy: boolean
-  /** The run is still parked on this pause. */
-  live: boolean
-  /** ChatUser and ChatReply messages, oldest first. */
-  messages: AgentMessage[]
-  /** Oldest first; Undo reverts the last one. */
-  changes: SectionChatChange[]
-  /** False when the section was edited by hand after the latest change — Undo would discard that edit. */
-  undoKeepsEdits: boolean
+  busyRole: string | null
+  hasMore: boolean
+  messages: BookChatMessage[]
+}
+
+/** A 409 from apply/undo when a target changed: confirm, then send again with force. */
+export interface BookChatConflict {
+  message: string
+  result: string
+  stale?: { id: number; label: string }[] | null
 }
 
 export interface LlmSettings {
@@ -330,20 +367,24 @@ export const clearMessages = (bookId: number) =>
   api.delete(`/books/${bookId}/messages`)
 export const postAnswer = (bookId: number, messageId: number, answer: string) =>
   api.post(`/books/${bookId}/messages/answer`, { messageId, answer })
-export const getSectionChat = (bookId: number, questionMessageId: number) =>
-  api.get<SectionChatState>(`/books/${bookId}/section-chat/${questionMessageId}`)
-/** The reply arrives later over SignalR (SectionChatUpdated). */
-export const postSectionChat = (bookId: number, questionMessageId: number, message: string) =>
-  api.post(`/books/${bookId}/section-chat/${questionMessageId}`, { message })
-/** Runs in the background like a reply. */
-export const undoSectionChat = (bookId: number, questionMessageId: number) =>
-  api.post(`/books/${bookId}/section-chat/${questionMessageId}/undo`)
-/** Waits for the LLM; `summary` is empty when there is nothing worth keeping. */
-export const summarizeSectionChat = (bookId: number, questionMessageId: number) =>
-  api.post<{ summary: string }>(`/books/${bookId}/section-chat/${questionMessageId}/summary`)
-/** Saves `note` as a clarification (when given) and resumes the run. */
-export const completeSectionReview = (bookId: number, questionMessageId: number, note: string | null, answer: string | null) =>
-  api.post(`/books/${bookId}/section-chat/${questionMessageId}/complete`, { note, answer })
+
+// Book chat (Interactive books). Replies and applied changes arrive over SignalR (BookChatUpdated).
+export const getBookChat = (bookId: number, before?: number, limit = 50) =>
+  api.get<BookChatState>(`/books/${bookId}/book-chat`, { params: { before, limit } })
+export const sendBookChat = (bookId: number, message: string) =>
+  api.post<{ messageId: number }>(`/books/${bookId}/book-chat`, { message })
+export const retryBookChat = (bookId: number, messageId: number) =>
+  api.post(`/books/${bookId}/book-chat/retry/${messageId}`)
+export const kickoffBookChat = (bookId: number) =>
+  api.post(`/books/${bookId}/book-chat/kickoff`)
+export const applyProposals = (bookId: number, ids: number[], force = false) =>
+  api.post(`/books/${bookId}/book-chat/proposals/apply`, { ids, force })
+export const rejectProposals = (bookId: number, ids: number[]) =>
+  api.post(`/books/${bookId}/book-chat/proposals/reject`, { ids })
+export const undoProposal = (bookId: number, proposalId: number, force = false) =>
+  api.post(`/books/${bookId}/book-chat/proposals/${proposalId}/undo`, { force })
+export const lockStoryBible = (bookId: number) => api.post(`/books/${bookId}/book-chat/lock-bible`)
+export const unlockStoryBible = (bookId: number) => api.post(`/books/${bookId}/book-chat/unlock-bible`)
 
 // Agent actions
 export const startPlanning = (bookId: number) => api.post(`/books/${bookId}/agent/plan`)

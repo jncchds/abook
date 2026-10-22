@@ -152,6 +152,27 @@ public interface IBookRepository
     /// <summary>Archives every active clarification of the book.</summary>
     Task ArchiveClarificationsAsync(int bookId);
 
+    // Book chat (Interactive books): messages with their proposed changes
+    /// <summary>
+    /// The newest <paramref name="limit"/> messages (all when null) older than <paramref name="beforeId"/>,
+    /// returned oldest first, each with its proposals.
+    /// </summary>
+    Task<IReadOnlyList<BookChatMessage>> GetChatMessagesAsync(int bookId, int? beforeId = null, int? limit = null);
+    Task<BookChatMessage?> GetChatMessageAsync(int bookId, int messageId);
+    /// <summary>Saves a message together with its proposals.</summary>
+    Task<BookChatMessage> AddChatMessageAsync(BookChatMessage message);
+    Task UpdateChatMessageAsync(BookChatMessage message);
+    Task<ChatProposal?> GetProposalAsync(int bookId, int proposalId);
+    /// <summary>The proposals with these ids that belong to the book, in reply order (message, then ordinal).</summary>
+    Task<IReadOnlyList<ChatProposal>> GetProposalsAsync(int bookId, IEnumerable<int> proposalIds);
+    Task<IReadOnlyList<ChatProposal>> GetProposalsByStatusAsync(int bookId, ChatProposalStatus status);
+    Task UpdateProposalAsync(ChatProposal proposal);
+    /// <summary>
+    /// After a restart: author messages still waiting for a reply and proposals still being applied are
+    /// marked Failed (their run is gone). Returns how many rows changed.
+    /// </summary>
+    Task<int> FailInterruptedChatAsync();
+
     // Visual assets (recurring props, outfits, places … shared by the illustrations)
     Task<IReadOnlyList<VisualAsset>> GetVisualAssetsAsync(int bookId);
     Task<VisualAsset?> GetVisualAssetAsync(int bookId, int assetId);

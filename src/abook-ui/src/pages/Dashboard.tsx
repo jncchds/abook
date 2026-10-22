@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { Book } from '../api'
+import type { Book, BookMode } from '../api'
 import { createBook, deleteBook, getBooks } from '../api'
-import ToggleField from '../components/ToggleField'
+import ModeField from '../components/ModeField'
 
 export default function Dashboard() {
   const [books, setBooks] = useState<Book[]>([])
-  const [form, setForm] = useState({ title: '', premise: '', genre: '', targetChapterCount: 10, language: 'English', humanAssisted: false })
+  const [form, setForm] = useState({ title: '', premise: '', genre: '', targetChapterCount: 10, language: 'English', mode: 'Interactive' as BookMode })
   const [baseBookId, setBaseBookId] = useState<number | undefined>(undefined)
   const navigate = useNavigate()
   const [showForm, setShowForm] = useState(false)
@@ -17,7 +17,11 @@ export default function Dashboard() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
-    const { data } = await createBook({ ...form, baseBookId })
+    const { data } = await createBook({
+      ...form,
+      targetChapterCount: form.mode === 'Interactive' ? 0 : form.targetChapterCount,
+      baseBookId,
+    })
     navigate(`/books/${data.id}`)
   }
 
@@ -40,6 +44,7 @@ export default function Dashboard() {
         <form className="card settings-form" style={{ marginBottom: '1.5rem' }} onSubmit={handleCreate}>
           <h2>New Book</h2>
           <label>Title<input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} required autoFocus /></label>
+          <ModeField value={form.mode} onChange={mode => setForm(f => ({ ...f, mode }))} />
           <label>Genre<input value={form.genre} onChange={e => setForm(f => ({ ...f, genre: e.target.value }))} placeholder="Fantasy, Adventure" />
             <span className="hint">Comma-separated list of genres</span>
           </label>
@@ -54,17 +59,13 @@ export default function Dashboard() {
                 <option key={b.id} value={b.id}>{b.title}</option>
               ))}
             </select>
-            <span className="hint">Copies settings (language, human-assisted mode, prompts, target chapters) and book-scoped LLM config.</span>
+            <span className="hint">Copies settings (language, prompts, target chapters) and book-scoped LLM config.</span>
           </label>
           <label>Language<input value={form.language} onChange={e => setForm(f => ({ ...f, language: e.target.value }))} placeholder="English" /></label>
-          <label>Target chapters<input type="number" min={1} max={100} value={form.targetChapterCount} onChange={e => setForm(f => ({ ...f, targetChapterCount: +e.target.value }))} /></label>
+          {form.mode === 'Autonomous' && (
+            <label>Target chapters<input type="number" min={1} max={100} value={form.targetChapterCount} onChange={e => setForm(f => ({ ...f, targetChapterCount: +e.target.value }))} /></label>
+          )}
           <label>Premise<textarea rows={4} value={form.premise} onChange={e => setForm(f => ({ ...f, premise: e.target.value }))} required /></label>
-          <ToggleField
-            checked={form.humanAssisted}
-            onChange={v => setForm(f => ({ ...f, humanAssisted: v }))}
-            label="Human-assisted generation"
-            hint="Pauses for your input after each planning phase and after each chapter's mechanical fixes."
-          />
           <div className="actions">
             <button type="submit">Create</button>
             <button type="button" className="btn-ghost" onClick={() => setShowForm(false)}>Cancel</button>
@@ -88,7 +89,7 @@ export default function Dashboard() {
               )}
             </div>
             <div className="book-list-card-right">
-              <span className="blc-chapters">{b.targetChapterCount} chapters</span>
+              <span className="blc-chapters">{b.mode === 'Interactive' ? '✍ Interactive' : `${b.targetChapterCount} chapters`}</span>
               <button onClick={() => navigate(`/books/${b.id}`)}>Open →</button>
               <button className="btn-icon btn-danger" title="Delete" onClick={() => handleDelete(b.id)}>✕</button>
             </div>

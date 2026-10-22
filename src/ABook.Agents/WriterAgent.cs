@@ -16,7 +16,7 @@ public class WriterAgent : AgentBase
         ILoggerFactory loggerFactory)
         : base(repo, llmFactory, vectorStore, notifier, stateService, loggerFactory) { }
 
-    public async Task WriteAsync(int bookId, int chapterId, CancellationToken ct = default)
+    public async Task WriteAsync(int bookId, int chapterId, CancellationToken ct = default, string? authorInstructions = null)
     {
         var book = await Repo.GetByIdAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
@@ -40,7 +40,7 @@ public class WriterAgent : AgentBase
         var messages = new List<LlmChatMessage>
         {
             new(LlmChatRole.System, PromptTemplates.WriterSystem(basePrompt, book, chapter, contextBlock, prevEnding)),
-            new(LlmChatRole.User, PromptTemplates.WriterUser(chapter, synopsesBlock)),
+            new(LlmChatRole.User, PromptTemplates.WriterUser(chapter, synopsesBlock, authorInstructions)),
         };
 
         var content = await StreamResponseAsync(client, config, messages, bookId, chapterId, AgentRole.Writer, ct);

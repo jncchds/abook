@@ -99,7 +99,8 @@ public class ContentMcpTools : McpToolBase
         [Description("Rules and constraints of the story's world (e.g. magic system rules).")] string? worldRules = null,
         [Description("Additional notes for the story bible.")] string? notes = null)
     {
-        await GetOwnedBookAsync(bookId, _repo);
+        if (ABook.Agents.BookContentService.IsBibleLocked(await GetOwnedBookAsync(bookId, _repo)))
+            throw new McpException(new ABook.Agents.StoryBibleLockedException().Message);
         var bible = await _repo.GetStoryBibleAsync(bookId) ?? new StoryBible { BookId = bookId };
         if (settingDescription != null) bible.SettingDescription = settingDescription;
         if (timePeriod != null) bible.TimePeriod = timePeriod;
