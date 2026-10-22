@@ -318,7 +318,7 @@ Agents stream tokens via SignalR as they write.
 
 ### Interactive books — the book chat
 
-Choose **Interactive** when you create a book (it is the default; the mode can be changed in Book Settings). The book opens on **Book Chat**:
+Choose **Interactive** when you create a book (Autonomous is the default; the mode can be changed in Book Settings). The book opens on **Book Chat**, which waits for you: check the premise and the LLM preset first, then press **Start the book chat**.
 
 1. **Foundation.** The LLM reads your premise, proposes a Story Bible and asks what it needs to know. Discuss it, add characters and plot threads, and apply the changes you like. When the world feels settled, press **Lock bible & start writing** (writing the first chapter locks it too).
 2. **Writing.** Ask for whatever comes next, in any order — "introduce Tobin, Mara's old partner", "add a chapter where…, and write it", "make chapter 3 darker". Chapters are only ever added at the end; there is no chapter count to reach and no outline to plan up front.

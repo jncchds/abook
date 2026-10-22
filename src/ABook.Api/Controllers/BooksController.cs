@@ -15,18 +15,15 @@ public class BooksController : ControllerBase
     private readonly IBookRepository _repo;
     private readonly IVectorStoreService _vectorStore;
     private readonly ILlmProviderFactory _llmFactory;
-    private readonly ABook.Api.Services.BookChatService _chat;
     private readonly ILogger<BooksController> _logger;
 
     public BooksController(
         IBookRepository repo,
         IVectorStoreService vectorStore,
         ILlmProviderFactory llmFactory,
-        ABook.Api.Services.BookChatService chat,
         ILogger<BooksController> logger)
     {
         _repo = repo;
-        _chat = chat;
         _vectorStore = vectorStore;
         _llmFactory = llmFactory;
         _logger = logger;
@@ -106,10 +103,8 @@ public class BooksController : ControllerBase
             await _repo.UpsertLlmConfigAsync(copy);
         }
 
-        // An Interactive book opens with the LLM's first reply: a Story Bible proposal and questions.
-        if (created.Mode == BookMode.Interactive)
-            await _chat.KickoffAsync(created.Id);
-
+        // An Interactive book's chat is not started here: the author first reviews the premise and LLM
+        // settings, then presses Start in the book chat (BookChatController.Kickoff).
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
     }
 

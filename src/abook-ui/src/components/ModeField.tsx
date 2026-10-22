@@ -2,14 +2,14 @@ import type { BookMode } from '../api'
 
 const OPTIONS: { value: BookMode; label: string; hint: string }[] = [
   {
-    value: 'Interactive',
-    label: '✍ Interactive',
-    hint: 'Write the book in a chat with the LLM: add characters, plot threads and chapters in any order, approving each change. No chapter count needed.',
-  },
-  {
     value: 'Autonomous',
     label: '⚙ Autonomous',
     hint: 'The LLM plans the whole book (Story Bible, characters, plot threads, chapter outlines), then writes, checks and edits every chapter.',
+  },
+  {
+    value: 'Interactive',
+    label: '✍ Interactive',
+    hint: 'Write the book in a chat with the LLM: add characters, plot threads and chapters in any order, approving each change. No chapter count needed.',
   },
 ]
 

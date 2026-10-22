@@ -14,14 +14,12 @@ public class BookMcpTools : McpToolBase
 {
     private readonly IBookRepository _repo;
     private readonly AgentRunStateService _runState;
-    private readonly ABook.Api.Services.BookChatService _chat;
 
-    public BookMcpTools(IBookRepository repo, AgentRunStateService runState, ABook.Api.Services.BookChatService chat, IHttpContextAccessor http)
+    public BookMcpTools(IBookRepository repo, AgentRunStateService runState, IHttpContextAccessor http)
         : base(http)
     {
         _repo = repo;
         _runState = runState;
-        _chat = chat;
     }
 
 
@@ -92,9 +90,8 @@ public class BookMcpTools : McpToolBase
             Mode = mode,
             UserId = userId
         });
-        if (mode == BookMode.Interactive) await _chat.KickoffAsync(book.Id);
         return JsonSerializer.Serialize(new { book.Id, book.Title, book.Genre, book.Premise, book.Language, book.TargetChapterCount, book.Mode,
-            next = mode == BookMode.Interactive ? "The LLM is writing its opening reply (a Story Bible proposal) — read it with get_book_chat." : null }, JsonOptions);
+            next = mode == BookMode.Interactive ? "Review the premise and LLM settings, then call start_book_chat for the LLM's opening reply (a Story Bible proposal)." : null }, JsonOptions);
     }
 
     [McpServerTool(Name = "update_book")]

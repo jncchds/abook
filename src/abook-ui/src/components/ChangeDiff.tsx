@@ -1,8 +1,12 @@
-import { foldContext, lineDiff } from '../utils/lineDiff'
+import { foldContext, lineDiff, type DiffLine } from '../utils/lineDiff'
+
+/** A blank line or an empty JSON field (`"notes": "",`): adding or removing one says nothing. */
+const EMPTY_LINE = /^\s*("[^"]*"\s*:\s*"")?\s*,?\s*$/
 
 /** Line diff of a change (unchanged stretches folded): what the book chat would change, or changed. */
 export default function ChangeDiff({ before, after }: { before: string; after: string }) {
-  const lines = foldContext(lineDiff(before, after))
+  const changed = lineDiff(before, after).filter((l: DiffLine) => l.kind === 'same' || !EMPTY_LINE.test(l.text))
+  const lines = foldContext(changed)
   return (
     <div className="change-diff">
       {lines.map((l, i) => 'skipped' in l

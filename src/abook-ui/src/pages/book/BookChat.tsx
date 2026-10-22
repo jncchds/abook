@@ -204,11 +204,38 @@ export default function BookChat() {
   const chatRunning = isRunning && (runStatus?.role === 'BookChat')
   const streamed = partialJsonString(bookChatStream, 'message')
   const locked = !!(chat?.storyBibleLockedAt ?? book?.storyBibleLockedAt)
+  const lastId = messages.reduce((max, m) => Math.max(max, m.id), 0)
+  const lastIdRef = useRef(lastId)
+  useEffect(() => { lastIdRef.current = lastId }, [lastId])
+
+  // The author's message is shown as soon as it is sent, until the server's copy is loaded.
+  const [pendingAuthor, setPendingAuthor] = useState<{ text: string; afterId: number } | null>(null)
+  // The streamed reply stays on screen after the stream ends (while the server reads the proposals and saves
+  // the reply) and is replaced in place once the saved reply is loaded.
+  const [heldReply, setHeldReply] = useState<{ text: string; afterId: number } | null>(null)
+
+  useEffect(() => {
+    if (chatRunning && streamed) setHeldReply(prev => ({ text: streamed, afterId: prev?.afterId ?? lastIdRef.current }))
+  }, [chatRunning, streamed])
+
+  const authorArrived = !!pendingAuthor && messages.some(m => m.role === 'Author' && m.id > pendingAuthor.afterId)
+  // The reply (or a failure) arrived, or the run is over and the reloaded chat has nothing more to come.
+  const replyArrived = !!heldReply && (
+    messages.some(m => m.id > heldReply.afterId && (m.role !== 'Author' || m.status === 'Failed')) ||
+    (!isRunning && !!chat && !chat.busy))
+  useEffect(() => { if (authorArrived) setPendingAuthor(null) }, [authorArrived])
+  useEffect(() => { if (replyArrived) setHeldReply(null) }, [replyArrived])
+  const showPendingAuthor = !!pendingAuthor && !authorArrived
+  const showHeldReply = !!heldReply && !replyArrived
+
+  const replyText = chatRunning && streamed ? streamed : showHeldReply ? heldReply.text : ''
+  // The message part is complete and the LLM is still writing the proposed changes.
+  const draftingChanges = !!replyText && /"actions"\s*:/.test(bookChatStream)
 
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
-  }, [messages.length, streamed, chat?.busy])
+  }, [messages.length, replyText, chat?.busy, pendingAuthor])
 
   const onScroll = () => {
     const el = scrollRef.current
@@ -226,12 +253,15 @@ export default function BookChat() {
     if (!message || busy) return
     setSending(true)
     setError(null)
+    setPendingAuthor({ text: message, afterId: lastId })
+    setText('')
+    stickToBottom.current = true
     try {
       await sendBookChat(bookId, message)
-      setText('')
-      stickToBottom.current = true
       await load()
     } catch (err) {
+      setPendingAuthor(null)
+      setText(prev => prev || message)
       setError(`Could not send: ${errorText(err)}`)
     } finally {
       setSending(false)
@@ -300,9 +330,11 @@ export default function BookChat() {
 
       <div className="studio-messages" ref={scrollRef} onScroll={onScroll}>
         {chat?.hasMore && <button className="btn-sm btn-ghost studio-older" onClick={() => void loadOlder()}>Load earlier messages</button>}
-        {chat && !chat.hasMore && messages.every(m => m.role === 'Event') && !busy && (
+        {chat && !chat.hasMore && messages.every(m => m.role === 'Event') && !busy && !showPendingAuthor && (
           <div className="studio-empty">
-            <p>Start by letting the LLM read your premise: it proposes a Story Bible and asks what it needs to know.</p>
+            <p>Before you start, check the <Link to={`/books/${bookId}/overview`}>premise</Link> (Overview) and
+              the LLM preset (<Link to={`/books/${bookId}/settings`}>Book Settings</Link>).</p>
+            <p>When you press Start, the LLM reads your premise, proposes a Story Bible and asks what it needs to know.</p>
             <button onClick={() => void run(() => kickoffBookChat(bookId))}>Start the book chat</button>
           </div>
         )}
@@ -324,11 +356,19 @@ export default function BookChat() {
             {m.proposals.length > 0 && <Proposals message={m} {...cardProps} />}
           </div>
         ))}
-        {chatRunning && (
+        {showPendingAuthor && (
+          <div className="chat-msg from-author">
+            <p>{pendingAuthor.text}</p>
+          </div>
+        )}
+        {(chatRunning || showHeldReply || showPendingAuthor) && (
           <div className="chat-msg from-llm">
-            {streamed
-              ? <ReactMarkdown>{streamed}</ReactMarkdown>
-              : <p className="chat-typing"><span className="spinner" /> {runStatus?.role === 'BookChat' ? 'Working…' : 'Busy…'}</p>}
+            {replyText
+              ? <>
+                  <ReactMarkdown>{replyText}</ReactMarkdown>
+                  {draftingChanges && <p className="chat-typing"><span className="spinner" /> Preparing changes…</p>}
+                </>
+              : <p className="chat-typing"><span className="spinner" /> Working…</p>}
           </div>
         )}
         {isRunning && !chatRunning && (

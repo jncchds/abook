@@ -8,8 +8,9 @@ const CONTEXT = 2
  * pretty-printed JSON for planning sections, so the sizes stay small enough for the O(n·m) table.
  */
 export function lineDiff(before: string, after: string): DiffLine[] {
-  const a = before.split('\n')
-  const b = after.split('\n')
+  // An empty text has no lines: something new is all additions, not an empty line replaced.
+  const a = before === '' ? [] : before.split('\n')
+  const b = after === '' ? [] : after.split('\n')
   // Common prefix and suffix first — most changes touch a few lines of a long section.
   let start = 0
   while (start < a.length && start < b.length && a[start] === b[start]) start++

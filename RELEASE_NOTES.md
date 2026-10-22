@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.4.1 — 2026-10-23
+
+- fix: **Autonomous is the default mode** again when creating a book (and listed first)
+- fix: **a new Interactive book waits for Start** — creating it (UI, REST or MCP) no longer starts the chat, so the premise and LLM preset can be checked first; the chat page links to both and has a **Start the book chat** button (MCP: `start_book_chat`)
+- fix: **the book chat no longer flickers** — a sent message appears at once, and the streamed reply stays on screen (with "Preparing changes…" while the LLM writes the proposals) until the saved reply with its cards replaces it in place
+- fix: diffs of something new (a character, a fact) no longer show a red empty line removed; blank lines and empty fields are left out of the diff
+
 ## v0.4.0 — 2026-10-22
 
 ### ⚠️ Interactive books replace human-assisted mode

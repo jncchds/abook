@@ -6,7 +6,7 @@ import ModeField from '../components/ModeField'
 
 export default function Dashboard() {
   const [books, setBooks] = useState<Book[]>([])
-  const [form, setForm] = useState({ title: '', premise: '', genre: '', targetChapterCount: 10, language: 'English', mode: 'Interactive' as BookMode })
+  const [form, setForm] = useState({ title: '', premise: '', genre: '', targetChapterCount: 10, language: 'English', mode: 'Autonomous' as BookMode })
   const [baseBookId, setBaseBookId] = useState<number | undefined>(undefined)
   const navigate = useNavigate()
   const [showForm, setShowForm] = useState(false)
