@@ -17,6 +17,13 @@ public class Chapter
     public string ForeshadowingNotes { get; set; } = string.Empty;
     public string PayoffNotes { get; set; } = string.Empty;
     public bool IsArchived { get; set; } = false;
+    /// <summary>
+    /// What the chapter's prose actually tells (not the plan), with its established facts — written by the
+    /// summarizer after the chapter is written or changed in an Interactive book. Empty until then.
+    /// </summary>
+    public string Summary { get; set; } = string.Empty;
+    /// <summary>The version <see cref="Summary"/> was written from; a different active version means it is stale.</summary>
+    public int? SummaryVersionId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

@@ -169,6 +169,44 @@ internal static class JsonSchemas
         }
         """;
 
+    public const string ChapterSummary = """
+        {
+          "type": "object",
+          "properties": {
+            "summary": { "type": "string" },
+            "facts": { "type": "array", "items": { "type": "string" } },
+            "newCharacters": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "role": { "type": "string", "enum": ["Protagonist", "Antagonist", "Supporting", "Minor"] },
+                  "description": { "type": "string" }
+                },
+                "required": ["name", "role", "description"],
+                "additionalProperties": false
+              }
+            },
+            "threadChanges": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "status": { "type": "string", "enum": ["Active", "Resolved", "Dormant"] },
+                  "note": { "type": "string" }
+                },
+                "required": ["name", "status", "note"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["summary", "facts", "newCharacters", "threadChanges"],
+          "additionalProperties": false
+        }
+        """;
+
     public const string StyleSheet = """
         {
           "type": "object",

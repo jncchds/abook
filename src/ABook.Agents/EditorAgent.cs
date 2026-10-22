@@ -86,18 +86,44 @@ public class EditorAgent : AgentBase
         await ReportRunningAsync(bookId, AgentRole.Editor, chapterId, ct);
     }
 
+    /// <summary>
+    /// Applies verbatim patches the author approved — no LLM call and no status change. A new version is
+    /// saved (and indexed) only when at least one patch applied.
+    /// </summary>
+    public async Task<PatchOutcome> PatchAsync(int bookId, int chapterId, IReadOnlyList<CheckerIssue> patches,
+        string createdBy, CancellationToken ct)
+    {
+        var chapter = EnsureNotArchived(await Repo.GetChapterAsync(bookId, chapterId)
+            ?? throw new InvalidOperationException($"Chapter {chapterId} not found."));
+        return await ApplyPatchesCoreAsync(bookId, chapter, patches, chapter.Status, createdBy,
+            saveWhenNothingApplied: false, postFeedback: false, ct);
+    }
+
     private async Task ApplyPatchesAsync(int bookId, int chapterId, CheckerResult result,
         bool finalizeStatus, CancellationToken ct)
     {
         var chapter = await Repo.GetChapterAsync(bookId, chapterId)
             ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
+        await ApplyPatchesCoreAsync(bookId, chapter, result.Issues,
+            finalizeStatus ? ChapterStatus.Done : ChapterStatus.Review, AgentCreatedBy.Editor,
+            saveWhenNothingApplied: true, postFeedback: true, ct);
+        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, RunStates.Done, chapterId, ct);
+    }
 
+    /// <summary>The patches applied, the ones skipped (with why) and the version saved, if any.</summary>
+    public sealed record PatchOutcome(
+        IReadOnlyList<CheckerIssue> Applied, IReadOnlyList<(CheckerIssue Issue, string Reason)> Skipped, int? VersionId);
+
+    private async Task<PatchOutcome> ApplyPatchesCoreAsync(int bookId, Chapter chapter, IReadOnlyList<CheckerIssue> issues,
+        ChapterStatus patchedStatus, string createdBy, bool saveWhenNothingApplied, bool postFeedback, CancellationToken ct)
+    {
+        var chapterId = chapter.Id;
         var content = NormalizeWhitespace(chapter.Content ?? string.Empty);
 
         var appliedPatches = new List<(int Offset, CheckerIssue Issue)>();
         var skippedIssues = new List<(CheckerIssue Issue, string Reason)>();
 
-        foreach (var issue in result.Issues)
+        foreach (var issue in issues)
         {
             if (string.IsNullOrEmpty(issue.OriginalText))
             {
@@ -121,21 +147,27 @@ public class EditorAgent : AgentBase
                              .Insert(offset, issue.ReplacementText ?? string.Empty);
         }
 
+        var applied = appliedPatches.Select(p => p.Issue).ToList();
+        if (applied.Count == 0 && !saveWhenNothingApplied)
+            return new PatchOutcome(applied, skippedIssues, null);
+
         var patchedContent = StripLeadingChapterHeading(content, chapter.Number, chapter.Title);
-        var patchedStatus = finalizeStatus ? ChapterStatus.Done : ChapterStatus.Review;
 
-        var feedbackSb = BuildEditorialFeedback(appliedPatches.Select(p => p.Issue), skippedIssues);
-        await Repo.AddMessageAsync(new AgentMessage
+        if (postFeedback)
         {
-            BookId = bookId,
-            ChapterId = chapterId,
-            AgentRole = AgentRole.Editor,
-            MessageType = MessageType.Feedback,
-            Content = feedbackSb.ToString(),
-            IsResolved = true
-        });
+            var feedbackSb = BuildEditorialFeedback(applied, skippedIssues);
+            await Repo.AddMessageAsync(new AgentMessage
+            {
+                BookId = bookId,
+                ChapterId = chapterId,
+                AgentRole = AgentRole.Editor,
+                MessageType = MessageType.Feedback,
+                Content = feedbackSb.ToString(),
+                IsResolved = true
+            });
+        }
 
-        var patchVersion = CreateChapterVersion(chapter, patchedContent, patchedStatus, AgentCreatedBy.Editor);
+        var patchVersion = CreateChapterVersion(chapter, patchedContent, patchedStatus, createdBy);
         await Repo.AddChapterVersionAsync(patchVersion);
 
         var (_, config) = await GetChatClientAsync(bookId);
@@ -147,7 +179,7 @@ public class EditorAgent : AgentBase
         }
 
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
-        await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.Editor, RunStates.Done, chapterId, ct);
+        return new PatchOutcome(applied, skippedIssues, patchVersion.Id);
     }
 
     private static string EditorSystemPrompt(Book book, StoryBible? bible) =>

@@ -397,9 +397,26 @@ public static class PromptTemplates
     private static string Ancestor(string ancestorReference) =>
         ancestorReference.Length > 0 ? $"\n{ancestorReference}" : "";
 
-    /// <summary>One line per chapter: "N. **Title** — Outline". Used for the synopsis spine.</summary>
+    /// <summary>One line per chapter: "N. **Title** — gist". Used for the synopsis spine.</summary>
     public static string ChapterSynopses(IEnumerable<Chapter> chapters) =>
-        string.Join("\n", chapters.Select(c => $"{c.Number}. **{c.Title}** — {c.Outline}"));
+        string.Join("\n", chapters.Select(c => $"{c.Number}. **{c.Title}** — {Gist(c)}"));
+
+    /// <summary>
+    /// What a chapter is about, on one line: the summary of its written prose when there is one (Interactive
+    /// books), otherwise its outline — the plan, which written prose may have drifted from.
+    /// </summary>
+    public static string Gist(Chapter c) =>
+        string.IsNullOrWhiteSpace(c.Summary) ? c.Outline : OneLine(c.Summary);
+
+    private static string OneLine(string text) =>
+        string.Join(' ', text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+    /// <summary>
+    /// The chapter count as prompts state it: the author's target, or "open-ended" for a book with no
+    /// target (Interactive books grow chapter by chapter).
+    /// </summary>
+    public static string ChapterCount(Book book) =>
+        book.TargetChapterCount > 0 ? book.TargetChapterCount.ToString() : "open-ended";
 
     /// <summary>The closing paragraphs of the previous chapter, handed to the Writer for continuity.</summary>
     public static string PreviousChapterEnding(Chapter previous, IEnumerable<string> tailParagraphs) =>
@@ -500,7 +517,7 @@ public static class PromptTemplates
 
     public static string QuestionGatheringUser(Book book, string ancestorReference)
     {
-        var context = $"Title: {book.Title}\nGenre: {book.Genre}\nPremise: {Premise(book)}\nTarget chapters: {book.TargetChapterCount}";
+        var context = $"Title: {book.Title}\nGenre: {book.Genre}\nPremise: {Premise(book)}\nTarget chapters: {ChapterCount(book)}";
         return string.IsNullOrEmpty(ancestorReference) ? context : $"{context}\n\n{ancestorReference}";
     }
 
@@ -511,7 +528,7 @@ public static class PromptTemplates
         Book title: {book.Title}
         Genre: {book.Genre}
         Premise: {Premise(book)}
-        Target chapter count: {book.TargetChapterCount}
+        Target chapter count: {ChapterCount(book)}
         {Ancestor(ancestorReference)}
 
         Create the Story Bible for this book.
@@ -522,7 +539,7 @@ public static class PromptTemplates
         Book title: {book.Title}
         Genre: {book.Genre}
         Premise: {Premise(book)}
-        Target chapter count: {book.TargetChapterCount}
+        Target chapter count: {ChapterCount(book)}
 
         Story Bible:
         Setting: {bible.SettingDescription}
@@ -558,7 +575,7 @@ public static class PromptTemplates
         Book title: {book.Title}
         Genre: {book.Genre}
         Premise: {Premise(book)}
-        Target chapter count: {book.TargetChapterCount}
+        Target chapter count: {ChapterCount(book)}
 
         Story Bible:
         Setting: {bible.SettingDescription}
@@ -596,7 +613,7 @@ public static class PromptTemplates
             Book title: {book.Title}
             Genre: {book.Genre}
             Premise: {Premise(book)}
-            Target chapter count: {book.TargetChapterCount}
+            Target chapter count: {ChapterCount(book)}
 
             Story Bible:
             Setting: {bible.SettingDescription}
@@ -636,7 +653,7 @@ public static class PromptTemplates
     public static string WriterSystem(string basePrompt, Book book, Chapter chapter, string contextBlock, string previousEnding) =>
         $"""
         {basePrompt}
-        Current chapter: {chapter.Number} of {book.TargetChapterCount} — "{chapter.Title}"
+        Current chapter: {(book.TargetChapterCount > 0 ? $"{chapter.Number} of {book.TargetChapterCount}" : chapter.Number.ToString())} — "{chapter.Title}"
         {contextBlock}
         {(previousEnding.Length > 0 ? $"\nThe previous chapter ended with:\n{previousEnding}\nContinue the story naturally from this point." : "")}
         """;
@@ -954,6 +971,43 @@ public static class PromptTemplates
         return sb.ToString().TrimEnd();
     }
 
+    // ── Chapter summary (what a written chapter actually tells) ───────────────
+
+    public static string ChapterSummarySystem(Book book) =>
+        $"""
+        You keep the records of the book "{book.Title}" ({book.Genre}). You read one written chapter and record what
+        it actually tells, so later chapters stay consistent with it. Write every value in {book.Language}.
+        Return a JSON object with exactly these fields:
+          "summary": what happens in the chapter, 80-150 words, in order — who does what, where, and how it ends.
+             Describe the prose as written, not what it was meant to be.
+          "facts": up to 8 short, concrete facts this chapter establishes that later chapters must respect —
+             names, appearances, relationships, places, objects, injuries or deaths, secrets revealed, dates and times.
+          "newCharacters": named characters who appear in the chapter but are not in the known list — each with
+             "name", "role" (Protagonist, Antagonist, Supporting or Minor) and "description" (one sentence).
+          "threadChanges": known plot threads whose state the chapter changes — each with "name" (exactly as
+             listed), "status" (Active, Resolved or Dormant) and "note" (one sentence on what changed).
+        Use empty arrays when there is nothing to report. Output only the JSON object.
+        """;
+
+    public static string ChapterSummaryUser(Chapter chapter, IEnumerable<string> characterNames, IEnumerable<string> threadNames)
+    {
+        var cast = string.Join(", ", characterNames);
+        var threads = string.Join(", ", threadNames);
+        return $"""
+            Known characters: {(cast.Length > 0 ? cast : "(none yet)")}
+            Known plot threads: {(threads.Length > 0 ? threads : "(none yet)")}
+
+            Chapter {chapter.Number}: {chapter.Title}
+            {chapter.Content}
+            """;
+    }
+
+    /// <summary>The stored summary: the account of the chapter, then the facts it establishes.</summary>
+    public static string ChapterSummaryText(string summary, IReadOnlyList<string> facts) =>
+        facts.Count == 0
+            ? summary.Trim()
+            : $"{summary.Trim()}\nEstablished facts:\n" + string.Join("\n", facts.Select(f => $"- {f.Trim()}"));
+
     // ── Pre-write outline check (Continuity Checker) ──────────────────────────
 
     public const string PreWriteNoIssuesMarker = "No issues found";
@@ -1046,7 +1100,7 @@ public static class PromptTemplates
         {
             sb.AppendLine("\n### Prior Chapter Synopses");
             foreach (var c in priorChapters)
-                sb.AppendLine($"- Ch.{c.Number} \"{c.Title}\": {c.Outline}");
+                sb.AppendLine($"- Ch.{c.Number} \"{c.Title}\": {Gist(c)}");
         }
 
         return sb.ToString();
@@ -1097,7 +1151,10 @@ public static class PromptTemplates
     }
 
     private static string ChapterDigest(Chapter c, int excerptChars) =>
-        $"Chapter {c.Number}: {c.Title}\nOutline: {c.Outline}\nContent excerpt: {c.Content?[..Math.Min(excerptChars, c.Content?.Length ?? 0)]}...";
+        (string.IsNullOrWhiteSpace(c.Summary)
+            ? $"Chapter {c.Number}: {c.Title}\nOutline: {c.Outline}\n"
+            : $"Chapter {c.Number}: {c.Title}\nSummary: {c.Summary.Trim()}\n") +
+        $"Content excerpt: {c.Content?[..Math.Min(excerptChars, c.Content?.Length ?? 0)]}...";
 
     private static string CheckerContextSections(string structuredContext, string ragContext)
     {

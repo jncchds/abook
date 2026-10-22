@@ -100,6 +100,7 @@ builder.Services.AddScoped<ABook.Agents.EditorAgent>();
 builder.Services.AddScoped<ABook.Agents.ContinuityCheckerAgent>();
 builder.Services.AddScoped<ABook.Agents.IllustrationPlannerAgent>();
 builder.Services.AddScoped<ABook.Agents.IllustrationRenderer>();
+builder.Services.AddScoped<ABook.Agents.ChapterSummarizer>();
 builder.Services.AddScoped<ABook.Agents.SectionChatAgent>();
 builder.Services.AddSingleton<ABook.Api.Services.SectionChatService>();
 builder.Services.AddSingleton<IImageGeneratorFactory, ABook.Infrastructure.Imaging.ImageGeneratorFactory>();

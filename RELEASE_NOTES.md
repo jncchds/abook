@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.3.2 — 2026-10-22
+
+### Groundwork for Interactive books
+- feat: **chapter summaries** — a new summarizer records what a written chapter actually tells (a short account plus the facts it establishes, with characters and plot-thread changes it introduced). Where a chapter has one, prompts use it for the "story so far" instead of the chapter's outline, which written prose may have drifted from. Token stats list the calls as `ChapterSummarizer`
+- change: a book with target chapter count 0 is open-ended — prompts say "open-ended" and the Writer is no longer told "chapter N of 0"
+- internal: `EditorAgent.PatchAsync` applies approved verbatim patches without changing the chapter's status and reports which applied
+
 ## v0.3.1 — 2026-10-19
 
 ### Human-assisted mode

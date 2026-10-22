@@ -49,6 +49,8 @@ public interface IBookRepository
     Task UpdateChapterVersionAsync(ChapterVersion version);
     Task<IEnumerable<ChapterVersion>> GetChapterVersionsAsync(int chapterId);
     Task<ChapterVersion?> GetChapterVersionAsync(int chapterId, int versionId);
+    /// <summary>Chapter id → id of its active version, for the book's chapters that have one.</summary>
+    Task<IReadOnlyDictionary<int, int>> GetActiveChapterVersionIdsAsync(int bookId);
     /// <summary>Marks versionId as active, deactivates all others for this chapter, and copies version fields back to the Chapter row.</summary>
     Task<ChapterVersion> ActivateChapterVersionAsync(int bookId, int chapterId, int versionId);
 

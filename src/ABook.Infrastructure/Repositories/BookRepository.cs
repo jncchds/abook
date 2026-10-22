@@ -388,6 +388,13 @@ public class BookRepository : IBookRepository
     public async Task<ChapterVersion?> GetChapterVersionAsync(int chapterId, int versionId) =>
         await _db.ChapterVersions.FirstOrDefaultAsync(v => v.ChapterId == chapterId && v.Id == versionId);
 
+    public async Task<IReadOnlyDictionary<int, int>> GetActiveChapterVersionIdsAsync(int bookId) =>
+        await _db.ChapterVersions
+            .Where(v => v.BookId == bookId && v.IsActive)
+            .GroupBy(v => v.ChapterId)
+            .Select(g => new { ChapterId = g.Key, Id = g.Max(v => v.Id) })
+            .ToDictionaryAsync(x => x.ChapterId, x => x.Id);
+
     public async Task<ChapterVersion> ActivateChapterVersionAsync(int bookId, int chapterId, int versionId)
     {
         var version = await _db.ChapterVersions.FirstOrDefaultAsync(v => v.ChapterId == chapterId && v.Id == versionId)

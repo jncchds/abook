@@ -7,9 +7,19 @@ public enum PlanningPhaseStatus { NotStarted, Complete }
 public enum ChapterStatus { Outlined, Writing, Review, Editing, Done }
 
 public enum AgentRole { Planner, Writer, Editor, ContinuityChecker, Embedder, StoryBibleAgent, CharactersAgent, PlotThreadsAgent, ChaptersAgent, IllustrationPlanner, Illustrator,
-    /// <summary>The LLM the author chats with about a section during a human-assisted pause.</summary>
+    /// <summary>Legacy (up to v0.3.1): the LLM the author chatted with about a section during a human-assisted pause.</summary>
     SectionChat,
+    /// <summary>The LLM the author writes an Interactive book with: replies and proposes changes.</summary>
+    BookChat,
+    /// <summary>Summarizes what a written chapter tells and the facts it establishes.</summary>
+    ChapterSummarizer,
     WorkflowStep = 99 }
+
+/// <summary>
+/// How a book is written. Autonomous: the planning pipeline, then each chapter written, checked and edited
+/// in turn. Interactive: the author and the LLM build the book in a chat, one approved change at a time.
+/// </summary>
+public enum BookMode { Autonomous, Interactive }
 
 public enum MessageType
 {
@@ -48,9 +58,10 @@ public enum PlotThreadStatus { Active, Resolved, Dormant }
 /// <summary>
 /// Where a clarification came from: a planner question answered on the Clarifications page, an author
 /// note after a planning phase (up to v0.3.0), one the author added, one imported from the chat-based
-/// Q&amp;A of older books, or the decisions of a section chat the author saved when completing a review pause.
+/// Q&amp;A of older books, the decisions of a section chat the author saved when completing a review pause
+/// (up to v0.3.1), or a lasting decision noted from the book chat of an Interactive book.
 /// </summary>
-public enum ClarificationSource { Planner, PhaseNote, Author, Imported, ChatSummary }
+public enum ClarificationSource { Planner, PhaseNote, Author, Imported, ChatSummary, ChatNote }
 
 public enum AgentRunPersistStatus
 {

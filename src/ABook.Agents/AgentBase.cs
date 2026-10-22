@@ -517,7 +517,7 @@ public abstract class AgentBase
             .Replace(PromptPlaceholders.Genre, book.Genre ?? "")
             .Replace(PromptPlaceholders.Premise, PromptTemplates.Premise(book))
             .Replace(PromptPlaceholders.Language, book.Language ?? "English")
-            .Replace(PromptPlaceholders.ChapterCount, book.TargetChapterCount.ToString());
+            .Replace(PromptPlaceholders.ChapterCount, PromptTemplates.ChapterCount(book));
 
         if (bible is not null)
         {
