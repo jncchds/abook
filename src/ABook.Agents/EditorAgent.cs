@@ -140,14 +140,23 @@ public class EditorAgent : AgentBase
 
         appliedPatches.Sort((a, b) => b.Offset.CompareTo(a.Offset));
 
+        // Applied end-first; a patch reaching into text a later one already replaced would corrupt it — skip it.
+        var applied = new List<CheckerIssue>();
+        var limit = int.MaxValue;
         foreach (var (offset, issue) in appliedPatches)
         {
             var removeLength = NormalizeWhitespace(issue.OriginalText).Length;
+            if (offset + removeLength > limit)
+            {
+                skippedIssues.Add((issue, "overlaps another fix applied with it"));
+                continue;
+            }
             content = content.Remove(offset, removeLength)
                              .Insert(offset, issue.ReplacementText ?? string.Empty);
+            applied.Add(issue);
+            limit = offset;
         }
-
-        var applied = appliedPatches.Select(p => p.Issue).ToList();
+        applied.Reverse();
         if (applied.Count == 0 && !saveWhenNothingApplied)
             return new PatchOutcome(applied, skippedIssues, null);
 

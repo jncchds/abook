@@ -93,9 +93,21 @@ public class ProposalExecutor(
 
         // Chapter → whether it needs a continuity check (written or revised; a patch alone only needs a new summary).
         var changed = new Dictionary<int, bool>();
+        // Several patches of one chapter are applied as one edit (one chapter version), where the first of them stood.
+        var patchGroups = prose.Where(p => p.Type == BookChatActions.PatchChapter)
+            .GroupBy(p => ChatActionPayload.FromJson(p.PayloadJson).ChapterId)
+            .Where(g => g.Key is not null && g.Count() > 1)
+            .ToDictionary(g => g.First().Id, g => g.ToList());
+        var grouped = patchGroups.Values.SelectMany(g => g).Select(p => p.Id).ToHashSet();
         foreach (var p in prose)
-            if (await ApplyOneAsync(bookId, p, ct) is int chapterId)
-                changed[chapterId] = changed.GetValueOrDefault(chapterId) || p.Type != BookChatActions.PatchChapter;
+        {
+            int? chapterId;
+            if (patchGroups.TryGetValue(p.Id, out var group)) chapterId = await ApplyPatchGroupAsync(bookId, group, ct);
+            else if (grouped.Contains(p.Id)) continue;
+            else chapterId = await ApplyOneAsync(bookId, p, ct);
+            if (chapterId is int id)
+                changed[id] = changed.GetValueOrDefault(id) || p.Type != BookChatActions.PatchChapter;
+        }
 
         foreach (var (chapterId, check) in changed)
             await FollowUpAsync(bookId, chapterId, check, ct);
@@ -208,6 +220,82 @@ public class ProposalExecutor(
             // A failed save stays queued in the context — drop it, or recording the failure would fail too.
             repo.DiscardPendingChanges();
             await FinishAsync(bookId, p, ChatProposalStatus.Failed, ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Applies several patches of one chapter as a single edit: one chapter version, recorded on every patch that
+    /// applied (same versions and time, so undoing one undoes them all). A patch that no longer locates, or overlaps
+    /// another, fails on its own. Returns the chapter when its prose changed.
+    /// </summary>
+    private async Task<int?> ApplyPatchGroupAsync(int bookId, List<ChatProposal> group, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var chapterId = ChatActionPayload.FromJson(group[0].PayloadJson).ChapterId!.Value;
+        foreach (var p in group)
+        {
+            p.Status = ChatProposalStatus.Applying;
+            await repo.UpdateProposalAsync(p);
+        }
+        await notifier.NotifyBookChatAsync(bookId, group[0].MessageId, ct);
+
+        var issues = group.Select(p =>
+        {
+            var a = ChatActionPayload.FromJson(p.PayloadJson);
+            return new CheckerIssue("continuity", p.Label, "", a.OriginalText ?? "", a.ReplacementText ?? "");
+        }).ToList();
+        try
+        {
+            EditorAgent.PatchOutcome outcome = null!;
+            var change = await ChangeProseAsync(bookId, group[0], chapterId, async () =>
+            {
+                outcome = await editor.PatchAsync(bookId, chapterId, issues, AgentCreatedBy.BookChat, ct);
+                if (outcome.Applied.Count == 0)
+                    throw new InvalidOperationException(
+                        $"None of the texts to replace are in the chapter any more ({outcome.Skipped.FirstOrDefault().Reason ?? "not found"}).");
+            }, "Edited");
+
+            var (beforeVersion, afterVersion) = (group[0].BeforeVersionId, group[0].AfterVersionId);
+            var appliedAt = DateTime.UtcNow;
+            var others = outcome.Applied.Count - 1;
+            for (var i = 0; i < group.Count; i++)
+            {
+                var p = group[i];
+                if (outcome.Applied.Any(a => ReferenceEquals(a, issues[i])))
+                {
+                    p.Target = BookContentService.ProseTarget(chapterId);
+                    p.BeforeVersionId = beforeVersion;
+                    p.AfterVersionId = afterVersion;
+                    p.BeforeJson = change.Before;
+                    p.AfterJson = change.After;
+                    p.AppliedAt = appliedAt;
+                    await FinishAsync(bookId, p, ChatProposalStatus.Applied,
+                        others > 0 ? $"{change.Note} One edit with {others} other fix(es) — undoing it undoes them all." : change.Note);
+                }
+                else
+                {
+                    var reason = outcome.Skipped.FirstOrDefault(s => ReferenceEquals(s.Issue, issues[i])).Reason ?? "not found";
+                    p.BeforeVersionId = p.AfterVersionId = null;
+                    await FinishAsync(bookId, p, ChatProposalStatus.Failed, $"Not applied: {reason}.");
+                }
+            }
+            return chapterId;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            foreach (var p in group) await FinishAsync(bookId, p, ChatProposalStatus.Failed, "Stopped before it finished.");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "[Book {BookId}] Applying {Count} patches to chapter {ChapterId} failed.", bookId, group.Count, chapterId);
+            repo.DiscardPendingChanges();
+            foreach (var p in group)
+            {
+                p.BeforeVersionId = p.AfterVersionId = null;
+                await FinishAsync(bookId, p, ChatProposalStatus.Failed, ex.Message);
+            }
             return null;
         }
     }
@@ -509,6 +597,17 @@ public class ProposalExecutor(
             };
             p.Status = ChatProposalStatus.Undone;
             p.ResultNote = $"Undone: {change.Note}";
+
+            // Patches applied as one edit share its versions: restoring the version before it undid them all.
+            if (a.Type == BookChatActions.PatchChapter && p.AfterVersionId is int afterVersion)
+                foreach (var sibling in await repo.GetProposalsByStatusAsync(bookId, ChatProposalStatus.Applied))
+                    if (sibling.Id != p.Id && sibling.Type == BookChatActions.PatchChapter && sibling.AfterVersionId == afterVersion)
+                    {
+                        sibling.Status = ChatProposalStatus.Undone;
+                        sibling.ResultNote = $"Undone together with \"{p.Label}\" (they were one edit).";
+                        await repo.UpdateProposalAsync(sibling);
+                        await notifier.NotifyBookChatAsync(bookId, sibling.MessageId, ct);
+                    }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)

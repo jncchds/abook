@@ -1020,6 +1020,10 @@ button:disabled:hover { background: var(--accent); }
 .proposal-option-head button { width: auto; }
 .proposal-bulk { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .proposal-bulk button { width: auto; }
+.proposal-bulk-hint { align-self: center; font-size: 0.75rem; color: var(--text-muted); }
+.proposal-pick { display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; margin: 0; font-size: inherit; color: inherit; }
+.proposal-pick input { width: 1.05rem; height: 1.05rem; margin: 0; padding: 0; flex: none; cursor: pointer; accent-color: var(--accent); }
+.proposal-card.proposal-selected { border-color: var(--accent); }
 
 .change-diff {
   max-height: 320px; overflow: auto;

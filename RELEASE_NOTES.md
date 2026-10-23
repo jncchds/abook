@@ -5,6 +5,9 @@
 - docs: README, AGENTS.md and CLAUDE.md checked against the code — Semantic Kernel is gone (direct provider clients), the OpenAICompatible provider is listed, the MCP tool count is 53, the workflow buttons are Plan Book / Write Book / Illustrate Book, and the book sub-pages list matches the routes (no `StatePage`)
 - chore: removed the unused Semantic Kernel package (Core now references `Microsoft.Extensions.AI.Abstractions`, Infrastructure `Microsoft.Extensions.AI.OpenAI`) and the unused `handleContinue` / `continuePlanning` / `continueWorkflow` UI code
 - feat: **re-run a step from the book chat** — ask the chat to check a chapter's outline, re-run the continuity check of a written chapter, or summarize a chapter again, and it offers a card (`check_outline`, `check_chapter`, `summarize_chapter`) with **▶ Run** / **↻ Run again**. The step changes nothing itself; its findings come back as proposals — a corrected outline, patches or a revision, new characters and plot-thread changes. Steps run after the other changes applied with them, and are skipped when the same apply already re-checked that chapter
+- feat: **tick the book-chat suggestions you want** — when a reply has several cards, each has a checkbox; **Apply selected** / **Reject selected** act on the ticked ones (**Apply all** / **Reject all** when none are ticked). Alternatives (option A/B) are still chosen as a whole
+- feat: **fixes to one chapter applied together are one edit** — several passage fixes of the same chapter, applied with Apply selected or Apply all, make a single chapter version instead of one per fix; undoing any of them undoes that edit (the others are marked undone too). A fix whose text is gone fails on its own without stopping the rest
+- fix: patches that overlap each other are no longer applied on top of one another (which could garble the text) — the overlapping one is skipped
 
 ## v0.4.2 — 2026-10-23
 

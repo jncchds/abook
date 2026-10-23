@@ -67,9 +67,11 @@ function payloadInstructions(p: ChatProposal): string | null {
   try { return (JSON.parse(p.payloadJson) as { instructions?: string | null }).instructions ?? null } catch { return null }
 }
 
-function ProposalCard({ p, bookId, busy, locked, onApply, onReject, onUndo }: {
+function ProposalCard({ p, bookId, busy, locked, onApply, onReject, onUndo, selected, onToggle }: {
   p: ChatProposal; bookId: number; busy: boolean; locked: boolean
   onApply: (ids: number[]) => void; onReject: (ids: number[]) => void; onUndo: (id: number) => void
+  /** Set when the card can be ticked for "Apply selected". */
+  selected?: boolean; onToggle?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const instructions = LONG_ACTIONS.has(p.type) ? payloadInstructions(p) : null
@@ -79,9 +81,14 @@ function ProposalCard({ p, bookId, busy, locked, onApply, onReject, onUndo }: {
   const step = STEP_ACTIONS.has(p.type)
   const status = step ? ({ Applying: 'Running', Applied: 'Done' } as Record<string, string>)[p.status] ?? p.status : p.status
   return (
-    <div className={`proposal-card proposal-${p.status.toLowerCase()}`}>
+    <div className={`proposal-card proposal-${p.status.toLowerCase()}${selected ? ' proposal-selected' : ''}`}>
       <div className="proposal-head">
-        <span className="proposal-type">{TYPE_LABELS[p.type] ?? p.type}</span>
+        {onToggle && actionable ? (
+          <label className="proposal-pick">
+            <input type="checkbox" checked={!!selected} disabled={busy} onChange={onToggle} />
+            <span className="proposal-type">{TYPE_LABELS[p.type] ?? p.type}</span>
+          </label>
+        ) : <span className="proposal-type">{TYPE_LABELS[p.type] ?? p.type}</span>}
         <span className="proposal-status">{p.status === 'Applying' ? <><span className="spinner" /> {status}</> : status}</span>
       </div>
       <div className="proposal-label">{p.label}</div>
@@ -116,7 +123,21 @@ function Proposals({ message, ...rest }: {
   const pending = proposals.filter(p => p.status === 'Pending' || p.status === 'Failed')
   const plain = pending.filter(p => !p.optionGroup)
   const groups = [...new Set(proposals.map(p => p.optionGroup).filter((g): g is string => !!g))].sort()
-  const render = (list: ChatProposal[]) => list.map(p => <ProposalCard key={p.id} p={p} {...rest} />)
+  // Ticks are kept only while their card is still open; alternatives (options) are chosen as a whole instead.
+  const [ticked, setTicked] = useState<Set<number>>(new Set())
+  const selected = plain.filter(p => ticked.has(p.id)).map(p => p.id)
+  const pickable = plain.length > 1
+  const toggle = (id: number) => setTicked(prev => {
+    const next = new Set(prev)
+    if (!next.delete(id)) next.add(id)
+    return next
+  })
+  const render = (list: ChatProposal[]) => list.map(p => (
+    <ProposalCard key={p.id} p={p} {...rest}
+      {...(pickable && !p.optionGroup ? { selected: ticked.has(p.id), onToggle: () => toggle(p.id) } : {})} />
+  ))
+  const applyIds = (ids: number[]) => { setTicked(new Set()); rest.onApply(ids) }
+  const rejectIds = (ids: number[]) => { setTicked(new Set()); rest.onReject(ids) }
   return (
     <div className="proposals">
       {render(proposals.filter(p => !p.optionGroup))}
@@ -135,10 +156,21 @@ function Proposals({ message, ...rest }: {
           </div>
         )
       })}
-      {plain.length > 1 && (
+      {pickable && (
         <div className="proposal-bulk">
-          <button className="btn-sm" disabled={rest.busy} onClick={() => rest.onApply(plain.map(p => p.id))}>Apply all ({plain.length})</button>
-          <button className="btn-sm btn-ghost" disabled={rest.busy} onClick={() => rest.onReject(pending.map(p => p.id))}>Reject all</button>
+          {selected.length > 0 ? (
+            <>
+              <button className="btn-sm" disabled={rest.busy} onClick={() => applyIds(selected)}>Apply selected ({selected.length})</button>
+              <button className="btn-sm btn-ghost" disabled={rest.busy} onClick={() => rejectIds(selected)}>Reject selected</button>
+              <button className="btn-sm btn-ghost" disabled={rest.busy} onClick={() => setTicked(new Set())}>Clear</button>
+            </>
+          ) : (
+            <>
+              <button className="btn-sm" disabled={rest.busy} onClick={() => applyIds(plain.map(p => p.id))}>Apply all ({plain.length})</button>
+              <button className="btn-sm btn-ghost" disabled={rest.busy} onClick={() => rejectIds(pending.map(p => p.id))}>Reject all</button>
+              <span className="proposal-bulk-hint">or tick the ones you want</span>
+            </>
+          )}
         </div>
       )}
     </div>
