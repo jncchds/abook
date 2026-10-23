@@ -52,8 +52,8 @@ Set env var `LLM_DEBUG_LOGGING=true` to print full chat history and LLM response
 React SPA (static files in ASP.NET wwwroot — single container)
         ↕ REST API + SignalR
 ASP.NET Core 10 API
-        ↕ Semantic Kernel          ↕ EF Core 10 + Npgsql
-LLM (Ollama / OpenAI / GoogleAIStudio)   PostgreSQL 16 (pgvector in-DB)
+        ↕ Direct provider clients  ↕ EF Core 10 + Npgsql
+LLM (Ollama / OpenAI / OpenAICompatible / GoogleAIStudio)   PostgreSQL 16 (pgvector in-DB)
 ```
 
 React is built at image-build time and served from `wwwroot/` — there is no separate frontend container at runtime.
@@ -70,7 +70,7 @@ React is built at image-build time and served from `wwwroot/` — there is no se
 
 ### Key architectural patterns
 
-**LLM provider factory** — `LlmProviderFactory` dispatches to per-provider strategy classes (`src/ABook.Infrastructure/Llm/Strategies/`). Supported: `Ollama`, `OpenAI` (+ any OpenAI-compatible endpoint), `GoogleAIStudio`. Each book owns its LLM config, copied from the owner's default preset at creation — there is no user or global fallback.
+**LLM provider factory** — `LlmProviderFactory` dispatches to per-provider strategy classes (`src/ABook.Infrastructure/Llm/Strategies/`). Supported: `Ollama`, `OpenAI`, `OpenAICompatible` (LM Studio, OpenRouter, vLLM, …), `GoogleAIStudio`. Each book owns its LLM config, copied from the owner's default preset at creation — there is no user or global fallback.
 
 **Agent orchestration** — `AgentOrchestrator` runs fire-and-forget via `IServiceScopeFactory`. `AgentRunStateService` (singleton) tracks in-memory state; `AgentRun` entity persists run lifecycle to the DB for restart resilience. All LLM calls use `StreamResponseAsync` — there is no non-streaming path.
 
@@ -95,7 +95,7 @@ React is built at image-build time and served from `wwwroot/` — there is no se
 - `src/abook-ui/src/App.tsx` — routing: `BookListLayout` for `/`, `/settings`, `/presets`, `/admin/users`; `BookLayout` for `/books/:bookId/*`; `LibraryLayout` for `/library/*`
 - `src/abook-ui/src/contexts/BookContext.tsx` — all book/chapter/planning/agent state; single SignalR registration
 - `src/abook-ui/src/layouts/` — `BookListLayout`, `BookLayout`, `LibraryLayout`
-- `src/abook-ui/src/pages/book/` — per-book sub-pages (`Overview`, `StoryBible`, `Characters`, `PlotThreads`, `ChapterView`, `ChatPage`, `StatePage`, `TokenStatsPage`, `BookSettings`)
+- `src/abook-ui/src/pages/book/` — per-book sub-pages (`Overview`, `Clarifications`, `StoryBible`, `Characters`, `PlotThreads`, `Chapters`, `ChapterView`, `Illustrations`, `BookChat` at `/studio`, `ChatPage` = Agent Messages, `TokenStatsPage`, `BookSettings`)
 - `src/abook-ui/src/hooks/useBookHub.ts` — SignalR hook
 - `src/abook-ui/src/api.ts` — all REST calls via axios
 - `src/abook-ui/src/utils/streamParsers.ts` — streaming JSON parsers for planning agents
@@ -117,11 +117,9 @@ Built-in at `/mcp` using `ModelContextProtocol.AspNetCore 1.2.0`. Tool classes i
 
 ## Technical gotchas
 
-- `ABook.Agents` pins `Microsoft.EntityFrameworkCore.Relational 10.0.*` to avoid version conflicts with Semantic Kernel.
+- `ABook.Agents` pins `Microsoft.EntityFrameworkCore.Relational 10.0.*` (a leftover from when Semantic Kernel was used; SK has been removed from the code).
 - `Pgvector.EntityFrameworkCore 0.*` must be referenced directly in both `ABook.Infrastructure` and `ABook.Api`; call `options.UseNpgsql(cs, o => o.UseVector())`.
-- Ollama embeddings use `OpenAITextEmbeddingGenerationService` pointed at Ollama's `/v1` endpoint — the native `OllamaTextEmbeddingGenerationService` throws `InvalidCastException` in SK 1.74.0-alpha.
-- `OllamaPromptExecutionSettings.Temperature` is `float?`, not `double`.
+- Ollama embeddings go through an `OpenAIClient` pointed at Ollama's `/v1` endpoint (`OllamaProviderStrategy`).
 - Enum JSON serialization: `JsonStringEnumConverter` is registered in both `AddJsonOptions` (controllers) and SignalR's `AddJsonProtocol`.
-- `SK Ollama connector` is alpha — suppress `SKEXP0070` pragma.
 - All hub events go out as one `BookEvent { seq, name, args }` message, numbered per book by `BookEventLog` — send only through `IBookNotifier`, never `IHubContext<BookHub>` directly, or the sequence breaks. `AgentStreaming`'s args are `(bookId, chapterId, agentRole, token)`.
 - `LlmProvider.LMStudio` and `LlmProvider.Anthropic` have been removed from the enum; old DB rows with those values will cause EF errors.

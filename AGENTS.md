@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Build a Docker-packaged ASP.NET Core 10 web app with a React (TypeScript/Vite) UI **served as static files from wwwroot** (NOT a separate Docker service) that uses Semantic Kernel to orchestrate four AI agents (Planner, Writer, Editor, Continuity Checker) for collaborative book writing. Agents stream progress via SignalR and can pause to ask the user plot-clarifying questions. PostgreSQL stores relational data; **pgvector** (PostgreSQL extension) stores chapter embeddings for RAG-based context retrieval. LLM provider is pluggable (Ollama by default, swappable to OpenAI/Azure via configuration). Multi-user with JWT authentication (short-lived access token + rotating refresh cookie).
+Build a Docker-packaged ASP.NET Core 10 web app with a React (TypeScript/Vite) UI **served as static files from wwwroot** (NOT a separate Docker service) that orchestrates AI agents (Story Bible, Characters, Plot Threads, Planner, Writer, Editor, Checker, plus the illustration and book-chat agents) for collaborative book writing, calling each LLM provider through its own client (no Semantic Kernel). Agents stream progress via SignalR and can pause to ask the user plot-clarifying questions. PostgreSQL stores relational data; **pgvector** (PostgreSQL extension) stores chapter embeddings for RAG-based context retrieval. LLM provider is pluggable (Ollama by default, swappable to OpenAI/Azure via configuration). Multi-user with JWT authentication (short-lived access token + rotating refresh cookie).
 
 ---
 
@@ -12,7 +12,7 @@ Build a Docker-packaged ASP.NET Core 10 web app with a React (TypeScript/Vite) U
 [React SPA (static files in ASP.NET wwwroot — single container)] 
     ↕ REST API + SignalR
 [ASP.NET Core 10 API]
-    ↕ Semantic Kernel (pluggable LLM connector)
+    ↕ ILlmChatClient (per-provider strategy: Ollama / OpenAI / OpenAI-compatible / Google)
     ↕ EF Core + pgvector
 [PostgreSQL (Docker, pgvector/pgvector:pg16)]    [Ollama (host machine)]
 ```
@@ -96,7 +96,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
    - `src/ABook.Api/` — ASP.NET Core Web API project (.NET 10)
    - `src/ABook.Core/` — Class library (domain models, interfaces)
    - `src/ABook.Infrastructure/` — Class library (EF Core, LLM connectors)
-   - `src/ABook.Agents/` — Class library (Semantic Kernel agent definitions)
+   - `src/ABook.Agents/` — Class library (agent classes, orchestrator, prompts)
    - `src/abook-ui/` — React + TypeScript + Vite app
 2. Set up Docker infrastructure:
    - `Dockerfile` (multi-stage: build .NET + build React → final runtime image with static files in wwwroot)
@@ -131,11 +131,10 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
    - Methods: `JoinBook(bookId)`, `LeaveBook(bookId)`
    - Events: `AgentStreaming(bookId, chapterId, token)`, `AgentQuestion(bookId, message)`, `AgentStatusChanged(bookId, agentRole, status)`, `ChapterUpdated(bookId, chapterId)`
 
-### Phase 3: Agent Engine (Semantic Kernel) — *depends on Phase 2*
-9. Configure Semantic Kernel with pluggable LLM connector:
-   - `ILlmProviderFactory` that creates SK `IChatCompletionService` based on `LlmConfiguration`
-   - Support Ollama via `OllamaApiClient` / OpenAI-compatible endpoint
-   - Support OpenAI, Azure OpenAI, Google AI Studio connectors behind same interface
+### Phase 3: Agent Engine — *depends on Phase 2*
+9. Pluggable LLM clients (Semantic Kernel was removed in favour of direct SDK/HTTP calls):
+   - `ILlmProviderFactory` creates an `ILlmChatClient` (streaming only) and a Microsoft.Extensions.AI `IEmbeddingGenerator` from `LlmConfiguration`
+   - Ollama (OllamaSharp), OpenAI, OpenAI-compatible (raw stream, keeps `reasoning_content`) and Google AI Studio each have a strategy class behind the same interface
 10. Implement vector store integration for RAG:
     - On chapter save/update → chunk text → generate embeddings → upsert to `ChapterEmbeddings` table via pgvector
     - `RetrieveContext(bookId, query, topK)` method for agents to pull relevant passages
@@ -145,7 +144,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
     - Fire-and-forget execution via `RunInBackground` helper using `IServiceScopeFactory`
     - `AgentRunStateService` singleton tracks active runs cross-request; duplicate run returns 409
     - Returns HTTP 202 immediately; progress streamed via SignalR
-12. Implement each agent as a Semantic Kernel function/plugin:
+12. Implement each agent as a class deriving from `AgentBase`:
     - `StoryBibleAgent` — Phase 1: generates Story Bible JSON, streams with `AgentRole.StoryBibleAgent`
     - `CharactersAgent` — Phase 2: generates Character Cards JSON, streams with `AgentRole.CharactersAgent`
     - `PlotThreadsAgent` — Phase 3: generates Plot Threads JSON, streams with `AgentRole.PlotThreadsAgent`
@@ -205,7 +204,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - `src/ABook.Infrastructure/Llm/LlmProviderFactory.cs` — Pluggable LLM factory
 - `src/ABook.Infrastructure/VectorStore/PgvectorVectorStoreService.cs` — pgvector implementation of IVectorStoreService; scoped service using AppDbContext
 - `src/ABook.Infrastructure/VectorStore/ChapterEmbedding.cs` — EF Core entity for pgvector embeddings storage
-- `src/ABook.Infrastructure/Migrations/` — EF Core migrations (`InitialCreate`, `AddLanguageAndUsers`, `AddUserLlmConfig`, `AddTokenUsageRecord`, `AddPlanningArtifacts`, `AddPlanningPhaseStatus`, `AddPlanningPhasePrompts`, `AddChapterEmbeddings`, `AddAgentRuns`, `AddLlmPresets`, `AddApiToken`, `AddAssistedGeneration`)
+- `src/ABook.Infrastructure/Migrations/` — EF Core migrations (`InitialCreate`, `AddLanguageAndUsers`, `AddUserLlmConfig`, `AddTokenUsageRecord`, `AddPlanningArtifacts`, `AddPlanningPhaseStatus`, `AddPlanningPhasePrompts`, `AddChapterEmbeddings`, `AddAgentRuns`, `AddLlmPresets`, `AddApiToken`, … through `AddChapterSummaries` and `AddInteractiveMode`; `ls` the folder for the full list)
 - `src/ABook.Infrastructure/Migrations/20260626111642_AddBookBaseLineage.cs` — adds `Books.BaseBookId` (self-FK, `SetNull`) + `Books.SettingsCopiedAt`
 - `src/ABook.Infrastructure/Migrations/20260626235543_AddDisplayName.cs` — adds nullable `Users.DisplayName` column
 - `src/ABook.Agents/AgentBase.cs` — Base class for all agents
@@ -223,7 +222,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - `src/ABook.Api/Mcp/BookMcpTools.cs` — MCP tools: `list_books`, `get_book`, `create_book`, `update_book`, `delete_book`, `get_agent_messages`, `get_agent_status`, `get_token_usage`
 - `src/ABook.Api/Mcp/ContentMcpTools.cs` — MCP tools: `get_story_bible`, `update_story_bible`, `list_characters`, `create/update/delete_character`, `list_plot_threads`, `create/update/delete_plot_thread`, `list_chapters`, `get_chapter`, `create/update_chapter`
 - `src/ABook.Api/Mcp/AgentMcpTools.cs` — MCP tools: `start_planning`, `continue_planning`, `start_workflow`, `continue_workflow`, `stop_workflow`, `write_chapter`, `edit_chapter`, `run_continuity_check`, `answer_agent_question`
-- `src/ABook.Api/Controllers/` — `BooksController`, `ChaptersController`, `MessagesController`, `ConfigurationController`, `AgentController`, `AuthController`, `UsersController`, `ModelsController`, `PresetsController`, `ExportController` (thin wrapper over `BookExportService`)
+- `src/ABook.Api/Controllers/` — `BooksController`, `ChaptersController`, `MessagesController`, `ConfigurationController`, `AgentController`, `AuthController`, `UsersController`, `ModelsController`, `PresetsController`, `ExportController` (thin wrapper over `BookExportService`), `PlanningPhasesController`, `ClarificationsController`, `IllustrationsController`, `BookChatController`, `StoryBibleController`, `CharactersController`, `PlotThreadsController`, `PublicController`
 - `src/ABook.Api/Controllers/ControllerExtensions.cs` — Shared static `RequireBookOwnershipAsync(this, bookId, repo)` helper; replaces the duplicated `CheckOwnershipAsync` that was defined identically on StoryBibleController, CharactersController, ChaptersController, and PlotThreadsController
 - `src/ABook.Api/Controllers/PublicController.cs` — `[AllowAnonymous]` controller at `api/public`; config/genres/books-list/book-detail/export endpoints for the public library, gated by `PublicModeOptions`
 - `src/ABook.Api/Services/PublicModeOptions.cs` — `record PublicModeOptions(bool IsEnabled)`, singleton read from `"PublicMode"` config key
@@ -235,7 +234,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - `src/ABook.Infrastructure/Llm/LlmHttp.cs` — shared connection pool for the Ollama / OpenAI-compatible chat clients
 - `src/ABook.Core/Models/AgentRun.cs` — Persisted agent run entity (Id GUID, BookId, RunType, Status, CurrentRole, ChapterId, PendingMessageId, WorkflowContext, timestamps)
 - `src/ABook.Api/HostedServices/RunRecoveryService.cs` — Startup `BackgroundService`: marks every run left `Running` or `WaitingForInput` by a previous process as `Orphaned`, resolves its dangling question and tells the author to use Continue
-- `src/ABook.Api/Program.cs` — App configuration (JWT + ApiToken auth, `secrets show` command, EF Core, SignalR, pgvector, SK)
+- `src/ABook.Api/Program.cs` — App configuration (JWT + ApiToken auth, `secrets show` command, EF Core, SignalR, pgvector, MCP)
 - `src/ABook.Api/appsettings.json` / `src/ABook.Api/appsettings.Local.example.json` — Includes `AgentSettings.MaxConcurrentRuns` (global concurrent run cap)
 - `src/abook-ui/src/layouts/BookListLayout.tsx` — Shared layout for Dashboard and global pages (Settings, Presets, AdminUsers); fetches books for sidebar; passes `{ books, setBooks }` via Outlet context; "New Book" → `/?new=1`
 - `src/abook-ui/src/layouts/BookLayout.tsx` — Shared layout for all book sub-pages at `/books/:bookId`; wraps `BookContextProvider`; renders `BookSidebar` (with chapter list) + `<Outlet />`; redirects index → `overview`
@@ -246,7 +245,7 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - `src/abook-ui/src/pages/book/PlotThreads.tsx` — Plot Thread card CRUD + phase action bar + live streaming preview
 - `src/abook-ui/src/pages/book/ChapterView.tsx` — Chapter content view (markdown) + POV/foreshadowing/payoff meta + inline chapter edit
 - `src/abook-ui/src/pages/book/ChatPage.tsx` — Agent chat panel (messages, pending question/answer, clear)
-- `src/abook-ui/src/pages/book/StatePage.tsx` — Current workflow state / steps log
+- `src/abook-ui/src/pages/book/Chapters.tsx`, `Clarifications.tsx`, `Illustrations.tsx`, `BookChat.tsx` — chapter list, clarification round, illustrations, and the Interactive book chat (see sections below)
 - `src/abook-ui/src/pages/book/TokenStatsPage.tsx` — Token usage statistics panel
 - `src/abook-ui/src/pages/Presets.tsx` — Dedicated page for preset CRUD (`/presets` route). Lists all visible presets (own + shared) with "Make default"; edit/delete only where allowed (shared presets: admins only).
 - `src/abook-ui/src/pages/GlobalSettings.tsx` — Global settings page (Profile/display name, MCP Access, LLM config user-default scope, Ollama model pull). Route: `/settings`.
@@ -289,9 +288,9 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **.NET 10** (latest; Docker images `mcr.microsoft.com/dotnet/sdk:10.0` + `aspnet:10.0`)
 - **`.slnx` solution format** — requires .NET 9+ SDK (XML-based, lighter than classic `.sln`)
 - **Ollama accessed via host.docker.internal** — not containerized, user manages it externally
-- **LLM provider is pluggable** — abstracted behind `ILlmProviderFactory`, configured per-book or globally; supported: Ollama, OpenAI, GoogleAIStudio.
-- **SK Ollama connector** is alpha (`Microsoft.SemanticKernel.Connectors.Ollama` 1.x-alpha); suppress `SKEXP0070` pragma
-- **Agents use Semantic Kernel function calling** for the "ask question" tool — agent invokes a `AskUser` function which triggers the pause mechanism
+- **LLM provider is pluggable** — abstracted behind `ILlmProviderFactory`, configured per book (copied from a preset); supported: Ollama, OpenAI, OpenAICompatible, GoogleAIStudio.
+- **No Semantic Kernel** — removed (commit 9e4c8c8); the `Microsoft.SemanticKernel` reference left in `ABook.Core.csproj` is unused. Notes below that mention SK connectors, `SKEXP0070` or `CreateKernel` describe the old implementation.
+- **Questions to the author** are not an LLM tool call: `AgentBase.AskUserAndWaitAsync` / the Clarifications round pause the run directly (see Human-in-the-Loop Flow and **Clarifications**)
 - **Agent runs are fire-and-forget** — `AgentController` returns 202 immediately; `AgentRunStateService` singleton tracks state; duplicate run returns 409
 - **Global agent run concurrency cap (env-based)** — `AgentRunStateService` enforces a process-wide max for simultaneous runs (`Running` + `WaitingForInput`) across all books/users. Configure via `AgentSettings__MaxConcurrentRuns` (`AgentSettings:MaxConcurrentRuns`), default `3`. Value is read at startup in `Program.cs`; changing it requires restart.
 - **JWT authentication** — multi-user support with `IPasswordHasher<AppUser>`; admin role for user management
@@ -321,9 +320,9 @@ Docker Compose runs: **ASP.NET app (with React static files baked in) + PostgreS
 - **pgvector cleanup**: `IVectorStoreService.DeleteCollectionAsync` deletes all embeddings for the book; called by `BooksController.Delete` (non-fatal). `ChaptersController.Update` calls `DeleteChapterChunksAsync` when content is cleared to empty.
 - **Author edits are embedded**: `SearchAsync` only returns chunks whose `ChapterVersionId` is the chapter's *active* version, so a hand-edited chapter used to vanish from RAG — its new version had no chunks. `ChapterIndexer.IndexVersionAsync` (`ABook.Infrastructure/VectorStore`) is the one embedding routine, used by `AgentBase.IndexChapterAsync` and by `ChapterIndexingService` (`ABook.Api/Services`, singleton). `ChaptersController.Update` queues indexing for a content-changing author edit; `ActivateVersion` queues it for any activated version that has no embeddings yet. Queued work runs on a detached DI scope so the save request returns immediately, and bills an `Embedder` `TokenUsageRecord` like an agent run does. `ChapterVersion.HasEmbeddings` is now actually set to `true` on success (it was written as `false` everywhere and never updated), and the chapter version history shows it.
 - **`LlmProvider.LMStudio removed entirely`:** enum value deleted from `Enums.cs`. The factory and all strategies no longer reference it. (Note: this means EF Core will fail on old DB rows with provider=4; migration path requires updating those rows to OpenAI before upgrading.) Users should switch to OpenAI provider with endpoint `http://host.docker.internal:1234/v1`.
-- **LlmProvider.GoogleAIStudio (int=5)**: uses `GoogleAIGeminiChatCompletionService` from `Microsoft.SemanticKernel.Connectors.Google 1.74.0-alpha`. Embeddings use Google's OpenAI-compatible endpoint (`https://generativelanguage.googleapis.com/v1beta/openai`) via the same `OpenAIClient` pattern. API key is required and mandatory. Default model suggestions: `gemini-2.0-flash`, `gemini-2.5-pro` etc. Default embedding model: `text-embedding-004`.
-- **LlmProvider.OpenAI endpoint support**: when `Endpoint` is non-empty, uses the URI-based `OpenAIChatCompletionService` overload so any OpenAI-compatible API (Groq, Together, etc.) works. When `Endpoint` is empty, uses the standard apiKey-only overload (real OpenAI API). Same logic applies to `CreateEmbeddingGeneration` and `CreateKernel`.
-- **LlmProvider.Anthropic removed**: The SK Anthropic connector is not available for .NET 10. Users who need Claude-style models can use OpenAI provider with an OpenAI-compatible proxy endpoint (e.g. LiteLLM at `http://localhost:4000`). Strategy class deleted from source.
+- **LlmProvider.GoogleAIStudio**: `GoogleAIStudioProviderStrategy` (`GoogleChatClient`). Embeddings use Google's OpenAI-compatible endpoint (`https://generativelanguage.googleapis.com/v1beta/openai`) via the same `OpenAIClient` pattern. API key is required and mandatory. Default model suggestions: `gemini-2.0-flash`, `gemini-2.5-pro` etc. Default embedding model: `text-embedding-004`.
+- **LlmProvider.OpenAI endpoint support**: when `Endpoint` is non-empty, `OpenAIProviderHelpers.CreateOpenAIClient` points the client at it so any OpenAI-compatible API (Groq, Together, etc.) works. When `Endpoint` is empty, the real OpenAI API is used. Same logic applies to `CreateEmbeddingGeneration`. `LlmProvider.OpenAICompatible` (LM Studio, OpenRouter, vLLM, Unsloth Studio) has its own strategy that reads the stream directly so non-standard fields such as `reasoning_content` are captured and `reasoning_effort` is never sent.
+- **LlmProvider.Anthropic removed**: Users who need Claude-style models can use OpenAI provider with an OpenAI-compatible proxy endpoint (e.g. LiteLLM at `http://localhost:4000`). Strategy class deleted from source.
 - **Azure OpenAI removed**: Not supported in the codebase (`LlmProvider` enum has only Ollama, OpenAI, GoogleAIStudio). Azure endpoints are functionally identical to the OpenAI provider — users should use OpenAI with a custom endpoint. Removed from README docs.
 - **LLM debug logging**: set env var `LLM_DEBUG_LOGGING=true` to print full chat history (all messages with roles) before each LLM call and the complete response after to the application log at `Information` level. Implemented as a static flag in `AgentBase` checked in `StreamResponseAsync`.
 - **`GET /api/models`** (renamed from `/api/ollama/models`): signed-in users only; accepts `?provider=` and `?endpoint=` query params and the API key in the `X-Api-Key` header (the legacy `?apiKey=` query param is still read, but keeps the key in access logs). Routes: `GoogleAIStudio` → calls `https://generativelanguage.googleapis.com/v1beta/models?key={apiKey}` (returns only `gemini-*` models); `OpenAI` → calls `{endpoint}/models` or `https://api.openai.com/v1/models` with `Authorization: Bearer {apiKey}`; default (Ollama) → calls `/api/tags`. Pull endpoint stays at `/api/ollama/pull` (Ollama-specific).
@@ -367,8 +366,8 @@ the- **Agent error logging & UI notifications**: `IBookNotifier` gains `NotifyAg
 - **EF migration `AddMissingIndexes`**: Adds non-unique indexes on `AgentMessages.BookId`, `AgentMessages.ChapterId`, and `TokenUsageRecords.BookId` to improve query performance for the most frequent read patterns.
 - **N+1 fix in `StartWorkflowAsync` / `ContinueWorkflowAsync`**: Both methods now call `GetChaptersAsync(bookId)` once before the loop (building a `Dictionary<int, Chapter>` or `List<Chapter>`) instead of a separate `GetChapterAsync` call per chapter.
 - **Stream buffer cleanup on orphaned runs**: `RunRecoveryService` now calls `_runState.ClearStreamBuffers(run.BookId)` after orphaning a stale `Running` run to prevent memory leaks.
-- **Ollama embedding fix**: `OllamaTextEmbeddingGenerationService` ctor throws `InvalidCastException` in SK 1.74.0-alpha because its internal `EmbeddingGeneratorEmbeddingGenerationService<string, float>` no longer implements `ITextEmbeddingGenerationService`. Fix: `LlmProviderFactory.CreateEmbeddingGeneration` now uses `OpenAITextEmbeddingGenerationService` with an `OpenAIClient` pointed at Ollama's OpenAI-compatible `/v1` endpoint (supported since Ollama 0.4.x), bypassing the broken Ollama-specific service entirely.
-- **"Plan Only" mode**: `POST /api/books/{id}/agent/plan` runs the full 4-phase Planner (Story Bible → Characters → Plot Threads → Chapter Outlines) and stops, leaving the book in a state where the user can edit outlines/characters/plot threads and then click "Continue" to write chapters. Button appears as 🗗 Plan Only alongside Write Book.
+- **Ollama embeddings**: `OllamaProviderStrategy.CreateEmbeddingGeneration` uses an `OpenAIClient` pointed at Ollama's OpenAI-compatible `/v1` endpoint (originally a workaround for a broken SK Ollama embedding service, kept after SK was removed).
+- **"Plan Only" mode**: `POST /api/books/{id}/agent/plan` runs the full 4-phase Planner (Story Bible → Characters → Plot Threads → Chapter Outlines) and stops, leaving the book in a state where the user can edit outlines/characters/plot threads and then click "Continue" to write chapters. The sidebar button is now **Plan Book** (next to **Write Book**); the separate Plan Only / Continue buttons were folded into these two idempotent actions (`handleContinue` remains in `BookContext` but no UI uses it).
 - **Pending question restored on page refresh**: `ChatPage.tsx` loads messages and agent status together via `BookContext`; if status is `WaitingForInput`, the latest unresolved `Question` message is restored as `pendingQuestion` so the user can answer after refreshing the page.
 - **Token stats panel scrollable**: `.token-stats-list` CSS now has `max-height: 220px; overflow-y: auto` alongside the existing `overflow-x: auto`, making it scrollable in both directions when there are many entries.
 - **Export filename transliteration**: `SafeFilename` in `BookExportService.cs` (moved from `ExportController`) uses a `TranslitMap` dictionary for Cyrillic + Greek → Latin + NFD normalization to strip Latin diacritics before stripping non-ASCII. Ensures filenames like `vojna-i-mir.html` instead of `.html` for non-ASCII book titles.
@@ -396,7 +395,7 @@ the- **Agent error logging & UI notifications**: `IBookNotifier` gains `NotifyAg
 - **`ContinuePlanningAsync`**: `AgentOrchestrator` method reads 4 phase statuses, computes skip flags, calls `RunPlanningPipelineAsync` skipping completed phases. If all 4 complete, emits "All planning phases are already complete." message.
 - **`PlanningPhasesController`**: New controller at `api/books/{bookId}/planning-phases`. Three verbs × four phases: `POST /{phase}/complete` (sets status=Complete), `POST /{phase}/reopen` (sets status=NotStarted), `DELETE /{phase}` (deletes data + sets NotStarted). Valid phases: `clarifications | storybible | characters | plotthreads | chapters` (clearing `clarifications` archives them rather than deleting).
 - **`AgentController.ContinuePlanning`**: `POST /api/books/{id}/agent/plan/continue` — creates run CTS, launches `ContinuePlanningAsync` in background, returns 202.
-- **Book UI routing architecture**: Two-layout system — `BookListLayout` (Dashboard + global pages) and `BookLayout` (book sub-pages at `/books/:bookId/*`). `BookContext` centralizes all book state and single SignalR registration. Sub-pages: `overview`, `story-bible`, `characters`, `plot-threads`, `chapters/:chapterId`, `chat`, `state`, `token-stats`, `settings`. Stream parsers extracted to `src/abook-ui/src/utils/streamParsers.ts`.
+- **Book UI routing architecture**: Two-layout system — `BookListLayout` (Dashboard + global pages) and `BookLayout` (book sub-pages at `/books/:bookId/*`). `BookContext` centralizes all book state and single SignalR registration. Sub-pages: `overview`, `story-bible`, `characters`, `plot-threads`, `clarifications`, `chapters`, `chapters/:chapterId`, `chat` (Agent Messages), `studio` (Book Chat), `token-stats`, `illustrations`, `settings`. Stream parsers extracted to `src/abook-ui/src/utils/streamParsers.ts`.
 - **Per-phase AgentRole values**: `AgentRole` enum has `StoryBibleAgent`, `CharactersAgent`, `PlotThreadsAgent` (in addition to `Planner`, `Writer`, `Editor`, `ContinuityChecker`, `Embedder`). Each planning phase streams tokens with its own role so the UI can route them to the correct tab.
 - **`AgentStreaming` SignalR event** carries a 4th argument `agentRole: string` (role of the streaming agent). `SignalRBookNotifier.StreamTokenAsync` sends `(bookId, chapterId, agentRole, token)`. `useBookHub.ts` `StreamHandler` type updated: `(bookId, chapterId, agentRole, token) => void`.
 - **Planning stream previews**: Each planning page (Story Bible, Characters, Plot Threads) shows a live `⏳ Generating…` preview while the corresponding agent is streaming. Three progressive parsers in `streamParsers.ts`: `parseStoryBibleStream` (regex-extracts JSON fields), `parseCharactersStream` (extracts complete `{...}` objects), `parsePlotThreadsStream` (same). All parsers are fault-tolerant — they skip malformed items and keep already-parsed ones.
@@ -464,10 +463,9 @@ the- **Agent error logging & UI notifications**: `IBookNotifier` gains `NotifyAg
 ## Implementation Notes (Technical Gotchas)
 
 - **EF Core / Npgsql**: Use `10.0.*` versions; both stable as of April 2026
-- **`ABook.Agents` pins `Microsoft.EntityFrameworkCore.Relational 10.0.*`** to avoid version conflict with Semantic Kernel
+- **`ABook.Agents` pins `Microsoft.EntityFrameworkCore.Relational 10.0.*`** (a leftover from the Semantic Kernel days, when it avoided a version conflict)
 - **pgvector / Npgsql**: `Pgvector.EntityFrameworkCore 0.*` + `Npgsql.EntityFrameworkCore.PostgreSQL 10.0.*`; call `options.UseNpgsql(cs, o => o.UseVector())` + `using Pgvector.EntityFrameworkCore`; requires direct `PackageReference` to `Pgvector.EntityFrameworkCore` in both `ABook.Infrastructure` and `ABook.Api`
-- **SK embedding API**: `ITextEmbeddingGenerationService.GenerateEmbeddingsAsync(list)` — not `GenerateEmbeddingAsync`
-- **`OllamaPromptExecutionSettings.Temperature`** is `float?` not `double`
+- **Embedding API**: `IEmbeddingGenerator<string, Embedding<float>>` (Microsoft.Extensions.AI) from the provider strategy
 - **`Microsoft.AspNetCore.SignalR 1.*`** NuGet package removed — SignalR is built into the framework in .NET 3+
 - **Enum JSON serialization**: Register `JsonStringEnumConverter` in `AddJsonOptions` so enum values serialize as strings for the React client
 - **`parsePlanningStream`** and three sibling parsers: React helpers that progressively parse the Planner/planning agents' streaming JSON. `parsePlanningStream` → chapter cards; `parseStoryBibleStream` → key/value fields; `parseCharactersStream` + `parsePlotThreadsStream` → complete object extraction. All wrap item parsing in `try/catch` to skip malformed partial JSON.

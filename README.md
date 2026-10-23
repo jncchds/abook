@@ -20,7 +20,7 @@ A self-hosted web application that uses AI agents to collaboratively write books
 - **Guided planning Q&A** — before planning, the planner posts its clarifying questions to the book's **Clarifications** page and waits; answer each one there (or skip it), and submitting the last answer completes the round and planning carries on. Answers are kept as **clarifications** and added to the premise in every prompt, so nothing is lost if planning is interrupted, and the round isn't repeated once it's done. Edit, add, archive or restore them on the same page, or reopen the round to be asked again
 - **Two ways to write a book** — **Interactive**: write it in a chat with the LLM, in any order, approving every change; **Autonomous**: the LLM plans the whole book and writes it on its own
 - **Book chat (Interactive books)** — say what you want (a character, a plot thread, a chapter, a change); the LLM answers, flags **conflicts** with what the book already establishes, and proposes changes as cards with a diff — nothing changes until you **Apply** them, and every applied change can be **Undone**. No chapter count, no up-front outline: chapters are added at the end as you go, and each written chapter is summarized and checked, with the fixes proposed back in the chat. The premise and Story Bible are settled first and then **locked** while you write (only you can unlock them). Works on a phone; also available over MCP
-- **Flexible workflow controls** — **Plan Only**, **Write Book**, **Continue**, **Continue Planning**, and individual per-chapter agent buttons; **Stop** cancels any running agent cleanly
+- **Flexible workflow controls** — **Plan Book** and **Write Book** (both pick up where the book left off), **Illustrate Book**, and individual per-chapter agent buttons; **Stop** cancels any running agent cleanly
 - **Refresh-safe progress** — reloading the page (or losing the connection) mid-run keeps the current step, the latest progress message and everything streamed so far; new text continues where it left off
 - **Interrupted runs keep their output** — if a Characters, Plot Threads, or Chapter Outlines run times out, drops, or is stopped part-way, everything that finished streaming is saved instead of discarded; run the phase again to pick up where it left off
 - **Re-runs build on what exists** — regenerating a planning phase sends the current characters, plot threads, or outlines back to the model to refine and extend, rather than starting from a blank page; archived items stay out of it and are never overwritten
@@ -151,7 +151,7 @@ volumes:
 |---|---|---|
 | `ConnectionStrings__DefaultConnection` | — | PostgreSQL connection string |
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` disables Swagger |
-| `LlmDefaults__Provider` | `Ollama` | Provider of the "Default" preset each **new user** gets (`Ollama`, `OpenAI`, `GoogleAIStudio`); unset = new users start without a preset. The `LlmDefaults__*` values only seed that preset — books never fall back to them |
+| `LlmDefaults__Provider` | `Ollama` | Provider of the "Default" preset each **new user** gets (`Ollama`, `OpenAI`, `OpenAICompatible`, `GoogleAIStudio`); unset = new users start without a preset. The `LlmDefaults__*` values only seed that preset — books never fall back to them |
 | `LlmDefaults__ModelName` | `llama3` | Default model name |
 | `LlmDefaults__Endpoint` | `http://host.docker.internal:11434` | Default LLM endpoint |
 | `LlmDefaults__ApiKey` | — | API key (required for OpenAI / GoogleAIStudio; optional for Ollama) |
@@ -283,8 +283,8 @@ User creates book (title, premise, genre, target chapters)
   │   Asks clarifying questions up front                 │
   └──────────────────────────────────────────────────────┘
          │
-         │  ← "Plan Only" stops here so you can review
-         │    and edit outlines before clicking "Continue"
+         │  ← "Plan Book" stops here so you can review
+         │    and edit outlines before clicking "Write Book"
          ▼
   For each chapter:
   [Checker]  ── pre-write: checks outline for contradictions
@@ -310,10 +310,9 @@ Agents stream tokens via SignalR as they write.
 
 | Button | Behaviour |
 |---|---|
-| **Plan Only** | Runs the Planner and stops so you can review outlines |
-| **Write Book** | Full pipeline from scratch (idempotent — skips completed phases and Done chapters) |
-| **Continue** | Resumes from the first non-Done chapter |
-| **Continue Planning** | Re-runs only the incomplete planning phases |
+| **Plan Book** | Runs only the incomplete planning phases and stops so you can review outlines |
+| **Write Book** | Full pipeline (idempotent — skips completed phases and Done chapters, so it also resumes an interrupted run) |
+| **Illustrate Book** | Renders the planned illustrations (shown when illustrations are enabled) |
 | **Stop** | Cancels any running agent cleanly |
 
 ### Interactive books — the book chat
@@ -396,7 +395,7 @@ Set `LLM_DEBUG_LOGGING=true` to print the full chat history and LLM responses to
 | Vector store | pgvector (in-DB, `Pgvector.EntityFrameworkCore`) |
 | Real-time | SignalR |
 | Auth | JWT (JwtBearer) + rotating refresh tokens, `IPasswordHasher<T>`, Bearer API token for MCP |
-| MCP | `ModelContextProtocol.AspNetCore` 1.2.0 — HTTP/SSE transport, 37 tools |
+| MCP | `ModelContextProtocol.AspNetCore` 1.2.0 — HTTP/SSE transport, 53 tools |
 | Container | Docker, Docker Compose |
 
 ---
