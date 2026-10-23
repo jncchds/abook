@@ -1021,6 +1021,11 @@ public static class PromptTemplates
         fields), and ask me up to three questions about anything the premise leaves open that would change the book.
         """;
 
+    /// <summary>The Editor's instructions for the next-step revision offered after a written chapter's outline changed.</summary>
+    public const string BookChatReviseToOutline =
+        "The chapter outline was updated after this chapter was written. Revise the chapter so it follows the updated " +
+        "outline; keep everything the outline does not change.";
+
     public const string BookChatRepairRequest =
         """
         Your last reply was not a valid JSON object of the required shape. Give the same answer again as one JSON object

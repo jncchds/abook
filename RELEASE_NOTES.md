@@ -6,6 +6,7 @@
 - fix: **a new Interactive book waits for Start** — creating it (UI, REST or MCP) no longer starts the chat, so the premise and LLM preset can be checked first; the chat page links to both and has a **Start the book chat** button (MCP: `start_book_chat`)
 - fix: **the book chat no longer flickers** — a sent message appears at once, and the streamed reply stays on screen (with "Preparing changes…" while the LLM writes the proposals) until the saved reply with its cards replaces it in place
 - feat: **the book chat opens instantly** — the newest page of each book's chat (up to 50 messages) is kept in browser storage and shown right away, then replaced by the server's copy; earlier messages still load with "Load earlier messages". The stored chats are removed on sign-out
+- feat: **next steps without asking** — applying a chapter's outline (a new chapter or an outline change) posts a **Write Chapter N** card at once, without an LLM call; for a chapter already written, a card to revise it to the new outline. Not offered when such a card is already open or the same apply wrote the chapter
 - fix: **mobile: the page no longer scrolls as a whole** — the layout fits the visible screen (browser toolbars and the on-screen keyboard included) instead of `100vh`, so the header no longer slides away leaving an empty band below the UI
 - fix: diffs of something new (a character, a fact) no longer show a red empty line removed; blank lines and empty fields are left out of the diff
 

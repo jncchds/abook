@@ -94,6 +94,51 @@ public class ProposalExecutor(
 
         foreach (var (chapterId, check) in changed)
             await FollowUpAsync(bookId, chapterId, check, ct);
+
+        await OfferNextStepsAsync(bookId, quick, prose);
+    }
+
+    /// <summary>
+    /// The obvious next step after an outline is settled, offered as a card without asking the chat model: write a
+    /// chapter whose outline was added or changed and that has no prose yet, or revise a written one to its new
+    /// outline. Skipped when this batch already changed that chapter's prose or a card for it is still open.
+    /// </summary>
+    private async Task OfferNextStepsAsync(int bookId, IReadOnlyList<ChatProposal> quick, IReadOnlyList<ChatProposal> prose)
+    {
+        var outlined = quick
+            .Where(p => p.Status == ChatProposalStatus.Applied
+                        && p.Type is BookChatActions.AddChapter or BookChatActions.UpdateChapterOutline)
+            .Select(p => (Proposal: p, ChapterId: p.Target is { } t && t.StartsWith("chapter:") && int.TryParse(t[8..], out var id) ? id : 0))
+            .Where(x => x.ChapterId > 0)
+            .ToList();
+        if (outlined.Count == 0) return;
+
+        var open = (await repo.GetProposalsByStatusAsync(bookId, ChatProposalStatus.Pending))
+            .Concat(await repo.GetProposalsByStatusAsync(bookId, ChatProposalStatus.Failed))
+            .Concat(prose)
+            .Where(o => o.Type is BookChatActions.WriteChapter or BookChatActions.ReviseChapter)
+            .ToList();
+        var actions = new List<RawChatAction>();
+        var lines = new List<string>();
+        foreach (var (added, chapterId) in outlined.DistinctBy(x => x.ChapterId))
+        {
+            var proseTarget = BookContentService.ProseTarget(chapterId);
+            if (open.Any(o => o.Target == proseTarget || o.DependsOnProposalId == added.Id)) continue;
+            if (await repo.GetChapterAsync(bookId, chapterId) is not { IsArchived: false } chapter) continue;
+            var name = chapter.Title.Trim().Length > 0 ? $"Chapter {chapter.Number}: {chapter.Title}" : $"Chapter {chapter.Number}";
+            if (chapter.Content.Trim().Length == 0)
+            {
+                actions.Add(Raw(BookChatActions.WriteChapter, $"Write {name}", chapter: chapter.Number));
+                lines.Add($"The outline of {name} is ready — write it when you are.");
+            }
+            else if (added.Type == BookChatActions.UpdateChapterOutline)
+            {
+                actions.Add(Raw(BookChatActions.ReviseChapter, $"Revise {name} to follow its new outline", chapter: chapter.Number,
+                    instructions: PromptTemplates.BookChatReviseToOutline));
+                lines.Add($"{name} is already written — revise it to follow the new outline, or keep it as it is.");
+            }
+        }
+        if (actions.Count > 0) await chat.ProposeAsync(bookId, "➡️ " + string.Join("\n\n", lines), actions);
     }
 
     /// <summary>Alternatives are exclusive: applying option A of a reply rejects its option B.</summary>
