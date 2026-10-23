@@ -5,6 +5,8 @@ import axios from 'axios'
 import { useBookContext } from '../../contexts/BookContext'
 import ChangeDiff from '../../components/ChangeDiff'
 import { partialJsonString } from '../../utils/streamParsers'
+import { readChatCache, removeChatCache, writeChatCache } from '../../utils/chatCache'
+import { useAuth } from '../../hooks/useAuth'
 import {
   getBookChat, sendBookChat, retryBookChat, kickoffBookChat, applyProposals, rejectProposals, undoProposal,
   lockStoryBible,
@@ -159,7 +161,8 @@ function Conflicts({ json }: { json: string }) {
 export default function BookChat() {
   const { book, bookChatStream, bookChatVersion, isRunning, runStatus, handleStop, refreshBook } = useBookContext()
   const bookId = book?.id ?? 0
-  const [chat, setChat] = useState<BookChatState | null>(null)
+  const userId = useAuth().user?.id
+  const [chat, setChat] = useState<BookChatState | null>(() => readChatCache(userId, bookId))
   const [older, setOlder] = useState<BookChatMessage[]>([])
   const [text, setText] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -167,17 +170,31 @@ export default function BookChat() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
 
+  // Show the chat as it was last seen right away; the server's copy replaces it when it loads.
+  useEffect(() => {
+    setChat(readChatCache(userId, bookId))
+    setOlder([])
+  }, [userId, bookId])
+
   const requestSeq = useRef(0)
   const load = useCallback(async () => {
     if (!bookId) return
     const seq = ++requestSeq.current
     try {
       const r = await getBookChat(bookId)
-      if (seq === requestSeq.current) setChat(r.data)
+      if (seq !== requestSeq.current) return
+      setChat(r.data)
+      writeChatCache(userId, bookId, r.data)
     } catch (err) {
-      if (seq === requestSeq.current) setError(`Could not load the chat: ${errorText(err)}`)
+      if (seq !== requestSeq.current) return
+      // Gone or not ours (any more): the cached copy must not stay on screen.
+      if (axios.isAxiosError(err) && (err.response?.status === 403 || err.response?.status === 404)) {
+        removeChatCache(userId, bookId)
+        setChat(null)
+      }
+      setError(`Could not load the chat: ${errorText(err)}`)
     }
-  }, [bookId])
+  }, [userId, bookId])
 
   useEffect(() => { void load() }, [load, bookChatVersion])
   // A run that ends (Stop, failure) without a chat event still changes "busy".

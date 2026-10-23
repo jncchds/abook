@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { clearChatCaches } from './utils/chatCache'
 
 const api = axios.create({ baseURL: '/api' })
 
@@ -305,7 +306,7 @@ export const authLogin = (username: string, password: string) =>
 export const authRegister = (username: string, password: string) =>
   api.post<Session>('/auth/register', { username, password }).then(r => { applySession(r.data); return r.data })
 /** Revokes this browser's refresh cookie; the in-memory access token is dropped either way. */
-export const authLogout = () => api.post('/auth/logout').finally(() => applySession(null))
+export const authLogout = () => api.post('/auth/logout').finally(() => { clearChatCaches(); applySession(null) })
 export const authMe = () => api.get<AppUser>('/auth/me')
 export const getApiToken = () => api.get<{ token: string | null }>('/auth/api-token')
 export const regenerateApiToken = () => api.post<{ token: string }>('/auth/api-token/regenerate')
