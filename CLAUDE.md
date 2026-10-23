@@ -123,5 +123,5 @@ Built-in at `/mcp` using `ModelContextProtocol.AspNetCore 1.2.0`. Tool classes i
 - `OllamaPromptExecutionSettings.Temperature` is `float?`, not `double`.
 - Enum JSON serialization: `JsonStringEnumConverter` is registered in both `AddJsonOptions` (controllers) and SignalR's `AddJsonProtocol`.
 - `SK Ollama connector` is alpha — suppress `SKEXP0070` pragma.
-- `AgentStreaming` SignalR event has 4 arguments: `(bookId, chapterId, agentRole, token)`.
+- All hub events go out as one `BookEvent { seq, name, args }` message, numbered per book by `BookEventLog` — send only through `IBookNotifier`, never `IHubContext<BookHub>` directly, or the sequence breaks. `AgentStreaming`'s args are `(bookId, chapterId, agentRole, token)`.
 - `LlmProvider.LMStudio` and `LlmProvider.Anthropic` have been removed from the enum; old DB rows with those values will cause EF errors.

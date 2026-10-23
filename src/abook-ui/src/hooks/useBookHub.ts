@@ -1,4 +1,4 @@
-import { HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr'
+import { HubConnection, HubConnectionBuilder, HubConnectionState, LogLevel } from '@microsoft/signalr'
 import { useEffect, useRef, useState } from 'react'
 import { getAccessToken } from '../api'
 
@@ -16,6 +16,22 @@ type ReconnectedHandler = () => void
 type JoinedHandler = () => void
 
 const START_RETRY_MS = 5000
+const HEARTBEAT_MS = 15000
+const HEARTBEAT_TIMEOUT_MS = 10000
+
+/** One hub event of the book, numbered per book by the server in the order it was sent. */
+interface BookEvent { seq: number; name: string; args: unknown[] }
+/** Server session + last sequence number; `events` is what was missed, or null when it can't be replayed. */
+interface BookSyncState { epoch: string; seq: number; events: BookEvent[] | null }
+
+class TimeoutError extends Error {}
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new TimeoutError('timeout')), ms)
+    p.then(v => { clearTimeout(t); resolve(v) }, e => { clearTimeout(t); reject(e) })
+  })
+}
 
 export function useBookHub(bookId: number | null) {
   const connRef = useRef<HubConnection | null>(null)
@@ -39,6 +55,13 @@ export function useBookHub(bookId: number | null) {
     let disposed = false
     let retryTimer: ReturnType<typeof setTimeout> | undefined
 
+    // Where this client stands in the book's event sequence: the server session that numbered the
+    // events and the last one handled. Events arriving while a join is in flight wait in `queued`.
+    let epoch: string | null = null
+    let lastSeq = 0
+    let joining: Promise<void> | null = null
+    let queued: BookEvent[] = []
+
     const conn = new HubConnectionBuilder()
       // Asked again on every (re)connect, so a reconnect after the token expired gets a fresh one.
       .withUrl('/hubs/book', { accessTokenFactory: async () => (await getAccessToken()) ?? '' })
@@ -46,58 +69,139 @@ export function useBookHub(bookId: number | null) {
       .configureLogging(LogLevel.Warning)
       .build()
 
-    conn.on('AgentStreaming', (bId, cId, agentRole, token) => onStream.current?.(bId, cId, agentRole, token))
-    conn.on('AgentQuestion', (bId, msg) => onQuestion.current?.(bId, msg))
-    conn.on('AgentStatusChanged', (bId, role, state, cId) => onStatus.current?.(bId, role, state, cId ?? null))
-    conn.on('ChapterUpdated', (bId, cId) => onChapterUpdated.current?.(bId, cId))
-    conn.on('WorkflowProgress', (bId, step, isComplete) => onWorkflowProgress.current?.(bId, step, isComplete))
-    conn.on('TokenStats', (bId, cId, role, prompt, completion) => onTokenStats.current?.(bId, cId, role, prompt, completion))
-    conn.on('AgentError', (bId, role, msg) => onAgentError.current?.(bId, role, msg))
-    conn.on('MessagesUpdated', (bId) => onMessagesUpdated.current?.(bId))
-    conn.on('IllustrationsUpdated', (bId, iId) => onIllustrationsUpdated.current?.(bId, iId ?? null))
-    conn.on('BookChatUpdated', (bId, mId) => onBookChatUpdated.current?.(bId, mId ?? null))
-
-    // A reconnect gets a new connection id, so the server-side group membership is gone:
-    // rejoin, then let the consumer re-read whatever it missed while disconnected.
-    conn.onreconnecting(() => setConnected(false))
-    conn.onreconnected(async () => {
+    const dispatch = (e: BookEvent) => {
+      lastSeq = e.seq
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const a = e.args as any[]
       try {
-        await conn.invoke('JoinBook', String(bookId))
-        setConnected(true)
-        onJoined.current?.()
-        onReconnected.current?.()
+        switch (e.name) {
+          case 'AgentStreaming': onStream.current?.(a[0], a[1] ?? null, a[2], a[3]); break
+          case 'AgentQuestion': onQuestion.current?.(a[0], a[1]); break
+          case 'AgentStatusChanged': onStatus.current?.(a[0], a[1], a[2], a[3] ?? null); break
+          case 'ChapterUpdated': onChapterUpdated.current?.(a[0], a[1]); break
+          case 'WorkflowProgress': onWorkflowProgress.current?.(a[0], a[1], a[2]); break
+          case 'TokenStats': onTokenStats.current?.(a[0], a[1] ?? null, a[2], a[3], a[4]); break
+          case 'AgentError': onAgentError.current?.(a[0], a[1], a[2]); break
+          case 'MessagesUpdated': onMessagesUpdated.current?.(a[0]); break
+          case 'IllustrationsUpdated': onIllustrationsUpdated.current?.(a[0], a[1] ?? null); break
+          case 'BookChatUpdated': onBookChatUpdated.current?.(a[0], a[1] ?? null); break
+        }
       } catch (err) {
         console.error(err)
       }
+    }
+
+    /**
+     * Joins (or rejoins) the book's group, telling the server what this client already has so it
+     * replays exactly the events that were missed. Only when they can't be replayed (first join,
+     * server restarted, gap too old) does the consumer re-read the book's state.
+     */
+    const join = (): Promise<void> => {
+      if (joining) return joining
+      const run = async () => {
+        const wasJoined = epoch !== null
+        const res = await conn.invoke<BookSyncState>('JoinBook', String(bookId), epoch, wasJoined ? lastSeq : null)
+        if (disposed) return
+        const replayed = res.events !== null
+        if (res.events) for (const e of res.events) if (e.seq > lastSeq) dispatch(e)
+        epoch = res.epoch
+        lastSeq = replayed ? Math.max(lastSeq, res.seq) : res.seq
+        // Everything up to the join point is covered; later events arrived live while joining.
+        const pending = queued.filter(e => e.seq > lastSeq).sort((x, y) => x.seq - y.seq)
+        queued = []
+        for (const e of pending) {
+          if (e.seq !== lastSeq + 1) break // still a gap: the next heartbeat rejoins
+          dispatch(e)
+        }
+        setConnected(true)
+        if (!replayed) {
+          onJoined.current?.()
+          if (wasJoined) onReconnected.current?.()
+        }
+      }
+      joining = run().finally(() => { joining = null })
+      return joining
+    }
+
+    // Handles events in sequence: duplicates (already replayed) are dropped, and a gap means something
+    // was lost — the event waits while a rejoin replays what came before it.
+    conn.on('BookEvent', (e: BookEvent) => {
+      if (joining) { queued.push(e); return }
+      if (e.seq <= lastSeq) return
+      if (e.seq !== lastSeq + 1) {
+        queued.push(e)
+        join().catch(err => console.error(err))
+        return
+      }
+      dispatch(e)
     })
+
+    // A reconnect gets a new connection id, so the server-side group membership is gone: rejoin.
+    conn.onreconnecting(() => setConnected(false))
+    conn.onreconnected(() => { join().catch(err => { console.error(err); void conn.stop() }) })
     conn.onclose(() => {
-      // Automatic reconnect gave up — fall back to periodic full restarts.
+      // Automatic reconnect gave up, or the heartbeat found the connection dead — restart periodically.
       setConnected(false)
-      if (!disposed) retryTimer = setTimeout(() => { void start(true) }, START_RETRY_MS)
+      if (!disposed) retryTimer = setTimeout(() => { void start() }, START_RETRY_MS)
     })
 
     // withAutomaticReconnect only covers connections that were once established, so the
     // initial start (e.g. while the server is still booting) is retried here.
-    const start = async (isRestart: boolean) => {
+    const start = async () => {
       try {
         await conn.start()
         if (disposed) return
-        await conn.invoke('JoinBook', String(bookId))
-        setConnected(true)
-        onJoined.current?.()
-        if (isRestart) onReconnected.current?.()
+        await join()
       } catch (err) {
         console.error(err)
-        if (!disposed) retryTimer = setTimeout(() => { void start(isRestart) }, START_RETRY_MS)
+        if (disposed) return
+        // Connected but the join failed: stopping goes through onclose, which restarts.
+        if (conn.state === HubConnectionState.Connected) void conn.stop()
+        else retryTimer = setTimeout(() => { void start() }, START_RETRY_MS)
       }
     }
-    void start(false)
+    void start()
+
+    /**
+     * Checks that the connection still answers and that no event was lost. A connection that doesn't
+     * answer is dropped and restarted; one that is no longer in the group, talks to a restarted server,
+     * or is behind the server's sequence rejoins, which replays the missed events.
+     */
+    let beating = false
+    const heartbeat = async () => {
+      if (beating || disposed || joining || conn.state !== HubConnectionState.Connected) return
+      beating = true
+      try {
+        const res = await withTimeout(conn.invoke<BookSyncState>('Heartbeat', String(bookId)), HEARTBEAT_TIMEOUT_MS)
+        if (!disposed && (res.epoch !== epoch || res.seq > lastSeq)) await join()
+      } catch (err) {
+        if (disposed) return
+        if (err instanceof TimeoutError) {
+          console.warn('Book hub heartbeat timed out; reconnecting')
+          void conn.stop()
+        } else if (conn.state === HubConnectionState.Connected) {
+          // "Not joined" (group membership lost) or a failed rejoin: try once more, else restart.
+          await join().catch(e => { console.error(e); void conn.stop() })
+        }
+      } finally {
+        beating = false
+      }
+    }
+    const heartbeatTimer = setInterval(() => { void heartbeat() }, HEARTBEAT_MS)
+    // Timers are throttled in background tabs and stop while the device sleeps: check at once on return.
+    const onVisible = () => { if (document.visibilityState === 'visible') void heartbeat() }
+    const onOnline = () => { void heartbeat() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('online', onOnline)
 
     connRef.current = conn
 
     return () => {
       disposed = true
       clearTimeout(retryTimer)
+      clearInterval(heartbeatTimer)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('online', onOnline)
       conn.invoke('LeaveBook', String(bookId)).catch(() => {})
       conn.stop()
       setConnected(false)
@@ -116,8 +220,12 @@ export function useBookHub(bookId: number | null) {
     setOnMessagesUpdated: (fn: MessagesUpdatedHandler) => { onMessagesUpdated.current = fn },
     setOnIllustrationsUpdated: (fn: IllustrationsUpdatedHandler) => { onIllustrationsUpdated.current = fn },
     setOnBookChatUpdated: (fn: BookChatUpdatedHandler) => { onBookChatUpdated.current = fn },
+    /** Fires after a rejoin whose missed events could not be replayed — re-read whatever they would have updated. */
     setOnReconnected: (fn: ReconnectedHandler) => { onReconnected.current = fn },
-    /** Fires after every (re)join of the book group — from then on no live event is missed. */
+    /**
+     * Fires after a join that could not replay missed events (the first join, a server restart, a gap
+     * too old to replay) — re-read the run state. From then on no live event is missed.
+     */
     setOnJoined: (fn: JoinedHandler) => { onJoined.current = fn },
   }
 }

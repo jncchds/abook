@@ -1,5 +1,9 @@
 # Release Notes
 
+## v0.4.2 — 2026-10-23
+
+- feat: **no live update is lost on a flaky connection** — every live event of a book carries a sequence number and a server session id, so the page knows exactly what it missed while disconnected and gets those events replayed when it rejoins (streamed text included) instead of re-reading everything; only after a server restart or a gap of more than 5,000 events / 10 minutes does it fall back to a full re-read. A **heartbeat** every 15 seconds (and when the tab or network comes back) restarts a connection that stopped answering and catches up on any event that went missing
+
 ## v0.4.1 — 2026-10-23
 
 - fix: **Autonomous is the default mode** again when creating a book (and listed first)

@@ -508,7 +508,8 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       }
     })
     setOnReconnected(() => {
-      // Events sent while the connection was down are lost — re-read everything they would have updated.
+      // Only called when the events missed while disconnected could not be replayed (server restart,
+      // gap too old) — re-read everything they would have updated.
       refreshMessages()
       refreshBook().catch(() => {})
       refreshTokenStats().catch(() => {})

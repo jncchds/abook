@@ -84,6 +84,7 @@ void ConfigureJsonSerializer(System.Text.Json.JsonSerializerOptions opts)
 // ── SignalR ───────────────────────────────────────────────────────────────────
 builder.Services.AddSignalR()
     .AddJsonProtocol(o => ConfigureJsonSerializer(o.PayloadSerializerOptions));
+builder.Services.AddSingleton<BookEventLog>();
 builder.Services.AddScoped<IBookNotifier, SignalRBookNotifier>();
 
 // ── Agents ────────────────────────────────────────────────────────────────────
