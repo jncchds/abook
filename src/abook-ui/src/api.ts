@@ -389,7 +389,6 @@ export const unlockStoryBible = (bookId: number) => api.post(`/books/${bookId}/b
 
 // Agent actions
 export const startPlanning = (bookId: number) => api.post(`/books/${bookId}/agent/plan`)
-export const continuePlanning = (bookId: number) => api.post(`/books/${bookId}/agent/plan/continue`)
 
 // Planning phases
 export const completePlanningPhase = (bookId: number, phase: string) =>
@@ -404,7 +403,6 @@ export const startEditing = (bookId: number, chapterId: number) =>
   api.post(`/books/${bookId}/agent/edit/${chapterId}`)
 export const startContinuityCheck = (bookId: number) => api.post(`/books/${bookId}/agent/continuity`)
 export const startWorkflow = (bookId: number) => api.post(`/books/${bookId}/agent/workflow/start`)
-export const continueWorkflow = (bookId: number) => api.post(`/books/${bookId}/agent/workflow/continue`)
 export const stopWorkflow = (bookId: number) => api.post(`/books/${bookId}/agent/workflow/stop`)
 export const getAgentStatus = (bookId: number) =>
   api.get<AgentRunStatus>(`/books/${bookId}/agent/status`)

@@ -3,6 +3,7 @@
 ## v0.4.3 — 2026-10-23
 
 - docs: README, AGENTS.md and CLAUDE.md checked against the code — Semantic Kernel is gone (direct provider clients), the OpenAICompatible provider is listed, the MCP tool count is 53, the workflow buttons are Plan Book / Write Book / Illustrate Book, and the book sub-pages list matches the routes (no `StatePage`)
+- chore: removed the unused Semantic Kernel package (Core now references `Microsoft.Extensions.AI.Abstractions`, Infrastructure `Microsoft.Extensions.AI.OpenAI`) and the unused `handleContinue` / `continuePlanning` / `continueWorkflow` UI code
 
 ## v0.4.2 — 2026-10-23
 

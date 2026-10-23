@@ -117,7 +117,7 @@ Built-in at `/mcp` using `ModelContextProtocol.AspNetCore 1.2.0`. Tool classes i
 
 ## Technical gotchas
 
-- `ABook.Agents` pins `Microsoft.EntityFrameworkCore.Relational 10.0.*` (a leftover from when Semantic Kernel was used; SK has been removed from the code).
+- `ABook.Agents` pins `Microsoft.EntityFrameworkCore.Relational 10.0.*` (removing it gives an MSB3277 version-conflict warning).
 - `Pgvector.EntityFrameworkCore 0.*` must be referenced directly in both `ABook.Infrastructure` and `ABook.Api`; call `options.UseNpgsql(cs, o => o.UseVector())`.
 - Ollama embeddings go through an `OpenAIClient` pointed at Ollama's `/v1` endpoint (`OllamaProviderStrategy`).
 - Enum JSON serialization: `JsonStringEnumConverter` is registered in both `AddJsonOptions` (controllers) and SignalR's `AddJsonProtocol`.

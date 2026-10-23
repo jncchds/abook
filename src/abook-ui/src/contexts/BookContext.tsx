@@ -4,8 +4,8 @@ import axios from 'axios'
 import type { Book, AgentMessage, AgentRunStatus, StoryBible, CharacterCard, PlotThread, Illustration, IllustrationPlanScope, RenderScope, Clarification } from '../api'
 import {
   getBook, getMessages, postAnswer, getAgentStatus,
-  startPlanning, continuePlanning, completePlanningPhase, reopenPlanningPhase, clearPlanningPhase,
-  startWorkflow, continueWorkflow, stopWorkflow,
+  startPlanning, completePlanningPhase, reopenPlanningPhase, clearPlanningPhase,
+  startWorkflow, stopWorkflow,
   getTokenUsage, clearMessages, clearTokenUsage,
   getStoryBible, getCharacters, getPlotThreads, getChapters, getChapter,
   getIllustrations, planIllustrations, renderIllustrations, getClarifications,
@@ -109,7 +109,6 @@ interface BookContextValue {
   handleWriteBook: () => Promise<void>
   handlePlanBook: () => Promise<void>
   handleStop: () => Promise<void>
-  handleContinue: () => Promise<void>
   handleCompletePhase: (phase: string) => Promise<void>
   handleReopenPhase: (phase: string) => Promise<void>
   handleClearPhase: (phase: string, clearLocal: () => void) => Promise<void>
@@ -563,29 +562,6 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     try { await stopWorkflow(bookId) } catch { /* ignore */ }
   }
 
-  const handleContinue = async () => {
-    if (isRunning || !book) return
-    setWorkflowLog([])
-    const allPlanningComplete =
-      book.storyBibleStatus === 'Complete' && book.charactersStatus === 'Complete' &&
-      book.plotThreadsStatus === 'Complete' && book.chaptersStatus === 'Complete'
-    const anyPlanningComplete =
-      book.clarificationsStatus === 'Complete' || book.storyBibleStatus === 'Complete' || book.charactersStatus === 'Complete' ||
-      book.plotThreadsStatus === 'Complete' || book.chaptersStatus === 'Complete'
-    try {
-      if (!allPlanningComplete && anyPlanningComplete) {
-        await continuePlanning(bookId)
-        setRunStatus({ role: 'Planner', state: 'Running' })
-      } else {
-        await continueWorkflow(bookId)
-        setRunStatus({ role: 'Writer', state: 'Running' })
-      }
-    } catch (err: unknown) {
-      const msg = err as { response?: { status?: number } }
-      if (msg?.response?.status === 409) alert('An agent is already running for this book.')
-    }
-  }
-
   const phaseStatusKey: Record<string, keyof Book> = {
     clarifications: 'clarificationsStatus',
     storybible: 'storyBibleStatus',
@@ -673,7 +649,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     refreshBook, refreshMessages,
     handleAnswer,
     bookChatStream, bookChatVersion,
-    handleWriteBook, handlePlanBook, handleStop, handleContinue,
+    handleWriteBook, handlePlanBook, handleStop,
     handleCompletePhase, handleReopenPhase, handleClearPhase, isPhaseComplete,
     clearMessagesForBook, clearTokenUsageForBook,
   }
