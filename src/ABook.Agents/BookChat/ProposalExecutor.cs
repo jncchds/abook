@@ -44,6 +44,7 @@ public class ProposalExecutor(
     /// <summary>Why <paramref name="p"/> cannot be undone now, or null when it can.</summary>
     public async Task<string?> UndoBlockerAsync(int bookId, ChatProposal p)
     {
+        if (BookChatActions.IsStep(p.Type)) return "A check or summary changes nothing in the book — there is nothing to undo.";
         if (p.Status != ChatProposalStatus.Applied) return "Only an applied change can be undone.";
         if (p.Type is BookChatActions.UpdatePremise or BookChatActions.UpdateStoryBible
             && await repo.GetByIdAsync(bookId) is { } book && BookContentService.IsBibleLocked(book))
@@ -67,16 +68,20 @@ public class ProposalExecutor(
 
     // ── Apply ───────────────────────────────────────────────────────────────────
 
+    /// <summary>Whether <paramref name="p"/> can be applied now: pending or failed — or a step already run, which may run again.</summary>
+    public static bool CanApply(ChatProposal p) =>
+        p.Status is ChatProposalStatus.Pending or ChatProposalStatus.Failed
+        || (p.Status == ChatProposalStatus.Applied && BookChatActions.IsStep(p.Type));
+
     public async Task ApplyAsync(int bookId, IReadOnlyList<int> proposalIds, CancellationToken ct)
     {
-        var proposals = (await repo.GetProposalsAsync(bookId, proposalIds))
-            .Where(p => p.Status is ChatProposalStatus.Pending or ChatProposalStatus.Failed)
-            .ToList();
+        var proposals = (await repo.GetProposalsAsync(bookId, proposalIds)).Where(CanApply).ToList();
         if (proposals.Count == 0) return;
 
         await RejectOtherOptionsAsync(bookId, proposals);
 
-        var quick = proposals.Where(p => !BookChatActions.ProseActions.Contains(p.Type)).ToList();
+        var steps = proposals.Where(p => BookChatActions.IsStep(p.Type)).ToList();
+        var quick = proposals.Where(p => !BookChatActions.ProseActions.Contains(p.Type) && !BookChatActions.IsStep(p.Type)).ToList();
         var prose = proposals.Where(p => BookChatActions.ProseActions.Contains(p.Type)).ToList();
         foreach (var p in quick) await ApplyOneAsync(bookId, p, ct);
 
@@ -96,6 +101,18 @@ public class ProposalExecutor(
             await FollowUpAsync(bookId, chapterId, check, ct);
 
         await OfferNextStepsAsync(bookId, quick, prose);
+
+        // Steps run last, so they see this batch's changes. A chapter whose prose changed above was already
+        // summarized (and, when written or revised, checked) by its follow-up — that step is not run twice.
+        foreach (var p in steps)
+        {
+            var chapterId = ChatActionPayload.FromJson(p.PayloadJson).ChapterId;
+            var covered = chapterId is int id && changed.TryGetValue(id, out var checkedAlready)
+                          && (p.Type == BookChatActions.SummarizeChapter || (p.Type == BookChatActions.CheckChapter && checkedAlready));
+            if (!covered) { await ApplyOneAsync(bookId, p, ct); continue; }
+            p.AppliedAt = DateTime.UtcNow;
+            await FinishAsync(bookId, p, ChatProposalStatus.Applied, "Already done after the chapter changed — see its follow-up.");
+        }
     }
 
     /// <summary>
@@ -270,6 +287,11 @@ public class ProposalExecutor(
                         throw new InvalidOperationException(
                             $"The text to replace is no longer in the chapter ({outcome.Skipped.FirstOrDefault().Reason ?? "not found"}).");
                 }, "Edited"), a.ChapterId);
+            case BookChatActions.CheckOutline:
+                return (await CheckOutlineStepAsync(bookId, a.ChapterId ?? await AddedChapterIdAsync(bookId, p), ct), null);
+            case BookChatActions.CheckChapter:
+            case BookChatActions.SummarizeChapter:
+                return (await ChapterStepAsync(bookId, a.ChapterId!.Value, a.Type == BookChatActions.CheckChapter, ct), null);
             default:
                 throw new InvalidOperationException($"Unknown action \"{a.Type}\".");
         }
@@ -318,26 +340,7 @@ public class ProposalExecutor(
         var lines = new List<string>();
         var actions = new List<RawChatAction>();
 
-        state.UpdateRunRole(bookId, AgentRole.ChapterSummarizer, chapterId);
-        try
-        {
-            if (await summarizer.SummarizeAsync(bookId, chapterId, ct) is { } summary)
-            {
-                foreach (var c in summary.NewCharacters)
-                    actions.Add(Raw(BookChatActions.UpsertCharacter, $"Add {c.Name}, who appears in Chapter {chapter.Number}", name: c.Name,
-                        changes: [new("role", c.Role.ToString()), new("notes", c.Description), new("firstAppearanceChapterNumber", chapter.Number.ToString())]));
-                var statuses = (await repo.GetPlotThreadsAsync(bookId))
-                    .ToDictionary(t => t.Name, t => t.Status, StringComparer.OrdinalIgnoreCase);
-                // A "change" to the status the thread already has is no change.
-                foreach (var t in summary.ThreadChanges.Where(t => statuses.GetValueOrDefault(t.Name) != t.Status))
-                {
-                    List<KeyValuePair<string, string>> changes = [new("status", t.Status.ToString())];
-                    if (t.Status == PlotThreadStatus.Resolved) changes.Add(new("resolvedChapterNumber", chapter.Number.ToString()));
-                    actions.Add(Raw(BookChatActions.UpsertPlotThread, $"Mark {t.Name} {t.Status.ToString().ToLowerInvariant()}: {t.Note}",
-                        name: t.Name, changes: changes));
-                }
-            }
-        }
+        try { await SummarizeIntoAsync(bookId, chapter, actions, ct); }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
@@ -347,22 +350,7 @@ public class ProposalExecutor(
 
         if (check)
         {
-            state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapterId);
-            try
-            {
-                var result = await checker.CheckAsync(bookId, chapterId, ct);
-                var patches = result.HasIssues ? EditorAgent.SelectPatches(result) : [];
-                var rewrites = result.HasIssues ? EditorAgent.SelectRewrites(result) : [];
-                foreach (var issue in patches.Take(BookChatActions.MaxActions - 1))
-                    actions.Add(Raw(BookChatActions.PatchChapter, issue.Description, chapter: chapter.Number,
-                        originalText: issue.OriginalText, replacementText: issue.ReplacementText));
-                if (rewrites.Count > 0)
-                    actions.Add(Raw(BookChatActions.ReviseChapter, $"Revise Chapter {chapter.Number} for {rewrites.Count} issue(s)",
-                        chapter: chapter.Number, instructions: PromptTemplates.RewriteInstructions(rewrites, null)));
-                lines.Add(patches.Length + rewrites.Count == 0
-                    ? "The continuity check found no issues."
-                    : $"The continuity check found {patches.Length + rewrites.Count} issue(s): {result.Summary}");
-            }
+            try { lines.Add(await CheckIntoAsync(bookId, chapter, actions, ct)); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
@@ -381,6 +369,110 @@ public class ProposalExecutor(
             var fresh = await repo.GetChapterAsync(bookId, chapterId);
             if (fresh is not null) await illustrationPlanner.PlanChapterOrNoteAsync(bookId, fresh, ct);
         }
+    }
+
+    /// <summary>Rewrites the chapter's summary and adds proposals for the new characters and plot-thread changes it found.</summary>
+    private async Task SummarizeIntoAsync(int bookId, Chapter chapter, List<RawChatAction> actions, CancellationToken ct)
+    {
+        state.UpdateRunRole(bookId, AgentRole.ChapterSummarizer, chapter.Id);
+        if (await summarizer.SummarizeAsync(bookId, chapter.Id, ct) is not { } summary) return;
+        foreach (var c in summary.NewCharacters)
+            actions.Add(Raw(BookChatActions.UpsertCharacter, $"Add {c.Name}, who appears in Chapter {chapter.Number}", name: c.Name,
+                changes: [new("role", c.Role.ToString()), new("notes", c.Description), new("firstAppearanceChapterNumber", chapter.Number.ToString())]));
+        var statuses = (await repo.GetPlotThreadsAsync(bookId))
+            .ToDictionary(t => t.Name, t => t.Status, StringComparer.OrdinalIgnoreCase);
+        // A "change" to the status the thread already has is no change.
+        foreach (var t in summary.ThreadChanges.Where(t => statuses.GetValueOrDefault(t.Name) != t.Status))
+        {
+            List<KeyValuePair<string, string>> changes = [new("status", t.Status.ToString())];
+            if (t.Status == PlotThreadStatus.Resolved) changes.Add(new("resolvedChapterNumber", chapter.Number.ToString()));
+            actions.Add(Raw(BookChatActions.UpsertPlotThread, $"Mark {t.Name} {t.Status.ToString().ToLowerInvariant()}: {t.Note}",
+                name: t.Name, changes: changes));
+        }
+    }
+
+    /// <summary>Runs the continuity check on the chapter and adds patches and a revision for what it found. Returns the result line.</summary>
+    private async Task<string> CheckIntoAsync(int bookId, Chapter chapter, List<RawChatAction> actions, CancellationToken ct)
+    {
+        state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapter.Id);
+        var result = await checker.CheckAsync(bookId, chapter.Id, ct);
+        var patches = result.HasIssues ? EditorAgent.SelectPatches(result) : [];
+        var rewrites = result.HasIssues ? EditorAgent.SelectRewrites(result) : [];
+        foreach (var issue in patches.Take(BookChatActions.MaxActions - 1))
+            actions.Add(Raw(BookChatActions.PatchChapter, issue.Description, chapter: chapter.Number,
+                originalText: issue.OriginalText, replacementText: issue.ReplacementText));
+        if (rewrites.Count > 0)
+            actions.Add(Raw(BookChatActions.ReviseChapter, $"Revise Chapter {chapter.Number} for {rewrites.Count} issue(s)",
+                chapter: chapter.Number, instructions: PromptTemplates.RewriteInstructions(rewrites, null)));
+        return patches.Length + rewrites.Count == 0
+            ? "The continuity check found no issues."
+            : $"The continuity check found {patches.Length + rewrites.Count} issue(s): {result.Summary}";
+    }
+
+    /// <summary>
+    /// The check_chapter / summarize_chapter step: re-runs the continuity check or the summary of a written chapter
+    /// on request and posts what it found as proposals. Failures propagate, so the step shows as Failed and can be
+    /// run again.
+    /// </summary>
+    private async Task<ContentChange> ChapterStepAsync(int bookId, int chapterId, bool check, CancellationToken ct)
+    {
+        var chapter = AgentBase.EnsureNotArchived(await repo.GetChapterAsync(bookId, chapterId)
+            ?? throw new InvalidOperationException($"Chapter {chapterId} not found."));
+        if (chapter.Content.Trim().Length == 0) throw new InvalidOperationException($"Chapter {chapter.Number} is not written yet.");
+        // The checker reviews finished chapters only; any other status would turn it into a whole-book review.
+        if (check && chapter.Status is not (ChapterStatus.Done or ChapterStatus.Review))
+            throw new InvalidOperationException($"Chapter {chapter.Number} is not finished (it is {chapter.Status}).");
+
+        var actions = new List<RawChatAction>();
+        var name = $"Chapter {chapter.Number} \"{chapter.Title}\"";
+        string text, note;
+        if (check)
+        {
+            var line = await CheckIntoAsync(bookId, chapter, actions, ct);
+            text = $"🔎 Continuity check of {name}: {line}";
+            note = actions.Count == 0 ? "No issues found." : $"Found {actions.Count} fix(es) — see the message below.";
+        }
+        else
+        {
+            await SummarizeIntoAsync(bookId, chapter, actions, ct);
+            text = $"📝 {name} is summarized again." + (actions.Count == 0 ? " It introduces no new characters or plot-thread changes." : "");
+            note = actions.Count == 0 ? "Summary rewritten." : $"Summary rewritten; {actions.Count} update(s) proposed below.";
+        }
+        if (actions.Count > 0) text += "\n\nProposed follow-ups are below — apply the ones you want.";
+        await chat.ProposeAsync(bookId, text, actions);
+        return new ContentChange(note, "", "", chapterId);
+    }
+
+    /// <summary>
+    /// The check_outline step: checks the chapter's outline against what the book has established and, when it
+    /// contradicts it, proposes the corrected outline. Nothing is changed until the author applies that proposal.
+    /// </summary>
+    private async Task<ContentChange> CheckOutlineStepAsync(int bookId, int chapterId, CancellationToken ct)
+    {
+        var chapter = AgentBase.EnsureNotArchived(await repo.GetChapterAsync(bookId, chapterId)
+            ?? throw new InvalidOperationException($"Chapter {chapterId} not found."));
+        if (chapter.Outline.Trim().Length == 0) throw new InvalidOperationException($"Chapter {chapter.Number} has no outline to check.");
+
+        state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapterId);
+        var result = await checker.CheckOutlineAsync(bookId, chapterId, ct);
+        var name = $"Chapter {chapter.Number} \"{chapter.Title}\"";
+        if (result.Issues is null)
+        {
+            await chat.ProposeAsync(bookId, $"🔎 The outline of {name} is consistent with the book — no contradictions found.", []);
+            return new ContentChange("No issues found.", "", "", chapterId);
+        }
+
+        List<RawChatAction> actions = result.FixedOutline is { } fixedOutline
+            ? [Raw(BookChatActions.UpdateChapterOutline, $"Fix the outline of Chapter {chapter.Number}", chapter: chapter.Number,
+                changes: [new("outline", fixedOutline)])]
+            : [];
+        var text = $"🔎 The outline check of {name} found contradictions with the book:\n\n{result.Issues}" +
+                   (actions.Count > 0
+                       ? "\n\nA corrected outline is proposed below."
+                       : "\n\n⚠️ No corrected outline could be written — ask me to fix it, or edit the outline yourself.");
+        await chat.ProposeAsync(bookId, text, actions);
+        return new ContentChange(actions.Count > 0 ? "Found contradictions — a fix is proposed below." : "Found contradictions.",
+            "", "", chapterId);
     }
 
     private static RawChatAction Raw(string type, string label, int? chapter = null, string? name = null,

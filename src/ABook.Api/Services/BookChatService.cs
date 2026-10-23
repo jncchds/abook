@@ -92,9 +92,7 @@ public class BookChatService(
         using var scope = scopeFactory.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IBookRepository>();
         if (await RequireInteractiveAsync(repo, bookId) is { } refused) return refused;
-        var proposals = (await repo.GetProposalsAsync(bookId, ids))
-            .Where(p => p.Status is ChatProposalStatus.Pending or ChatProposalStatus.Failed)
-            .ToList();
+        var proposals = (await repo.GetProposalsAsync(bookId, ids)).Where(ProposalExecutor.CanApply).ToList();
         if (proposals.Count == 0) return new(BookChatResult.NotFound, "None of these changes can be applied (any more).");
         if (IsBusy(bookId)) return Busy();
 

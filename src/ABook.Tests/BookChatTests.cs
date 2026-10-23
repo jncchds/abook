@@ -107,6 +107,42 @@ public class BookChatTests
     }
 
     [Fact]
+    public void Normalize_Steps_NeedSomethingToCheck_AndHaveNoTarget()
+    {
+        var state = State(false,
+            new BookChatChapter(10, 1, "One", "Mara ran.", "Mara runs."),
+            new BookChatChapter(11, 2, "Two", "", "Mara hides."),
+            new BookChatChapter(12, 3, "Three", "", ""));
+        var (actions, dropped) = BookChatActions.Normalize(
+            [
+                A(BookChatActions.CheckChapter, chapter: 1),
+                A(BookChatActions.SummarizeChapter, chapter: 1),
+                A(BookChatActions.CheckOutline, chapter: 2),
+                A(BookChatActions.CheckChapter, chapter: 2),     // not written
+                A(BookChatActions.CheckOutline, chapter: 3),     // no outline
+            ], state);
+
+        Assert.Equal([10, 10, 11], actions.Select(a => a.Payload.ChapterId!.Value));
+        Assert.All(actions, a => Assert.Null(a.Target));
+        Assert.Equal(2, dropped.Count);
+    }
+
+    [Fact]
+    public void Normalize_CheckOutline_OfAChapterAddedInTheSameReply_DependsOnIt()
+    {
+        var (actions, dropped) = BookChatActions.Normalize(
+            [
+                A(BookChatActions.AddChapter, changes: [("title", "Ash"), ("outline", "Fire.")]),
+                A(BookChatActions.CheckOutline, chapter: 1),
+                A(BookChatActions.CheckChapter, chapter: 1),
+            ], State());
+
+        Assert.Equal(2, actions.Count);
+        Assert.Equal(0, actions[1].DependsOnIndex);
+        Assert.Contains("added in this same reply", Assert.Single(dropped));
+    }
+
+    [Fact]
     public void Normalize_UnknownTypes_ReferencesAndTheCap_AreDropped()
     {
         var many = Enumerable.Range(0, BookChatActions.MaxActions + 1)

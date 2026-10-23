@@ -36,7 +36,7 @@ public sealed record BookChatState(
     IReadOnlyList<string> Threads,
     IReadOnlyList<BookChatChapter> Chapters);
 
-public sealed record BookChatChapter(int Id, int Number, string Title, string Content);
+public sealed record BookChatChapter(int Id, int Number, string Title, string Content, string Outline = "");
 
 /// <summary>
 /// The book chat's action catalogue: the JSON schema its replies follow, the parser, and the normalizer that
@@ -58,6 +58,9 @@ public static class BookChatActions
     public const string ReviseChapter = "revise_chapter";
     public const string PatchChapter = "patch_chapter";
     public const string AddNote = "add_note";
+    public const string CheckOutline = "check_outline";
+    public const string CheckChapter = "check_chapter";
+    public const string SummarizeChapter = "summarize_chapter";
 
     /// <summary>Actions only offered before the premise and Story Bible are locked.</summary>
     public static readonly string[] FoundationOnly = [UpdatePremise, UpdateStoryBible];
@@ -66,10 +69,20 @@ public static class BookChatActions
     [
         UpdatePremise, UpdateStoryBible, UpsertCharacter, ArchiveCharacter, UpsertPlotThread, ArchivePlotThread,
         AddChapter, UpdateChapterOutline, ArchiveChapter, WriteChapter, ReviseChapter, PatchChapter, AddNote,
+        CheckOutline, CheckChapter, SummarizeChapter,
     ];
 
     /// <summary>Actions that change chapter prose — they run the Writer, the Editor or the patcher.</summary>
     public static readonly string[] ProseActions = [WriteChapter, ReviseChapter, PatchChapter];
+
+    /// <summary>
+    /// Actions that re-run a generation step (outline check, chapter check, chapter summary). They change nothing
+    /// themselves: what they find is posted as new proposals. They run after every other change of the batch, can be
+    /// run again once done, and have nothing to undo.
+    /// </summary>
+    public static readonly string[] StepActions = [CheckOutline, CheckChapter, SummarizeChapter];
+
+    public static bool IsStep(string type) => StepActions.Contains(type);
 
     /// <summary>The most actions one reply may propose; the rest are dropped.</summary>
     public const int MaxActions = 6;
@@ -285,16 +298,18 @@ public static class BookChatActions
                     return null;
                 }
 
-                case UpdateChapterOutline or ArchiveChapter or WriteChapter or ReviseChapter or PatchChapter:
+                case UpdateChapterOutline or ArchiveChapter or WriteChapter or ReviseChapter or PatchChapter
+                    or CheckOutline or CheckChapter or SummarizeChapter:
                 {
                     if (a.Chapter is not int number) return "no chapter number.";
                     var chapter = chapters.FirstOrDefault(c => c.Number == number);
                     if (chapter is null)
                     {
-                        if (added.TryGetValue(number, out var addIndex) && a.Type == WriteChapter)
+                        if (added.TryGetValue(number, out var addIndex) && a.Type is WriteChapter or CheckOutline)
                         {
                             actions.Add(Make(Payload(a.Type, number: number, instructions: a.Instructions),
-                                $"Write Chapter {number}", null, addIndex));
+                                a.Type == WriteChapter ? $"Write Chapter {number}" : $"Check the outline of Chapter {number}",
+                                null, addIndex));
                             return null;
                         }
                         return added.ContainsKey(number)
@@ -325,6 +340,22 @@ public static class BookChatActions
                             if (a.Instructions is null) return "no instructions for the revision.";
                             actions.Add(Make(Payload(a.Type, chapter.Id, number, instructions: a.Instructions),
                                 $"Revise Chapter {number}", BookContentService.ProseTarget(chapter.Id)));
+                            return null;
+                        // Steps have no target: they change nothing, so they never supersede or block a change.
+                        case CheckOutline:
+                            if (chapter.Outline.Trim().Length == 0) return $"Chapter {number} has no outline to check.";
+                            actions.Add(Make(Payload(a.Type, chapter.Id, number),
+                                $"Check the outline of Chapter {number}", null));
+                            return null;
+                        case CheckChapter:
+                            if (!hasProse) return $"Chapter {number} is not written yet — check its outline instead.";
+                            actions.Add(Make(Payload(a.Type, chapter.Id, number),
+                                $"Run the continuity check on Chapter {number}", null));
+                            return null;
+                        case SummarizeChapter:
+                            if (!hasProse) return $"Chapter {number} is not written yet.";
+                            actions.Add(Make(Payload(a.Type, chapter.Id, number),
+                                $"Re-summarize Chapter {number}", null));
                             return null;
                         default: // PatchChapter
                             if (!hasProse) return $"Chapter {number} is not written yet.";

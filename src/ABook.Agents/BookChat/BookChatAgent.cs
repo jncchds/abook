@@ -122,7 +122,7 @@ public class BookChatAgent : AgentBase
         var state = new BookChatState(BookContentService.IsBibleLocked(book),
             (await Repo.GetCharacterCardsAsync(bookId)).Select(c => c.Name).ToList(),
             (await Repo.GetPlotThreadsAsync(bookId)).Select(t => t.Name).ToList(),
-            chapters.Select(c => new BookChatChapter(c.Id, c.Number, c.Title, c.Content)).ToList());
+            chapters.Select(c => new BookChatChapter(c.Id, c.Number, c.Title, c.Content, c.Outline)).ToList());
         var (normalized, _) = BookChatActions.Normalize(actions, state);
         var proposals = new List<ChatProposal>();
         foreach (var (action, ordinal) in normalized.Select((a, i) => (a, i)))
@@ -184,7 +184,7 @@ public class BookChatAgent : AgentBase
             };
 
         var state = new BookChatState(locked, characters.Select(c => c.Name).ToList(), threads.Select(t => t.Name).ToList(),
-            chapters.Select(c => new BookChatChapter(c.Id, c.Number, c.Title, c.Content)).ToList());
+            chapters.Select(c => new BookChatChapter(c.Id, c.Number, c.Title, c.Content, c.Outline)).ToList());
         var (actions, dropped) = BookChatActions.Normalize(parsed.Actions, state);
 
         var content = parsed.Message.Length > 0 ? parsed.Message : actions.Count > 0 ? "Here is what I propose." : "(no reply)";

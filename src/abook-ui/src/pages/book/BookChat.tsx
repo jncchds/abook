@@ -27,10 +27,16 @@ const TYPE_LABELS: Record<string, string> = {
   revise_chapter: 'Revise',
   patch_chapter: 'Edit passage',
   add_note: 'Note',
+  check_outline: 'Outline check',
+  check_chapter: 'Continuity check',
+  summarize_chapter: 'Summary',
 }
 
 /** Long actions run the Writer or the Editor: there is no preview to diff, only what they were asked. */
 const LONG_ACTIONS = new Set(['write_chapter', 'revise_chapter'])
+
+/** Steps re-run a check or summary: they change nothing themselves, can be run again, and have nothing to undo. */
+const STEP_ACTIONS = new Set(['check_outline', 'check_chapter', 'summarize_chapter'])
 
 function errorText(err: unknown) {
   return axios.isAxiosError(err) ? (err.response?.data?.message ?? err.message) : String(err)
@@ -70,11 +76,13 @@ function ProposalCard({ p, bookId, busy, locked, onApply, onReject, onUndo }: {
   const hasDiff = !LONG_ACTIONS.has(p.type) && (p.previewBefore !== '' || p.previewAfter !== '')
   const link = p.status === 'Applied' ? targetLink(bookId, p.target) : null
   const actionable = p.status === 'Pending' || p.status === 'Failed'
+  const step = STEP_ACTIONS.has(p.type)
+  const status = step ? ({ Applying: 'Running', Applied: 'Done' } as Record<string, string>)[p.status] ?? p.status : p.status
   return (
     <div className={`proposal-card proposal-${p.status.toLowerCase()}`}>
       <div className="proposal-head">
         <span className="proposal-type">{TYPE_LABELS[p.type] ?? p.type}</span>
-        <span className="proposal-status">{p.status === 'Applying' ? <><span className="spinner" /> Applying</> : p.status}</span>
+        <span className="proposal-status">{p.status === 'Applying' ? <><span className="spinner" /> {status}</> : status}</span>
       </div>
       <div className="proposal-label">{p.label}</div>
       {instructions && <div className="proposal-instructions">{instructions}</div>}
@@ -89,9 +97,11 @@ function ProposalCard({ p, bookId, busy, locked, onApply, onReject, onUndo }: {
       {open && hasDiff && <ChangeDiff before={p.previewBefore} after={p.previewAfter} />}
       {p.resultNote && <div className="proposal-note">{p.resultNote}</div>}
       <div className="proposal-actions">
-        {actionable && <button className="btn-sm" disabled={busy} onClick={() => onApply([p.id])}>Apply</button>}
-        {actionable && <button className="btn-sm btn-ghost" disabled={busy} onClick={() => onReject([p.id])}>Reject</button>}
-        {p.status === 'Applied' && <button className="btn-sm btn-ghost" disabled={busy} onClick={() => onUndo(p.id)}>↩ Undo</button>}
+        {actionable && <button className="btn-sm" disabled={busy} onClick={() => onApply([p.id])}>{step ? '▶ Run' : 'Apply'}</button>}
+        {actionable && <button className="btn-sm btn-ghost" disabled={busy} onClick={() => onReject([p.id])}>{step ? 'Dismiss' : 'Reject'}</button>}
+        {p.status === 'Applied' && (step
+          ? <button className="btn-sm btn-ghost" disabled={busy} onClick={() => onApply([p.id])}>↻ Run again</button>
+          : <button className="btn-sm btn-ghost" disabled={busy} onClick={() => onUndo(p.id)}>↩ Undo</button>)}
         {link && <Link className="proposal-open" to={link}>Open ↗</Link>}
       </div>
     </div>

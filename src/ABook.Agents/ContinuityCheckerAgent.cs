@@ -5,6 +5,9 @@ using Microsoft.Extensions.Logging;
 
 namespace ABook.Agents;
 
+/// <summary>An outline check: the contradictions found (null when none) and the outline rewritten to resolve them.</summary>
+public sealed record OutlineCheck(string? Issues, string? FixedOutline);
+
 public class ContinuityCheckerAgent : AgentBase
 {
     public ContinuityCheckerAgent(
@@ -24,6 +27,37 @@ public class ContinuityCheckerAgent : AgentBase
     /// </summary>
     public async Task PreWriteCheckAndFixAsync(int bookId, int chapterId, CancellationToken ct = default)
     {
+        var check = await CheckOutlineAsync(bookId, chapterId, ct);
+        if (check.FixedOutline is not { } fixedOutline) return;
+
+        var chapter = await Repo.GetChapterAsync(bookId, chapterId)
+            ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
+        var originalOutline = chapter.Outline;
+        chapter.Outline = fixedOutline;
+        await Repo.UpdateChapterAsync(chapter);
+        await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
+
+        // Persist a SystemNote so the correction is visible in the chat panel
+        await Repo.AddMessageAsync(new AgentMessage
+        {
+            BookId = bookId,
+            ChapterId = chapterId,
+            AgentRole = AgentRole.ContinuityChecker,
+            MessageType = MessageType.SystemNote,
+            Content = $"ℹ️ Pre-write review auto-corrected the outline for Chapter {chapter.Number}.\n\n" +
+                      $"**Issues found:**\n{check.Issues}\n\n" +
+                      $"**Original outline:**\n{originalOutline}",
+            IsResolved = true
+        });
+    }
+
+    /// <summary>
+    /// Checks one chapter's outline against the established facts (world rules, its characters and threads, the
+    /// chapters before it) and, when it contradicts them, writes a corrected outline. Saves nothing — the caller
+    /// decides what to do with the result. <see cref="OutlineCheck.Issues"/> is null when none were found.
+    /// </summary>
+    public async Task<OutlineCheck> CheckOutlineAsync(int bookId, int chapterId, CancellationToken ct = default)
+    {
         var book = await Repo.GetByIdAsync(bookId)
             ?? throw new InvalidOperationException($"Book {bookId} not found.");
         var chapter = EnsureNotArchived(await Repo.GetChapterAsync(bookId, chapterId)
@@ -41,13 +75,14 @@ public class ContinuityCheckerAgent : AgentBase
             new(LlmChatRole.User, PromptTemplates.PreWriteDetectUser(establishedFacts, chapter)),
         };
 
-        var detectResponse = await StreamResponseAsync(client, config, detectHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct,
-            forwardToUi: false);
+        var detectResponse = (await StreamResponseAsync(client, config, detectHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct,
+            forwardToUi: false)).Trim();
 
-        if (detectResponse.Trim().StartsWith(PromptTemplates.PreWriteNoIssuesMarker, StringComparison.OrdinalIgnoreCase))
+        if (detectResponse.Length == 0
+            || detectResponse.StartsWith(PromptTemplates.PreWriteNoIssuesMarker, StringComparison.OrdinalIgnoreCase))
         {
             await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, RunStates.Done, chapterId, ct);
-            return;
+            return new OutlineCheck(null, null);
         }
 
         // ── Step 2: Fix ───────────────────────────────────────────────────────
@@ -57,31 +92,11 @@ public class ContinuityCheckerAgent : AgentBase
             new(LlmChatRole.User, PromptTemplates.PreWriteFixUser(establishedFacts, chapter, detectResponse)),
         };
 
-        var fixedOutline = await StreamResponseAsync(client, config, fixHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct,
-            forwardToUi: false);
-
-        if (!string.IsNullOrWhiteSpace(fixedOutline))
-        {
-            var originalOutline = chapter.Outline;
-            chapter.Outline = fixedOutline.Trim();
-            await Repo.UpdateChapterAsync(chapter);
-            await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId, ct);
-
-            // Persist a SystemNote so the correction is visible in the chat panel
-            await Repo.AddMessageAsync(new AgentMessage
-            {
-                BookId = bookId,
-                ChapterId = chapterId,
-                AgentRole = AgentRole.ContinuityChecker,
-                MessageType = MessageType.SystemNote,
-                Content = $"ℹ️ Pre-write review auto-corrected the outline for Chapter {chapter.Number}.\n\n" +
-                          $"**Issues found:**\n{detectResponse}\n\n" +
-                          $"**Original outline:**\n{originalOutline}",
-                IsResolved = true
-            });
-        }
+        var fixedOutline = (await StreamResponseAsync(client, config, fixHistory, bookId, chapterId, AgentRole.ContinuityChecker, ct,
+            forwardToUi: false)).Trim();
 
         await Notifier.NotifyStatusChangedAsync(bookId, AgentRole.ContinuityChecker, RunStates.Done, chapterId, ct);
+        return new OutlineCheck(detectResponse, fixedOutline.Length > 0 ? fixedOutline : null);
     }
 
     /// <summary>

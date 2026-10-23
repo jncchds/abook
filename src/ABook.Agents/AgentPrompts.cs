@@ -886,6 +886,10 @@ public static class PromptTemplates
               the same "option"; leave "option" null for actions that are not alternatives.
             - Propose add_note for a lasting decision of the author (style, tone, rules, things to avoid) so it guides every
               later chapter.
+            - When the author asks to run a check or a summary again, propose check_outline, check_chapter or
+              summarize_chapter for those chapters — do not check them yourself in your message. These change nothing in
+              the book; their findings come back as new proposals. To redo a chapter's prose, use write_chapter (from its
+              outline) or revise_chapter. Do not propose checks the author did not ask for.
             - Refer to chapters by number and to characters and plot threads by their exact names.
             {{stage}}
 
@@ -913,6 +917,12 @@ public static class PromptTemplates
         BookChatActions.PatchChapter => "\"chapter\"; \"originalText\" = text copied exactly from the chapter (a whole sentence or more); " +
                                         "\"replacementText\" = what replaces it. For small, precise fixes.",
         BookChatActions.AddNote => "\"text\" = the decision to remember.",
+        BookChatActions.CheckOutline => "\"chapter\" — re-runs the continuity check of the chapter's outline against the book; " +
+                                        "a corrected outline comes back as a new proposal.",
+        BookChatActions.CheckChapter => "\"chapter\" (written) — re-runs the continuity check of the chapter's prose; " +
+                                        "the fixes come back as new proposals.",
+        BookChatActions.SummarizeChapter => "\"chapter\" (written) — rewrites the chapter's summary from its prose and proposes " +
+                                            "the new characters and plot-thread changes it finds.",
         _ => "",
     };
 
