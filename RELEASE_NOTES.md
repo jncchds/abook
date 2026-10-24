@@ -1,5 +1,9 @@
 # Release Notes
 
+## v0.5.1 — 2026-10-24
+
+- fix: **Telegram: suggestions can be applied from chats with Participate access** (the default). Applying, rejecting and undoing book-chat suggestions was limited to Control, so in a newly connected chat the suggestions arrived with no buttons at all. Applying is part of using the book chat, so it now comes with Participate; Control keeps starting/stopping runs, `/rewind` and `/unbind`. Suggestion messages already in a chat get their buttons on the next sync; in a Read-only chat they say why there are none
+
 ## v0.5.0 — 2026-10-24
 
 ### Rewind

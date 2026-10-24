@@ -293,8 +293,8 @@ One bot per ABook server lets people follow and steer a book from Telegram.
 | Access | Can |
 |---|---|
 | Read | See the status card, notices and files |
-| Participate *(default)* | …and answer the planner's questions, `/export`, `/note`, write in the book chat (Interactive books) |
-| Control | …and start, continue and stop runs, apply / reject / undo book-chat changes, `/unbind`. Runs use the book's LLM settings, so everyone there spends its tokens; in groups you can limit Control to the chat's admins |
+| Participate *(default)* | …and answer the planner's questions, `/export`, `/note`, write in the book chat (Interactive books) and apply / reject / undo what it suggests |
+| Control | …and start, continue and stop runs, `/rewind`, `/unbind`. Runs use the book's LLM settings, so everyone there spends its tokens; in groups you can limit starting and stopping to the chat's admins (rewind and disconnect are always admins-only in groups) |
 
 **In the chat**
 - A pinned **status card** shows what the agents are doing, the chapters done and the tokens of the current run, with **Stop / Start / Continue**, **Refresh** and **Export** buttons for the chat's access.

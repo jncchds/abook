@@ -63,8 +63,8 @@ public static class TelegramFormat
     public static string LevelText(TelegramAccessLevel level) => level switch
     {
         TelegramAccessLevel.Read => "read: status, notices and files",
-        TelegramAccessLevel.Participate => "participate: also answer questions, export, add notes and use the book chat",
-        _ => "control: also start, continue and stop runs and apply book-chat changes",
+        TelegramAccessLevel.Participate => "participate: also answer questions, export, add notes, and write in the book chat and apply what it suggests",
+        _ => "control: also start, continue and stop runs, rewind and disconnect",
     };
 
     // ── Status card ───────────────────────────────────────────────────────────

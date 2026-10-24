@@ -254,7 +254,7 @@ public sealed class TelegramUpdateHandler(
         }
         lines.Add("/status — post a fresh status card");
         if (binding.Level == TelegramAccessLevel.Control && binding.ControlAdminsOnly)
-            lines.Add("\n🔒 Starting, stopping and applying are for chat admins only.");
+            lines.Add("\n🔒 Starting and stopping runs are for chat admins only.");
         return string.Join("\n", lines);
     }
 
@@ -435,7 +435,10 @@ public sealed class TelegramUpdateHandler(
         var need = action switch
         {
             "refresh" => TelegramAccessLevel.Read,
-            "export" or "skipc" or "retry" => TelegramAccessLevel.Participate,
+            // Applying, rejecting and undoing book-chat suggestions is how an Interactive book gets written:
+            // part of using the book chat, like writing in it.
+            "export" or "skipc" or "retry" or "apply" or "applyf" or "applyall" or "reject" or "undo" or "undof"
+                => TelegramAccessLevel.Participate,
             _ => TelegramAccessLevel.Control,
         };
         var isRewind = action is "rwat" or "rwgo" or "rwno";

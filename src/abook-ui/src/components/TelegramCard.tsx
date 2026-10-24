@@ -5,8 +5,8 @@ import ToggleField from './ToggleField'
 
 const LEVELS: { value: TelegramAccessLevel; label: string; hint: string }[] = [
   { value: 'Read', label: 'Read', hint: 'status, notices and files' },
-  { value: 'Participate', label: 'Participate', hint: 'also answer questions, export, add notes and use the book chat' },
-  { value: 'Control', label: 'Control', hint: 'also start, continue and stop runs and apply book-chat changes' },
+  { value: 'Participate', label: 'Participate', hint: 'also answer questions, export, add notes, and write in the book chat and apply its suggestions' },
+  { value: 'Control', label: 'Control', hint: 'also start, continue and stop runs, rewind and disconnect' },
 ]
 
 const CHAT_ICONS: Record<TelegramBinding['chatType'], string> = {
@@ -194,7 +194,7 @@ export default function TelegramCard({ bookId }: { bookId: number }) {
                 </div>
                 {b.level === 'Control' && b.chatType !== 'private' && b.chatType !== 'channel' && (
                   <ToggleField checked={b.controlAdminsOnly} onChange={v => void update(b, { controlAdminsOnly: v })}
-                    label="Only chat admins can start, stop and apply"
+                    label="Only chat admins can start and stop runs"
                     hint="Checked against the members' Telegram admin rights." />
                 )}
                 {b.chatType === 'private' && (

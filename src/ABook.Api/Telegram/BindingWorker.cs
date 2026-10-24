@@ -373,7 +373,12 @@ public sealed class BindingWorker
         }
         var levelChanged = fresh.Level != _b.Level;
         _b = fresh;
-        if (levelChanged) RefreshStatus();
+        if (levelChanged)
+        {
+            RefreshStatus();
+            // The suggestion buttons depend on the level too.
+            SyncChatSoon();
+        }
     }
 
     /// <summary>Ends the binding because Telegram will not deliver to it any more.</summary>
@@ -812,12 +817,17 @@ public sealed class BindingWorker
     {
         var proposals = m.Proposals.OrderBy(p => p.Ordinal).ToList();
         if (proposals.Count == 0) return;
-        var hash = ProposalsHash(proposals);
+        // Applying is part of using the book chat: everyone who can write in it can apply what it suggests.
+        var canAct = _b.Level >= TelegramAccessLevel.Participate;
+        // Whether the chat may act is part of what is shown: a level change re-draws the buttons.
+        var hash = ProposalsHash(proposals) + (canAct ? "+act" : "");
         var link = await tg.GetLatestLinkAsync(_b.Id, TelegramLinkKind.ChatProposals, m.Id);
         if (link?.ContentHash == hash) return;
 
         var text = ProposalsText(proposals);
-        var keyboard = _b.Level == TelegramAccessLevel.Control ? ProposalsKeyboard(_b.Id, m.Id, proposals) : [];
+        if (!canAct && proposals.Any(p => p.Status is ChatProposalStatus.Pending or ChatProposalStatus.Failed))
+            text += "\n\n<i>This chat can only follow the book — apply these in abook, or ask the book's owner for Participate access.</i>";
+        var keyboard = canAct ? ProposalsKeyboard(_b.Id, m.Id, proposals) : [];
         if (link is null)
         {
             var reply = await tg.GetLatestLinkAsync(_b.Id, TelegramLinkKind.ChatMessage, m.Id);
