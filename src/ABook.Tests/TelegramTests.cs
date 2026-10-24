@@ -143,6 +143,41 @@ public class TelegramFormatTests
     }
 }
 
+public class TelegramRewindFormatTests
+{
+    [Fact]
+    public void Micros_RoundTrip_AndFitButtonData()
+    {
+        var at = new DateTime(2026, 10, 24, 13, 5, 12, DateTimeKind.Utc).AddTicks(1234560);
+        Assert.Equal(at, TelegramFormat.FromMicros(TelegramFormat.Micros(at)));
+        Assert.True(Encoding.UTF8.GetByteCount(TelegramFormat.Callback(123456, "rwat", TelegramFormat.Micros(at))) <= 64);
+    }
+
+    [Fact]
+    public void Micros_OfAMomentJustBefore_StaysBefore()
+    {
+        var created = new DateTime(2026, 10, 24, 13, 5, 12, DateTimeKind.Utc).AddTicks(10 * 777);   // whole microseconds, like Postgres
+        Assert.True(TelegramFormat.FromMicros(TelegramFormat.Micros(created.AddTicks(-1))) < created);
+    }
+
+    [Fact]
+    public void Preview_SummarizesAndListsTheChanges()
+    {
+        var plan = new RewindPlan(1, new DateTime(2026, 10, 24, 13, 5, 0, DateTimeKind.Utc),
+        [
+            new RewindChange("Chapter", 3, RewindChangeKind.Restore, "Chapter 3: <Dawn>", ["text", "status"]),
+            new RewindChange("Chapter", 4, RewindChangeKind.Archive, "Chapter 4: Later", []),
+            new RewindChange("CharacterCard", 7, RewindChangeKind.Recreate, "Character Mortimer", []),
+        ], 5, "1-2");
+        var html = TelegramFormat.RewindPreview(plan);
+        Assert.Contains("24 Oct 13:05:00 UTC", html);
+        Assert.Contains("1 chapter restored · 1 chapter archived · 1 character brought back · 5 chat message(s) hidden", html);
+        Assert.Contains("Chapter 3: &lt;Dawn&gt;", html);
+        Assert.Contains("<i>(text, status)</i>", html);
+        Assert.Contains("<blockquote expandable>", html);
+    }
+}
+
 public class TelegramBindCodeTests
 {
     [Theory]

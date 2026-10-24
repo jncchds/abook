@@ -30,6 +30,8 @@ public sealed class BindingWorker
     // Due work
     private bool _statusDirty = true, _statusUrgent = true, _askClarification = true;
     private bool _planningRunSeen, _bookCheck, _askAgain;
+    /// <summary>A rewind just happened: the next chapter files say so.</summary>
+    private bool _rewound;
     private DateTime _lastStatusEdit = DateTime.MinValue, _clarifyCheckAt = DateTime.MinValue, _lastSend = DateTime.MinValue;
     private string? _lastStatusHash;
     private DateTime? _chapterSyncAt, _illustrationSyncAt, _chatSyncAt;
@@ -192,7 +194,54 @@ public sealed class BindingWorker
             case TgChatEvent:
                 _chatSyncAt = Min(_chatSyncAt, now + TimeSpan.FromMilliseconds(500));
                 break;
+            case TgRewoundEvent r:
+                await WithScopeAsync(sp => OnRewoundAsync(sp, r));
+                break;
         }
+    }
+
+    /// <summary>
+    /// The book was rewound (from here, the web or another thread): a divider replying to the last message before the
+    /// moment, rewound book-chat messages crossed out and their buttons removed, and the changed chapters' files sent
+    /// as new versions.
+    /// </summary>
+    private async Task OnRewoundAsync(IServiceProvider sp, TgRewoundEvent r)
+    {
+        var tg = sp.GetRequiredService<ITelegramRepository>();
+        var repo = sp.GetRequiredService<IBookRepository>();
+        if (!_b.IsChannel)
+        {
+            foreach (var messageId in r.HiddenChatMessageIds)
+            {
+                var message = await repo.GetChatMessageAsync(_b.BookId, messageId);
+                if (await tg.GetLatestLinkAsync(_b.Id, TelegramLinkKind.ChatMessage, messageId) is { MessageId: > 0 } link
+                    && link.Version != TelegramUpdateHandler.UserMessageVersion && message is not null)
+                    await EditQuietlyAsync(link.MessageId,
+                        $"⏪ <i>Rewound — no longer part of the book chat.</i>\n<s>{H(Clip(message.Content, 3000))}</s>", null);
+                if (await tg.GetLatestLinkAsync(_b.Id, TelegramLinkKind.ChatProposals, messageId) is { MessageId: > 0 } proposals)
+                    await EditQuietlyAsync(proposals.MessageId, "🛠 <s>Suggested changes</s> — ⏪ <i>rewound</i>", null);
+            }
+        }
+
+        var before = await tg.GetLastLinkBeforeAsync(_b.Id, r.At);
+        var who = r.Origin is { Length: > 0 } o ? $" by {H(o)}" : "";
+        await SendTextAsync(
+            $"⏪ <b>Rewound to {MomentText(r.At)}</b>{who}.\n" +
+            "What came after that point no longer counts: every part is back to its state then (as new versions — " +
+            "the old ones stay in abook's history), and later book-chat messages are hidden.",
+            replyTo: before?.MessageId);
+
+        _rewound = true;
+        _chapterSyncAt = DateTime.UtcNow;
+        _chatSyncAt = DateTime.UtcNow;
+        RefreshStatus();
+    }
+
+    /// <summary>Edits a message the bot posted, ignoring ones Telegram no longer lets it edit.</summary>
+    private async Task EditQuietlyAsync(int messageId, string html, IReadOnlyList<IReadOnlyList<TgButton>>? keyboard)
+    {
+        try { await EditAsync(messageId, html, keyboard); }
+        catch (TelegramApiException ex) when (!ex.ChatGone) { }
     }
 
     /// <summary>The first sign of a new run: its token counters and drafts start afresh.</summary>
@@ -503,7 +552,7 @@ public sealed class BindingWorker
             var version = (last?.Version ?? 0) + 1;
             var (bytes, contentType, fileName) = await exporter.ExportChapterAsync(_b.BookId, chapter.Id, _b.FileFormat);
             var caption = $"📄 <b>Chapter {chapter.Number}{(chapter.Title.Length > 0 ? ": " + H(Clip(chapter.Title, 150)) : "")}</b>\n" +
-                          $"v{version} · {N(CountWords(chapter.Content))} words" +
+                          $"v{version}{(_rewound ? " · ⏪ rewound" : "")} · {N(CountWords(chapter.Content))} words" +
                           (string.IsNullOrWhiteSpace(chapter.Summary) ? "" : $"\n\n{H(Clip(chapter.Summary, 650))}");
             var replyTo = last is { MessageId: > 0 } ? last.MessageId : (int?)null;
             var messageId = await SendFileOrNoticeAsync(fileName, bytes, contentType, caption, replyTo);
@@ -515,6 +564,7 @@ public sealed class BindingWorker
             _sentChapterHashes[chapter.Id] = hash;
         }
 
+        _rewound = false;
         if (_planningRunSeen) await SendPlanningIfCompleteAsync(sp, chapters);
         if (_bookCheck)
         {

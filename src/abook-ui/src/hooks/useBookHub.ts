@@ -12,6 +12,8 @@ type AgentErrorHandler = (bookId: number, agentRole: string, errorMessage: strin
 type MessagesUpdatedHandler = (bookId: number) => void
 type IllustrationsUpdatedHandler = (bookId: number, illustrationId: number | null) => void
 type BookChatUpdatedHandler = (bookId: number, messageId: number | null) => void
+/** The whole book was rewound to `at` (ISO): anything may have changed. */
+type BookRewoundHandler = (bookId: number, at: string, origin: string | null) => void
 type ReconnectedHandler = () => void
 type JoinedHandler = () => void
 
@@ -47,6 +49,7 @@ export function useBookHub(bookId: number | null) {
   const onMessagesUpdated = useRef<MessagesUpdatedHandler | null>(null)
   const onIllustrationsUpdated = useRef<IllustrationsUpdatedHandler | null>(null)
   const onBookChatUpdated = useRef<BookChatUpdatedHandler | null>(null)
+  const onBookRewound = useRef<BookRewoundHandler | null>(null)
   const onReconnected = useRef<ReconnectedHandler | null>(null)
   const onJoined = useRef<JoinedHandler | null>(null)
 
@@ -85,6 +88,7 @@ export function useBookHub(bookId: number | null) {
           case 'MessagesUpdated': onMessagesUpdated.current?.(a[0]); break
           case 'IllustrationsUpdated': onIllustrationsUpdated.current?.(a[0], a[1] ?? null); break
           case 'BookChatUpdated': onBookChatUpdated.current?.(a[0], a[1] ?? null); break
+          case 'BookRewound': onBookRewound.current?.(a[0], a[1], a[2] ?? null); break
         }
       } catch (err) {
         console.error(err)
@@ -220,6 +224,7 @@ export function useBookHub(bookId: number | null) {
     setOnMessagesUpdated: (fn: MessagesUpdatedHandler) => { onMessagesUpdated.current = fn },
     setOnIllustrationsUpdated: (fn: IllustrationsUpdatedHandler) => { onIllustrationsUpdated.current = fn },
     setOnBookChatUpdated: (fn: BookChatUpdatedHandler) => { onBookChatUpdated.current = fn },
+    setOnBookRewound: (fn: BookRewoundHandler) => { onBookRewound.current = fn },
     /** Fires after a rejoin whose missed events could not be replayed — re-read whatever they would have updated. */
     setOnReconnected: (fn: ReconnectedHandler) => { onReconnected.current = fn },
     /**

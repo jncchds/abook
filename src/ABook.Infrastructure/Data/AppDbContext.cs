@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ABook.Infrastructure.Data;
 
-public class AppDbContext : DbContext
+public partial class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
@@ -46,6 +46,7 @@ public class AppDbContext : DbContext
     public DbSet<TelegramBinding> TelegramBindings => Set<TelegramBinding>();
     public DbSet<TelegramBindCode> TelegramBindCodes => Set<TelegramBindCode>();
     public DbSet<TelegramMessageLink> TelegramMessageLinks => Set<TelegramMessageLink>();
+    public DbSet<ContentRevision> ContentRevisions => Set<ContentRevision>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -504,6 +505,20 @@ public class AppDbContext : DbContext
              .OnDelete(DeleteBehavior.Cascade);
             l.HasIndex(x => new { x.BindingId, x.Kind, x.RefId });
             l.HasIndex(x => new { x.BindingId, x.MessageId });
+        });
+
+        modelBuilder.Entity<ContentRevision>(r =>
+        {
+            r.HasKey(x => x.Id);
+            r.Property(x => x.EntityType).HasMaxLength(40).IsRequired();
+            r.Property(x => x.Op).HasConversion<string>().HasMaxLength(10);
+            r.Property(x => x.DataHash).HasMaxLength(64);
+            r.HasOne<Book>()
+             .WithMany()
+             .HasForeignKey(x => x.BookId)
+             .OnDelete(DeleteBehavior.Cascade);
+            r.HasIndex(x => new { x.BookId, x.At });
+            r.HasIndex(x => new { x.EntityType, x.EntityId, x.Id });
         });
 
         modelBuilder.Entity<AgentMessage>().Property(x => x.Origin).HasMaxLength(300);

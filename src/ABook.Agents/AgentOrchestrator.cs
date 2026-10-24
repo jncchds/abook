@@ -25,6 +25,8 @@ public class AgentOrchestrator : IAgentOrchestrator
     private readonly IBookNotifier _notifier;
     private readonly BookChatAgent _bookChat;
     private readonly ProposalExecutor _proposals;
+    private readonly IBookRewinder _rewinder;
+    private readonly IChapterIndexQueue _indexQueue;
     private readonly ILogger<AgentOrchestrator> _logger;
 
     public AgentOrchestrator(
@@ -43,8 +45,12 @@ public class AgentOrchestrator : IAgentOrchestrator
         IBookNotifier notifier,
         BookChatAgent bookChat,
         ProposalExecutor proposals,
+        IBookRewinder rewinder,
+        IChapterIndexQueue indexQueue,
         ILogger<AgentOrchestrator> logger)
     {
+        _rewinder = rewinder;
+        _indexQueue = indexQueue;
         _bookChat = bookChat;
         _proposals = proposals;
         _repo = repo;
@@ -62,6 +68,37 @@ public class AgentOrchestrator : IAgentOrchestrator
         _notifier = notifier;
         _logger = logger;
     }
+
+    public Task RewindAsync(int bookId, DateTime at, string? fingerprint, string? origin, CancellationToken ct = default) =>
+        ExecuteAgentRunAsync(bookId, AgentRole.Rewind, null, ct, async c =>
+        {
+            await _notifier.NotifyWorkflowProgressAsync(bookId, $"Rewinding to {at:yyyy-MM-dd HH:mm:ss} UTC…", false, c);
+            var result = await _rewinder.RewindAsync(bookId, at, fingerprint, origin, c);
+
+            // Restored text that was never embedded before: RAG needs it for the next step.
+            foreach (var (chapterId, versionId) in result.VersionsToIndex)
+                _indexQueue.QueueIndex(bookId, chapterId, versionId);
+
+            var plan = result.Plan;
+            await _repo.AddMessageAsync(new AgentMessage
+            {
+                BookId = bookId,
+                AgentRole = AgentRole.Rewind,
+                MessageType = MessageType.SystemNote,
+                Content = $"⏪ Rewound the book to {at:yyyy-MM-dd HH:mm:ss} UTC — {plan.Changes.Count} change(s)" +
+                          (plan.HiddenChatMessages > 0 ? $", {plan.HiddenChatMessages} book-chat message(s) hidden" : "") +
+                          ". Everything in between stays in each part's history." +
+                          (plan.Changes.Count > 0 ? "\n\n" + string.Join("\n", plan.Changes.Select(ch => $"- {ch.Kind}: {ch.Label}" +
+                              (ch.Fields.Count > 0 ? $" ({string.Join(", ", ch.Fields)})" : ""))) : ""),
+                IsResolved = true,
+                Origin = origin,
+            });
+            foreach (var chapterId in result.ChangedChapterIds)
+                await NotifySafelyAsync(bookId, () => _notifier.NotifyChapterUpdatedAsync(bookId, chapterId, CancellationToken.None));
+            await NotifySafelyAsync(bookId, () => _notifier.NotifyMessagesUpdatedAsync(bookId, CancellationToken.None));
+            await NotifySafelyAsync(bookId, () => _notifier.NotifyBookChatAsync(bookId, null, CancellationToken.None));
+            await NotifySafelyAsync(bookId, () => _notifier.NotifyRewoundAsync(bookId, at, result.HiddenChatMessageIds, origin, CancellationToken.None));
+        }, runType: "rewind");
 
     public Task StartPlanningAsync(int bookId, CancellationToken ct = default) =>
         RunPlanningAsync(bookId, isContinue: false, ct);
@@ -318,6 +355,7 @@ public class AgentOrchestrator : IAgentOrchestrator
             "chat"       => "Reply ready.",
             "chat-apply" => "Changes applied.",
             "chat-undo"  => "Change undone.",
+            "rewind"     => "Rewind complete.",
             _            => "Workflow complete!",
         };
         await NotifySafelyAsync(bookId, () => _notifier.NotifyWorkflowProgressAsync(bookId, completionMsg, true, CancellationToken.None));

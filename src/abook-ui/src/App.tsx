@@ -19,6 +19,7 @@ import BookChat from './pages/book/BookChat'
 import TokenStatsPage from './pages/book/TokenStatsPage'
 import BookSettings from './pages/book/BookSettings'
 import Illustrations from './pages/book/Illustrations'
+import Rewind from './pages/book/Rewind'
 import Library from './pages/Library'
 import PublicBookReader, { PublicBookIndex } from './pages/PublicBookReader'
 import { AuthProvider, useAuth } from './hooks/useAuth'
@@ -48,6 +49,7 @@ function ProtectedRoutes() {
         <Route path="chat" element={<ChatPage />} />
         <Route path="studio" element={<BookChat />} />
         <Route path="token-stats" element={<TokenStatsPage />} />
+        <Route path="rewind" element={<Rewind />} />
         <Route path="illustrations" element={<Illustrations />} />
         <Route path="settings" element={<BookSettings />} />
       </Route>

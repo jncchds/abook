@@ -194,6 +194,58 @@ public static class TelegramFormat
         return parts.Length < 3 || long.TryParse(parts[2], out arg);
     }
 
+    // ── Rewind ────────────────────────────────────────────────────────────────
+
+    /// <summary>A moment as microseconds since 1970 — fits button data and keeps the database's precision.</summary>
+    public static long Micros(DateTime at) => (at.ToUniversalTime() - DateTime.UnixEpoch).Ticks / 10;
+    public static DateTime FromMicros(long micros) => DateTime.SpecifyKind(DateTime.UnixEpoch.AddTicks(micros * 10), DateTimeKind.Utc);
+
+    public static string MomentText(DateTime at) => at.ToUniversalTime().ToString("d MMM HH:mm:ss", CultureInfo.InvariantCulture) + " UTC";
+
+    /// <summary>The preview: a one-line summary, then every change in an expandable quote.</summary>
+    public static string RewindPreview(ABook.Core.Interfaces.RewindPlan plan)
+    {
+        var sb = new StringBuilder();
+        sb.Append("⏪ <b>Rewind the book to ").Append(MomentText(plan.At)).Append("?</b>\n");
+        var parts = plan.Changes
+            .GroupBy(c => (c.EntityType, c.Kind))
+            .Select(g => $"{g.Count()} {TypeWords(g.Key.EntityType, g.Count())} {KindWords(g.Key.Kind)}")
+            .ToList();
+        if (plan.HiddenChatMessages > 0) parts.Add($"{plan.HiddenChatMessages} chat message(s) hidden");
+        sb.Append(H(string.Join(" · ", parts))).Append('\n');
+
+        var lines = plan.Changes.Take(40).Select(c =>
+            $"• {KindWords(c.Kind)}: {H(Clip(c.Label, 90))}" + (c.Fields.Count > 0 ? $" <i>({H(string.Join(", ", c.Fields.Take(6)))})</i>" : ""));
+        if (plan.Changes.Count > 0)
+        {
+            sb.Append("<blockquote expandable>").Append(string.Join("\n", lines));
+            if (plan.Changes.Count > 40) sb.Append($"\n… and {plan.Changes.Count - 40} more");
+            sb.Append("</blockquote>\n");
+        }
+        sb.Append("<i>Each part gets the state it had then, as a new version — everything in between stays in its history. " +
+                  "Later book-chat messages are hidden for good.</i>");
+        return sb.ToString();
+    }
+
+    private static string KindWords(ABook.Core.Interfaces.RewindChangeKind kind) => kind switch
+    {
+        ABook.Core.Interfaces.RewindChangeKind.Restore => "restored",
+        ABook.Core.Interfaces.RewindChangeKind.Archive => "archived",
+        _ => "brought back",
+    };
+
+    private static string TypeWords(string type, int count) => (type, count == 1) switch
+    {
+        ("Book", _) => "book fields",
+        ("Chapter", true) => "chapter", ("Chapter", false) => "chapters",
+        ("StoryBible", _) => "Story Bible",
+        ("CharacterCard", true) => "character", ("CharacterCard", false) => "characters",
+        ("PlotThread", true) => "plot thread", ("PlotThread", false) => "plot threads",
+        ("Clarification", true) => "clarification", ("Clarification", false) => "clarifications",
+        ("ChatProposal", true) => "chat suggestion", ("ChatProposal", false) => "chat suggestions",
+        _ => type,
+    };
+
     // ── Book chat ─────────────────────────────────────────────────────────────
 
     public static string ProposalStatusIcon(ChatProposalStatus status) => status switch

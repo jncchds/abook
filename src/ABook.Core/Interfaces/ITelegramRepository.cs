@@ -31,6 +31,8 @@ public interface ITelegramRepository
     Task<TelegramMessageLink?> GetLatestLinkAsync(int bindingId, TelegramLinkKind kind, int refId);
     Task<IReadOnlyList<TelegramMessageLink>> GetLinksAsync(int bindingId, TelegramLinkKind kind);
     Task<TelegramMessageLink?> GetLinkByMessageAsync(int bindingId, int messageId);
+    /// <summary>The last message the bot posted (or mapped) in the binding at or before <paramref name="at"/>.</summary>
+    Task<TelegramMessageLink?> GetLastLinkBeforeAsync(int bindingId, DateTime at);
     Task<TelegramMessageLink> AddLinkAsync(TelegramMessageLink link);
     Task UpdateLinkAsync(TelegramMessageLink link);
 }

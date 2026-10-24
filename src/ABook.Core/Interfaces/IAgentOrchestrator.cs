@@ -12,6 +12,11 @@ public interface IAgentOrchestrator
     Task StartWorkflowAsync(int bookId, CancellationToken ct = default);
     Task ContinueWorkflowAsync(int bookId, CancellationToken ct = default);
     Task ContinuePlanningAsync(int bookId, CancellationToken ct = default);
+    /// <summary>
+    /// Rewinds the whole book and its chat to <paramref name="at"/> as a new state (<see cref="IBookRewinder"/>).
+    /// <paramref name="fingerprint"/> (from the preview) refuses the rewind if the book changed since.
+    /// </summary>
+    Task RewindAsync(int bookId, DateTime at, string? fingerprint, string? origin, CancellationToken ct = default);
     /// <param name="origin">Where the answer came from when not the web UI (e.g. "Telegram · @anna · Writers' room").</param>
     Task ResumeWithAnswerAsync(int messageId, string answer, CancellationToken ct = default, string? origin = null);
     /// <summary>

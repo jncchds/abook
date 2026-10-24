@@ -157,7 +157,11 @@ public interface IBookRepository
     /// The newest <paramref name="limit"/> messages (all when null) older than <paramref name="beforeId"/>,
     /// returned oldest first, each with its proposals.
     /// </summary>
-    Task<IReadOnlyList<BookChatMessage>> GetChatMessagesAsync(int bookId, int? beforeId = null, int? limit = null);
+    /// <summary>
+    /// The chat's messages (oldest first). Messages hidden by a rewind are left out unless <paramref name="includeHidden"/>
+    /// — only the web UI shows them (collapsed); they never reach the LLM.
+    /// </summary>
+    Task<IReadOnlyList<BookChatMessage>> GetChatMessagesAsync(int bookId, int? beforeId = null, int? limit = null, bool includeHidden = false);
     Task<BookChatMessage?> GetChatMessageAsync(int bookId, int messageId);
     /// <summary>Saves a message together with its proposals.</summary>
     Task<BookChatMessage> AddChatMessageAsync(BookChatMessage message);

@@ -20,4 +20,9 @@ public interface IBookNotifier
     /// names the message, null means several). The UI re-reads the chat; the book itself may have changed too.
     /// </summary>
     Task NotifyBookChatAsync(int bookId, int? messageId, CancellationToken ct = default);
+    /// <summary>
+    /// The book was rewound to <paramref name="at"/>: everything may have changed (the UI re-reads the book), and the
+    /// book-chat messages <paramref name="hiddenChatMessageIds"/> are hidden from now on.
+    /// </summary>
+    Task NotifyRewoundAsync(int bookId, DateTime at, IReadOnlyList<int> hiddenChatMessageIds, string? origin, CancellationToken ct = default);
 }

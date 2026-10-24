@@ -325,6 +325,9 @@ namespace ABook.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("HiddenAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Origin")
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
@@ -944,6 +947,54 @@ namespace ABook.Infrastructure.Migrations
                     b.HasIndex("BookId");
 
                     b.ToTable("Clarifications");
+                });
+
+            modelBuilder.Entity("ABook.Core.Models.ContentRevision", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("BookId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("DataHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("DataJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("EntityId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<bool>("IsBaseline")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Op")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BookId", "At");
+
+                    b.HasIndex("EntityType", "EntityId", "Id");
+
+                    b.ToTable("ContentRevisions");
                 });
 
             modelBuilder.Entity("ABook.Core.Models.Illustration", b =>
@@ -2007,6 +2058,15 @@ namespace ABook.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Book");
+                });
+
+            modelBuilder.Entity("ABook.Core.Models.ContentRevision", b =>
+                {
+                    b.HasOne("ABook.Core.Models.Book", null)
+                        .WithMany()
+                        .HasForeignKey("BookId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("ABook.Core.Models.Illustration", b =>

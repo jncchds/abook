@@ -159,6 +159,7 @@ function BookSidebar() {
       <SidebarDivider />
       <SidebarBtn icon="💬" label="Agent Messages" active={isAt('chat')} onClick={() => navigate(`/books/${id}/chat`)} dot={!!pendingQuestion} dotColor={pendingQuestion ? 'var(--warning)' : undefined} />
       <SidebarBtn icon="🪙" label="Token Stats" active={isAt('token-stats')} onClick={() => navigate(`/books/${id}/token-stats`)} />
+      <SidebarBtn icon="⏪" label="Rewind" active={isAt('rewind')} onClick={() => navigate(`/books/${id}/rewind`)} />
       <SidebarDivider />
       <SidebarBtn
         icon="📚"

@@ -51,6 +51,8 @@ public class BookChatService(
         var message = await repo.GetChatMessageAsync(bookId, messageId);
         if (message is not { Role: BookChatRole.Author, Status: BookChatMessageStatus.Failed })
             return new(BookChatResult.NotFound, "Only a message whose reply failed can be retried.");
+        if (message.HiddenAt is not null)
+            return new(BookChatResult.NotFound, "This message was rewound and is no longer part of the chat.");
         if (IsBusy(bookId)) return Busy();
         message.Status = BookChatMessageStatus.Pending;
         await repo.UpdateChatMessageAsync(message);

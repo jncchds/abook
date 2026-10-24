@@ -24,9 +24,17 @@ public sealed class TelegramUpdateHandler(
     AgentRunnerService runner,
     AgentRunStateService runState,
     BookChatService chat,
+    RewindService rewinds,
     IServiceScopeFactory scopes,
     ILogger<TelegramUpdateHandler> logger)
 {
+    /// <summary>A rewind preview waiting for its ⏪ button (kept in memory: a restart just makes it expire).</summary>
+    private sealed record RewindOffer(int BindingId, DateTime At, string Fingerprint, DateTime Expires);
+    private readonly ConcurrentDictionary<int, RewindOffer> _rewindOffers = new();
+    private int _nextOffer;
+    /// <summary>On a ChatMessage link: the Telegram message is the user's own (the bot can't edit it).</summary>
+    public const int UserMessageVersion = -1;
+    private static readonly TimeSpan RewindPreviewLifetime = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan AdminCacheTime = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan HintInterval = TimeSpan.FromMinutes(10);
     private readonly ConcurrentDictionary<(long Chat, long User), (bool IsAdmin, DateTime Until)> _admins = new();
@@ -40,6 +48,7 @@ public sealed class TelegramUpdateHandler(
         ("export", "Send the book as a file (epub, fb2, html or metadata)"),
         ("note", "Add a note the agents follow: /note text"),
         ("questions", "Show the planner's open question"),
+        ("rewind", "Rewind the book to an earlier moment (reply to a message, or pick one)"),
         ("unbind", "Disconnect this chat from the book"),
         ("help", "What the bot does here"),
     ];
@@ -199,6 +208,11 @@ public sealed class TelegramUpdateHandler(
                 if (!await RequireAsync(binding, TelegramAccessLevel.Control, message.From, message)) return;
                 await ReplyAsync(message, await StopRunAsync(sp, binding, origin));
                 break;
+            case "rewind":
+                // Throws work away: Control, and in groups only the chat's admins.
+                if (!await RequireAsync(binding, TelegramAccessLevel.Control, message.From, message, adminsAlways: true)) return;
+                await RewindCommandAsync(sp, binding, message);
+                break;
             case "unbind":
                 if (!await RequireAsync(binding, TelegramAccessLevel.Control, message.From, message, adminsAlways: true)) return;
                 await sp.GetRequiredService<TelegramBindingService>()
@@ -235,6 +249,7 @@ public sealed class TelegramUpdateHandler(
         {
             if (!interactive) lines.Add("/run · /continue — start or continue the book");
             lines.Add("/stop — stop the running agent");
+            lines.Add("/rewind — reply to a message to rewind the book to that moment (or pick one)");
             lines.Add("/unbind — disconnect this chat");
         }
         lines.Add("/status — post a fresh status card");
@@ -314,6 +329,14 @@ public sealed class TelegramUpdateHandler(
         if (book?.Mode == BookMode.Interactive && binding.Level >= TelegramAccessLevel.Participate)
         {
             var outcome = await chat.SendAsync(binding.BookId, text, Origin(message.From, binding));
+            if (outcome.MessageId is int chatMessageId)
+                // Which Telegram message it was: /rewind as a reply to it rewinds to just before it.
+                await sp.GetRequiredService<ITelegramRepository>().AddLinkAsync(new TelegramMessageLink
+                {
+                    BindingId = binding.Id, Kind = TelegramLinkKind.ChatMessage, RefId = chatMessageId,
+                    MessageId = message.MessageId, Version = UserMessageVersion,
+                    ContentHash = outcome.Result == BookChatResult.Started ? nameof(BookChatMessageStatus.Pending) : null,
+                });
             if (outcome.Result == BookChatResult.Started) await ReactAsync(message, "👀");
             else await ReplyAsync(message, "⏳ " + H(outcome.Message ?? "The book chat can't take a message right now."));
             dispatcher.Worker(binding.Id)?.SyncChatSoon();
@@ -392,7 +415,7 @@ public sealed class TelegramUpdateHandler(
                     answer = "This chat is no longer connected to the book.";
                     return;
                 }
-                (answer, alert) = await OnButtonAsync(sp, binding, callback, message, action, (int)arg);
+                (answer, alert) = await OnButtonAsync(sp, binding, callback, message, action, arg);
             });
         }
         finally
@@ -403,8 +426,10 @@ public sealed class TelegramUpdateHandler(
     }
 
     private async Task<(string? Answer, bool Alert)> OnButtonAsync(
-        IServiceProvider sp, TelegramBinding binding, TgCallbackQuery callback, TgMessage message, string action, int arg)
+        IServiceProvider sp, TelegramBinding binding, TgCallbackQuery callback, TgMessage message, string action, long longArg)
     {
+        // Ids fit an int; rewind moments (microseconds since 1970) need the long.
+        var arg = (int)Math.Clamp(longArg, int.MinValue, int.MaxValue);
         var worker = dispatcher.Worker(binding.Id);
         var origin = Origin(callback.From, binding);
         var need = action switch
@@ -413,7 +438,9 @@ public sealed class TelegramUpdateHandler(
             "export" or "skipc" or "retry" => TelegramAccessLevel.Participate,
             _ => TelegramAccessLevel.Control,
         };
-        if (await DenialAsync(binding, need, callback.From, null) is { } denied) return (denied, true);
+        var isRewind = action is "rwat" or "rwgo" or "rwno";
+        if (await DenialAsync(binding, need, callback.From, null, adminsAlways: isRewind) is { } denied) return (denied, true);
+        if (isRewind) return await OnRewindButtonAsync(sp, binding, callback, message, action, longArg);
 
         switch (action)
         {
@@ -488,6 +515,129 @@ public sealed class TelegramUpdateHandler(
         dispatcher.Worker(binding.Id)?.AskNextClarification();
         dispatcher.Worker(binding.Id)?.RefreshStatus();
         return clarification is { IsOpen: false } && clarification.IsArchived ? "Skipped." : "Already answered.";
+    }
+
+    // ── Rewind ────────────────────────────────────────────────────────────────
+
+    /// <summary>/rewind as a reply: preview a rewind to that message's moment. Plain /rewind: pick from recent moments.</summary>
+    private async Task RewindCommandAsync(IServiceProvider sp, TelegramBinding binding, TgMessage message)
+    {
+        var rewinder = sp.GetRequiredService<IBookRewinder>();
+        if (await rewinder.EarliestAsync(binding.BookId) is not { } earliest)
+        {
+            await ReplyAsync(message, "⏪ The book has no history to rewind yet.");
+            return;
+        }
+        if (message.ReplyToMessage is { } replied)
+        {
+            var at = await MomentOfAsync(sp, binding, replied);
+            if (at < earliest)
+            {
+                await ReplyAsync(message, $"⏪ That's before the book's history begins ({MomentText(earliest)}).");
+                return;
+            }
+            await SendRewindPreviewAsync(sp, binding, at, message.MessageId);
+            return;
+        }
+
+        var points = await rewinder.PointsAsync(binding.BookId, null, 8);
+        if (points.Count == 0)
+        {
+            await ReplyAsync(message, "⏪ No moments to rewind to yet.");
+            return;
+        }
+        var keyboard = points
+            .Select(p => (IReadOnlyList<TgButton>)[new TgButton($"{p.At:dd MMM HH:mm} · {Clip(p.Label, 48)}", Callback(binding.Id, "rwat", Micros(p.At)))])
+            .ToList();
+        await ReplyAsync(message, "⏪ <b>Rewind to which moment?</b>\n<i>Or reply /rewind to any message of this thread to rewind to when it was posted.</i>", keyboard);
+    }
+
+    /// <summary>
+    /// The moment a replied-to message stands for: a message of the author's in the book chat → just before it; a
+    /// message the bot posted → when it was posted; anything else → its Telegram date (a second's precision).
+    /// </summary>
+    private static async Task<DateTime> MomentOfAsync(IServiceProvider sp, TelegramBinding binding, TgMessage replied)
+    {
+        if (await sp.GetRequiredService<ITelegramRepository>().GetLinkByMessageAsync(binding.Id, replied.MessageId) is { } link)
+        {
+            if (link is { Kind: TelegramLinkKind.ChatMessage, Version: UserMessageVersion }
+                && await sp.GetRequiredService<IBookRepository>().GetChatMessageAsync(binding.BookId, link.RefId) is { } chatMessage)
+                return chatMessage.CreatedAt.AddTicks(-1);
+            return link.CreatedAt;
+        }
+        var date = DateTimeOffset.FromUnixTimeSeconds(replied.Date).UtcDateTime;
+        return replied.From is { IsBot: false } ? date.AddSeconds(-1) : date.AddSeconds(1);
+    }
+
+    private async Task SendRewindPreviewAsync(IServiceProvider sp, TelegramBinding binding, DateTime at, int? replyTo)
+    {
+        RewindPlan plan;
+        try { plan = await sp.GetRequiredService<IBookRewinder>().PreviewAsync(binding.BookId, at); }
+        catch (RewindTooEarlyException ex)
+        {
+            await api.SendMessageAsync(binding.ChatId, binding.ThreadId, "⏪ " + H(ex.Message), replyTo: replyTo);
+            return;
+        }
+        if (plan.IsEmpty)
+        {
+            await api.SendMessageAsync(binding.ChatId, binding.ThreadId,
+                $"⏪ The book is already as it was at {MomentText(at)} — nothing to rewind.", replyTo: replyTo);
+            return;
+        }
+
+        foreach (var (key, old) in _rewindOffers)
+            if (old.Expires < DateTime.UtcNow) _rewindOffers.TryRemove(key, out _);
+        var id = Interlocked.Increment(ref _nextOffer);
+        _rewindOffers[id] = new RewindOffer(binding.Id, at, plan.Fingerprint, DateTime.UtcNow + RewindPreviewLifetime);
+        var keyboard = new List<IReadOnlyList<TgButton>>
+        {
+            new[] { new TgButton("⏪ Rewind", Callback(binding.Id, "rwgo", id), Style: "danger"), new TgButton("Cancel", Callback(binding.Id, "rwno", id)) },
+        };
+        await api.SendMessageAsync(binding.ChatId, binding.ThreadId, RewindPreview(plan), keyboard, replyTo: replyTo);
+    }
+
+    private async Task<(string? Answer, bool Alert)> OnRewindButtonAsync(
+        IServiceProvider sp, TelegramBinding binding, TgCallbackQuery callback, TgMessage message, string action, long arg)
+    {
+        switch (action)
+        {
+            case "rwat":
+                await SendRewindPreviewAsync(sp, binding, FromMicros(arg), message.Date != 0 ? message.MessageId : null);
+                return ("Preview below.", false);
+            case "rwno":
+                _rewindOffers.TryRemove((int)arg, out _);
+                await EditAsync(binding, message, "⏪ <i>Rewind cancelled.</i>");
+                return ("Cancelled.", false);
+        }
+
+        // rwgo
+        if (!_rewindOffers.TryRemove((int)arg, out var offer) || offer.BindingId != binding.Id || offer.Expires < DateTime.UtcNow)
+        {
+            await EditAsync(binding, message, "⏪ <i>This preview expired. Use /rewind again.</i>");
+            return ("This preview expired — use /rewind again.", true);
+        }
+        var by = callback.From.Display;
+        var outcome = await rewinds.StartAsync(binding.BookId, offer.At, offer.Fingerprint, Origin(callback.From, binding));
+        switch (outcome.Result)
+        {
+            case RewindStartResult.Started:
+                await EditAsync(binding, message, $"⏪ <b>Rewinding to {MomentText(offer.At)}</b> — confirmed by {H(by)}.");
+                return ("Rewinding…", false);
+            case RewindStartResult.Stale:
+                await EditAsync(binding, message, "⚠️ <i>The book changed since this preview. Use /rewind again.</i>");
+                return ("The book changed since — preview again.", true);
+            default:
+                // Busy and the like: the preview stays good for another try.
+                _rewindOffers[(int)arg] = offer;
+                return (Clip(outcome.Message, 190), true);
+        }
+    }
+
+    private async Task EditAsync(TelegramBinding binding, TgMessage message, string html)
+    {
+        if (message.Date == 0) return;
+        try { await api.EditMessageTextAsync(binding.ChatId, message.MessageId, html); }
+        catch (TelegramApiException) { /* too old or unchanged */ }
     }
 
     // ── Membership and drafts ─────────────────────────────────────────────────

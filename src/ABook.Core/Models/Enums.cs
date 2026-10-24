@@ -13,6 +13,8 @@ public enum AgentRole { Planner, Writer, Editor, ContinuityChecker, Embedder, St
     BookChat,
     /// <summary>Summarizes what a written chapter tells and the facts it establishes.</summary>
     ChapterSummarizer,
+    /// <summary>Restores the whole book (and its chat) to an earlier moment as a new state.</summary>
+    Rewind,
     WorkflowStep = 99 }
 
 /// <summary>

@@ -93,6 +93,9 @@ builder.Services.AddScoped<IBookNotifier, ABook.Api.Telegram.FanOutBookNotifier>
 builder.Services.AddSingleton<ABook.Agents.AgentRunStateService>();
 builder.Services.AddSingleton<AgentRunnerService>();
 builder.Services.AddSingleton<ABook.Api.Services.ChapterIndexingService>();
+builder.Services.AddSingleton<IChapterIndexQueue>(sp => sp.GetRequiredService<ABook.Api.Services.ChapterIndexingService>());
+builder.Services.AddScoped<IBookRewinder, ABook.Infrastructure.Rewind.BookRewinder>();
+builder.Services.AddSingleton<ABook.Api.Services.RewindService>();
 builder.Services.AddScoped<ABook.Agents.QuestionAgent>();
 builder.Services.AddScoped<ABook.Agents.StoryBibleAgent>();
 builder.Services.AddScoped<ABook.Agents.CharactersAgent>();
@@ -137,7 +140,8 @@ builder.Services.AddMcpServer()
     .WithTools<ContentMcpTools>()
     .WithTools<AgentMcpTools>()
     .WithTools<BookChatMcpTools>()
-    .WithTools<IllustrationMcpTools>();
+    .WithTools<IllustrationMcpTools>()
+    .WithTools<RewindMcpTools>();
 // ── Public mode ───────────────────────────────────────────────────────────────
 var isPublicMode = builder.Configuration.GetValue<bool>("PublicMode");
 builder.Services.AddSingleton(new ABook.Api.Services.PublicModeOptions(isPublicMode));
@@ -166,6 +170,11 @@ using (var scope = app.Services.CreateScope())
     app.Logger.LogInformation("Applying database migrations…");
     await db.Database.MigrateAsync();
     app.Logger.LogInformation("Database migrations applied.");
+
+    // The change log rewind works from starts with the state each book has now.
+    var baselined = await ContentJournal.WriteBaselinesAsync(db);
+    if (baselined > 0)
+        app.Logger.LogInformation("Change log started for {Count} book(s): they can be rewound to any moment from now on.", baselined);
 
     await app.Services.GetRequiredService<JwtKeyService>().InitializeAsync(app.Configuration, db, app.Logger);
     var staleSessions = await scope.ServiceProvider.GetRequiredService<IRefreshTokenRepository>()

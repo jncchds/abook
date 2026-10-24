@@ -91,6 +91,12 @@ public class TelegramRepository(AppDbContext db) : ITelegramRepository
                 .OrderByDescending(l => l.Id)
                 .FirstOrDefaultAsync();
 
+    public async Task<TelegramMessageLink?> GetLastLinkBeforeAsync(int bindingId, DateTime at) =>
+        await db.TelegramMessageLinks
+            .Where(l => l.BindingId == bindingId && l.MessageId > 0 && l.CreatedAt <= at)
+            .OrderByDescending(l => l.CreatedAt)
+            .FirstOrDefaultAsync();
+
     public async Task<TelegramMessageLink> AddLinkAsync(TelegramMessageLink link)
     {
         link.CreatedAt = DateTime.UtcNow;

@@ -558,6 +558,19 @@ details[open] summary { margin-bottom: 1rem; }
 .telegram-binding-fields label { flex: 1 1 10rem; }
 .message-origin { font-size: 0.75rem; color: var(--text-muted); }
 
+/* Rewind */
+.rewind-preview { margin-bottom: 1.25rem; }
+.rewind-preview h3 { margin-bottom: 0.75rem; }
+.rewind-changes { list-style: none; padding: 0; margin: 0 0 0.75rem; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.875rem; overflow-wrap: anywhere; }
+.rewind-kind { display: inline-block; font-size: 0.72rem; font-weight: 600; padding: 0.05rem 0.4rem; border-radius: 4px; margin-right: 0.3rem; border: 1px solid var(--border); }
+.rewind-restore { color: var(--accent); }
+.rewind-archive { color: var(--text-muted); }
+.rewind-recreate { color: var(--success); }
+.rewind-point .blc-premise { margin-bottom: 0; }
+.chat-rewound { border: 1px dashed var(--border); border-radius: 8px; padding: 0.5rem 0.75rem; margin: 0.5rem 0; opacity: 0.7; }
+.chat-rewound summary { margin-bottom: 0; font-size: 0.82rem; color: var(--text-muted); }
+.chat-rewound[open] summary { margin-bottom: 0.5rem; }
+
 /* Model selector */
 .model-selector { display: flex; flex-direction: column; gap: 0.4rem; }
 

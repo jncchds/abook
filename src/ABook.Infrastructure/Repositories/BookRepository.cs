@@ -326,11 +326,14 @@ public class BookRepository : IBookRepository
 
     public async Task ArchiveChaptersAsync(int bookId)
     {
-        await _db.Chapters
-            .Where(c => c.BookId == bookId && !c.IsArchived)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(c => c.IsArchived, true)
-                .SetProperty(c => c.UpdatedAt, DateTime.UtcNow));
+        // Tracked, not ExecuteUpdate: the change log (ContentRevision) only sees tracked saves.
+        var now = DateTime.UtcNow;
+        foreach (var c in await _db.Chapters.Where(c => c.BookId == bookId && !c.IsArchived).ToListAsync())
+        {
+            c.IsArchived = true;
+            c.UpdatedAt = now;
+        }
+        await _db.SaveChangesAsync();
     }
 
     // ── Chapter Versions ─────────────────────────────────────────────────────
@@ -691,9 +694,10 @@ public class BookRepository : IBookRepository
 
     // ── Book chat ─────────────────────────────────────────────────────────────
 
-    public async Task<IReadOnlyList<BookChatMessage>> GetChatMessagesAsync(int bookId, int? beforeId = null, int? limit = null)
+    public async Task<IReadOnlyList<BookChatMessage>> GetChatMessagesAsync(int bookId, int? beforeId = null, int? limit = null, bool includeHidden = false)
     {
         var query = _db.BookChatMessages.Where(m => m.BookId == bookId);
+        if (!includeHidden) query = query.Where(m => m.HiddenAt == null);
         if (beforeId is int before) query = query.Where(m => m.Id < before);
         query = query.OrderByDescending(m => m.Id);
         if (limit is int n) query = query.Take(n);
@@ -760,13 +764,16 @@ public class BookRepository : IBookRepository
         var messages = await _db.BookChatMessages
             .Where(m => m.Status == BookChatMessageStatus.Pending)
             .ExecuteUpdateAsync(s => s.SetProperty(m => m.Status, BookChatMessageStatus.Failed));
-        var proposals = await _db.ChatProposals
-            .Where(p => p.Status == ChatProposalStatus.Applying)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(p => p.Status, ChatProposalStatus.Failed)
-                .SetProperty(p => p.ResultNote, "Interrupted by a server restart.")
-                .SetProperty(p => p.UpdatedAt, DateTime.UtcNow));
-        return messages + proposals;
+        // Tracked, not ExecuteUpdate: proposals are in the change log (ContentRevision), which only sees tracked saves.
+        var interrupted = await _db.ChatProposals.Where(p => p.Status == ChatProposalStatus.Applying).ToListAsync();
+        foreach (var p in interrupted)
+        {
+            p.Status = ChatProposalStatus.Failed;
+            p.ResultNote = "Interrupted by a server restart.";
+            p.UpdatedAt = DateTime.UtcNow;
+        }
+        await _db.SaveChangesAsync();
+        return messages + interrupted.Count;
     }
 
     // ── Clarifications ────────────────────────────────────────────────────────
@@ -799,10 +806,17 @@ public class BookRepository : IBookRepository
         await _db.SaveChangesAsync();
     }
 
-    public async Task ArchiveClarificationsAsync(int bookId) =>
-        await _db.Clarifications
-            .Where(c => c.BookId == bookId && !c.IsArchived)
-            .ExecuteUpdateAsync(s => s.SetProperty(c => c.IsArchived, true).SetProperty(c => c.UpdatedAt, DateTime.UtcNow));
+    public async Task ArchiveClarificationsAsync(int bookId)
+    {
+        // Tracked, not ExecuteUpdate: the change log (ContentRevision) only sees tracked saves.
+        var now = DateTime.UtcNow;
+        foreach (var c in await _db.Clarifications.Where(c => c.BookId == bookId && !c.IsArchived).ToListAsync())
+        {
+            c.IsArchived = true;
+            c.UpdatedAt = now;
+        }
+        await _db.SaveChangesAsync();
+    }
 
     public async Task<IReadOnlyList<VisualAsset>> GetVisualAssetsAsync(int bookId) =>
         await _db.VisualAssets.Where(a => a.BookId == bookId).OrderBy(a => a.Kind).ThenBy(a => a.Name).ToListAsync();

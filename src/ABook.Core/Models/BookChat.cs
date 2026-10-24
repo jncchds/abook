@@ -33,6 +33,11 @@ public class BookChatMessage
     public BookChatMessageStatus Status { get; set; } = BookChatMessageStatus.Done;
     /// <summary>Author messages not typed in the web UI: where they came from, e.g. "Telegram · @anna · Writers' room".</summary>
     public string? Origin { get; set; }
+    /// <summary>
+    /// Set when the book was rewound to a moment before this message: it stays in the record (collapsed in the UI) but is
+    /// never sent to the LLM again and takes no part in the conversation.
+    /// </summary>
+    public DateTime? HiddenAt { get; set; }
     public DateTime CreatedAt { get; set; }
 
     [JsonIgnore] public Book Book { get; set; } = null!;

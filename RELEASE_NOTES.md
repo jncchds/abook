@@ -2,6 +2,12 @@
 
 ## v0.5.0 — 2026-10-24
 
+### Rewind
+- feat: **rewind the whole book and its chat to an earlier moment** (book sidebar → ⏪ Rewind): pick a moment — before one of your chat messages, after a reply, after a chapter version, before/after a run — check the preview, confirm. Every part gets the state it had then **as a new version** (chapters, Story Bible, characters, plot threads, clarifications, title/premise/planning progress, book-chat suggestions), so everything in between stays in each part's history; parts made since are archived, parts deleted since come back. Settings and illustrations are not rewound
+- feat: book-chat messages after the moment are **hidden** — collapsed in the chat, never sent to the LLM again — and the chat's memory goes back to what it was then. There is no fast-forward
+- feat: rewind from **Telegram** — reply `/rewind` to a message (or pick a moment from buttons), confirm the preview; every connected thread gets a divider, rewound replies are crossed out, changed chapters come as new file versions. Control only, chat admins in groups. And over MCP: `list_rewind_points`, `preview_rewind`, `rewind_book`
+- feat: a **change log** of every change to the book's content (whatever makes it) is what the rewind works from; it starts when this version first runs, so books can be rewound to any moment from then on
+
 ### Telegram bot
 - feat: **follow and steer a book from Telegram.** One bot per server (`TELEGRAM_BOT_TOKEN`; `ABOOK_HOSTNAME` for a webhook, otherwise long polling). Connect a book from Book Settings → **Telegram** with a one-time code: a private chat (each book its own topic when topic mode is on in BotFather), a group, a forum topic (`/bind CODE`) or a channel
 - feat: **access is the chat** — everyone who can post in a connected chat or topic gets the access chosen for it: **Read** (status, notices, files), **Participate** (default: also answer the planner's questions, `/export`, `/note`, the book chat) or **Control** (also start, continue and stop runs and apply book-chat changes; can be limited to the chat's admins). No abook accounts on the Telegram side; disconnect from Book Settings, with `/unbind`, or by removing the bot

@@ -10,7 +10,7 @@ namespace ABook.Api.Services;
 /// indexed here on a detached scope so saving a chapter stays fast while RAG still sees the
 /// author's text on the next agent step.
 /// </summary>
-public class ChapterIndexingService(IServiceScopeFactory scopeFactory, ILogger<ChapterIndexingService> logger)
+public class ChapterIndexingService(IServiceScopeFactory scopeFactory, ILogger<ChapterIndexingService> logger) : IChapterIndexQueue
 {
     /// <summary>Fire-and-forget: indexes the version in its own DI scope. Never throws.</summary>
     public void QueueIndex(int bookId, int chapterId, int chapterVersionId) =>

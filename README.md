@@ -31,6 +31,7 @@ A self-hosted web application that uses AI agents to collaboratively write books
 - **Version history** — chapters, characters, and plot threads all track history with preview and restore; soft-archive instead of delete
 - **Archived means archived** — an archived chapter, character, or plot thread is kept purely so you can look at it or restore it. It is never sent to a model, never counted in planning or continuity checks, never included in an HTML/FB2/EPUB export or on the public reader page, and agents refuse to write to it
 - **Book continuation** — create a sequel that copies all settings and inherits ancestor context; RAG and planning reference the full base-book chain
+- **Rewind** — bring the whole book and its chat back to an earlier moment (before a chat message, after a chapter version, before or after a run). Every part gets the state it had then as a new version, so nothing in between is lost; later chat messages are hidden — see [Rewind](#rewind)
 
 ### Illustrations
 - **AI illustrations with Z-Image or Unsloth Studio** — turn on **Illustrate this book** and the LLM plans illustrations for every finished chapter (what each image shows, where it goes, and its positive and negative prompts, chosen to suit the genre), plus the cover once the book is written. Review and edit the plan, then press **Illustrate book** to render everything in one image-model run — no LLM calls, so you can unload the LLM first (automatic for Ollama)
@@ -266,6 +267,18 @@ ABook includes a built-in [Model Context Protocol](https://modelcontextprotocol.
 }
 ```
 
+### Rewind
+
+**⏪ Rewind** (book sidebar) brings the whole book back to how it was at a moment you pick from a list: before one of your book-chat messages, after a reply, after a chapter version, or before/after an agent run.
+
+- **Preview first** — every chapter, the Story Bible, characters, plot threads, clarifications, book fields (title, premise, planning progress) and book-chat suggestion that would change, and how many chat messages get hidden. Nothing happens until you confirm.
+- **A new state, not a deletion** — each part gets the state it had then *as a new version* (a chapter gets a new version, the Story Bible a new snapshot, characters and threads a new version). Everything in between stays in each part's history, where you can still open or restore it. Parts created since are archived; parts deleted since come back.
+- **The chat** — messages after the moment are collapsed ("⏪ rewound") and never sent to the LLM again; the chat's rolling memory goes back to what it was then. Suggestions applied since are open again. There is no fast-forward.
+- Settings (prompts, LLM, mode, language, art direction) and illustrations are not rewound. A rewind is refused while an agent runs.
+- It works from a change log that records every change to the book's content. The log starts when you first run v0.5.0, so a book can be rewound to any moment from then on.
+
+Also over MCP (`list_rewind_points`, `preview_rewind`, `rewind_book`) and in Telegram (`/rewind`).
+
 ### Telegram Bot
 
 One bot per ABook server lets people follow and steer a book from Telegram.
@@ -289,7 +302,8 @@ One bot per ABook server lets people follow and steer a book from Telegram.
 - **A file after each chapter edit** (EPUB, FB2 or HTML — set per chat), sent as a reply to the chapter's previous version; the planning document when planning completes; the whole book when the last chapter is done; rendered illustrations as photos.
 - In a private chat the chapter being written shows as a **live draft** (with a stop button for Control).
 - **Interactive books**: write in the chat to talk to the book chat; its suggested changes come with ✅ / ✖️ / ↩️ buttons.
-- Commands: `/status`, `/run`, `/continue`, `/stop`, `/export [epub|fb2|html|metadata]`, `/note text`, `/questions`, `/unbind`, `/help`.
+- **Rewind**: reply `/rewind` to any message of the thread to rewind the book to when it was posted (to just before it, for your own book-chat message), or send `/rewind` alone to pick a recent moment from buttons. The bot shows the preview with **⏪ Rewind** / **Cancel** (valid 10 minutes); after the rewind every connected thread gets a divider message, rewound chat replies are crossed out, and changed chapters arrive as new file versions. Control only — and in groups only the chat's admins.
+- Commands: `/status`, `/run`, `/continue`, `/stop`, `/export [epub|fb2|html|metadata]`, `/note text`, `/questions`, `/rewind`, `/unbind`, `/help`.
 
 Answers, notes and chat messages from Telegram are marked with who sent them (✈️ Telegram · @name · chat) in ABook. Disconnect a chat from Book Settings, with `/unbind`, or by removing the bot; deleting the book disconnects its chats.
 
@@ -428,7 +442,7 @@ Set `LLM_DEBUG_LOGGING=true` to print the full chat history and LLM responses to
 | Vector store | pgvector (in-DB, `Pgvector.EntityFrameworkCore`) |
 | Real-time | SignalR |
 | Auth | JWT (JwtBearer) + rotating refresh tokens, `IPasswordHasher<T>`, Bearer API token for MCP |
-| MCP | `ModelContextProtocol.AspNetCore` 1.2.0 — HTTP/SSE transport, 53 tools |
+| MCP | `ModelContextProtocol.AspNetCore` 1.2.0 — HTTP/SSE transport, 56 tools |
 | Container | Docker, Docker Compose |
 
 ---

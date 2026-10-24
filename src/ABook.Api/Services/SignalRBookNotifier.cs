@@ -68,4 +68,7 @@ public class SignalRBookNotifier : IBookNotifier
 
     public Task NotifyBookChatAsync(int bookId, int? messageId, CancellationToken ct = default) =>
         _events.PublishAsync(bookId, "BookChatUpdated", [bookId, messageId], ct);
+
+    public Task NotifyRewoundAsync(int bookId, DateTime at, IReadOnlyList<int> hiddenChatMessageIds, string? origin, CancellationToken ct = default) =>
+        _events.PublishAsync(bookId, "BookRewound", [bookId, at, origin], ct);
 }

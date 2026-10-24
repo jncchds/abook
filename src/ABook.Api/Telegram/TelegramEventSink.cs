@@ -15,6 +15,7 @@ public sealed record TgTokensEvent(int BookId, int PromptTokens, int CompletionT
 public sealed record TgErrorEvent(int BookId, string Role, string Message) : TgBookEvent(BookId);
 public sealed record TgIllustrationEvent(int BookId, int? IllustrationId) : TgBookEvent(BookId);
 public sealed record TgChatEvent(int BookId, int? MessageId) : TgBookEvent(BookId);
+public sealed record TgRewoundEvent(int BookId, DateTime At, IReadOnlyList<int> HiddenChatMessageIds, string? Origin) : TgBookEvent(BookId);
 
 /// <summary>
 /// Where <see cref="FanOutBookNotifier"/> drops book events for the bot. Posting never blocks or throws, so a slow
@@ -121,5 +122,11 @@ public sealed class FanOutBookNotifier(ABook.Api.Services.SignalRBookNotifier si
     {
         await signalR.NotifyBookChatAsync(bookId, messageId, ct);
         telegram.Post(new TgChatEvent(bookId, messageId));
+    }
+
+    public async Task NotifyRewoundAsync(int bookId, DateTime at, IReadOnlyList<int> hiddenChatMessageIds, string? origin, CancellationToken ct = default)
+    {
+        await signalR.NotifyRewoundAsync(bookId, at, hiddenChatMessageIds, origin, ct);
+        telegram.Post(new TgRewoundEvent(bookId, at, hiddenChatMessageIds, origin));
     }
 }

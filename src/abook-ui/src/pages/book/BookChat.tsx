@@ -177,6 +177,18 @@ function Proposals({ message, ...rest }: {
   )
 }
 
+/** Runs of messages that are all visible or all hidden by a rewind, in order. */
+function segmentByHidden(messages: BookChatMessage[]): { hidden: boolean; items: BookChatMessage[] }[] {
+  const segments: { hidden: boolean; items: BookChatMessage[] }[] = []
+  for (const m of messages) {
+    const hidden = !!m.hiddenAt
+    const last = segments[segments.length - 1]
+    if (last && last.hidden === hidden) last.items.push(m)
+    else segments.push({ hidden, items: [m] })
+  }
+  return segments
+}
+
 function Conflicts({ json }: { json: string }) {
   const conflicts = useMemo(() => { try { return JSON.parse(json) as ChatConflict[] } catch { return [] } }, [json])
   if (conflicts.length === 0) return null
@@ -397,7 +409,19 @@ export default function BookChat() {
             <button onClick={() => void run(() => kickoffBookChat(bookId))}>Start the book chat</button>
           </div>
         )}
-        {messages.map(m => m.role === 'Event' ? (
+        {segmentByHidden(messages).map(seg => seg.hidden ? (
+          // Rewound: kept for the record, read-only, never sent to the LLM again.
+          <details key={`rewound-${seg.items[0].id}`} className="chat-rewound">
+            <summary>⏪ {seg.items.length} message{seg.items.length === 1 ? '' : 's'} rewound — no longer part of the chat</summary>
+            {seg.items.map(m => (
+              <div key={m.id} className={m.role === 'Author' ? 'chat-msg from-author' : m.role === 'Event' ? 'chat-event' : 'chat-msg from-llm'}>
+                {m.origin && <div className="message-origin">✈️ {m.origin}</div>}
+                <ReactMarkdown>{m.content}</ReactMarkdown>
+                {m.proposals.length > 0 && <p className="hint">{m.proposals.length} suggestion(s), not applied after the rewind</p>}
+              </div>
+            ))}
+          </details>
+        ) : seg.items.map(m => m.role === 'Event' ? (
           <div key={m.id} className="chat-event"><ReactMarkdown>{m.content}</ReactMarkdown></div>
         ) : m.role === 'Author' ? (
           <div key={m.id} className="chat-msg from-author">
@@ -415,7 +439,7 @@ export default function BookChat() {
             <Conflicts json={m.conflictsJson} />
             {m.proposals.length > 0 && <Proposals message={m} {...cardProps} />}
           </div>
-        ))}
+        )))}
         {showPendingAuthor && (
           <div className="chat-msg from-author">
             <p>{pendingAuthor.text}</p>

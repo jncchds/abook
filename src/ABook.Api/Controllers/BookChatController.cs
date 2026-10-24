@@ -26,7 +26,8 @@ public class BookChatController(IBookRepository repo, BookChatService chat, Agen
         var book = await repo.GetByIdAsync(bookId);
         if (book is null) return NotFound();
 
-        var messages = await repo.GetChatMessagesAsync(bookId, before, Math.Clamp(limit, 1, 200));
+        // The web UI shows messages hidden by a rewind too (collapsed, read-only).
+        var messages = await repo.GetChatMessagesAsync(bookId, before, Math.Clamp(limit, 1, 200), includeHidden: true);
         var status = runState.GetStatus(bookId);
         return Ok(new
         {
@@ -34,7 +35,7 @@ public class BookChatController(IBookRepository repo, BookChatService chat, Agen
             book.StoryBibleLockedAt,
             Busy = status is { IsActive: true },
             BusyRole = status is { IsActive: true } ? status.Role.ToString() : null,
-            HasMore = messages.Count > 0 && (await repo.GetChatMessagesAsync(bookId, messages[0].Id, 1)).Count > 0,
+            HasMore = messages.Count > 0 && (await repo.GetChatMessagesAsync(bookId, messages[0].Id, 1, includeHidden: true)).Count > 0,
             Messages = messages,
         });
     }

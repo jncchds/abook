@@ -88,6 +88,8 @@ React is built at image-build time and served from `wwwroot/` — there is no se
 
 **Telegram bot** — `src/ABook.Api/Telegram/`, off unless `TELEGRAM_BOT_TOKEN` is set (`ABOOK_HOSTNAME` = webhook, else long polling). Access is the bound chat/topic (`TelegramBinding.Level`), never an abook account; bindings come only from one-time codes made in Book Settings. `FanOutBookNotifier` (the registered `IBookNotifier`) feeds `TelegramEventSink` after SignalR; `TelegramDispatcher` runs one paced `BindingWorker` per binding; `TelegramUpdateHandler` handles updates. Plain messages are never treated as answers — only explicit replies to a question message, buttons and commands (Interactive books: plain text = book-chat message). See AGENTS.md "Telegram bot".
 
+**Rewind & change log** — `AppDbContext.SaveChangesAsync` writes a `ContentRevision` (full row state, dated) for every save of Book, Chapter, StoryBible, CharacterCard, PlotThread, Clarification and ChatProposal. **Never use `ExecuteUpdate`/`ExecuteDelete` on those tables** — bulk writes bypass the log and a rewind would restore the wrong state. A rewind (`IBookRewinder`, run type `rewind`) writes the state at T as new versions and hides later book-chat messages (`HiddenAt`; `GetChatMessagesAsync` excludes them unless `includeHidden`). See AGENTS.md "Rewind".
+
 **RAG** — `PgvectorVectorStoreService` stores chunked chapter embeddings. Writer uses 3 targeted queries; Editor uses 4 (adds repeated-phrase detection). Ancestry-aware: `SearchAsync` accepts `scopeBookIds` so sequel books include ancestor embeddings.
 
 **Versioning** — `VERSION` at repo root is the single source of truth. Vite reads it at build time and injects it as `__APP_VERSION__`. Before bumping the version, check whether the current `VERSION` value has already been pushed to origin (`git log origin/main..HEAD -- VERSION`); if it hasn't, reuse the existing version rather than bumping again.
@@ -97,7 +99,7 @@ React is built at image-build time and served from `wwwroot/` — there is no se
 - `src/abook-ui/src/App.tsx` — routing: `BookListLayout` for `/`, `/settings`, `/presets`, `/admin/users`; `BookLayout` for `/books/:bookId/*`; `LibraryLayout` for `/library/*`
 - `src/abook-ui/src/contexts/BookContext.tsx` — all book/chapter/planning/agent state; single SignalR registration
 - `src/abook-ui/src/layouts/` — `BookListLayout`, `BookLayout`, `LibraryLayout`
-- `src/abook-ui/src/pages/book/` — per-book sub-pages (`Overview`, `Clarifications`, `StoryBible`, `Characters`, `PlotThreads`, `Chapters`, `ChapterView`, `Illustrations`, `BookChat` at `/studio`, `ChatPage` = Agent Messages, `TokenStatsPage`, `BookSettings`)
+- `src/abook-ui/src/pages/book/` — per-book sub-pages (`Overview`, `Clarifications`, `StoryBible`, `Characters`, `PlotThreads`, `Chapters`, `ChapterView`, `Illustrations`, `BookChat` at `/studio`, `ChatPage` = Agent Messages, `TokenStatsPage`, `Rewind`, `BookSettings`)
 - `src/abook-ui/src/hooks/useBookHub.ts` — SignalR hook
 - `src/abook-ui/src/api.ts` — all REST calls via axios
 - `src/abook-ui/src/utils/streamParsers.ts` — streaming JSON parsers for planning agents

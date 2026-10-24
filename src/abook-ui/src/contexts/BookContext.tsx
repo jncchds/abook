@@ -166,7 +166,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   const [submittingAnswer, setSubmittingAnswer] = useState(false)
   const [answerError, setAnswerError] = useState<string | null>(null)
 
-  const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnIllustrationsUpdated, setOnBookChatUpdated, setOnReconnected, setOnJoined } = useBookHub(bookId)
+  const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnIllustrationsUpdated, setOnBookChatUpdated, setOnBookRewound, setOnReconnected, setOnJoined } = useBookHub(bookId)
   const { notify } = useNotifications()
   const notifyRef = useRef(notify)
   useEffect(() => { notifyRef.current = notify })
@@ -518,6 +518,21 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     })
     setOnJoined(() => { void syncRunState() })
   }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnIllustrationsUpdated, setOnReconnected, setOnJoined, refreshBook, refreshMessages, refreshTokenStats, refreshIllustrations, refreshClarifications, clearStreams, writeStream, syncRunState, bookId, navigate])
+
+  // A rewind may have changed every part of the book: re-read all of it.
+  useEffect(() => {
+    setOnBookRewound(() => {
+      setBookChatVersion(v => v + 1)
+      refreshBook().catch(() => {})
+      getChapters(bookId).then(r => setBook(prev => prev ? { ...prev, chapters: r.data } : prev)).catch(() => {})
+      getStoryBible(bookId).then(r => setStoryBible(r.data)).catch(() => setStoryBible(null))
+      getCharacters(bookId, true).then(r => setCharacters(r.data)).catch(() => {})
+      getPlotThreads(bookId, true).then(r => setPlotThreads(r.data)).catch(() => {})
+      refreshMessages()
+      refreshClarifications()
+      refreshIllustrations()
+    })
+  }, [setOnBookRewound, refreshBook, refreshMessages, refreshClarifications, refreshIllustrations, bookId])
 
   const isWaitingForInput = runStatus?.state === 'WaitingForInput'
   const isRunning = runStatus?.state === 'Running' || isWaitingForInput

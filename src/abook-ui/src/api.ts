@@ -226,6 +226,8 @@ export interface BookChatMessage {
   status: 'Pending' | 'Done' | 'Failed'
   /** Author messages not typed in the web UI, e.g. "Telegram · @anna · Writers' room". */
   origin?: string | null
+  /** Set when the book was rewound to before this message: shown collapsed, never sent to the LLM again. */
+  hiddenAt?: string | null
   createdAt: string
   proposals: ChatProposal[]
 }
@@ -908,3 +910,39 @@ export const updateTelegramBinding = (bookId: number, id: number,
   api.put<TelegramBinding>(`/books/${bookId}/telegram/bindings/${id}`, data)
 export const revokeTelegramBinding = (bookId: number, id: number) =>
   api.delete(`/books/${bookId}/telegram/bindings/${id}`)
+
+// ── Rewind ────────────────────────────────────────────────────────────────────
+// Restores the whole book (and its chat) to an earlier moment as a new state.
+
+export interface RewindPoint {
+  at: string
+  /** chat-before, chat-after, chapter-version, run-before, run-after */
+  kind: string
+  label: string
+}
+
+export type RewindChangeKind = 'Restore' | 'Archive' | 'Recreate'
+
+export interface RewindChange {
+  entityType: string
+  entityId: number
+  kind: RewindChangeKind
+  label: string
+  fields: string[]
+}
+
+export interface RewindPlan {
+  bookId: number
+  at: string
+  changes: RewindChange[]
+  hiddenChatMessages: number
+  fingerprint: string
+  isEmpty: boolean
+}
+
+export const getRewindPoints = (bookId: number, before?: string) =>
+  api.get<{ earliest: string | null; points: RewindPoint[] }>(`/books/${bookId}/rewind/points`, { params: before ? { before } : undefined })
+export const previewRewind = (bookId: number, at: string) =>
+  api.get<RewindPlan>(`/books/${bookId}/rewind/preview`, { params: { at } })
+export const rewindBook = (bookId: number, at: string, fingerprint: string) =>
+  api.post(`/books/${bookId}/rewind`, { at, fingerprint })
