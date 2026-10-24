@@ -91,6 +91,43 @@ public class TelegramBindCode
 }
 
 /// <summary>
+/// A card: one bot message that is a small editor or wizard (new book, book settings, Story Bible, a character…).
+/// The bot edits it in place as the state changes; replying to it fills the field it asks for. The state is kept
+/// here (by chat and message id) so a reply always finds its card, also after a restart.
+/// </summary>
+public class TelegramCard
+{
+    public int Id { get; set; }
+    public long ChatId { get; set; }
+    public int? ThreadId { get; set; }
+    public int MessageId { get; set; }
+    /// <summary>The book the card works on; null for cards before there is one (new book, the list of books).</summary>
+    public int? BookId { get; set; }
+    /// <summary>Who opened it — for cards of a linked account (new book, books), only they may use it.</summary>
+    public long OpenedByTelegramUserId { get; set; }
+    /// <summary>The card's state as JSON (see the bot's CardState).</summary>
+    public string StateJson { get; set; } = "{}";
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+/// <summary>
+/// A one-time code linking the Telegram account that uses it (<c>/start acc_CODE</c> in a private chat) to the abook user
+/// who made it. Only its hash is stored.
+/// </summary>
+public class TelegramAccountCode
+{
+    public int Id { get; set; }
+    public string CodeHash { get; set; } = string.Empty;
+    public int UserId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public DateTime? UsedAt { get; set; }
+
+    [JsonIgnore] public AppUser User { get; set; } = null!;
+}
+
+/// <summary>
 /// Pairs something of the book with the Telegram message that shows it in a bound thread — to match replies
 /// to questions, to edit keyboards, to reply to a file's previous version, and to never send a thing twice.
 /// </summary>

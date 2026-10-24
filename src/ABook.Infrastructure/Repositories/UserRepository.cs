@@ -20,6 +20,9 @@ public class UserRepository : IUserRepository
     public async Task<AppUser?> GetByApiTokenAsync(string token) =>
         await _db.Users.FirstOrDefaultAsync(u => u.ApiToken == token);
 
+    public async Task<AppUser?> GetByTelegramIdAsync(long telegramUserId) =>
+        await _db.Users.FirstOrDefaultAsync(u => u.TelegramUserId == telegramUserId);
+
     public async Task<IEnumerable<AppUser>> GetAllAsync() =>
         await _db.Users.OrderBy(u => u.CreatedAt).ToListAsync();
 

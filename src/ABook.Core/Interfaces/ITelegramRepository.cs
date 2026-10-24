@@ -26,6 +26,18 @@ public interface ITelegramRepository
     Task<bool> TryUseBindCodeAsync(int codeId);
     Task<int> DeleteStaleBindCodesAsync(DateTime olderThan);
 
+    // ── Account codes ─────────────────────────────────────────────────────────
+    Task<TelegramAccountCode> AddAccountCodeAsync(TelegramAccountCode code);
+    Task<TelegramAccountCode?> FindAccountCodeAsync(string codeHash);
+    /// <summary>Marks the code used; false when it was already used.</summary>
+    Task<bool> TryUseAccountCodeAsync(int codeId);
+
+    // ── Cards ─────────────────────────────────────────────────────────────────
+    Task<TelegramCard> AddCardAsync(TelegramCard card);
+    Task<TelegramCard?> GetCardAsync(int cardId);
+    Task<TelegramCard?> FindCardAsync(long chatId, int messageId);
+    Task UpdateCardAsync(TelegramCard card);
+
     // ── Sent-message map ──────────────────────────────────────────────────────
     /// <summary>The newest link of this kind and item, or null.</summary>
     Task<TelegramMessageLink?> GetLatestLinkAsync(int bindingId, TelegramLinkKind kind, int refId);

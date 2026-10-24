@@ -124,6 +124,57 @@ public sealed partial class TelegramBindingService(
     }
 
     /// <summary>
+    /// Opens one of a linked owner's books in their private chat with the bot, without a code: in a new topic when topic
+    /// mode is on, otherwise in the chat itself (if it holds no book yet). An active binding there is reused. Returns
+    /// the binding, or null with the reason why not.
+    /// </summary>
+    public async Task<(TelegramBinding? Binding, string? Error)> OpenForOwnerAsync(Book book, TgChat chat, TgUser owner, int ownerUserId)
+    {
+        if (chat.Type != "private") return (null, "Books are managed in the private chat with the bot.");
+        var existing = (await tg.GetActiveBindingsInChatAsync(chat.Id)).FirstOrDefault(b => b.BookId == book.Id);
+        if (existing is not null) return (existing, null);
+
+        int? thread = null;
+        var title = $"Private chat with {owner.Display}";
+        if (bot.TopicsInPrivateChats)
+        {
+            try
+            {
+                var topic = await api.CreateForumTopicAsync(chat.Id, Clip(book.Title, 120));
+                thread = topic.MessageThreadId;
+                title += $" · {topic.Name}";
+            }
+            catch (TelegramApiException ex)
+            {
+                return (null, $"Telegram refused to create a topic for the book: {ex.Description}");
+            }
+        }
+        else if (await tg.FindActiveBindingAsync(chat.Id, null) is { } busy && busy.BookId != book.Id)
+        {
+            var other = await books.GetByIdAsync(busy.BookId);
+            return (null, $"This chat already follows “{other?.Title ?? "another book"}”. Turn on topic mode for the bot in @BotFather so each book gets its own topic, or /unbind that one first.");
+        }
+
+        TelegramBinding binding;
+        try
+        {
+            binding = await tg.AddBindingAsync(new TelegramBinding
+            {
+                BookId = book.Id, ChatId = chat.Id, ThreadId = thread, ChatType = chat.Type,
+                ChatTitle = Clip(title, 300), Level = TelegramAccessLevel.Control, CreatedByUserId = ownerUserId,
+            });
+        }
+        catch (DbUpdateException)
+        {
+            return (null, "This chat was connected to a book a moment ago. Try again.");
+        }
+        await RecordExistingContentAsync(binding);
+        await AddBookNoteAsync(book.Id, $"🔗 Opened in Telegram: {binding.ChatTitle}.", $"Telegram · {owner.Display} · private chat");
+        dispatcher.Attach(binding);
+        return (binding, null);
+    }
+
+    /// <summary>
     /// What the book already has when it is bound is recorded as sent (message 0), so only later changes reach the
     /// chat: no flood of old chapters, no replay of the chat history. /export sends the book as it stands.
     /// </summary>

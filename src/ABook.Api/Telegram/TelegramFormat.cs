@@ -268,11 +268,84 @@ public static partial class TelegramFormat
         {
             sb.Append(++i).Append(". ").Append(ProposalStatusIcon(p.Status)).Append(' ').Append(H(Clip(p.Label, 200)));
             if (p.OptionGroup is { Length: > 0 } g) sb.Append(" <i>(option ").Append(H(g)).Append(")</i>");
+            // Tapping the command posts the suggestion's full details as a separate message.
+            sb.Append("  ").Append(DetailsCommandPrefix).Append(p.Id);
             if (p.Status is ChatProposalStatus.Failed && p.ResultNote is { Length: > 0 } note)
                 sb.Append("\n   <i>").Append(H(Clip(note, 200))).Append("</i>");
             sb.Append('\n');
         }
         return sb.ToString().TrimEnd();
+    }
+
+    public const string DetailsCommandPrefix = "/details_";
+
+    /// <summary>
+    /// One suggestion in full: what it is, its status, the conflict it answers, and what it changes — field by field,
+    /// as it was and as it would be (or was made), each in an expandable quote.
+    /// </summary>
+    public static string ProposalDetails(ChatProposal p, int number)
+    {
+        var sb = new StringBuilder();
+        sb.Append("🔍 <b>").Append(number).Append(". ").Append(H(Clip(p.Label, 300))).Append("</b>\n");
+        sb.Append(ProposalStatusIcon(p.Status)).Append(' ').Append(p.Status).Append(" · <i>").Append(H(p.Type.Replace('_', ' '))).Append("</i>");
+        if (p.OptionGroup is { Length: > 0 } g) sb.Append(" · option ").Append(H(g));
+        sb.Append('\n');
+        if (p.ConflictNote is { Length: > 0 } conflict)
+            sb.Append("\n⚠️ <b>Conflict</b>\n<blockquote expandable>").Append(H(Clip(conflict, 600))).Append("</blockquote>");
+        if (p.ResultNote is { Length: > 0 } result)
+            sb.Append("\n<b>Result:</b> ").Append(H(Clip(result, 400))).Append('\n');
+
+        var before = FlatFields(p.PreviewBefore);
+        var after = FlatFields(p.PreviewAfter);
+        if (before is not null || after is not null)
+        {
+            before ??= new Dictionary<string, string>();
+            after ??= new Dictionary<string, string>();
+            var keys = after.Keys.Union(before.Keys)
+                .Where(k => before.GetValueOrDefault(k, "") != after.GetValueOrDefault(k, "")).ToList();
+            if (keys.Count == 0) sb.Append("\n<i>No field changes.</i>");
+            var budget = Math.Max(200, 3000 / Math.Max(1, keys.Count * 2));
+            foreach (var k in keys)
+            {
+                var was = before.GetValueOrDefault(k, "");
+                var now = after.GetValueOrDefault(k, "");
+                sb.Append("\n<b>").Append(H(FieldLabel(k))).Append("</b>\n");
+                if (was.Length > 0) sb.Append("<i>was</i><blockquote expandable>").Append(H(Clip(was, budget))).Append("</blockquote>");
+                sb.Append(was.Length > 0 ? "<i>now</i>" : "")
+                  .Append("<blockquote expandable>").Append(now.Length > 0 ? H(Clip(now, budget)) : "<i>(empty)</i>").Append("</blockquote>");
+            }
+        }
+        else
+        {
+            // Prose actions and notes carry plain text: the instructions, the passage, the note.
+            if (p.PreviewBefore.Length > 0)
+                sb.Append("\n<b>Was</b>\n<blockquote expandable>").Append(H(Clip(p.PreviewBefore, 1500))).Append("</blockquote>");
+            if (p.PreviewAfter.Length > 0)
+                sb.Append("\n<b>").Append(p.PreviewBefore.Length > 0 ? "Now" : "What it does").Append("</b>\n<blockquote expandable>")
+                  .Append(H(Clip(p.PreviewAfter, 1500))).Append("</blockquote>");
+        }
+        return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>A preview rendered as a flat JSON object of text fields, or null when it is plain text.</summary>
+    private static Dictionary<string, string>? FlatFields(string preview)
+    {
+        if (!preview.TrimStart().StartsWith('{')) return null;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(preview);
+            return doc.RootElement.EnumerateObject().ToDictionary(
+                x => x.Name,
+                x => x.Value.ValueKind == System.Text.Json.JsonValueKind.String ? x.Value.GetString() ?? "" : x.Value.GetRawText());
+        }
+        catch (System.Text.Json.JsonException) { return null; }
+    }
+
+    /// <summary>"physicalDescription" → "Physical description".</summary>
+    private static string FieldLabel(string key)
+    {
+        var words = string.Concat(key.Select((c, i) => i > 0 && char.IsUpper(c) ? " " + char.ToLowerInvariant(c) : c.ToString()));
+        return words.Length == 0 ? key : char.ToUpperInvariant(words[0]) + words[1..];
     }
 
     public static bool IsOpen(ChatProposal p) => p.Status is ChatProposalStatus.Pending or ChatProposalStatus.Failed;

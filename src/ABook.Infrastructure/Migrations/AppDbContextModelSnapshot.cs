@@ -153,6 +153,16 @@ namespace ABook.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("TelegramLinkedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("TelegramUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("TelegramUsername")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("Username")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -161,6 +171,9 @@ namespace ABook.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("DefaultPresetId");
+
+                    b.HasIndex("TelegramUserId")
+                        .IsUnique();
 
                     b.HasIndex("Username")
                         .IsUnique();
@@ -1599,6 +1612,41 @@ namespace ABook.Infrastructure.Migrations
                     b.ToTable("StoryBibleSnapshots");
                 });
 
+            modelBuilder.Entity("ABook.Core.Models.TelegramAccountCode", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CodeHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("TelegramAccountCodes");
+                });
+
             modelBuilder.Entity("ABook.Core.Models.TelegramBindCode", b =>
                 {
                     b.Property<int>("Id")
@@ -1716,6 +1764,49 @@ namespace ABook.Infrastructure.Migrations
                     NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("ChatId", "ThreadId"), false);
 
                     b.ToTable("TelegramBindings");
+                });
+
+            modelBuilder.Entity("ABook.Core.Models.TelegramCard", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("BookId")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("ChatId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("MessageId")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("OpenedByTelegramUserId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("StateJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("ThreadId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BookId");
+
+                    b.HasIndex("ChatId", "MessageId")
+                        .IsUnique();
+
+                    b.ToTable("TelegramCards");
                 });
 
             modelBuilder.Entity("ABook.Core.Models.TelegramMessageLink", b =>
@@ -2169,6 +2260,17 @@ namespace ABook.Infrastructure.Migrations
                     b.Navigation("Book");
                 });
 
+            modelBuilder.Entity("ABook.Core.Models.TelegramAccountCode", b =>
+                {
+                    b.HasOne("ABook.Core.Models.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("ABook.Core.Models.TelegramBindCode", b =>
                 {
                     b.HasOne("ABook.Core.Models.Book", "Book")
@@ -2189,6 +2291,14 @@ namespace ABook.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Book");
+                });
+
+            modelBuilder.Entity("ABook.Core.Models.TelegramCard", b =>
+                {
+                    b.HasOne("ABook.Core.Models.Book", null)
+                        .WithMany()
+                        .HasForeignKey("BookId")
+                        .OnDelete(DeleteBehavior.Cascade);
                 });
 
             modelBuilder.Entity("ABook.Core.Models.TelegramMessageLink", b =>

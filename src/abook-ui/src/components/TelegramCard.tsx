@@ -3,6 +3,7 @@ import type { TelegramAccessLevel, TelegramBinding, TelegramCode, TelegramFileFo
 import { createTelegramCode, getTelegram, revokeTelegramBinding, updateTelegramBinding } from '../api'
 import ToggleField from './ToggleField'
 import { copyText } from '../utils/clipboard'
+import CopyField from './CopyField'
 
 const LEVELS: { value: TelegramAccessLevel; label: string; hint: string }[] = [
   { value: 'Read', label: 'Read', hint: 'status, notices and files' },
@@ -12,23 +13,6 @@ const LEVELS: { value: TelegramAccessLevel; label: string; hint: string }[] = [
 
 const CHAT_ICONS: Record<TelegramBinding['chatType'], string> = {
   private: '👤', group: '👥', supergroup: '👥', channel: '📣',
-}
-
-/** A value to hand to Telegram: shown in full (selectable), with Copy and, for links, Open. */
-function CopyField({ label, value, hint, open, copied, onCopy }: {
-  label: string; value: string; hint?: string; open?: string; copied: boolean; onCopy: () => void
-}) {
-  return (
-    <div className="copy-field">
-      <span className="copy-field-label">{label}</span>
-      <div className="copy-field-row">
-        <code className="copy-field-value" onClick={e => window.getSelection()?.selectAllChildren(e.currentTarget)}>{value}</code>
-        <button type="button" className="btn-secondary btn-sm" onClick={onCopy}>{copied ? '✓ Copied' : 'Copy'}</button>
-        {open && <a className="btn-secondary btn-sm copy-field-open" href={open} target="_blank" rel="noreferrer">Open</a>}
-      </div>
-      {hint && <span className="hint">{hint}</span>}
-    </div>
-  )
 }
 
 function errorText(err: unknown, fallback: string): string {

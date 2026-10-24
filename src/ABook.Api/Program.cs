@@ -131,6 +131,8 @@ builder.Services.AddSingleton<ABook.Api.Telegram.TelegramUpdateHandler>();
 builder.Services.AddSingleton<ABook.Api.Telegram.TelegramBotService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ABook.Api.Telegram.TelegramBotService>());
 builder.Services.AddScoped<ABook.Api.Telegram.TelegramBindingService>();
+builder.Services.AddScoped<ABook.Api.Telegram.TelegramAccountService>();
+builder.Services.AddScoped<ABook.Api.Telegram.Cards.TelegramCardService>();
 
 // ── MCP Server ────────────────────────────────────────────────────────────────
 builder.Services.AddMcpServer()

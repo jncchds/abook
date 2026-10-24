@@ -5,6 +5,7 @@ import { getPresets, getDefaultPreset, setDefaultPreset, getApiToken, regenerate
 import { PROVIDER_LABELS } from '../config/providers'
 import { useNotifications } from '../hooks/useNotifications'
 import CopyBlock from '../components/CopyBlock'
+import TelegramAccountCard from '../components/TelegramAccountCard'
 import { useAuth } from '../hooks/useAuth'
 
 export default function GlobalSettings() {
@@ -224,6 +225,11 @@ export default function GlobalSettings() {
             </div>
           </details>
         </div>
+      </section>
+
+      <section className="settings-section">
+        <h2>Telegram</h2>
+        <TelegramAccountCard />
       </section>
 
       {/* Default preset */}

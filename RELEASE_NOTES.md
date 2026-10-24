@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.5.2 — 2026-10-24
+
+### Telegram: your account and your books
+- feat: **link your Telegram account** — Settings → Telegram → **Link Telegram account**, then open the one-time link (or send the `/start acc_…` command to the bot). One Telegram account per abook user; **Unlink** in Settings or `/unlink`
+- feat: **create books in Telegram** — `/newbook` in the private chat with the bot is a wizard card: reply with the title and premise, pick genre, language, mode and chapter count with buttons (or type them), tap ✏️ to change anything, then **✅ Create**. The book gets its own topic and its book card. It needs your default LLM preset
+- feat: **manage your books in the private chat** — `/books` lists them (tap one to open it in its own topic), `/book` in a book's topic opens its card: title, premise, genre, language, target chapters, mode, illustrations, the LLM preset, and the Story Bible, characters, plot threads, chapters and clarifications. Each is one message edited in place: ✏️ a field, **reply to the card** with the new text, then **💾 Save** (it warns if something changed meanwhile). Characters, threads and chapters can be added, archived and brought back; every part has **🕘 Versions** with restore; chapters show their outline (editable), **📄 File**, **✍️ Write** and **🔍 Check**. Book management is only in the private chat, for the owner
+- feat: the owner, through the linked account, has **full rights on their books** in any connected chat
+- feat: **suggestion details** — every suggestion line has a `/details_N` command; tapping it posts what exactly the suggestion changes (field by field, was → now, the conflict it answers) with its own Apply / Reject
+
 ## v0.5.1 — 2026-10-24
 
 - feat: **Telegram: pick several suggestions** — tick boxes on each suggestion, then **Apply ticked** / **Reject ticked** (one batch, like Apply selected on the web); **Apply all** / **Reject all** when nothing is ticked; one **Choose option A/B** button per alternative; ↻ Run again for steps. Or reply to the suggestions with their numbers: `1 3`, `apply 1, 3`, `reject 2`

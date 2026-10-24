@@ -946,3 +946,19 @@ export const previewRewind = (bookId: number, at: string) =>
   api.get<RewindPlan>(`/books/${bookId}/rewind/preview`, { params: { at } })
 export const rewindBook = (bookId: number, at: string, fingerprint: string) =>
   api.post(`/books/${bookId}/rewind`, { at, fingerprint })
+
+// ── Telegram account ──────────────────────────────────────────────────────────
+// Linking the signed-in user to a Telegram account: books can then be created and managed in the private chat with the bot.
+
+export interface TelegramAccountState {
+  enabled: boolean
+  ready: boolean
+  problem: string | null
+  botUsername: string | null
+  linked: { username: string | null; linkedAt: string | null } | null
+}
+
+export const getTelegramAccount = () => api.get<TelegramAccountState>('/telegram/account')
+export const createTelegramAccountCode = () =>
+  api.post<{ link: string | null; command: string; expiresAt: string }>('/telegram/account/code')
+export const unlinkTelegramAccount = () => api.delete('/telegram/account')

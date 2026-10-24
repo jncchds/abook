@@ -193,7 +193,7 @@ public class BookContentService : AgentBase
     /// Sets the given fields on the character called <paramref name="name"/>, creating it — or bringing back its
     /// archived card, portrait included — when there is no active one.
     /// </summary>
-    public async Task<ContentChange> UpsertCharacterAsync(int bookId, string name, IReadOnlyDictionary<string, string> changes)
+    public async Task<ContentChange> UpsertCharacterAsync(int bookId, string name, IReadOnlyDictionary<string, string> changes, string createdBy = AgentCreatedBy.BookChat)
     {
         name = name.Trim();
         if (name.Length == 0) throw new InvalidOperationException("A character needs a name.");
@@ -222,7 +222,7 @@ public class BookContentService : AgentBase
         if (card.Id == 0) card = await Repo.AddCharacterCardAsync(card);
         else await Repo.UpdateCharacterCardAsync(card);
         // One at a time: the single-version save numbers it after the card's earlier versions.
-        await Repo.AddCharacterVersionAsync(CharactersAgent.VersionsOf(bookId, [card], AgentCreatedBy.BookChat).Single());
+        await Repo.AddCharacterVersionAsync(CharactersAgent.VersionsOf(bookId, [card], createdBy).Single());
         await MarkPhaseCompleteAsync(bookId, b => b.CharactersStatus = PlanningPhaseStatus.Complete);
         return new ContentChange($"{verb} character {card.Name}.", before, BookContentRender.Render(card));
     }
@@ -245,7 +245,7 @@ public class BookContentService : AgentBase
     // ── Plot threads ────────────────────────────────────────────────────────────
 
     /// <summary>Same rules as <see cref="UpsertCharacterAsync"/>.</summary>
-    public async Task<ContentChange> UpsertPlotThreadAsync(int bookId, string name, IReadOnlyDictionary<string, string> changes)
+    public async Task<ContentChange> UpsertPlotThreadAsync(int bookId, string name, IReadOnlyDictionary<string, string> changes, string createdBy = AgentCreatedBy.BookChat)
     {
         name = name.Trim();
         if (name.Length == 0) throw new InvalidOperationException("A plot thread needs a name.");
@@ -270,7 +270,7 @@ public class BookContentService : AgentBase
 
         if (thread.Id == 0) thread = await Repo.AddPlotThreadAsync(thread);
         else await Repo.UpdatePlotThreadAsync(thread);
-        await Repo.AddPlotThreadVersionAsync(PlotThreadsAgent.VersionsOf(bookId, [thread], AgentCreatedBy.BookChat).Single());
+        await Repo.AddPlotThreadVersionAsync(PlotThreadsAgent.VersionsOf(bookId, [thread], createdBy).Single());
         await MarkPhaseCompleteAsync(bookId, b => b.PlotThreadsStatus = PlanningPhaseStatus.Complete);
         return new ContentChange($"{verb} plot thread {thread.Name}.", before, BookContentRender.Render(thread));
     }

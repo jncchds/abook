@@ -50,6 +50,9 @@ public sealed class TelegramUpdateHandler(
         ("questions", "Show the planner's open question"),
         ("rewind", "Rewind the book to an earlier moment (reply to a message, or pick one)"),
         ("unbind", "Disconnect this chat from the book"),
+        ("newbook", "Start a new book (private chat, linked account)"),
+        ("books", "Open one of your books (private chat, linked account)"),
+        ("book", "The book's settings and content (in its topic)"),
         ("help", "What the bot does here"),
     ];
 
@@ -90,6 +93,24 @@ public sealed class TelegramUpdateHandler(
         if (text.Length == 0) return;
 
         var (command, args) = ParseCommand(text);
+        if (command == "start" && args.StartsWith(TelegramAccountService.StartPrefix, StringComparison.Ordinal))
+        {
+            await WithScopeAsync(async sp => await ReplyAsync(message,
+                await sp.GetRequiredService<TelegramAccountService>().LinkAsync(message, args[TelegramAccountService.StartPrefix.Length..].Trim())));
+            return;
+        }
+        if (command is "newbook" or "books" or "book" or "unlink" or "account")
+        {
+            await WithScopeAsync(sp => OnAccountCommandAsync(sp, message, command));
+            return;
+        }
+        // A reply to a card (private chat): it fills the field the card asks for.
+        if (message.Chat.Type == "private" && message.ReplyToMessage is not null && command is null)
+        {
+            var handled = false;
+            await WithScopeAsync(async sp => handled = await sp.GetRequiredService<Cards.TelegramCardService>().OnReplyAsync(message, text));
+            if (handled) return;
+        }
         if (command is "start" or "bind" && BindCodeFrom(args) is { } code)
         {
             await WithScopeAsync(async sp =>
@@ -155,11 +176,64 @@ public sealed class TelegramUpdateHandler(
         return TelegramBindingService.LooksLikeCode(first) ? first : null;
     }
 
+    /// <summary>
+    /// Book management for a linked account — only in the private chat with the bot: /newbook (a wizard card), /books
+    /// (open one of your books here), /book (the book's card, in its topic), /unlink, /account.
+    /// </summary>
+    private async Task OnAccountCommandAsync(IServiceProvider sp, TgMessage message, string command)
+    {
+        if (message.Chat.Type != "private" || message.From is not { } from)
+        {
+            await ReplyAsync(message, "🔒 Books are managed in the private chat with the bot — open it and send the command there.");
+            return;
+        }
+        var accounts = sp.GetRequiredService<TelegramAccountService>();
+        var user = await accounts.LinkedUserAsync(from.Id);
+        if (user is null)
+        {
+            await ReplyAsync(message, "🔗 This Telegram account isn't linked to abook yet. In abook open <b>Settings → Telegram</b> and use the link there.");
+            return;
+        }
+        var cards = sp.GetRequiredService<Cards.TelegramCardService>();
+        switch (command)
+        {
+            case "account":
+                await ReplyAsync(message, $"👤 Linked to the abook account <b>{H(user.Username)}</b>. /unlink to undo.");
+                break;
+            case "unlink":
+                await accounts.UnlinkAsync(user);
+                await ReplyAsync(message, "🔌 Unlinked. Chats connected with a code keep working; book management here stops.");
+                break;
+            case "newbook":
+                await cards.OpenAsync(message.Chat.Id, message.TopicId, from, user, new Cards.CardState { Kind = "newbook", Awaiting = "title" }, null, message.MessageId);
+                break;
+            case "books":
+                await cards.OpenAsync(message.Chat.Id, message.TopicId, from, user, new Cards.CardState { Kind = "books" }, null, message.MessageId);
+                break;
+            case "book":
+                var binding = await sp.GetRequiredService<ITelegramRepository>().FindActiveBindingAsync(message.Chat.Id, message.TopicId);
+                var book = binding is null ? null : await sp.GetRequiredService<IBookRepository>().GetByIdAsync(binding.BookId);
+                if (book is null || book.UserId != user.Id)
+                {
+                    await ReplyAsync(message, "📖 Send /book in the topic of one of your books — /books lists them.");
+                    return;
+                }
+                await cards.OpenAsync(message.Chat.Id, message.TopicId, from, user, new Cards.CardState { Kind = "book" }, book.Id, message.MessageId);
+                break;
+        }
+    }
+
     private async Task OnUnboundAsync(IServiceProvider sp, TgMessage message, string? command)
     {
         // In groups, chatter in topics that are not connected is not the bot's business — only commands get an answer.
         if (message.Chat.Type != "private" && command is null) return;
         if (message.Chat.Type == "channel") return;
+        if (message.Chat.Type == "private" && message.From is { } from
+            && await sp.GetRequiredService<TelegramAccountService>().LinkedUserAsync(from.Id) is { } linked)
+        {
+            await ReplyAsync(message, $"👋 You're linked as <b>{H(linked.Username)}</b>.\n\n/newbook — start a book\n/books — open one of your books here\n/book — in a book's topic: its settings and content");
+            return;
+        }
 
         var elsewhere = await sp.GetRequiredService<ITelegramRepository>().GetActiveBindingsInChatAsync(message.Chat.Id);
         if (elsewhere.Count > 0)
@@ -225,6 +299,10 @@ public sealed class TelegramUpdateHandler(
                 if (!await RequireAsync(binding, TelegramAccessLevel.Control, message.From, message, adminsAlways: true)) return;
                 await sp.GetRequiredService<TelegramBindingService>()
                     .RevokeAsync(binding, $"disconnected by {message.From?.Display ?? "an admin"} with /unbind", tellChat: true, origin);
+                break;
+            case var details when details.StartsWith(DetailsCommandPrefix[1..], StringComparison.Ordinal)
+                                  && int.TryParse(details[(DetailsCommandPrefix.Length - 1)..], out var proposalId):
+                await SendProposalDetailsAsync(sp, binding, message, proposalId);
                 break;
             default:
                 await ReplyAsync(message, "🤔 Unknown command. /help lists what the bot can do here.");
@@ -408,6 +486,11 @@ public sealed class TelegramUpdateHandler(
         var alert = false;
         try
         {
+            if (Cards.TelegramCardService.IsCardCallback(callback.Data))
+            {
+                await WithScopeAsync(async sp => (answer, alert) = await sp.GetRequiredService<Cards.TelegramCardService>().OnButtonAsync(callback));
+                return;
+            }
             if (!TryParseCallback(callback.Data, out var bindingId, out var action, out var arg) || callback.Message is not { } message)
             {
                 answer = "This button is no longer valid.";
@@ -554,6 +637,30 @@ public sealed class TelegramUpdateHandler(
             default:
                 return (Clip(outcome.Message ?? "Not possible right now.", 190), true);
         }
+    }
+
+    /// <summary>/details_N: one suggestion in full, as its own message, with Apply / Reject (or Undo) when allowed.</summary>
+    private async Task SendProposalDetailsAsync(IServiceProvider sp, TelegramBinding binding, TgMessage message, int proposalId)
+    {
+        var repo = sp.GetRequiredService<IBookRepository>();
+        var proposal = await repo.GetProposalAsync(binding.BookId, proposalId);
+        var chatMessage = proposal is null ? null : await repo.GetChatMessageAsync(binding.BookId, proposal.MessageId);
+        if (proposal is null || chatMessage is not { HiddenAt: null })
+        {
+            await ReplyAsync(message, "ℹ️ That suggestion isn't part of this book's chat any more.");
+            return;
+        }
+        var number = chatMessage.Proposals.OrderBy(p => p.Ordinal).ToList().FindIndex(p => p.Id == proposal.Id) + 1;
+        var canAct = await DenialAsync(binding, TelegramAccessLevel.Participate, message.From, message) is null;
+        var keyboard = new List<IReadOnlyList<TgButton>>();
+        if (canAct && IsOpen(proposal))
+            keyboard.Add(proposal.OptionGroup is { Length: > 0 } g
+                ? [new TgButton($"Choose option {g}", Callback(binding.Id, "opt", proposal.Id), Style: "primary")]
+                : [new TgButton("✅ Apply", Callback(binding.Id, "apply", proposal.Id), Style: "success"),
+                   new TgButton("✖️ Reject", Callback(binding.Id, "reject", proposal.Id))]);
+        else if (canAct && proposal.Status == ChatProposalStatus.Applied && !ABook.Agents.BookChatActions.IsStep(proposal.Type))
+            keyboard.Add([new TgButton("↩️ Undo", Callback(binding.Id, "undo", proposal.Id))]);
+        await ReplyAsync(message, ProposalDetails(proposal, number), keyboard.Count > 0 ? keyboard : null);
     }
 
     /// <summary>A reply's open suggestions, in the order they are listed (and numbered).</summary>
@@ -787,11 +894,21 @@ public sealed class TelegramUpdateHandler(
     private async Task<string?> DenialAsync(TelegramBinding binding, TelegramAccessLevel need, TgUser? user, TgMessage? message, bool adminsAlways = false)
     {
         if (binding.IsChannel && need > TelegramAccessLevel.Read) return "This channel only receives updates.";
+        // The book's owner, through their linked account, may do anything with it wherever it is connected.
+        if (user is not null && await IsOwnerAsync(binding.BookId, user.Id)) return null;
         if (binding.Level < need) return $"🔒 Here everyone can {LevelText(binding.Level)} — not more.";
         var adminsOnly = need == TelegramAccessLevel.Control && (binding.ControlAdminsOnly || adminsAlways);
         if (adminsOnly && !binding.IsPrivate && !await IsAdminAsync(binding.ChatId, user, message))
             return "🔒 Only chat admins can do that here.";
         return null;
+    }
+
+    private async Task<bool> IsOwnerAsync(int bookId, long telegramUserId)
+    {
+        using var scope = scopes.CreateScope();
+        var user = await scope.ServiceProvider.GetRequiredService<TelegramAccountService>().LinkedUserAsync(telegramUserId);
+        if (user is null) return false;
+        return (await scope.ServiceProvider.GetRequiredService<IBookRepository>().GetByIdAsync(bookId))?.UserId == user.Id;
     }
 
     private async Task<bool> RequireAsync(

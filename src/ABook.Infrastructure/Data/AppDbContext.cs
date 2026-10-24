@@ -47,6 +47,8 @@ public partial class AppDbContext : DbContext
     public DbSet<TelegramBindCode> TelegramBindCodes => Set<TelegramBindCode>();
     public DbSet<TelegramMessageLink> TelegramMessageLinks => Set<TelegramMessageLink>();
     public DbSet<ContentRevision> ContentRevisions => Set<ContentRevision>();
+    public DbSet<TelegramAccountCode> TelegramAccountCodes => Set<TelegramAccountCode>();
+    public DbSet<TelegramCard> TelegramCards => Set<TelegramCard>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -59,6 +61,9 @@ public partial class AppDbContext : DbContext
             u.HasKey(x => x.Id);
             u.HasIndex(x => x.Username).IsUnique();
             u.Property(x => x.Username).IsRequired().HasMaxLength(100);
+            // One Telegram account per abook user and the other way round (nulls — not linked — don't count).
+            u.HasIndex(x => x.TelegramUserId).IsUnique();
+            u.Property(x => x.TelegramUsername).HasMaxLength(100);
             u.Property(x => x.PasswordHash).IsRequired();
             u.HasOne(x => x.DefaultPreset)
              .WithMany()
@@ -491,6 +496,28 @@ public partial class AppDbContext : DbContext
             c.HasOne(x => x.Book)
              .WithMany()
              .HasForeignKey(x => x.BookId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TelegramCard>(c =>
+        {
+            c.HasKey(x => x.Id);
+            c.HasIndex(x => new { x.ChatId, x.MessageId }).IsUnique();
+            c.HasOne<Book>()
+             .WithMany()
+             .HasForeignKey(x => x.BookId)
+             .OnDelete(DeleteBehavior.Cascade)
+             .IsRequired(false);
+        });
+
+        modelBuilder.Entity<TelegramAccountCode>(c =>
+        {
+            c.HasKey(x => x.Id);
+            c.Property(x => x.CodeHash).HasMaxLength(64).IsRequired();
+            c.HasIndex(x => x.CodeHash).IsUnique();
+            c.HasOne(x => x.User)
+             .WithMany()
+             .HasForeignKey(x => x.UserId)
              .OnDelete(DeleteBehavior.Cascade);
         });
 

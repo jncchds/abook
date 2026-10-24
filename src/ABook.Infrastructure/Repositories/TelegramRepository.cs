@@ -71,6 +71,48 @@ public class TelegramRepository(AppDbContext db) : ITelegramRepository
     public async Task<int> DeleteStaleBindCodesAsync(DateTime olderThan) =>
         await db.TelegramBindCodes.Where(c => c.ExpiresAt < olderThan).ExecuteDeleteAsync();
 
+    public async Task<TelegramCard> AddCardAsync(TelegramCard card)
+    {
+        card.CreatedAt = card.UpdatedAt = DateTime.UtcNow;
+        db.TelegramCards.Add(card);
+        await db.SaveChangesAsync();
+        return card;
+    }
+
+    public async Task<TelegramCard?> GetCardAsync(int cardId) =>
+        await db.TelegramCards.FirstOrDefaultAsync(c => c.Id == cardId);
+
+    public async Task<TelegramCard?> FindCardAsync(long chatId, int messageId) =>
+        await db.TelegramCards.FirstOrDefaultAsync(c => c.ChatId == chatId && c.MessageId == messageId);
+
+    public async Task UpdateCardAsync(TelegramCard card)
+    {
+        card.UpdatedAt = DateTime.UtcNow;
+        db.TelegramCards.Update(card);
+        await db.SaveChangesAsync();
+    }
+
+    public async Task<TelegramAccountCode> AddAccountCodeAsync(TelegramAccountCode code)
+    {
+        code.CreatedAt = DateTime.UtcNow;
+        // Old codes are no use to anyone.
+        await db.TelegramAccountCodes.Where(c => c.ExpiresAt < code.CreatedAt.AddDays(-1)).ExecuteDeleteAsync();
+        db.TelegramAccountCodes.Add(code);
+        await db.SaveChangesAsync();
+        return code;
+    }
+
+    public async Task<TelegramAccountCode?> FindAccountCodeAsync(string codeHash) =>
+        await db.TelegramAccountCodes.AsNoTracking().FirstOrDefaultAsync(c => c.CodeHash == codeHash);
+
+    public async Task<bool> TryUseAccountCodeAsync(int codeId)
+    {
+        var now = DateTime.UtcNow;
+        return await db.TelegramAccountCodes
+            .Where(c => c.Id == codeId && c.UsedAt == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(c => c.UsedAt, now)) == 1;
+    }
+
     public async Task<TelegramMessageLink?> GetLatestLinkAsync(int bindingId, TelegramLinkKind kind, int refId) =>
         await db.TelegramMessageLinks
             .Where(l => l.BindingId == bindingId && l.Kind == kind && l.RefId == refId)
