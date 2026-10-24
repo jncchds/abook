@@ -30,6 +30,7 @@ services:
       # - TELEGRAM_BOT_TOKEN=123456:ABC...      # from @BotFather; turns the bot on
       # - ABOOK_HOSTNAME=book.example.com       # public HTTPS host → webhook; unset = long polling
       # - TELEGRAM_WEBHOOK_SECRET=              # optional; unset = random per start
+      # - TELEGRAM_API_URL=http://bot-api:8081  # optional self-hosted Bot API server (2 GB files)
       # ── Logging ───────────────────────────────────────────────────────────────
       # - LLM_DEBUG_LOGGING=true                # print full chat history + responses to app log
     depends_on:

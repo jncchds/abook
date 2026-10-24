@@ -20,8 +20,6 @@ public sealed class BindingWorker
     private static readonly TimeSpan RunChapterDelay = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan DraftInterval = TimeSpan.FromSeconds(1.5);
     private static readonly TimeSpan ClarificationRecheck = TimeSpan.FromSeconds(20);
-    /// <summary>Bots may upload files up to 50 MB.</summary>
-    private const int MaxUpload = 49 * 1024 * 1024;
 
     private readonly TelegramDispatcher _d;
     private readonly Channel<object> _inbox = Channel.CreateUnbounded<object>(new UnboundedChannelOptions { SingleReader = true });
@@ -33,6 +31,7 @@ public sealed class BindingWorker
     private bool _statusDirty = true, _statusUrgent = true, _askClarification = true;
     private bool _planningRunSeen, _bookCheck, _askAgain;
     private DateTime _lastStatusEdit = DateTime.MinValue, _clarifyCheckAt = DateTime.MinValue, _lastSend = DateTime.MinValue;
+    private string? _lastStatusHash;
     private DateTime? _chapterSyncAt, _illustrationSyncAt, _chatSyncAt;
     /// <summary>Last chapter text sent per chapter (loaded from the links once), so a sync costs one query.</summary>
     private Dictionary<int, string?>? _sentChapterHashes;
@@ -203,6 +202,7 @@ public sealed class BindingWorker
         _runEnded = false;
         _prompt = _completion = 0;
         _draftStopped = false;
+        _lastStep = null;
     }
 
     private static DateTime Min(DateTime? a, DateTime b) => a is { } x && x < b ? x : b;
@@ -378,11 +378,15 @@ public sealed class BindingWorker
     private async Task UpdateStatusCardAsync(IServiceProvider sp)
     {
         var status = await BuildStatusAsync(sp);
-        if (_b.StatusMessageId is int messageId)
+        // Same text and buttons as the card shows already: nothing to edit.
+        var hash = Hash(status.Html + JsonSerializer.Serialize(status.Keyboard));
+        if (_b.StatusMessageId is not null && hash == _lastStatusHash) return;
+        if (_b.StatusMessageId is int editId)
         {
             try
             {
-                await SendAsync(chat => _d.Api.EditMessageTextAsync(chat, messageId, status.Html, status.Keyboard, _cts.Token));
+                await SendAsync(chat => _d.Api.EditMessageTextAsync(chat, editId, status.Html, status.Keyboard, _cts.Token));
+                _lastStatusHash = hash;
                 return;
             }
             catch (TelegramApiException ex) when (ex.NotModified) { return; }
@@ -396,6 +400,7 @@ public sealed class BindingWorker
     {
         status ??= await BuildStatusAsync(sp);
         var sent = await SendTextAsync(status.Html, status.Keyboard, silent: true);
+        _lastStatusHash = Hash(status.Html + JsonSerializer.Serialize(status.Keyboard));
         var repo = sp.GetRequiredService<ITelegramRepository>();
         if (await repo.GetBindingAsync(_b.Id) is { } binding)
         {
@@ -468,7 +473,7 @@ public sealed class BindingWorker
         var keyboard = new List<IReadOnlyList<TgButton>>();
         if (_b.Level == TelegramAccessLevel.Control)
             keyboard.Add([new TgButton("⏩ Continue", Callback(_b.Id, "cont"), Style: "success")]);
-        await SendTextAsync($"❌ <b>{H(e.Role)}</b>: {H(Clip(e.Message, 1500))}", keyboard.Count > 0 ? keyboard : null);
+        await SendTextAsync($"❌ <b>{H(RoleName(e.Role))}</b>: {H(Clip(e.Message, 1500))}", keyboard.Count > 0 ? keyboard : null);
         RefreshStatus();
     }
 
@@ -520,9 +525,12 @@ public sealed class BindingWorker
 
     private async Task<int> SendFileOrNoticeAsync(string fileName, byte[] bytes, string contentType, string caption, int? replyTo)
     {
-        if (bytes.Length > MaxUpload)
+        var max = _d.Options.MaxUploadBytes;
+        if (bytes.Length > max)
         {
-            var notice = await SendTextAsync(caption + $"\n\n⚠️ The file is {bytes.Length / (1024 * 1024)} MB — over Telegram's 50 MB limit. Download it from abook.", replyTo: replyTo);
+            var notice = await SendTextAsync(caption +
+                $"\n\n⚠️ The file is {bytes.Length / (1024 * 1024)} MB — over the {max / (1024 * 1024)} MB a bot may upload. Download it from abook.",
+                replyTo: replyTo);
             return notice.MessageId;
         }
         var sent = await SendDocumentAsync(fileName, bytes, contentType, caption, replyTo);

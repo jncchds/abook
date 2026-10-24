@@ -12,6 +12,8 @@
 - feat: **Interactive books in Telegram** — write in the chat to talk to the book chat; replies arrive with their suggested changes as ✅ / ✖️ / ↩️ buttons (Apply all, Retry, confirm when something changed since)
 - feat: answers, notes and chat messages sent from Telegram show **who sent them** (✈️ Telegram · @name · chat) in Agent Messages, Clarifications and the book chat; starting, stopping and connecting add a note to the book's messages
 - feat: single-chapter export (`BookExportService.ExportChapterAsync`)
+- feat: `TELEGRAM_API_URL` — use a self-hosted Bot API server (files up to 2 GB instead of 50 MB)
+- feat: chapters edited by hand in the web UI or over MCP (and restored versions) reach the bot too
 
 ## v0.4.3 — 2026-10-23
 

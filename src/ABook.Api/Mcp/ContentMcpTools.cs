@@ -13,12 +13,15 @@ public class ContentMcpTools : McpToolBase
 {
     private readonly IBookRepository _repo;
     private readonly ABook.Api.Services.ClarificationService _clarifications;
+    private readonly ABook.Api.Telegram.TelegramEventSink _telegram;
 
-    public ContentMcpTools(IBookRepository repo, ABook.Api.Services.ClarificationService clarifications, IHttpContextAccessor http)
+    public ContentMcpTools(IBookRepository repo, ABook.Api.Services.ClarificationService clarifications, IHttpContextAccessor http,
+        ABook.Api.Telegram.TelegramEventSink telegram)
         : base(http)
     {
         _repo = repo;
         _clarifications = clarifications;
+        _telegram = telegram;
     }
 
 
@@ -402,6 +405,8 @@ public class ContentMcpTools : McpToolBase
         }
         chapter.UpdatedAt = DateTime.UtcNow;
         await _repo.UpdateChapterAsync(chapter);
+        // The Telegram bot sends the chapter's file once the edits settle.
+        _telegram.Post(new ABook.Api.Telegram.TgChapterEvent(bookId, chapterId));
         return JsonSerializer.Serialize(new { chapter.Id, chapter.Number, chapter.Title, Status = chapter.Status.ToString() }, JsonOptions);
     }
 }

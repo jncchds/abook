@@ -171,6 +171,7 @@ volumes:
 | `TELEGRAM_BOT_TOKEN` | — | Token from @BotFather; turns the [Telegram bot](#telegram-bot) on |
 | `ABOOK_HOSTNAME` | — | Public host name (e.g. `book.example.com`): the bot gets updates by webhook at `https://{ABOOK_HOSTNAME}/api/telegram/webhook`. Unset = long polling |
 | `TELEGRAM_WEBHOOK_SECRET` | *random* | Secret Telegram sends with each webhook call (`A-Z a-z 0-9 _ -`); unset = a new random one at each start |
+| `TELEGRAM_API_URL` | `https://api.telegram.org` | A self-hosted [Bot API server](https://github.com/tdlib/telegram-bot-api) instead — raises the file limit from 50 MB to 2 GB |
 
 > Changing `AgentSettings__MaxConcurrentRuns` requires restarting the API process/container.
 

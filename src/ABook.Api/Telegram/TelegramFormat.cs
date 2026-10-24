@@ -57,7 +57,7 @@ public static class TelegramFormat
     public static string Origin(TgUser? user, TelegramBinding binding)
     {
         var who = user is null ? "channel" : user.Display;
-        return Clip($"Telegram · {who} · {binding.ChatTitle}", 300);
+        return Clip($"Telegram · {who} · {(binding.IsPrivate ? "private chat" : binding.ChatTitle)}", 300);
     }
 
     public static string LevelText(TelegramAccessLevel level) => level switch
@@ -139,6 +139,9 @@ public static class TelegramFormat
                 rows.Add([new TgButton("▶️ Start the book", Callback(b, "start"), Style: "success")]);
             else if (v.Chapters.Any(c => c.Status != ChapterStatus.Done))
                 rows.Add([new TgButton("⏩ Continue", Callback(b, "cont"), Style: "success")]);
+            else if (v.Chapters.Count < v.Book.TargetChapterCount)
+                // Every chapter so far is done but the plan is short of the target: the workflow plans the rest.
+                rows.Add([new TgButton("▶️ Plan and write the rest", Callback(b, "start"), Style: "success")]);
         }
         else if (binding.Level == TelegramAccessLevel.Control && v.Run is { IsActive: true })
             rows.Add([new TgButton("⏹ Stop", Callback(b, "stop"), Style: "danger")]);
@@ -156,6 +159,10 @@ public static class TelegramFormat
         var filled = total == 0 ? 0 : (int)Math.Round(width * Math.Clamp(done / (double)total, 0, 1));
         return new string('▰', filled) + new string('▱', width - filled);
     }
+
+    /// <summary>A role sent as text (error events): its friendly name when it is a known role.</summary>
+    public static string RoleName(string role) =>
+        Enum.TryParse<AgentRole>(role, out var parsed) ? RoleName(parsed) : role;
 
     public static string RoleName(AgentRole role) => role switch
     {

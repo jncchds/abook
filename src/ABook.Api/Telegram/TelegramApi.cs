@@ -34,7 +34,7 @@ public sealed class TelegramApi
         _logger = logger;
     }
 
-    private string MethodUrl(string method) => $"https://api.telegram.org/bot{_options.BotToken}/{method}";
+    private string MethodUrl(string method) => $"{_options.ApiUrl}/bot{_options.BotToken}/{method}";
 
     /// <summary>Calls a Bot API method with a JSON body and returns its result.</summary>
     public Task<T> CallAsync<T>(string method, object? payload, CancellationToken ct = default, TimeSpan? timeout = null) =>

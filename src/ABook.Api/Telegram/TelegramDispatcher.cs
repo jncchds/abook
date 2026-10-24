@@ -24,6 +24,7 @@ public sealed class TelegramDispatcher(
     private CancellationToken _stopping;
 
     internal TelegramApi Api => api;
+    internal TelegramOptions Options => options;
     internal IServiceScopeFactory Scopes => scopes;
     internal AgentRunStateService RunState => runState;
     internal TelegramEventSink Sink => sink;

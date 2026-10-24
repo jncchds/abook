@@ -14,13 +14,23 @@ public class ChaptersController : ControllerBase
     private readonly IBookRepository _repo;
     private readonly IVectorStoreService _vectorStore;
     private readonly ChapterIndexingService _indexing;
+    private readonly ABook.Api.Telegram.TelegramEventSink _telegram;
 
-    public ChaptersController(IBookRepository repo, IVectorStoreService vectorStore, ChapterIndexingService indexing)
+    public ChaptersController(IBookRepository repo, IVectorStoreService vectorStore, ChapterIndexingService indexing,
+        ABook.Api.Telegram.TelegramEventSink telegram)
     {
         _repo = repo;
         _vectorStore = vectorStore;
         _indexing = indexing;
+        _telegram = telegram;
     }
+
+    /// <summary>
+    /// A manual edit: the Telegram bot sends the chapter's file once the edits settle. Only the bot is told — the
+    /// web UI already has the saved chapter, and its ChapterUpdated handler would clear a live stream.
+    /// </summary>
+    private void TellTelegram(int bookId, int chapterId) =>
+        _telegram.Post(new ABook.Api.Telegram.TgChapterEvent(bookId, chapterId));
 
     [HttpGet]
     public async Task<IActionResult> GetAll(int bookId, [FromQuery] bool includeArchived = false) =>
@@ -90,6 +100,7 @@ public class ChaptersController : ControllerBase
                 _indexing.QueueIndex(bookId, chapterId, saved.Id);
             // AddChapterVersionAsync already syncs fields to Chapter, so just return it
             var updated = await _repo.GetChapterAsync(bookId, chapterId);
+            TellTelegram(bookId, chapterId);
             return Ok(updated);
         }
 
@@ -98,6 +109,7 @@ public class ChaptersController : ControllerBase
         chapter.Content = req.Content;
         chapter.Status = req.Status;
         await _repo.UpdateChapterAsync(chapter);
+        TellTelegram(bookId, chapterId);
 
         if (contentCleared)
             try { await _vectorStore.DeleteChapterChunksAsync(bookId, chapterId); } catch { /* non-fatal */ }
@@ -179,6 +191,7 @@ public class ChaptersController : ControllerBase
             _indexing.QueueIndex(bookId, chapterId, version.Id);
 
         var updatedChapter = await _repo.GetChapterAsync(bookId, chapterId);
+        TellTelegram(bookId, chapterId);
         return Ok(new { chapter = updatedChapter, version = new { version.Id, version.VersionNumber, version.IsActive, version.HasEmbeddings, version.CreatedBy, version.CreatedAt } });
     }
 }

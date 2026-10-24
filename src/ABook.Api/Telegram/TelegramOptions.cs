@@ -11,6 +11,7 @@ namespace ABook.Api.Telegram;
 /// <c>https://{ABOOK_HOSTNAME}/api/telegram/webhook</c>. Unset = long polling.</item>
 /// <item><c>TELEGRAM_WEBHOOK_SECRET</c> — optional; checked against Telegram's secret-token header. Unset = a random
 /// secret per process (the webhook is registered again at every start).</item>
+/// <item><c>TELEGRAM_API_URL</c> — optional; a self-hosted Bot API server instead of https://api.telegram.org.</item>
 /// </list>
 /// </summary>
 public sealed partial class TelegramOptions
@@ -18,12 +19,19 @@ public sealed partial class TelegramOptions
     public const string TokenKey = "TELEGRAM_BOT_TOKEN";
     public const string HostnameKey = "ABOOK_HOSTNAME";
     public const string SecretKey = "TELEGRAM_WEBHOOK_SECRET";
+    public const string ApiUrlKey = "TELEGRAM_API_URL";
+    public const string DefaultApiUrl = "https://api.telegram.org";
     public const string WebhookPath = "/api/telegram/webhook";
 
     public string? BotToken { get; init; }
     /// <summary>The public base URL (scheme + host [+ port]), or null for long polling.</summary>
     public string? BaseUrl { get; init; }
     public string WebhookSecret { get; init; } = string.Empty;
+    /// <summary>The Bot API server: Telegram's, or a self-hosted telegram-bot-api server (uploads up to 2 GB).</summary>
+    public string ApiUrl { get; init; } = DefaultApiUrl;
+    public bool SelfHostedApi => ApiUrl != DefaultApiUrl;
+    /// <summary>Largest file the bot uploads: 50 MB on Telegram's server, 2,000 MB on a self-hosted one.</summary>
+    public long MaxUploadBytes => (SelfHostedApi ? 2000L : 50L) * 1024 * 1024;
 
     public bool Enabled => !string.IsNullOrWhiteSpace(BotToken);
     public bool UseWebhook => Enabled && BaseUrl is not null;
@@ -34,8 +42,10 @@ public sealed partial class TelegramOptions
         var token = config[TokenKey] ?? config["Telegram:BotToken"];
         var host = config[HostnameKey] ?? config["Telegram:Hostname"];
         var secret = config[SecretKey] ?? config["Telegram:WebhookSecret"];
+        var apiUrl = config[ApiUrlKey] ?? config["Telegram:ApiUrl"];
         return new TelegramOptions
         {
+            ApiUrl = string.IsNullOrWhiteSpace(apiUrl) ? DefaultApiUrl : apiUrl.Trim().TrimEnd('/'),
             BotToken = string.IsNullOrWhiteSpace(token) ? null : token.Trim(),
             BaseUrl = NormalizeBaseUrl(host),
             WebhookSecret = !string.IsNullOrWhiteSpace(secret) && SecretPattern().IsMatch(secret.Trim())
