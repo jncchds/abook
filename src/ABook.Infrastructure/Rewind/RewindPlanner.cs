@@ -41,7 +41,11 @@ public static class RewindPlanner
             if (then is not null && now is not null)
             {
                 var fields = Differences(key.Type, then, now);
-                if (fields.Count > 0)
+                if (fields.Count == 1 && fields[0] == "IsArchived")
+                    // Only archived or not: say so plainly ("archived" / "brought back"), not "restored (archived)".
+                    changes.Add(new PlannedChange(key, IsArchivedIn(then) ? RewindChangeKind.Archive : RewindChangeKind.Recreate,
+                        Label(key, then), [], then, now));
+                else if (fields.Count > 0)
                     changes.Add(new PlannedChange(key, RewindChangeKind.Restore, Label(key, then), fields.Select(FieldWords).Distinct().ToList(), then, now));
             }
             else if (then is not null)
@@ -75,6 +79,12 @@ public static class RewindPlanner
         type == nameof(Book) ? BookFields.Contains(field)
         // Pointing the summary at the right version is worked out when the chapter is restored.
         : !Fixed.Contains(field) && !(type == nameof(Chapter) && field == nameof(Chapter.SummaryVersionId));
+
+    private static bool IsArchivedIn(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.TryGetProperty("IsArchived", out var a) && a.ValueKind == JsonValueKind.True;
+    }
 
     /// <summary>A row created after the moment: archived, unless it already is (or is a proposal no longer open).</summary>
     private static bool NeedsArchive(string type, string nowJson)

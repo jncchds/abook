@@ -53,6 +53,24 @@ public class RewindPlannerTests
     }
 
     [Fact]
+    public void OnlyTheArchiveFlagDiffers_SaysArchivedOrBroughtBack()
+    {
+        var then = new Dictionary<RowKey, ContentRevision>
+        {
+            [new("Chapter", 1)] = Rev("Chapter", 1, Chapter(1, "a")),
+            [new("Chapter", 2)] = Rev("Chapter", 2, Chapter(2, "b", archived: true)),
+        };
+        var now = new Dictionary<RowKey, string>
+        {
+            [new("Chapter", 1)] = Json(Chapter(1, "a", archived: true)),
+            [new("Chapter", 2)] = Json(Chapter(2, "b")),
+        };
+        var changes = Plan(then, now);
+        Assert.Equal([(RewindChangeKind.Recreate, 1), (RewindChangeKind.Archive, 2)], changes.Select(c => (c.Kind, c.Key.Id)));
+        Assert.All(changes, c => Assert.Empty(c.Fields));
+    }
+
+    [Fact]
     public void RowDeletedAfterTheMoment_IsRecreated_ButNotOneDeletedBefore()
     {
         var then = new Dictionary<RowKey, ContentRevision>
@@ -115,6 +133,16 @@ public class RewindPlannerTests
     [InlineData("PhysicalDescription", "physical description")]
     [InlineData("ChatMemoryThroughMessageId", "chat memory")]
     public void FieldWords_AreReadable(string field, string words) => Assert.Equal(words, FieldWords(field));
+
+    [Fact]
+    public void Times_AreLoggedAsTheDatabaseKeepsThem()
+    {
+        var inMemory = new DateTime(2026, 10, 24, 13, 35, 37, DateTimeKind.Utc).AddTicks(1234567);
+        var stored = (DateTime)ContentJournal.AsStored(inMemory)!;
+        Assert.Equal(inMemory.AddTicks(-7), stored);
+        Assert.Equal(DateTimeKind.Utc, stored.Kind);
+        Assert.Equal("x", ContentJournal.AsStored("x"));
+    }
 
     [Fact]
     public void Hash_IgnoresUpdatedAt_ButNotContent()

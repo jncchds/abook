@@ -55,6 +55,12 @@ public interface IBookRewinder
     /// <summary>Recent moments to rewind to, newest first (older than <paramref name="before"/> when given).</summary>
     Task<IReadOnlyList<RewindPoint>> PointsAsync(int bookId, DateTime? before = null, int limit = 30, CancellationToken ct = default);
 
+    /// <summary>
+    /// The moment a book-chat message stands for: just before an author message, just after a reply (with the
+    /// suggestions saved with it). Null when the message is not the book's.
+    /// </summary>
+    Task<DateTime?> ChatMessageMomentAsync(int bookId, int messageId, CancellationToken ct = default);
+
     Task<RewindPlan> PreviewAsync(int bookId, DateTime at, CancellationToken ct = default);
 
     /// <summary>

@@ -560,9 +560,11 @@ public sealed class TelegramUpdateHandler(
     {
         if (await sp.GetRequiredService<ITelegramRepository>().GetLinkByMessageAsync(binding.Id, replied.MessageId) is { } link)
         {
-            if (link is { Kind: TelegramLinkKind.ChatMessage, Version: UserMessageVersion }
-                && await sp.GetRequiredService<IBookRepository>().GetChatMessageAsync(binding.BookId, link.RefId) is { } chatMessage)
-                return chatMessage.CreatedAt.AddTicks(-1);
+            // A book-chat message (the author's own, a reply, its suggestions): the message's own moment, which the
+            // bot may have posted later (a slow chat, a restart).
+            if (link.Kind is TelegramLinkKind.ChatMessage or TelegramLinkKind.ChatProposals
+                && await sp.GetRequiredService<IBookRewinder>().ChatMessageMomentAsync(binding.BookId, link.RefId) is { } moment)
+                return moment;
             return link.CreatedAt;
         }
         var date = DateTimeOffset.FromUnixTimeSeconds(replied.Date).UtcDateTime;

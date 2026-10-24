@@ -45,22 +45,16 @@ public sealed class BookRewinder(AppDbContext db) : IBookRewinder
             .ToListAsync(ct);
         foreach (var m in messages)
         {
-            if (m.Role == BookChatRole.Author)
-            {
-                points.Add(new RewindPoint(m.CreatedAt.AddTicks(-1), "chat-before", $"Before your message “{Short(m.Content, 80)}”"));
-                continue;
-            }
-            // "After the reply" includes the suggestions saved with it, but nothing applied later.
-            var at = m.CreatedAt;
-            if (m.Proposals.Count > 0)
-                at = await db.ContentRevisions
-                    .Where(r => r.EntityType == nameof(ChatProposal) && m.Proposals.Contains(r.EntityId) && r.Op == ContentRevisionOp.Insert)
-                    .MaxAsync(r => (DateTime?)r.At, ct) ?? at;
-            points.Add(new RewindPoint(at, "chat-after", $"After the reply “{Short(m.Content, 80)}”"));
+            var at = await MomentOfAsync(m.Role, m.CreatedAt, m.Proposals, ct);
+            points.Add(m.Role == BookChatRole.Author
+                ? new RewindPoint(at, "chat-before", $"Before your message “{Short(m.Content, 80)}”")
+                : new RewindPoint(at, "chat-after", $"After the reply “{Short(m.Content, 80)}”"));
         }
 
+        // A rewind's own versions are written part-way through it: a moment there would be half rewound. The rewind's
+        // end is offered instead (below).
         var versions = await db.ChapterVersions.AsNoTracking()
-            .Where(v => v.BookId == bookId && v.CreatedAt >= earliest && v.CreatedAt < upTo)
+            .Where(v => v.BookId == bookId && v.CreatedAt >= earliest && v.CreatedAt < upTo && v.CreatedBy != CreatedBy)
             .OrderByDescending(v => v.Id).Take(limit)
             .Join(db.Chapters, v => v.ChapterId, c => c.Id, (v, c) => new { v.ChapterId, v.VersionNumber, v.CreatedBy, v.CreatedAt, c.Number })
             .ToListAsync(ct);
@@ -78,8 +72,15 @@ public sealed class BookRewinder(AppDbContext db) : IBookRewinder
             .Where(r => r.BookId == bookId && r.UpdatedAt >= earliest && r.CreatedAt < upTo)
             .OrderByDescending(r => r.CreatedAt).Take(limit)
             .ToListAsync(ct);
-        foreach (var r in runs.Where(r => r.RunType != "rewind"))
+        foreach (var r in runs)
         {
+            if (r.RunType == "rewind")
+            {
+                // Only its end: the moment just after the whole rewind was applied.
+                if (r.Status == AgentRunPersistStatus.Completed && r.UpdatedAt < upTo)
+                    points.Add(new RewindPoint(r.UpdatedAt, "run-after", "After the rewind"));
+                continue;
+            }
             var what = RunWords(r.RunType);
             if (r.CreatedAt >= earliest) points.Add(new RewindPoint(r.CreatedAt.AddTicks(-1), "run-before", $"Before {what} started"));
             if (r.Status is not (AgentRunPersistStatus.Running or AgentRunPersistStatus.WaitingForInput) && r.UpdatedAt < upTo)
@@ -91,6 +92,28 @@ public sealed class BookRewinder(AppDbContext db) : IBookRewinder
             .DistinctBy(p => (p.At, p.Kind))
             .Take(limit)
             .ToList();
+    }
+
+    public async Task<DateTime?> ChatMessageMomentAsync(int bookId, int messageId, CancellationToken ct = default)
+    {
+        var m = await db.BookChatMessages.AsNoTracking()
+            .Where(x => x.BookId == bookId && x.Id == messageId)
+            .Select(x => new { x.Role, x.CreatedAt, Proposals = x.Proposals.Select(p => p.Id).ToList() })
+            .FirstOrDefaultAsync(ct);
+        return m is null ? null : await MomentOfAsync(m.Role, m.CreatedAt, m.Proposals, ct);
+    }
+
+    /// <summary>
+    /// Before an author message (it and everything it caused are rewound); after a reply or event, including the
+    /// suggestions saved with it but nothing applied later.
+    /// </summary>
+    private async Task<DateTime> MomentOfAsync(BookChatRole role, DateTime createdAt, List<int> proposalIds, CancellationToken ct)
+    {
+        if (role == BookChatRole.Author) return createdAt.AddTicks(-1);
+        if (proposalIds.Count == 0) return createdAt;
+        return await db.ContentRevisions
+            .Where(r => r.EntityType == nameof(ChatProposal) && proposalIds.Contains(r.EntityId) && r.Op == ContentRevisionOp.Insert)
+            .MaxAsync(r => (DateTime?)r.At, ct) ?? createdAt;
     }
 
     private static string Short(string text, int max)
@@ -265,13 +288,14 @@ public sealed class BookRewinder(AppDbContext db) : IBookRewinder
 
         var entry = await LoadOrCreateAsync<Chapter>(change, ct);
         var chapter = (Chapter)entry.Entity;
+        // Brought back from the archive (still there) only needs un-archiving; deleted ones are inserted again.
+        var inserted = entry.State == EntityState.Added;
         Apply(entry, change);
         await db.SaveChangesAsync(ct);
 
         using var doc = JsonDocument.Parse(change.TargetJson!);
         var target = doc.RootElement;
-        var textChanged = change.Kind == RewindChangeKind.Recreate
-            || ChapterVersionFields.Any(f => change.Fields.Contains(FieldWords(f)));
+        var textChanged = inserted || ChapterVersionFields.Any(f => change.Fields.Contains(FieldWords(f)));
         if (!textChanged) return;
 
         // A new active version holding the state of the moment; the versions in between stay in the history.

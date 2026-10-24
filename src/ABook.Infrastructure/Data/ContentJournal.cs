@@ -44,7 +44,7 @@ public static class ContentJournal
     {
         var values = new SortedDictionary<string, object?>(StringComparer.Ordinal);
         foreach (var p in entry.Metadata.GetProperties())
-            values[p.Name] = original ? entry.Property(p.Name).OriginalValue : entry.Property(p.Name).CurrentValue;
+            values[p.Name] = AsStored(original ? entry.Property(p.Name).OriginalValue : entry.Property(p.Name).CurrentValue);
         return JsonSerializer.Serialize(values);
     }
 
@@ -53,9 +53,20 @@ public static class ContentJournal
     {
         var values = new SortedDictionary<string, object?>(StringComparer.Ordinal);
         foreach (var p in type.GetProperties())
-            values[p.Name] = p.PropertyInfo?.GetValue(entity) ?? p.FieldInfo?.GetValue(entity);
+            values[p.Name] = AsStored(p.PropertyInfo?.GetValue(entity) ?? p.FieldInfo?.GetValue(entity));
         return JsonSerializer.Serialize(values);
     }
+
+    /// <summary>
+    /// A value as the database keeps it: times to the microsecond (PostgreSQL's precision). A time saved from memory
+    /// has 100 ns ticks, and would otherwise never equal the same time read back.
+    /// </summary>
+    public static object? AsStored(object? value) => value switch
+    {
+        DateTime d => new DateTime(d.Ticks - d.Ticks % 10, d.Kind),
+        DateTimeOffset o => new DateTimeOffset(o.Ticks - o.Ticks % 10, o.Offset),
+        _ => value,
+    };
 
     public static string Hash(string json)
     {
