@@ -2,6 +2,9 @@
 
 ## v0.5.1 — 2026-10-24
 
+- feat: **Telegram: pick several suggestions** — tick boxes on each suggestion, then **Apply ticked** / **Reject ticked** (one batch, like Apply selected on the web); **Apply all** / **Reject all** when nothing is ticked; one **Choose option A/B** button per alternative; ↻ Run again for steps. Or reply to the suggestions with their numbers: `1 3`, `apply 1, 3`, `reject 2`
+- fix: the Telegram settings card (code, links, `/bind` command) and the prompt placeholders were white on white in the dark theme; each value now has **Copy** (works on plain-HTTP installs too) and links an **Open** button
+- fix: the MCP setup instructions show this server's real address instead of `localhost:5000`, have **Copy** buttons, and put your API token into the copied config while it is shown
 - fix: **Telegram: suggestions can be applied from chats with Participate access** (the default). Applying, rejecting and undoing book-chat suggestions was limited to Control, so in a newly connected chat the suggestions arrived with no buttons at all. Applying is part of using the book chat, so it now comes with Participate; Control keeps starting/stopping runs, `/rewind` and `/unbind`. Suggestion messages already in a chat get their buttons on the next sync; in a Read-only chat they say why there are none
 
 ## v0.5.0 — 2026-10-24

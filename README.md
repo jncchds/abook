@@ -301,7 +301,7 @@ One bot per ABook server lets people follow and steer a book from Telegram.
 - The planner's questions are asked one at a time: **reply to the question message** to answer it, or press **Skip**. Other messages never count as answers.
 - **A file after each chapter edit** (EPUB, FB2 or HTML — set per chat), sent as a reply to the chapter's previous version; the planning document when planning completes; the whole book when the last chapter is done; rendered illustrations as photos.
 - In a private chat the chapter being written shows as a **live draft** (with a stop button for Control).
-- **Interactive books**: write in the chat to talk to the book chat; its suggested changes come with ✅ / ✖️ / ↩️ buttons.
+- **Interactive books**: write in the chat to talk to the book chat. Its suggested changes come with buttons: ✅ / ✖️ per suggestion, **tick boxes** (☐/☑) to pick several and **Apply ticked** / **Reject ticked** them together, **Apply all** / **Reject all**, one button per alternative (option A/B), and ↩️ Undo. Or reply to the suggestions with their numbers — `1 3`, `apply 1, 3`, `reject 2`.
 - **Rewind**: reply `/rewind` to any message of the thread to rewind the book to when it was posted (to just before it, for your own book-chat message), or send `/rewind` alone to pick a recent moment from buttons. The bot shows the preview with **⏪ Rewind** / **Cancel** (valid 10 minutes); after the rewind every connected thread gets a divider message, rewound chat replies are crossed out, and changed chapters arrive as new file versions. Control only — and in groups only the chat's admins.
 - Commands: `/status`, `/run`, `/continue`, `/stop`, `/export [epub|fb2|html|metadata]`, `/note text`, `/questions`, `/rewind`, `/unbind`, `/help`.
 

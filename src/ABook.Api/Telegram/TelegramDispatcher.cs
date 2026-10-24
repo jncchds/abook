@@ -87,6 +87,32 @@ public sealed class TelegramDispatcher(
 
     public BindingWorker? Worker(int bindingId) => _workers.GetValueOrDefault(bindingId);
 
+    // ── Ticked suggestions ────────────────────────────────────────────────────
+    // Which suggestions of a reply are ticked in a thread (shared by everyone there). In memory: a restart unticks.
+
+    private readonly ConcurrentDictionary<(int BindingId, int ChatMessageId), HashSet<int>> _ticks = new();
+
+    public IReadOnlySet<int> Ticks(int bindingId, int chatMessageId)
+    {
+        if (!_ticks.TryGetValue((bindingId, chatMessageId), out var set)) return new HashSet<int>();
+        lock (set) return set.ToHashSet();
+    }
+
+    /// <summary>Ticks or unticks one suggestion; returns whether it is ticked now.</summary>
+    public bool ToggleTick(int bindingId, int chatMessageId, int proposalId)
+    {
+        var set = _ticks.GetOrAdd((bindingId, chatMessageId), _ => []);
+        lock (set) return set.Add(proposalId) || !set.Remove(proposalId);
+    }
+
+    public void SetTicks(int bindingId, int chatMessageId, IEnumerable<int> proposalIds)
+    {
+        var set = _ticks.GetOrAdd((bindingId, chatMessageId), _ => []);
+        lock (set) { set.Clear(); set.UnionWith(proposalIds); }
+    }
+
+    public void ClearTicks(int bindingId, int chatMessageId) => _ticks.TryRemove((bindingId, chatMessageId), out _);
+
     private void StartWorker(TelegramBinding binding, bool isNew)
     {
         var worker = new BindingWorker(this, binding, isNew);

@@ -4,9 +4,12 @@ import type { LlmPreset } from '../api'
 import { getPresets, getDefaultPreset, setDefaultPreset, getApiToken, regenerateApiToken, updateProfile, authFetch } from '../api'
 import { PROVIDER_LABELS } from '../config/providers'
 import { useNotifications } from '../hooks/useNotifications'
+import CopyBlock from '../components/CopyBlock'
 import { useAuth } from '../hooks/useAuth'
 
 export default function GlobalSettings() {
+  // The address this browser reaches abook at — what an MCP client on the same network uses.
+  const mcpUrl = `${window.location.origin}/mcp`
   const { user, setUser } = useAuth()
   const { supported: notifSupported, permission, enabled: notifEnabled, setEnabled: setNotifEnabled } = useNotifications()
   const [pullModel, setPullModel] = useState('')
@@ -31,6 +34,8 @@ export default function GlobalSettings() {
   const [mcpTokenVisible, setMcpTokenVisible] = useState(false)
   const [mcpTokenCopied, setMcpTokenCopied] = useState(false)
   const [mcpTokenRegenConfirm, setMcpTokenRegenConfirm] = useState(false)
+  // The token goes into the copyable configs only while it is shown on screen.
+  const mcpConfigToken = mcpTokenVisible && mcpToken ? mcpToken : 'YOUR_TOKEN'
 
   useEffect(() => {
     getPresets().then(r => setPresets(r.data)).catch(err => console.error('Failed to load presets', err))
@@ -186,37 +191,35 @@ export default function GlobalSettings() {
             <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               <div>
                 <strong>MCP endpoint URL:</strong>
-                <code style={{ display: 'block', margin: '0.25rem 0', padding: '0.4rem 0.6rem', background: 'var(--bg-secondary)', borderRadius: '4px' }}>
-                  http://localhost:5000/mcp
-                </code>
+                <CopyBlock inline text={mcpUrl} />
               </div>
               <div>
                 <strong>Claude Desktop</strong> — add to <code>claude_desktop_config.json</code>:
-                <pre style={{ background: 'var(--bg-secondary)', borderRadius: '4px', padding: '0.6rem', overflow: 'auto', fontSize: '0.8rem' }}>{`{
+                <CopyBlock text={`{
   "mcpServers": {
     "abook": {
       "type": "http",
-      "url": "http://localhost:5000/mcp",
+      "url": "${mcpUrl}",
       "headers": {
-        "Authorization": "Bearer YOUR_TOKEN"
+        "Authorization": "Bearer ${mcpConfigToken}"
       }
     }
   }
-}`}</pre>
+}`} />
               </div>
               <div>
                 <strong>VS Code / GitHub Copilot</strong> — add to <code>.vscode/mcp.json</code>:
-                <pre style={{ background: 'var(--bg-secondary)', borderRadius: '4px', padding: '0.6rem', overflow: 'auto', fontSize: '0.8rem' }}>{`{
+                <CopyBlock text={`{
   "servers": {
     "abook": {
       "type": "http",
-      "url": "http://localhost:5000/mcp",
+      "url": "${mcpUrl}",
       "headers": {
-        "Authorization": "Bearer YOUR_TOKEN"
+        "Authorization": "Bearer ${mcpConfigToken}"
       }
     }
   }
-}`}</pre>
+}`} />
               </div>
             </div>
           </details>

@@ -178,6 +178,60 @@ public class TelegramRewindFormatTests
     }
 }
 
+public class TelegramSuggestionPickTests
+{
+    private static ChatProposal P(int id, ChatProposalStatus status = ChatProposalStatus.Pending, string? group = null, string type = "add_note") =>
+        new() { Id = id, Ordinal = id, Label = $"Change {id}", Status = status, OptionGroup = group, Type = type };
+
+    private static List<string> Data(IReadOnlyList<IReadOnlyList<TgButton>> rows) => rows.SelectMany(r => r).Select(b => b.CallbackData!).ToList();
+
+    [Fact]
+    public void Keyboard_NothingTicked_OffersApplyAllAndRejectAll()
+    {
+        var rows = TelegramFormat.ProposalsKeyboard(9, 50, [P(1), P(2)]);
+        Assert.Equal(["9:tick:1", "9:apply:1", "9:reject:1", "9:tick:2", "9:apply:2", "9:reject:2", "9:applyall:50", "9:rejall:50"], Data(rows));
+        Assert.StartsWith("☐ 1.", rows[0][0].Text);
+    }
+
+    [Fact]
+    public void Keyboard_Ticked_OffersApplyTicked()
+    {
+        var rows = TelegramFormat.ProposalsKeyboard(9, 50, [P(1), P(2), P(3)], new HashSet<int> { 1, 3 });
+        Assert.StartsWith("☑ 1.", rows[0][0].Text);
+        Assert.StartsWith("☐ 2.", rows[1][0].Text);
+        Assert.Equal(["9:aptk:50", "9:rjtk:50", "9:clrtk:50"], rows[^1].Select(b => b.CallbackData!));
+        Assert.Contains("(2)", rows[^1][0].Text);
+    }
+
+    [Fact]
+    public void Keyboard_OptionsAreChosenWhole_AppliedOnesUndo_StepsRunAgain()
+    {
+        var rows = TelegramFormat.ProposalsKeyboard(9, 50,
+            [P(1, group: "A"), P(2, group: "A"), P(3, group: "B"), P(4, ChatProposalStatus.Applied), P(5, ChatProposalStatus.Applied, type: "check_chapter")]);
+        Assert.Equal(["9:opt:1", "9:opt:3", "9:undo:4", "9:apply:5"], Data(rows));
+    }
+
+    [Theory]
+    [InlineData("1 3", false, new[] { 1, 3 })]
+    [InlineData("apply 1, 3", false, new[] { 1, 3 })]
+    [InlineData("✅ 2", false, new[] { 2 })]
+    [InlineData("Reject 2 and 4", true, new[] { 2, 4 })]
+    [InlineData("x 1", true, new[] { 1 })]
+    public void Pick_Parses(string text, bool reject, int[] numbers)
+    {
+        var pick = TelegramFormat.ParseProposalPick(text);
+        Assert.NotNull(pick);
+        Assert.Equal(reject, pick.Value.Reject);
+        Assert.Equal(numbers, pick.Value.Numbers);
+    }
+
+    [Theory]
+    [InlineData("make chapter 2 darker")]
+    [InlineData("apply")]
+    [InlineData("")]
+    public void Pick_LeavesOtherTextAlone(string text) => Assert.Null(TelegramFormat.ParseProposalPick(text));
+}
+
 public class TelegramBindCodeTests
 {
     [Theory]

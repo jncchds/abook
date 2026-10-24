@@ -812,6 +812,13 @@ public sealed class BindingWorker
         catch (JsonException) { return []; }
     }
 
+    /// <summary>Re-draws one reply's suggestions message now (after a tick, or an apply from a button or a reply).</summary>
+    public Task RedrawProposalsAsync(int chatMessageId) => WithScopeAsync(async sp =>
+    {
+        var m = await sp.GetRequiredService<IBookRepository>().GetChatMessageAsync(_b.BookId, chatMessageId);
+        if (m is { HiddenAt: null }) await SyncProposalsAsync(sp.GetRequiredService<ITelegramRepository>(), m);
+    });
+
     /// <summary>The reply's suggested changes as one message with buttons, edited as their states change.</summary>
     private async Task SyncProposalsAsync(ITelegramRepository tg, BookChatMessage m)
     {
@@ -819,15 +826,20 @@ public sealed class BindingWorker
         if (proposals.Count == 0) return;
         // Applying is part of using the book chat: everyone who can write in it can apply what it suggests.
         var canAct = _b.Level >= TelegramAccessLevel.Participate;
-        // Whether the chat may act is part of what is shown: a level change re-draws the buttons.
-        var hash = ProposalsHash(proposals) + (canAct ? "+act" : "");
+        // Ticks of suggestions no longer open are dropped.
+        var ticked = _d.Ticks(_b.Id, m.Id).Where(id => proposals.Any(p => p.Id == id && IsOpen(p))).ToHashSet();
+        _d.SetTicks(_b.Id, m.Id, ticked);
+        // Whether the chat may act, and what is ticked, are part of what is shown: either changing re-draws the buttons.
+        var hash = ProposalsHash(proposals) + (canAct ? "+act" : "") + (ticked.Count > 0 ? "+t" + string.Join(".", ticked.Order()) : "");
         var link = await tg.GetLatestLinkAsync(_b.Id, TelegramLinkKind.ChatProposals, m.Id);
         if (link?.ContentHash == hash) return;
 
         var text = ProposalsText(proposals);
         if (!canAct && proposals.Any(p => p.Status is ChatProposalStatus.Pending or ChatProposalStatus.Failed))
             text += "\n\n<i>This chat can only follow the book — apply these in abook, or ask the book's owner for Participate access.</i>";
-        var keyboard = canAct ? ProposalsKeyboard(_b.Id, m.Id, proposals) : [];
+        var keyboard = canAct ? ProposalsKeyboard(_b.Id, m.Id, proposals, ticked) : [];
+        if (canAct && proposals.Count(IsOpen) >= 2)
+            text += "\n\n<i>Tick several and apply them together — or reply with their numbers (“1 3”, “reject 2”).</i>";
         if (link is null)
         {
             var reply = await tg.GetLatestLinkAsync(_b.Id, TelegramLinkKind.ChatMessage, m.Id);

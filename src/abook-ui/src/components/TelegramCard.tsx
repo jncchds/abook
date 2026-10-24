@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TelegramAccessLevel, TelegramBinding, TelegramCode, TelegramFileFormat, TelegramState } from '../api'
 import { createTelegramCode, getTelegram, revokeTelegramBinding, updateTelegramBinding } from '../api'
 import ToggleField from './ToggleField'
+import { copyText } from '../utils/clipboard'
 
 const LEVELS: { value: TelegramAccessLevel; label: string; hint: string }[] = [
   { value: 'Read', label: 'Read', hint: 'status, notices and files' },
@@ -11,6 +12,23 @@ const LEVELS: { value: TelegramAccessLevel; label: string; hint: string }[] = [
 
 const CHAT_ICONS: Record<TelegramBinding['chatType'], string> = {
   private: '👤', group: '👥', supergroup: '👥', channel: '📣',
+}
+
+/** A value to hand to Telegram: shown in full (selectable), with Copy and, for links, Open. */
+function CopyField({ label, value, hint, open, copied, onCopy }: {
+  label: string; value: string; hint?: string; open?: string; copied: boolean; onCopy: () => void
+}) {
+  return (
+    <div className="copy-field">
+      <span className="copy-field-label">{label}</span>
+      <div className="copy-field-row">
+        <code className="copy-field-value" onClick={e => window.getSelection()?.selectAllChildren(e.currentTarget)}>{value}</code>
+        <button type="button" className="btn-secondary btn-sm" onClick={onCopy}>{copied ? '✓ Copied' : 'Copy'}</button>
+        {open && <a className="btn-secondary btn-sm copy-field-open" href={open} target="_blank" rel="noreferrer">Open</a>}
+      </div>
+      {hint && <span className="hint">{hint}</span>}
+    </div>
+  )
 }
 
 function errorText(err: unknown, fallback: string): string {
@@ -27,7 +45,7 @@ export default function TelegramCard({ bookId }: { bookId: number }) {
   const [level, setLevel] = useState<TelegramAccessLevel>('Participate')
   const [code, setCode] = useState<TelegramCode | null>(null)
   const [error, setError] = useState('')
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<string | null>(null)
 
   // The bindings that existed when the code was made: a new one means the code was used.
   const codeBaseline = useRef<Set<number> | null>(null)
@@ -62,7 +80,7 @@ export default function TelegramCard({ bookId }: { bookId: number }) {
       const r = await createTelegramCode(bookId, level)
       codeBaseline.current = new Set((state?.bindings ?? []).map(b => b.id))
       setCode(r.data)
-      setCopied(false)
+      setCopied(null)
     } catch (err) {
       setError(errorText(err, 'Could not make a code.'))
     }
@@ -89,12 +107,12 @@ export default function TelegramCard({ bookId }: { bookId: number }) {
     }
   }
 
-  const copy = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch { /* clipboard blocked: the code is still visible */ }
+  /** Copies and marks which field was copied for a moment. */
+  const copy = async (key: string, text: string) => {
+    if (await copyText(text)) {
+      setCopied(key)
+      setTimeout(() => setCopied(c => (c === key ? null : c)), 1500)
+    }
   }
 
   if (!state) {
@@ -144,23 +162,19 @@ export default function TelegramCard({ bookId }: { bookId: number }) {
 
       {code && (
         <div className="telegram-code">
-          <p>
-            One-time code (expires {new Date(code.expiresAt).toLocaleTimeString()}):{' '}
-            <code>{code.code}</code>{' '}
-            <button type="button" className="btn-secondary btn-sm" onClick={() => void copy(code.bindCommand)}>
-              {copied ? '✓ Copied' : 'Copy /bind command'}
-            </button>
-          </p>
-          <ul>
-            {code.privateLink && (
-              <li>
-                <a href={code.privateLink} target="_blank" rel="noreferrer">Open a private chat with the bot</a>
-                {state.privateTopics ? ' — the book gets its own topic there.' : ' — a private chat holds one book (topic mode is off in @BotFather).'}
-              </li>
-            )}
-            {code.groupLink && <li><a href={code.groupLink} target="_blank" rel="noreferrer">Add the bot to a group</a> — binds the group (or its General topic).</li>}
-            <li>Or send <code>{code.bindCommand}</code> in a forum topic, or post it in a channel where the bot is an admin.</li>
-          </ul>
+          <p>One-time code — works once, expires {new Date(code.expiresAt).toLocaleTimeString()}. Use it one of these ways:</p>
+          {code.privateLink && (
+            <CopyField label="Private chat" value={code.privateLink} copied={copied === 'private'} onCopy={() => void copy('private', code.privateLink!)}
+              open={code.privateLink}
+              hint={state.privateTopics ? 'Opens a private chat with the bot; the book gets its own topic there.' : 'Opens a private chat with the bot; it holds one book (topic mode is off in @BotFather).'} />
+          )}
+          {code.groupLink && (
+            <CopyField label="Group" value={code.groupLink} copied={copied === 'group'} onCopy={() => void copy('group', code.groupLink!)}
+              open={code.groupLink} hint="Adds the bot to a group you pick and binds it (or its General topic)." />
+          )}
+          <CopyField label="Topic or channel" value={code.bindCommand} copied={copied === 'command'} onCopy={() => void copy('command', code.bindCommand)}
+            hint="Send this in a forum topic, or post it in a channel where the bot is an admin." />
+          <CopyField label="Code" value={code.code} copied={copied === 'code'} onCopy={() => void copy('code', code.code)} />
           <p className="hint">The bot needs to see all messages in groups (privacy mode off in @BotFather) to take book-chat messages.</p>
         </div>
       )}

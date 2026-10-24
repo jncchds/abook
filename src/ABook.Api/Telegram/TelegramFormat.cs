@@ -7,7 +7,7 @@ using ABook.Core.Models;
 namespace ABook.Api.Telegram;
 
 /// <summary>Text, captions and keyboards of the bot's messages (Telegram HTML parse mode).</summary>
-public static class TelegramFormat
+public static partial class TelegramFormat
 {
     public const int MaxMessage = 4096;
     public const int MaxCaption = 1024;
@@ -275,25 +275,76 @@ public static class TelegramFormat
         return sb.ToString().TrimEnd();
     }
 
-    public static IReadOnlyList<IReadOnlyList<TgButton>> ProposalsKeyboard(int bindingId, int chatMessageId, IReadOnlyList<ChatProposal> proposals)
+    public static bool IsOpen(ChatProposal p) => p.Status is ChatProposalStatus.Pending or ChatProposalStatus.Failed;
+
+    /// <summary>
+    /// The suggestion buttons. Each open suggestion: a tick box (☐/☑ with its number and label), ✅ to apply just it and
+    /// ✖️ to reject it. Alternatives (option A/B) are chosen as a whole with one button per option. Applied ones offer
+    /// Undo (steps: Run again). The last row acts on the ticked ones — or on all of them when none is ticked.
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyList<TgButton>> ProposalsKeyboard(
+        int bindingId, int chatMessageId, IReadOnlyList<ChatProposal> proposals, IReadOnlySet<int>? ticked = null)
     {
+        ticked ??= new HashSet<int>();
         var rows = new List<IReadOnlyList<TgButton>>();
-        var i = 0;
-        foreach (var p in proposals)
+        var shownGroups = new HashSet<string>();
+        for (var i = 0; i < proposals.Count; i++)
         {
-            i++;
-            if (p.Status is ChatProposalStatus.Pending or ChatProposalStatus.Failed)
+            var p = proposals[i];
+            var n = i + 1;
+            if (p.OptionGroup is { Length: > 0 } group)
+            {
+                if (IsOpen(p) && shownGroups.Add(group))
+                    rows.Add([new TgButton($"Choose option {group}", Callback(bindingId, "opt", p.Id), Style: "primary")]);
+                else if (p.Status == ChatProposalStatus.Applied)
+                    rows.Add([new TgButton($"↩️ Undo {n}. {Clip(p.Label, 30)}", Callback(bindingId, "undo", p.Id))]);
+                continue;
+            }
+            if (IsOpen(p))
                 rows.Add([
-                    new TgButton($"✅ {i}. {Clip(p.Label, 32)}", Callback(bindingId, "apply", p.Id), Style: "success"),
+                    new TgButton($"{(ticked.Contains(p.Id) ? "☑" : "☐")} {n}. {Clip(p.Label, 26)}", Callback(bindingId, "tick", p.Id)),
+                    new TgButton("✅", Callback(bindingId, "apply", p.Id), Style: "success"),
                     new TgButton("✖️", Callback(bindingId, "reject", p.Id)),
                 ]);
+            else if (p.Status == ChatProposalStatus.Applied && ABook.Agents.BookChatActions.IsStep(p.Type))
+                rows.Add([new TgButton($"↻ Run {n}. {Clip(p.Label, 30)} again", Callback(bindingId, "apply", p.Id))]);
             else if (p.Status == ChatProposalStatus.Applied)
-                rows.Add([new TgButton($"↩️ Undo {i}. {Clip(p.Label, 32)}", Callback(bindingId, "undo", p.Id))]);
+                rows.Add([new TgButton($"↩️ Undo {n}. {Clip(p.Label, 30)}", Callback(bindingId, "undo", p.Id))]);
         }
-        if (proposals.Count(p => p.Status is ChatProposalStatus.Pending) >= 2)
-            rows.Add([new TgButton("✅ Apply all", Callback(bindingId, "applyall", chatMessageId), Style: "primary")]);
+
+        var tickable = proposals.Where(p => IsOpen(p) && p.OptionGroup is not { Length: > 0 }).ToList();
+        var tickedOpen = tickable.Count(p => ticked.Contains(p.Id));
+        if (tickedOpen > 0)
+            rows.Add([
+                new TgButton($"✅ Apply ticked ({tickedOpen})", Callback(bindingId, "aptk", chatMessageId), Style: "success"),
+                new TgButton("✖️ Reject ticked", Callback(bindingId, "rjtk", chatMessageId)),
+                new TgButton("Clear", Callback(bindingId, "clrtk", chatMessageId)),
+            ]);
+        else if (tickable.Count >= 2)
+            rows.Add([
+                new TgButton($"✅ Apply all ({tickable.Count})", Callback(bindingId, "applyall", chatMessageId), Style: "primary"),
+                new TgButton("✖️ Reject all", Callback(bindingId, "rejall", chatMessageId)),
+            ]);
         return rows;
     }
+
+    /// <summary>
+    /// A reply to the suggestions: "1 3", "apply 1, 3", "✅ 2" or "reject 2" → the action and the numbers (1-based, as
+    /// listed). Null when the text is anything else (then it is a book-chat message like any other).
+    /// </summary>
+    public static (bool Reject, IReadOnlyList<int> Numbers)? ParseProposalPick(string text)
+    {
+        var m = ProposalPick().Match(text.Trim());
+        if (!m.Success) return null;
+        var verb = m.Groups["verb"].Value.ToLowerInvariant();
+        var numbers = System.Text.RegularExpressions.Regex.Matches(m.Groups["nums"].Value, "[0-9]+")
+            .Select(x => int.Parse(x.Value, CultureInfo.InvariantCulture)).Distinct().ToList();
+        return numbers.Count == 0 ? null : (verb is "reject" or "✖️" or "✖" or "x", numbers);
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^(?<verb>apply|accept|reject|✅|✖️|✖|x)?\s*(?<nums>[0-9]+(?:\s*(?:,|\s|and)\s*[0-9]+)*)\s*$",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex ProposalPick();
 
     public static string ProposalsHash(IReadOnlyList<ChatProposal> proposals) =>
         Hash(string.Join(",", proposals.Select(p => $"{p.Id}={p.Status}")));

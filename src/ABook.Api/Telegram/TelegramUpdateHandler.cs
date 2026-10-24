@@ -115,11 +115,19 @@ public sealed class TelegramUpdateHandler(
                 return;
             }
             if (message.ReplyToMessage is { } replied
-                && await sp.GetRequiredService<ITelegramRepository>().GetLinkByMessageAsync(binding.Id, replied.MessageId) is { } link
-                && link.Kind is TelegramLinkKind.Clarification or TelegramLinkKind.Question)
+                && await sp.GetRequiredService<ITelegramRepository>().GetLinkByMessageAsync(binding.Id, replied.MessageId) is { } link)
             {
-                await OnAnswerAsync(sp, binding, message, link, text);
-                return;
+                if (link.Kind is TelegramLinkKind.Clarification or TelegramLinkKind.Question)
+                {
+                    await OnAnswerAsync(sp, binding, message, link, text);
+                    return;
+                }
+                // "1 3" / "reject 2" in reply to a reply or its suggestions: apply or reject those.
+                if (link.Kind is TelegramLinkKind.ChatProposals or TelegramLinkKind.ChatMessage
+                    && link.Version != UserMessageVersion
+                    && ParseProposalPick(text) is { } pick
+                    && await OnProposalPickAsync(sp, binding, message, link.RefId, pick.Reject, pick.Numbers))
+                    return;
             }
             await OnPlainMessageAsync(sp, binding, message, text);
         });
@@ -438,6 +446,7 @@ public sealed class TelegramUpdateHandler(
             // Applying, rejecting and undoing book-chat suggestions is how an Interactive book gets written:
             // part of using the book chat, like writing in it.
             "export" or "skipc" or "retry" or "apply" or "applyf" or "applyall" or "reject" or "undo" or "undof"
+                or "tick" or "aptk" or "aptkf" or "rjtk" or "clrtk" or "rejall" or "opt"
                 => TelegramAccessLevel.Participate,
             _ => TelegramAccessLevel.Control,
         };
@@ -465,10 +474,51 @@ public sealed class TelegramUpdateHandler(
             case "applyf":
                 return await ChatOutcomeAsync(binding, message, await chat.ApplyAsync(binding.BookId, [arg], force: true), null, arg);
             case "applyall":
-                var pending = (await sp.GetRequiredService<IBookRepository>().GetChatMessageAsync(binding.BookId, arg))?.Proposals
-                    .Where(p => p.Status == ChatProposalStatus.Pending).OrderBy(p => p.Ordinal).Select(p => p.Id).ToList() ?? [];
-                if (pending.Count == 0) return ("Nothing left to apply.", false);
-                return await ChatOutcomeAsync(binding, message, await chat.ApplyAsync(binding.BookId, pending, force: false), null, arg);
+            case "rejall":
+            {
+                // All open suggestions that are not alternatives (those are chosen one option at a time).
+                var open = (await OpenProposalsAsync(sp, binding, arg)).Where(p => p.OptionGroup is not { Length: > 0 }).Select(p => p.Id).ToList();
+                if (open.Count == 0) return ("Nothing left to do here.", false);
+                dispatcher.ClearTicks(binding.Id, arg);
+                var outcome = action == "applyall"
+                    ? await chat.ApplyAsync(binding.BookId, open, force: false)
+                    : await chat.RejectAsync(binding.BookId, open);
+                return await ChatOutcomeAsync(binding, message, outcome, null, arg, redraw: arg);
+            }
+            case "tick":
+            {
+                var proposal = await sp.GetRequiredService<IBookRepository>().GetProposalAsync(binding.BookId, arg);
+                if (proposal is null || !IsOpen(proposal)) return ("This suggestion is no longer open.", false);
+                var nowTicked = dispatcher.ToggleTick(binding.Id, proposal.MessageId, proposal.Id);
+                dispatcher.Enqueue(binding.Id, w => w.RedrawProposalsAsync(proposal.MessageId));
+                return (nowTicked ? "Ticked." : "Unticked.", false);
+            }
+            case "clrtk":
+                dispatcher.ClearTicks(binding.Id, arg);
+                dispatcher.Enqueue(binding.Id, w => w.RedrawProposalsAsync(arg));
+                return ("Cleared.", false);
+            case "aptk":
+            case "aptkf":
+            case "rjtk":
+            {
+                var ticked = dispatcher.Ticks(binding.Id, arg);
+                var ids = (await OpenProposalsAsync(sp, binding, arg)).Where(p => ticked.Contains(p.Id)).Select(p => p.Id).ToList();
+                if (ids.Count == 0) return ("Tick one or more suggestions first.", true);
+                var outcome = action == "rjtk"
+                    ? await chat.RejectAsync(binding.BookId, ids)
+                    : await chat.ApplyAsync(binding.BookId, ids, force: action == "aptkf");
+                if (outcome.Result is BookChatResult.Started or BookChatResult.Done) dispatcher.ClearTicks(binding.Id, arg);
+                return await ChatOutcomeAsync(binding, message, outcome, action == "aptk" ? "aptkf" : null, arg, redraw: arg);
+            }
+            case "opt":
+            {
+                // One alternative (option A/B…) of a reply, applied as a whole; applying it rejects the other options.
+                var first = await sp.GetRequiredService<IBookRepository>().GetProposalAsync(binding.BookId, arg);
+                if (first is not { OptionGroup: { Length: > 0 } group }) return ("This option is no longer open.", false);
+                var ids = (await OpenProposalsAsync(sp, binding, first.MessageId)).Where(p => p.OptionGroup == group).Select(p => p.Id).ToList();
+                if (ids.Count == 0) return ("This option is no longer open.", false);
+                return await ChatOutcomeAsync(binding, message, await chat.ApplyAsync(binding.BookId, ids, force: false), null, arg, redraw: first.MessageId);
+            }
             case "reject":
                 return await ChatOutcomeAsync(binding, message, await chat.RejectAsync(binding.BookId, [arg]), null, arg);
             case "undo":
@@ -484,9 +534,10 @@ public sealed class TelegramUpdateHandler(
 
     /// <summary>Turns a book-chat outcome into the button's answer; a stale change asks for confirmation with a new button.</summary>
     private async Task<(string? Answer, bool Alert)> ChatOutcomeAsync(
-        TelegramBinding binding, TgMessage message, BookChatOutcome outcome, string? confirmAction, int arg)
+        TelegramBinding binding, TgMessage message, BookChatOutcome outcome, string? confirmAction, int arg, int? redraw = null)
     {
         dispatcher.Worker(binding.Id)?.SyncChatSoon();
+        if (redraw is int chatMessageId) dispatcher.Enqueue(binding.Id, w => w.RedrawProposalsAsync(chatMessageId));
         switch (outcome.Result)
         {
             case BookChatResult.Started:
@@ -495,7 +546,7 @@ public sealed class TelegramUpdateHandler(
             case BookChatResult.Stale when confirmAction is not null:
                 var keyboard = new List<IReadOnlyList<TgButton>>
                 {
-                    new[] { new TgButton(confirmAction == "applyf" ? "⚠️ Apply anyway" : "⚠️ Undo anyway", Callback(binding.Id, confirmAction, arg), Style: "danger") },
+                    new[] { new TgButton(confirmAction is "applyf" or "aptkf" ? "⚠️ Apply anyway" : "⚠️ Undo anyway", Callback(binding.Id, confirmAction, arg), Style: "danger") },
                 };
                 await api.SendMessageAsync(binding.ChatId, binding.ThreadId, "⚠️ " + H(outcome.Message ?? "It changed since."),
                     keyboard, replyTo: message.Date != 0 ? message.MessageId : null);
@@ -503,6 +554,63 @@ public sealed class TelegramUpdateHandler(
             default:
                 return (Clip(outcome.Message ?? "Not possible right now.", 190), true);
         }
+    }
+
+    /// <summary>A reply's open suggestions, in the order they are listed (and numbered).</summary>
+    private static async Task<IReadOnlyList<ChatProposal>> OpenProposalsAsync(IServiceProvider sp, TelegramBinding binding, int chatMessageId) =>
+        (await sp.GetRequiredService<IBookRepository>().GetChatMessageAsync(binding.BookId, chatMessageId)) is { HiddenAt: null } m
+            ? m.Proposals.OrderBy(p => p.Ordinal).Where(IsOpen).ToList()
+            : [];
+
+    /// <summary>
+    /// "1 3" (or "apply 1, 3", "reject 2") in reply to a reply or its suggestions: those suggestions, by the numbers
+    /// they are listed with, applied (as one batch) or rejected. A number of an alternative applies that option.
+    /// False when the message has no suggestions: the text is then an ordinary book-chat message.
+    /// </summary>
+    private async Task<bool> OnProposalPickAsync(
+        IServiceProvider sp, TelegramBinding binding, TgMessage message, int chatMessageId, bool reject, IReadOnlyList<int> numbers)
+    {
+        var chatMessage = await sp.GetRequiredService<IBookRepository>().GetChatMessageAsync(binding.BookId, chatMessageId);
+        if (chatMessage is not { HiddenAt: null } || chatMessage.Proposals.Count == 0) return false;
+        if (!await RequireAsync(binding, TelegramAccessLevel.Participate, message.From, message)) return true;
+        var listed = chatMessage.Proposals.OrderBy(p => p.Ordinal).ToList();
+        var bad = numbers.Where(n => n < 1 || n > listed.Count).ToList();
+        if (bad.Count > 0)
+        {
+            await ReplyAsync(message, $"ℹ️ There {(listed.Count == 1 ? "is 1 suggestion" : $"are {listed.Count} suggestions")} — no number {string.Join(", ", bad)}.");
+            return true;
+        }
+        var picked = numbers.Select(n => listed[n - 1]).ToList();
+        var closed = picked.Where(p => !IsOpen(p)).Select(p => listed.IndexOf(p) + 1).ToList();
+        var ids = picked.Where(IsOpen).Select(p => p.Id).ToList();
+        if (ids.Count == 0)
+        {
+            await ReplyAsync(message, $"ℹ️ {(closed.Count == 1 ? $"Suggestion {closed[0]} is" : $"Suggestions {string.Join(", ", closed)} are")} no longer open.");
+            return true;
+        }
+
+        var outcome = reject ? await chat.RejectAsync(binding.BookId, ids) : await chat.ApplyAsync(binding.BookId, ids, force: false);
+        dispatcher.Enqueue(binding.Id, w => w.RedrawProposalsAsync(chatMessageId));
+        dispatcher.Worker(binding.Id)?.SyncChatSoon();
+        switch (outcome.Result)
+        {
+            case BookChatResult.Started or BookChatResult.Done:
+                dispatcher.ClearTicks(binding.Id, chatMessageId);
+                await ReactAsync(message, "👍");
+                if (closed.Count > 0)
+                    await ReplyAsync(message, $"ℹ️ Skipped {string.Join(", ", closed)} — no longer open.");
+                break;
+            case BookChatResult.Stale:
+                // Offer the same set with the ticked-apply confirm button.
+                dispatcher.SetTicks(binding.Id, chatMessageId, ids);
+                await ReplyAsync(message, "⚠️ " + H(outcome.Message ?? "Something changed since it was suggested."),
+                    [[new TgButton("⚠️ Apply anyway", Callback(binding.Id, "aptkf", chatMessageId), Style: "danger")]]);
+                break;
+            default:
+                await ReplyAsync(message, "⏳ " + H(outcome.Message ?? "Not possible right now."));
+                break;
+        }
+        return true;
     }
 
     private async Task<string> SkipClarificationAsync(IServiceProvider sp, TelegramBinding binding, TgMessage message, int clarificationId, string origin)
