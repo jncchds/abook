@@ -80,21 +80,21 @@ public static partial class TelegramFormat
         long CompletionTokens,
         int OpenClarifications);
 
+    /// <summary>
+    /// The status card as a rich message: the title as a heading, then a compact table — the book and its progress bar,
+    /// the run's state, step, words written and tokens — and when it was updated, in the reader's own time zone.
+    /// </summary>
     public static string StatusCard(StatusView v)
     {
-        var sb = new StringBuilder();
-        sb.Append("📖 <b>").Append(H(v.Book.Title)).Append("</b>\n");
-
+        var rows = new List<(string Key, string Value)>();
         var done = v.Chapters.Count(c => c.Status == ChapterStatus.Done);
         var total = Math.Max(v.Chapters.Count, v.Book.Mode == BookMode.Autonomous ? v.Book.TargetChapterCount : 0);
-        sb.Append(v.Book.Mode == BookMode.Interactive ? "💬 Interactive book" : "🤖 Autonomous book");
-        if (total > 0)
-            sb.Append(" · ").Append(done).Append('/').Append(total).Append(" chapters done ").Append(Bar(done, total));
-        sb.Append('\n');
+        rows.Add(("Book", v.Book.Mode == BookMode.Interactive ? "💬 Interactive" : "🤖 Autonomous"));
+        if (total > 0) rows.Add(("Chapters", $"{done}/{total} chapters done {Bar(done, total)}"));
 
         var run = v.Run;
         if (run is null)
-            sb.Append("⚪️ Idle\n");
+            rows.Add(("Status", "⚪️ Idle"));
         else
         {
             var chapter = run.ChapterId is int id ? v.Chapters.FirstOrDefault(c => c.Id == id) : null;
@@ -107,23 +107,28 @@ public static partial class TelegramFormat
                 RunStates.Cancelled => ("⏹", "Stopped"),
                 _ => ("•", run.State),
             };
-            sb.Append(icon).Append(" <b>").Append(label).Append("</b>");
+            var state = $"{icon} <b>{label}</b>";
             if (run.IsActive)
-            {
-                sb.Append(" — ").Append(H(RoleName(run.Role)));
-                if (chapter is not null) sb.Append(" · Chapter ").Append(chapter.Number);
-            }
-            sb.Append('\n');
+                state += $" — {H(RoleName(run.Role))}{(chapter is not null ? $" · Chapter {chapter.Number}" : "")}";
+            rows.Add(("Status", state));
             if (run.IsActive && !string.IsNullOrWhiteSpace(v.Step))
-                sb.Append("<i>").Append(H(Clip(v.Step, 200))).Append("</i>\n");
+                rows.Add(("Step", $"<i>{H(Clip(v.Step, 200))}</i>"));
             if (run.IsActive && v.LiveWords is int words and > 0)
-                sb.Append("✍️ ~").Append(N(words)).Append(" words so far\n");
+                rows.Add(("Written", $"✍️ ~{N(words)} words so far"));
             if (run.State == RunStates.WaitingForInput && v.OpenClarifications > 0)
-                sb.Append("❓ ").Append(v.OpenClarifications).Append(" question(s) to answer — reply to the question messages\n");
+                rows.Add(("Questions", $"❓ {v.OpenClarifications} to answer — reply to the question messages"));
         }
         if (v.PromptTokens + v.CompletionTokens > 0)
-            sb.Append("🔢 Tokens this run: ").Append(N(v.PromptTokens)).Append(" in · ").Append(N(v.CompletionTokens)).Append(" out\n");
-        sb.Append("🕒 Updated ").Append(DateTime.UtcNow.ToString("HH:mm", CultureInfo.InvariantCulture)).Append(" UTC");
+            rows.Add(("Tokens", $"{N(v.PromptTokens)} in · {N(v.CompletionTokens)} out"));
+
+        var sb = new StringBuilder();
+        sb.Append("<h3>📖 ").Append(H(v.Book.Title)).Append("</h3><table compact>");
+        foreach (var (key, value) in rows)
+            sb.Append("<tr><td><b>").Append(key).Append("</b></td><td>").Append(value).Append("</td></tr>");
+        // To the minute, so a card that didn't change is not edited again just for the time.
+        var now = DateTime.UtcNow;
+        sb.Append("</table><footer>🕒 Updated ").Append(TelegramRich.Time(new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0, DateTimeKind.Utc)))
+          .Append("</footer>");
         return sb.ToString();
     }
 
@@ -206,24 +211,25 @@ public static partial class TelegramFormat
     public static string RewindPreview(ABook.Core.Interfaces.RewindPlan plan)
     {
         var sb = new StringBuilder();
-        sb.Append("⏪ <b>Rewind the book to ").Append(MomentText(plan.At)).Append("?</b>\n");
+        sb.Append("<h3>⏪ Rewind the book to ").Append(MomentText(plan.At)).Append("?</h3>");
         var parts = plan.Changes
             .GroupBy(c => (c.EntityType, c.Kind))
             .Select(g => $"{g.Count()} {TypeWords(g.Key.EntityType, g.Count())} {KindWords(g.Key.Kind)}")
             .ToList();
         if (plan.HiddenChatMessages > 0) parts.Add($"{plan.HiddenChatMessages} chat message(s) hidden");
-        sb.Append(H(string.Join(" · ", parts))).Append('\n');
+        sb.Append("<p>").Append(H(string.Join(" · ", parts))).Append("</p>");
 
-        var lines = plan.Changes.Take(40).Select(c =>
-            $"• {KindWords(c.Kind)}: {H(Clip(c.Label, 90))}" + (c.Fields.Count > 0 ? $" <i>({H(string.Join(", ", c.Fields.Take(6)))})</i>" : ""));
         if (plan.Changes.Count > 0)
         {
-            sb.Append("<blockquote expandable>").Append(string.Join("\n", lines));
-            if (plan.Changes.Count > 40) sb.Append($"\n… and {plan.Changes.Count - 40} more");
-            sb.Append("</blockquote>\n");
+            sb.Append(plan.Changes.Count <= 8 ? "<details open>" : "<details>").Append("<summary>All changes (").Append(plan.Changes.Count).Append(")</summary><ul>");
+            foreach (var c in plan.Changes.Take(80))
+                sb.Append("<li><b>").Append(KindWords(c.Kind)).Append(":</b> ").Append(H(Clip(c.Label, 90)))
+                  .Append(c.Fields.Count > 0 ? $" <i>({H(string.Join(", ", c.Fields.Take(6)))})</i>" : "").Append("</li>");
+            if (plan.Changes.Count > 80) sb.Append("<li>… and ").Append(plan.Changes.Count - 80).Append(" more</li>");
+            sb.Append("</ul></details>");
         }
-        sb.Append("<i>Each part gets the state it had then, as a new version — everything in between stays in its history. " +
-                  "Later book-chat messages are hidden for good.</i>");
+        sb.Append("<footer>Each part gets the state it had then, as a new version — everything in between stays in its history. " +
+                  "Later book-chat messages are hidden for good.</footer>");
         return sb.ToString();
     }
 
@@ -278,6 +284,74 @@ public static partial class TelegramFormat
     }
 
     public const string DetailsCommandPrefix = "/details_";
+
+    /// <summary>
+    /// The suggestions as a rich message: one numbered line each (numbers are what "1 3" replies refer to), with an
+    /// inline <b>details</b> link that posts the suggestion in full.
+    /// </summary>
+    public static string ProposalsRich(int bindingId, IReadOnlyList<ChatProposal> proposals, string? footer)
+    {
+        var sb = new StringBuilder("<h3>🛠 Suggested changes</h3>");
+        var i = 0;
+        foreach (var p in proposals)
+        {
+            sb.Append("<p><b>").Append(++i).Append(".</b> ").Append(ProposalStatusIcon(p.Status)).Append(' ');
+            sb.Append(p.Status is ChatProposalStatus.Rejected or ChatProposalStatus.Superseded or ChatProposalStatus.Undone
+                ? $"<s>{H(Clip(p.Label, 200))}</s>" : H(Clip(p.Label, 200)));
+            if (p.OptionGroup is { Length: > 0 } g) sb.Append(" <i>(option ").Append(H(g)).Append(")</i>");
+            sb.Append(" · ").Append(TelegramRich.Link("details", Callback(bindingId, "det", p.Id)));
+            if (p.Status is ChatProposalStatus.Failed && p.ResultNote is { Length: > 0 } note)
+                sb.Append("<br><i>").Append(H(Clip(note, 200))).Append("</i>");
+            sb.Append("</p>");
+        }
+        if (footer is { Length: > 0 }) sb.Append("<footer>").Append(footer).Append("</footer>");
+        return sb.ToString();
+    }
+
+    /// <summary>One suggestion in full as a rich message: each changed field in its own collapsible section, was → now.</summary>
+    public static string ProposalDetailsRich(ChatProposal p, int number)
+    {
+        var sb = new StringBuilder();
+        sb.Append("<h3>🔍 ").Append(number).Append(". ").Append(H(Clip(p.Label, 300))).Append("</h3>");
+        sb.Append("<p>").Append(ProposalStatusIcon(p.Status)).Append(' ').Append(p.Status)
+          .Append(" · <i>").Append(H(p.Type.Replace('_', ' '))).Append("</i>");
+        if (p.OptionGroup is { Length: > 0 } g) sb.Append(" · option ").Append(H(g));
+        sb.Append("</p>");
+        if (p.ConflictNote is { Length: > 0 } conflict)
+            sb.Append("<details open><summary>⚠️ Conflict with the book</summary><p>").Append(Lines(Clip(conflict, 1500))).Append("</p></details>");
+        if (p.ResultNote is { Length: > 0 } result)
+            sb.Append("<p><b>Result:</b> ").Append(H(Clip(result, 600))).Append("</p>");
+
+        var before = FlatFields(p.PreviewBefore);
+        var after = FlatFields(p.PreviewAfter);
+        if (before is not null || after is not null)
+        {
+            before ??= new Dictionary<string, string>();
+            after ??= new Dictionary<string, string>();
+            var keys = after.Keys.Union(before.Keys).Where(k => before.GetValueOrDefault(k, "") != after.GetValueOrDefault(k, "")).ToList();
+            if (keys.Count == 0) sb.Append("<p><i>No field changes.</i></p>");
+            foreach (var k in keys)
+            {
+                var was = before.GetValueOrDefault(k, "");
+                var now = after.GetValueOrDefault(k, "");
+                sb.Append(keys.Count <= 3 ? "<details open>" : "<details>").Append("<summary>").Append(H(FieldLabel(k))).Append("</summary>");
+                if (was.Length > 0) sb.Append("<p><i>was</i></p><blockquote>").Append(Lines(Clip(was, 4000))).Append("</blockquote><p><i>now</i></p>");
+                sb.Append("<blockquote>").Append(now.Length > 0 ? Lines(Clip(now, 4000)) : "<i>(empty)</i>").Append("</blockquote></details>");
+            }
+        }
+        else
+        {
+            if (p.PreviewBefore.Length > 0)
+                sb.Append("<details><summary>Was</summary><blockquote>").Append(Lines(Clip(p.PreviewBefore, 6000))).Append("</blockquote></details>");
+            if (p.PreviewAfter.Length > 0)
+                sb.Append("<details open><summary>").Append(p.PreviewBefore.Length > 0 ? "Now" : "What it does").Append("</summary><blockquote>")
+                  .Append(Lines(Clip(p.PreviewAfter, 6000))).Append("</blockquote></details>");
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Escaped text with its line breaks kept (rich HTML collapses newlines like any HTML).</summary>
+    public static string Lines(string text) => H(text).Replace("\r\n", "\n").Replace("\n", "<br>");
 
     /// <summary>
     /// One suggestion in full: what it is, its status, the conflict it answers, and what it changes — field by field,

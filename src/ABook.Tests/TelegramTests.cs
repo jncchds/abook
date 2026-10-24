@@ -174,7 +174,7 @@ public class TelegramRewindFormatTests
         Assert.Contains("1 chapter restored · 1 chapter archived · 1 character brought back · 5 chat message(s) hidden", html);
         Assert.Contains("Chapter 3: &lt;Dawn&gt;", html);
         Assert.Contains("<i>(text, status)</i>", html);
-        Assert.Contains("<blockquote expandable>", html);
+        Assert.Contains("<details open><summary>All changes (3)</summary>", html);
     }
 }
 

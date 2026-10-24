@@ -6,11 +6,23 @@ using static ABook.Api.Telegram.TelegramFormat;
 
 namespace ABook.Api.Telegram.Cards;
 
-/// <summary>Drawing the cards: the text (fields, long ones in expandable quotes) and the buttons.</summary>
+/// <summary>
+/// Drawing the cards as rich messages: each field with an inline <i>edit</i> link next to it, long fields in
+/// collapsible sections shown in full, list items that are links themselves. The keyboard under the card keeps
+/// navigation, the choices of the field being asked, and Save / Discard.
+/// </summary>
 public sealed partial class TelegramCardService
 {
+    /// <summary>Longest a single field is shown (a rich message holds 32,768 characters in all).</summary>
+    private const int FieldMax = 6000;
+
+    private static string Data(Ctx ctx, string op, object? arg = null) => $"k{ctx.Card.Id}:{op}{(arg is null ? "" : ":" + arg)}";
+
     private static TgButton B(Ctx ctx, string text, string op, object? arg = null, string? style = null) =>
-        new(text, $"k{ctx.Card.Id}:{op}{(arg is null ? "" : ":" + arg)}", Style: style);
+        new(text, Data(ctx, op, arg), Style: style);
+
+    /// <summary>An inline link inside the card's text that works like a button.</summary>
+    private static string L(Ctx ctx, string label, string op, object? arg = null) => TelegramRich.Link(label, Data(ctx, op, arg));
 
     private static List<IReadOnlyList<TgButton>> Rows(IEnumerable<TgButton> buttons, int perRow)
     {
@@ -31,7 +43,7 @@ public sealed partial class TelegramCardService
         var (html, rows) = s.Kind switch
         {
             "newbook" => RenderNewBook(ctx),
-            "created" => ($"📘 <b>New book</b>", new List<IReadOnlyList<TgButton>>()),
+            "created" => ("<h3>📘 New book</h3>", new List<IReadOnlyList<TgButton>>()),
             "books" => await RenderBooksAsync(ctx),
             "book" => await RenderBookAsync(ctx),
             "bible" => await RenderBibleAsync(ctx),
@@ -40,12 +52,12 @@ public sealed partial class TelegramCardService
             "chapters" => await RenderListAsync(ctx, "chapters"),
             "char" or "thread" or "chapter" => await RenderItemAsync(ctx),
             "clars" => await RenderClarificationsAsync(ctx),
-            _ => ("This card is no longer available.", new List<IReadOnlyList<TgButton>>()),
+            _ => ("<p>This card is no longer available.</p>", new List<IReadOnlyList<TgButton>>()),
         };
         var sb = new StringBuilder(html);
         if (s.Awaiting is { } awaiting && AwaitingLabel(s, awaiting) is { } label)
-            sb.Append("\n\n✍️ <b>Reply to this message</b> with the ").Append(H(label)).Append('.');
-        if (s.Note is { Length: > 0 } note) sb.Append("\n\n").Append(H(note));
+            sb.Append("<p>✍️ <b>Reply to this message</b> with the ").Append(H(label)).Append(".</p>");
+        if (s.Note is { Length: > 0 } note) sb.Append("<footer>").Append(H(note)).Append("</footer>");
         return (sb.ToString(), rows);
     }
 
@@ -57,38 +69,42 @@ public sealed partial class TelegramCardService
     // ── Field cards ───────────────────────────────────────────────────────────
 
     /// <summary>
-    /// The fields, with the draft's values in place of the saved ones (marked ✏️). Long fields go in expandable quotes,
-    /// clipped to share the message; a clipped one gets a 📖 button to read it in full.
+    /// The fields, with the draft's values in place of the saved ones (marked ✏️) and an inline <i>edit</i> link each.
+    /// Short ones on one line; long ones in a collapsible section (open when edited, asked or short). Returns the fields
+    /// shown clipped (very long ones), which get a 📖 button to read in full.
     /// </summary>
-    private static (string Text, List<string> Clipped) Fields(IReadOnlyList<CardField> fields, IReadOnlyDictionary<string, string> saved, CardState s)
+    private static (string Html, List<string> Clipped) Fields(
+        Ctx ctx, IReadOnlyList<CardField> fields, IReadOnlyDictionary<string, string> saved, bool canEdit = true)
     {
+        var s = ctx.State;
         var sb = new StringBuilder();
         var clipped = new List<string>();
-        var longCount = Math.Max(1, fields.Count(f => f.IsLong));
-        var budget = Math.Max(160, TextBudget / longCount);
         foreach (var f in fields)
         {
             var edited = s.Draft.TryGetValue(f.Key, out var draft);
             var value = edited ? draft! : saved.GetValueOrDefault(f.Key, "");
-            // In the new-book wizard everything is new: no "edited" marks.
             var mark = edited && s.Kind != "newbook" ? " ✏️" : "";
             var asking = s.Awaiting == f.Key ? " ⬅️" : "";
-            if (f.IsLong)
+            var edit = canEdit ? " " + L(ctx, value.Length == 0 ? "add" : "edit", "ed", f.Key) : "";
+            if (f.IsLong && value.Length > 0)
             {
-                sb.Append("\n<b>").Append(H(f.Label)).Append("</b>").Append(mark).Append(asking).Append('\n');
-                if (value.Length == 0) { sb.Append("<i>—</i>\n"); continue; }
-                var shown = Clip(value, budget);
+                var open = edited || asking.Length > 0 || value.Length < 300;
+                var shown = Clip(value, FieldMax);
                 if (shown.Length < value.Length) clipped.Add(f.Key);
-                sb.Append("<blockquote expandable>").Append(H(shown)).Append("</blockquote>");
+                sb.Append(open ? "<details open>" : "<details>")
+                  .Append("<summary><b>").Append(H(f.Label)).Append("</b>").Append(mark).Append(asking).Append("</summary>")
+                  .Append("<p>").Append(Lines(shown)).Append("</p>");
+                if (edit.Length > 0) sb.Append("<p>").Append(edit.Trim()).Append("</p>");
+                sb.Append("</details>");
             }
             else
-                sb.Append("\n<b>").Append(H(f.Label)).Append(":</b> ")
-                  .Append(value.Length > 0 ? H(Clip(value, 200)) : "<i>—</i>").Append(mark).Append(asking);
+                sb.Append("<p><b>").Append(H(f.Label)).Append(":</b> ")
+                  .Append(value.Length > 0 ? H(Clip(value, 300)) : "<i>—</i>").Append(mark).Append(asking).Append(edit).Append("</p>");
         }
         return (sb.ToString(), clipped);
     }
 
-    /// <summary>✏️ per field, the choice buttons of the field being asked, 📖 for clipped fields, Save/Discard.</summary>
+    /// <summary>Under a field card: the choices of the field being asked, 📖 for clipped fields, Save / Discard.</summary>
     private static List<IReadOnlyList<TgButton>> FieldButtons(Ctx ctx, IReadOnlyList<CardField> fields, List<string> clipped, bool canEdit = true)
     {
         var s = ctx.State;
@@ -98,8 +114,6 @@ public sealed partial class TelegramCardService
             rows.AddRange(Rows(choice.Choices!.Select(c => B(ctx, c, "set", $"{key}={c}")), 3));
             rows.Add([B(ctx, "✖️ Never mind", "x")]);
         }
-        if (canEdit)
-            rows.AddRange(Rows(fields.Select(f => B(ctx, $"✏️ {Short(f.Label)}", "ed", f.Key)), 3));
         if (clipped.Count > 0)
             rows.AddRange(Rows(clipped.Select(k => B(ctx, $"📖 {Short(fields.First(f => f.Key == k).Label)}", "full", k)), 3));
         if (s.Draft.Count > 0)
@@ -115,19 +129,28 @@ public sealed partial class TelegramCardService
         return space > 0 ? label[..space] : label[..14];
     }
 
-    /// <summary>One long field in full, paged (3,500 characters a page).</summary>
+    /// <summary>One very long field in full, paged (12,000 characters a page).</summary>
     private static (string, List<IReadOnlyList<TgButton>>) RenderFull(Ctx ctx, string title, string label, string value, string back)
     {
-        const int pageSize = 3500;
+        const int pageSize = 12000;
         var pages = Math.Max(1, (value.Length + pageSize - 1) / pageSize);
         var page = Math.Clamp(ctx.State.Page, 0, pages - 1);
         var part = value.Length == 0 ? "—" : value.Substring(page * pageSize, Math.Min(pageSize, value.Length - page * pageSize));
-        var html = $"{title}\n\n<b>{H(label)}</b>{(pages > 1 ? $" · page {page + 1}/{pages}" : "")}\n<blockquote>{H(part)}</blockquote>";
+        var html = $"{title}<h4>{H(label)}{(pages > 1 ? $" · page {page + 1}/{pages}" : "")}</h4><blockquote>{Lines(part)}</blockquote>";
         var nav = new List<TgButton>();
         if (page > 0) nav.Add(B(ctx, "◀", "pg", page - 1));
         nav.Add(B(ctx, "⬅️ Back", "view", back));
         if (page < pages - 1) nav.Add(B(ctx, "▶", "pg", page + 1));
         return (html, [nav]);
+    }
+
+    private static List<TgButton> Pager(Ctx ctx, int page, int pages)
+    {
+        var nav = new List<TgButton>();
+        if (page > 0) nav.Add(B(ctx, "◀", "pg", page - 1));
+        if (pages > 1) nav.Add(new TgButton($"{page + 1}/{pages}", Data(ctx, "pg", page)));
+        if (page < pages - 1) nav.Add(B(ctx, "▶", "pg", page + 1));
+        return nav;
     }
 
     // ── New book ──────────────────────────────────────────────────────────────
@@ -137,8 +160,8 @@ public sealed partial class TelegramCardService
         var s = ctx.State;
         var interactive = s.Draft.GetValueOrDefault("mode") == nameof(BookMode.Interactive);
         var fields = CardFields.NewBook.Where(f => !(f.Key == "chapters" && interactive)).ToList();
-        var (text, clipped) = Fields(fields, new Dictionary<string, string>(), s);
-        var html = "📘 <b>New book</b>\n<i>Fill it in by replying to this message; tap ✏️ to change anything.</i>\n" + text;
+        var (text, _) = Fields(ctx, fields, new Dictionary<string, string>());
+        var html = "<h3>📘 New book</h3><p><i>Fill it in by replying to this message; tap edit to change anything.</i></p>" + text;
         var rows = new List<IReadOnlyList<TgButton>>();
         if (s.Awaiting is { } key && fields.FirstOrDefault(f => f.Key == key) is { Kind: FieldKind.Choice } choice)
         {
@@ -147,14 +170,12 @@ public sealed partial class TelegramCardService
         }
         if (s.Awaiting == "chapters")
             rows.Add(new[] { 5, 8, 12, 20 }.Select(n => B(ctx, n.ToString(), "set", $"chapters={n}")).ToList());
-        rows.AddRange(Rows(fields.Where(f => s.Draft.ContainsKey(f.Key)).Select(f => B(ctx, $"✏️ {Short(f.Label)}", "ed", f.Key)), 3));
         var ready = s.Draft.ContainsKey("title") && s.Draft.ContainsKey("premise")
                     && (interactive || s.Draft.ContainsKey("mode") && s.Draft.ContainsKey("chapters"));
         var last = new List<TgButton>();
         if (ready) last.Add(B(ctx, "✅ Create", "create", style: "success"));
         last.Add(B(ctx, "✖️ Cancel", "nav", "books"));
         rows.Add(last);
-        _ = clipped;
         return (html, rows);
     }
 
@@ -165,24 +186,18 @@ public sealed partial class TelegramCardService
         var books = (await repo.GetAllAsync(ctx.Owner.Id)).Where(b => b.UserId == ctx.Owner.Id).OrderByDescending(b => b.UpdatedAt).ToList();
         var pages = Math.Max(1, (books.Count + ListPage - 1) / ListPage);
         var page = Math.Clamp(ctx.State.Page, 0, pages - 1);
-        var sb = new StringBuilder("📚 <b>Your books</b>");
-        if (books.Count == 0) sb.Append("\n<i>None yet — start one with ➕ New book.</i>");
-        else sb.Append("\n<i>Tap one to open it here; it gets its own topic.</i>");
-        var rows = new List<IReadOnlyList<TgButton>>();
-        foreach (var b in books.Skip(page * ListPage).Take(ListPage))
-            rows.Add([B(ctx, $"{(b.Mode == BookMode.Interactive ? "💬" : "🤖")} {Clip(b.Title, 40)}", "open", b.Id)]);
-        rows.Add(Pager(ctx, page, pages));
-        rows.Add([B(ctx, "➕ New book", "nav", "newbook", "primary")]);
+        var sb = new StringBuilder("<h3>📚 Your books</h3>");
+        if (books.Count == 0) sb.Append("<p><i>None yet — start one with ➕ New book.</i></p>");
+        else
+        {
+            sb.Append("<p><i>Tap one to open it here; it gets its own topic.</i></p><ul>");
+            foreach (var b in books.Skip(page * ListPage).Take(ListPage))
+                sb.Append("<li>").Append(b.Mode == BookMode.Interactive ? "💬 " : "🤖 ").Append(L(ctx, Clip(b.Title, 60), "open", b.Id))
+                  .Append(b.Genre.Length > 0 ? $" · <i>{H(b.Genre)}</i>" : "").Append("</li>");
+            sb.Append("</ul>");
+        }
+        List<IReadOnlyList<TgButton>> rows = [Pager(ctx, page, pages), new[] { B(ctx, "➕ New book", "nav", "newbook", "primary") }];
         return (sb.ToString(), rows.Where(r => r.Count > 0).ToList());
-    }
-
-    private static List<TgButton> Pager(Ctx ctx, int page, int pages)
-    {
-        var nav = new List<TgButton>();
-        if (page > 0) nav.Add(B(ctx, "◀", "pg", page - 1));
-        if (pages > 1) nav.Add(new TgButton($"{page + 1}/{pages}", $"k{ctx.Card.Id}:pg:{page}"));
-        if (page < pages - 1) nav.Add(B(ctx, "▶", "pg", page + 1));
-        return nav;
     }
 
     // ── Book ──────────────────────────────────────────────────────────────────
@@ -192,26 +207,31 @@ public sealed partial class TelegramCardService
         var book = ctx.Book!;
         var s = ctx.State;
         var saved = CardFields.Of(book);
+        var title = $"<h3>📖 {H(book.Title)}</h3>";
         if (s.View == "full" && s.Focus is { } focus)
-            return RenderFull(ctx, $"📖 <b>{H(book.Title)}</b>", CardFields.Book.First(f => f.Key == focus).Label, s.Draft.GetValueOrDefault(focus, saved[focus]), "main");
+            return RenderFull(ctx, title, CardFields.Book.First(f => f.Key == focus).Label, s.Draft.GetValueOrDefault(focus, saved[focus]), "main");
 
         if (s.View == "presets")
         {
             var presets = (await repo.GetPresetsAsync(ctx.Owner.Id)).ToList();
-            var prow = presets.Select(p => (IReadOnlyList<TgButton>)[B(ctx, $"{Clip(p.Name, 30)} · {Clip(p.ModelName, 25)}", "preset", p.Id)]).ToList();
-            prow.Add([B(ctx, "⬅️ Back", "view", "main")]);
-            return ("🧠 <b>LLM settings</b>\n<i>Copy a preset's settings into this book (later changes to the preset don't follow).</i>", prow);
+            var list = new StringBuilder("<ul>");
+            foreach (var p in presets)
+                list.Append("<li>").Append(L(ctx, Clip(p.Name, 40), "preset", p.Id)).Append(" · <i>").Append(H(Clip(p.ModelName, 40))).Append("</i></li>");
+            list.Append("</ul>");
+            return ($"{title}<h4>🧠 LLM settings</h4><p><i>Copy a preset's settings into this book (later changes to the preset don't follow).</i></p>" +
+                    (presets.Count == 0 ? "<p><i>No presets — make one in abook.</i></p>" : list.ToString()),
+                [[B(ctx, "⬅️ Back", "view", "main")]]);
         }
 
         var config = await repo.GetLlmConfigAsync(book.Id);
         var chapters = (await repo.GetChaptersAsync(book.Id)).ToList();
-        var (text, clipped) = Fields(CardFields.Book, saved, s);
-        var html = $"📖 <b>{H(book.Title)}</b>\n" +
-                   $"{(book.Mode == BookMode.Interactive ? "💬 Interactive" : "🤖 Autonomous")} · {chapters.Count(c => c.Status == ChapterStatus.Done)}/{chapters.Count} chapters done" +
-                   (BookContentService.IsBibleLocked(book) ? " · 🔒 bible locked" : "") +
-                   $"\n🧠 {H(config is null ? "no LLM settings" : $"{config.Provider} · {config.ModelName}")}\n" + text;
+        var (text, clipped) = Fields(ctx, CardFields.Book, saved);
+        var html = title +
+                   $"<p>{(book.Mode == BookMode.Interactive ? "💬 Interactive" : "🤖 Autonomous")} · " +
+                   $"{chapters.Count(c => c.Status == ChapterStatus.Done)}/{chapters.Count} chapters done" +
+                   (BookContentService.IsBibleLocked(book) ? " · 🔒 bible locked" : "") + "<br>" +
+                   $"🧠 {H(config is null ? "no LLM settings" : $"{config.Provider} · {config.ModelName}")} · {L(ctx, "change", "view", "presets")}</p>" + text;
         var rows = FieldButtons(ctx, CardFields.Book, clipped);
-        rows.Add([B(ctx, "🧠 LLM preset", "view", "presets")]);
         rows.Add([B(ctx, "🌍 Story Bible", "nav", "bible"), B(ctx, "👤 Characters", "nav", "chars")]);
         rows.Add([B(ctx, "🧵 Plot threads", "nav", "threads"), B(ctx, "📚 Chapters", "nav", "chapters")]);
         rows.Add([B(ctx, "❓ Clarifications", "nav", "clars")]);
@@ -228,7 +248,8 @@ public sealed partial class TelegramCardService
         var bookId = ctx.Book!.Id;
         var bible = await repo.GetStoryBibleAsync(bookId);
         var saved = bible is null ? new Dictionary<string, string>() : BookContentRender.Fields(bible);
-        var title = $"🌍 <b>Story Bible</b> · {H(Clip(ctx.Book.Title, 60))}" + (BookContentService.IsBibleLocked(ctx.Book) ? " · 🔒 locked" : "");
+        var locked = BookContentService.IsBibleLocked(ctx.Book);
+        var title = $"<h3>🌍 Story Bible</h3><p><i>{H(Clip(ctx.Book.Title, 80))}</i>{(locked ? " · 🔒 locked since writing started" : "")}</p>";
 
         if (s.View == "full" && s.Focus is { } focus)
             return RenderFull(ctx, title, CardFields.Bible.First(f => f.Key == focus).Label, s.Draft.GetValueOrDefault(focus, saved.GetValueOrDefault(focus, "")), "main");
@@ -244,28 +265,32 @@ public sealed partial class TelegramCardService
                 ["settingDescription"] = snap.SettingDescription, ["timePeriod"] = snap.TimePeriod, ["themes"] = snap.Themes,
                 ["toneAndStyle"] = snap.ToneAndStyle, ["worldRules"] = snap.WorldRules, ["notes"] = snap.Notes,
             };
-            var (vtext, _) = Fields(CardFields.Bible, fields, new CardState());
-            return ($"{title}\n🕘 <b>Version of {snap.CreatedAt:dd MMM HH:mm}</b> · {H(snap.Reason)}\n{vtext}",
-                [[B(ctx, "♻️ Restore this version", "restore", style: "danger"), B(ctx, "⬅️ Back", "view", "versions")]]);
+            var (vtext, _) = Fields(ctx, CardFields.Bible, fields, canEdit: false);
+            return VersionView(ctx, title, $"{snap.CreatedAt:dd MMM HH:mm} · {snap.Reason}", vtext);
         }
 
-        var (text, clipped) = Fields(CardFields.Bible, saved, s);
-        var rows = FieldButtons(ctx, CardFields.Bible, clipped, canEdit: !BookContentService.IsBibleLocked(ctx.Book));
+        var (text, clipped) = Fields(ctx, CardFields.Bible, saved, canEdit: !locked);
+        var rows = FieldButtons(ctx, CardFields.Bible, clipped, canEdit: !locked);
         rows.Add([B(ctx, "🕘 Versions", "view", "versions"), B(ctx, "⬅️ Book", "nav", "book")]);
-        return (title + "\n" + text, rows);
+        return (title + text, rows);
     }
 
     private static (string, List<IReadOnlyList<TgButton>>) VersionList(Ctx ctx, string title, List<(int Id, string Label)> versions)
     {
         var pages = Math.Max(1, (versions.Count + ListPage - 1) / ListPage);
         var page = Math.Clamp(ctx.State.Page, 0, pages - 1);
-        var rows = versions.Skip(page * ListPage).Take(ListPage)
-            .Select(v => (IReadOnlyList<TgButton>)[B(ctx, Clip(v.Label, 50), "ver", v.Id)]).ToList();
-        rows.Add(Pager(ctx, page, pages));
-        rows.Add([B(ctx, "⬅️ Back", "view", "main")]);
-        return ($"{title}\n🕘 <b>Versions</b> · {versions.Count}\n<i>Tap one to see it and restore it. Restoring keeps everything else in the history.</i>",
-            rows.Where(r => r.Count > 0).ToList());
+        var sb = new StringBuilder(title).Append("<h4>🕘 Versions · ").Append(versions.Count).Append("</h4>")
+            .Append("<p><i>Tap one to see it and restore it. Restoring keeps everything else in the history.</i></p><ul>");
+        foreach (var v in versions.Skip(page * ListPage).Take(ListPage))
+            sb.Append("<li>").Append(L(ctx, Clip(v.Label, 70), "ver", v.Id)).Append("</li>");
+        sb.Append("</ul>");
+        List<IReadOnlyList<TgButton>> rows = [Pager(ctx, page, pages), new[] { B(ctx, "⬅️ Back", "view", "main") }];
+        return (sb.ToString(), rows.Where(r => r.Count > 0).ToList());
     }
+
+    private static (string, List<IReadOnlyList<TgButton>>) VersionView(Ctx ctx, string heading, string label, string body) =>
+        ($"{heading}<h4>🕘 {H(label)}</h4>{body}",
+            [[B(ctx, "♻️ Restore this version", "restore", style: "danger"), B(ctx, "⬅️ Versions", "view", "versions")]]);
 
     // ── Lists: characters, plot threads, chapters ─────────────────────────────
 
@@ -273,43 +298,47 @@ public sealed partial class TelegramCardService
     {
         var bookId = ctx.Book!.Id;
         var archived = ctx.State.View == "archived";
-        List<(int Id, string Label)> items;
+        List<(int Id, string Name, string Detail)> items;
         string title;
         string itemKind;
         switch (kind)
         {
             case "chars":
                 items = (await repo.GetAllCharacterCardsAsync(bookId)).Where(c => c.IsArchived == archived)
-                    .OrderBy(c => c.Role).ThenBy(c => c.Name).Select(c => (c.Id, $"{c.Name} · {c.Role}")).ToList();
-                title = "👤 <b>Characters</b>";
+                    .OrderBy(c => c.Role).ThenBy(c => c.Name).Select(c => (c.Id, c.Name, c.Role.ToString())).ToList();
+                title = "👤 Characters";
                 itemKind = "char";
                 break;
             case "threads":
                 items = (await repo.GetAllPlotThreadsAsync(bookId)).Where(t => t.IsArchived == archived)
-                    .OrderBy(t => t.Type).ThenBy(t => t.Name).Select(t => (t.Id, $"{t.Name} · {t.Status}")).ToList();
-                title = "🧵 <b>Plot threads</b>";
+                    .OrderBy(t => t.Type).ThenBy(t => t.Name).Select(t => (t.Id, t.Name, $"{t.Type} · {t.Status}")).ToList();
+                title = "🧵 Plot threads";
                 itemKind = "thread";
                 break;
             default:
                 items = (await repo.GetChaptersAsync(bookId, includeArchived: true)).Where(c => c.IsArchived == archived)
-                    .OrderBy(c => c.Number).Select(c => (c.Id, $"{c.Number}. {c.Title} · {c.Status}")).ToList();
-                title = "📚 <b>Chapters</b>";
+                    .OrderBy(c => c.Number).Select(c => (c.Id, $"{c.Number}. {c.Title}", c.Status.ToString())).ToList();
+                title = "📚 Chapters";
                 itemKind = "chapter";
                 break;
         }
         var pages = Math.Max(1, (items.Count + ListPage - 1) / ListPage);
         var page = Math.Clamp(ctx.State.Page, 0, pages - 1);
-        var rows = items.Skip(page * ListPage).Take(ListPage)
-            .Select(i => (IReadOnlyList<TgButton>)[B(ctx, Clip(i.Label, 50), "nav", $"{itemKind}.{i.Id}")]).ToList();
-        rows.Add(Pager(ctx, page, pages));
+        var sb = new StringBuilder($"<h3>{title}{(archived ? " · 🗄 archived" : "")}</h3><p><i>{H(Clip(ctx.Book.Title, 80))}</i></p>");
+        if (items.Count == 0) sb.Append("<p><i>None.</i></p>");
+        else
+        {
+            sb.Append("<ul>");
+            foreach (var i in items.Skip(page * ListPage).Take(ListPage))
+                sb.Append("<li>").Append(L(ctx, Clip(i.Name, 60), "nav", $"{itemKind}.{i.Id}")).Append(" · <i>").Append(H(i.Detail)).Append("</i></li>");
+            sb.Append("</ul>");
+        }
         var last = new List<TgButton>();
         if (!archived) last.Add(B(ctx, "➕ Add", "add", style: "primary"));
         last.Add(archived ? B(ctx, "⬅️ Active", "view", "main") : B(ctx, "🗄 Archived", "view", "archived"));
         last.Add(B(ctx, "⬅️ Book", "nav", "book"));
-        rows.Add(last);
-        var html = $"{title} · {H(Clip(ctx.Book.Title, 60))}{(archived ? " · 🗄 archived" : "")}\n" +
-                   (items.Count == 0 ? "<i>None.</i>" : $"<i>{items.Count} — tap one to open it.</i>");
-        return (html, rows.Where(r => r.Count > 0).ToList());
+        var rows = new List<IReadOnlyList<TgButton>> { Pager(ctx, page, pages), last };
+        return (sb.ToString(), rows.Where(r => r.Count > 0).ToList());
     }
 
     // ── One character / plot thread / chapter ─────────────────────────────────
@@ -331,14 +360,14 @@ public sealed partial class TelegramCardService
             {
                 var card = s.ItemId is int id ? (await repo.GetAllCharacterCardsAsync(bookId)).FirstOrDefault(c => c.Id == id) : null;
                 if (card is not null) { saved = BookContentRender.Fields(card); archived = card.IsArchived; }
-                heading = card is null ? "👤 <b>New character</b>" : $"👤 <b>{H(card.Name)}</b>";
+                heading = card is null ? "<h3>👤 New character</h3>" : $"<h3>👤 {H(card.Name)}</h3>";
                 break;
             }
             case "thread":
             {
                 var thread = s.ItemId is int id ? (await repo.GetAllPlotThreadsAsync(bookId)).FirstOrDefault(t => t.Id == id) : null;
                 if (thread is not null) { saved = BookContentRender.Fields(thread); archived = thread.IsArchived; }
-                heading = thread is null ? "🧵 <b>New plot thread</b>" : $"🧵 <b>{H(thread.Name)}</b>";
+                heading = thread is null ? "<h3>🧵 New plot thread</h3>" : $"<h3>🧵 {H(thread.Name)}</h3>";
                 break;
             }
             default:
@@ -346,20 +375,20 @@ public sealed partial class TelegramCardService
                 chapter = s.ItemId is int id ? await repo.GetChapterAsync(bookId, id) : null;
                 if (chapter is not null) { saved = BookContentRender.Fields(chapter); archived = chapter.IsArchived; }
                 heading = chapter is null
-                    ? "📚 <b>New chapter</b> <i>(added after the last one)</i>"
-                    : $"📚 <b>Chapter {chapter.Number}: {H(chapter.Title)}</b> · {chapter.Status}" +
-                      (string.IsNullOrWhiteSpace(chapter.Content) ? "" : $" · {N(CountWords(chapter.Content))} words");
+                    ? "<h3>📚 New chapter</h3><p><i>Added after the last one.</i></p>"
+                    : $"<h3>📚 Chapter {chapter.Number}: {H(chapter.Title)}</h3><p>{chapter.Status}" +
+                      (string.IsNullOrWhiteSpace(chapter.Content) ? " · not written yet" : $" · {N(CountWords(chapter.Content))} words") + "</p>";
                 break;
             }
         }
-        heading += archived ? " · 🗄 archived" : "";
+        if (archived) heading += "<p>🗄 <i>Archived</i></p>";
 
         if (s.View == "full" && s.Focus is { } focus)
             return RenderFull(ctx, heading, fields.First(f => f.Key == focus).Label, s.Draft.GetValueOrDefault(focus, saved.GetValueOrDefault(focus, "")), "main");
         if (s.View is "versions" or "version" && s.ItemId is int itemId)
             return await RenderItemVersionsAsync(ctx, heading, itemId);
 
-        var (text, clipped) = Fields(fields, saved, s);
+        var (text, clipped) = Fields(ctx, fields, saved, canEdit: !archived);
         var rows = FieldButtons(ctx, fields, clipped, canEdit: !archived);
         if (chapter is not null && !archived)
         {
@@ -377,7 +406,7 @@ public sealed partial class TelegramCardService
         }
         last.Add(B(ctx, "⬅️ List", "nav", listKind));
         rows.Add(last);
-        return (heading + "\n" + text, rows);
+        return (heading + text, rows);
     }
 
     private async Task<(string, List<IReadOnlyList<TgButton>>)> RenderItemVersionsAsync(Ctx ctx, string heading, int itemId)
@@ -391,12 +420,12 @@ public sealed partial class TelegramCardService
                 var versions = (await repo.GetCharacterVersionsAsync(bookId, itemId)).OrderByDescending(v => v.VersionNumber).ToList();
                 if (s.View == "version" && versions.FirstOrDefault(v => v.Id == s.VersionId) is { } v)
                 {
-                    var (vt, _) = Fields(CardFields.Character, new Dictionary<string, string>
+                    var (vt, _) = Fields(ctx, CardFields.Character, new Dictionary<string, string>
                     {
                         ["name"] = v.Name, ["role"] = v.Role.ToString(), ["physicalDescription"] = v.PhysicalDescription,
                         ["personality"] = v.Personality, ["backstory"] = v.Backstory, ["goalMotivation"] = v.GoalMotivation,
                         ["arc"] = v.Arc, ["firstAppearanceChapterNumber"] = v.FirstAppearanceChapterNumber?.ToString() ?? "", ["notes"] = v.Notes,
-                    }, new CardState());
+                    }, canEdit: false);
                     return VersionView(ctx, heading, $"v{v.VersionNumber} · {v.CreatedAt:dd MMM HH:mm} · {v.CreatedBy}", vt);
                 }
                 return VersionList(ctx, heading, versions.Select(x => (x.Id, $"v{x.VersionNumber} · {x.CreatedAt:dd MMM HH:mm} · {x.CreatedBy}")).ToList());
@@ -406,12 +435,12 @@ public sealed partial class TelegramCardService
                 var versions = (await repo.GetPlotThreadVersionsAsync(bookId, itemId)).OrderByDescending(v => v.VersionNumber).ToList();
                 if (s.View == "version" && versions.FirstOrDefault(v => v.Id == s.VersionId) is { } v)
                 {
-                    var (vt, _) = Fields(CardFields.Thread, new Dictionary<string, string>
+                    var (vt, _) = Fields(ctx, CardFields.Thread, new Dictionary<string, string>
                     {
                         ["name"] = v.Name, ["description"] = v.Description, ["type"] = v.Type.ToString(), ["status"] = v.Status.ToString(),
                         ["introducedChapterNumber"] = v.IntroducedChapterNumber?.ToString() ?? "",
                         ["resolvedChapterNumber"] = v.ResolvedChapterNumber?.ToString() ?? "",
-                    }, new CardState());
+                    }, canEdit: false);
                     return VersionView(ctx, heading, $"v{v.VersionNumber} · {v.CreatedAt:dd MMM HH:mm} · {v.CreatedBy}", vt);
                 }
                 return VersionList(ctx, heading, versions.Select(x => (x.Id, $"v{x.VersionNumber} · {x.CreatedAt:dd MMM HH:mm} · {x.CreatedBy}")).ToList());
@@ -421,10 +450,9 @@ public sealed partial class TelegramCardService
                 var versions = (await repo.GetChapterVersionsAsync(itemId)).OrderByDescending(v => v.VersionNumber).ToList();
                 if (s.View == "version" && versions.FirstOrDefault(v => v.Id == s.VersionId) is { } v)
                 {
-                    var start = Clip(v.Content, 600);
-                    var body = $"\n<b>Title:</b> {H(v.Title)}\n<b>Status:</b> {v.Status} · {N(CountWords(v.Content))} words" +
-                               (v.Content.Length > 0 ? $"\n<b>Beginning</b>\n<blockquote expandable>{H(start)}</blockquote>" : "") +
-                               (v.Outline.Length > 0 ? $"\n<b>Outline</b>\n<blockquote expandable>{H(Clip(v.Outline, 900))}</blockquote>" : "");
+                    var body = $"<p><b>Title:</b> {H(v.Title)}<br><b>Status:</b> {v.Status} · {N(CountWords(v.Content))} words</p>" +
+                               (v.Content.Length > 0 ? $"<details><summary><b>Beginning</b></summary><p>{Lines(Clip(v.Content, 1500))}</p></details>" : "") +
+                               (v.Outline.Length > 0 ? $"<details><summary><b>Outline</b></summary><p>{Lines(Clip(v.Outline, 3000))}</p></details>" : "");
                     return VersionView(ctx, heading, $"v{v.VersionNumber} · {v.CreatedAt:dd MMM HH:mm} · {v.CreatedBy}{(v.IsActive ? " · current" : "")}", body);
                 }
                 return VersionList(ctx, heading, versions.Select(x => (x.Id,
@@ -433,10 +461,6 @@ public sealed partial class TelegramCardService
         }
     }
 
-    private static (string, List<IReadOnlyList<TgButton>>) VersionView(Ctx ctx, string heading, string label, string body) =>
-        ($"{heading}\n🕘 <b>{H(label)}</b>\n{body}",
-            [[B(ctx, "♻️ Restore this version", "restore", style: "danger"), B(ctx, "⬅️ Versions", "view", "versions")]]);
-
     // ── Clarifications ────────────────────────────────────────────────────────
 
     private async Task<(string, List<IReadOnlyList<TgButton>>)> RenderClarificationsAsync(Ctx ctx)
@@ -444,20 +468,22 @@ public sealed partial class TelegramCardService
         var all = (await repo.GetClarificationsAsync(ctx.Book!.Id)).OrderBy(c => c.IsOpen ? 0 : 1).ThenByDescending(c => c.Id).ToList();
         var pages = Math.Max(1, (all.Count + 5) / 6);
         var page = Math.Clamp(ctx.State.Page, 0, pages - 1);
-        var shown = all.Skip(page * 6).Take(6).ToList();
-        var sb = new StringBuilder($"❓ <b>Clarifications</b> · {H(Clip(ctx.Book.Title, 60))}\n<i>The agents follow these answers and notes.</i>\n");
-        if (all.Count == 0) sb.Append("\n<i>None yet.</i>");
-        var rows = new List<IReadOnlyList<TgButton>>();
+        var sb = new StringBuilder($"<h3>❓ Clarifications</h3><p><i>{H(Clip(ctx.Book.Title, 80))} — the agents follow these answers and notes.</i></p>");
+        if (all.Count == 0) sb.Append("<p><i>None yet.</i></p>");
         var i = page * 6;
-        foreach (var c in shown)
+        foreach (var c in all.Skip(page * 6).Take(6))
         {
             i++;
-            sb.Append($"\n<b>{i}. {H(Clip(c.Question, 160))}</b>\n")
-              .Append(c.IsOpen ? "<i>open — not answered yet</i>\n" : $"<blockquote expandable>{H(Clip(c.Answer, 400))}</blockquote>");
-            rows.Add([B(ctx, $"✏️ {i}. {(c.IsOpen ? "Answer" : "Change answer")}", "ans", c.Id), B(ctx, "🗄", "skip", c.Id)]);
+            sb.Append(c.IsOpen ? "<details open>" : "<details>").Append("<summary><b>").Append(i).Append(". ").Append(H(Clip(c.Question, 200))).Append("</b>")
+              .Append(c.IsOpen ? " · <i>open</i>" : "").Append("</summary>");
+            if (!c.IsOpen) sb.Append("<p>").Append(Lines(Clip(c.Answer, 2000))).Append("</p>");
+            sb.Append("<p>").Append(L(ctx, c.IsOpen ? "answer" : "change the answer", "ans", c.Id)).Append(" · ").Append(L(ctx, "archive", "skip", c.Id)).Append("</p></details>");
         }
-        rows.Add(Pager(ctx, page, pages));
-        rows.Add([B(ctx, "📝 Add a note", "note", style: "primary"), B(ctx, "⬅️ Book", "nav", "book")]);
+        List<IReadOnlyList<TgButton>> rows =
+        [
+            Pager(ctx, page, pages),
+            new[] { B(ctx, "📝 Add a note", "note", style: "primary"), B(ctx, "⬅️ Book", "nav", "book") },
+        ];
         return (sb.ToString(), rows.Where(r => r.Count > 0).ToList());
     }
 }

@@ -311,7 +311,7 @@ One bot per ABook server lets people follow and steer a book from Telegram.
 - `/book` (in a book's topic) — the book card: its settings and LLM preset, and the Story Bible, characters, plot threads, chapters and clarifications. Cards are single messages edited in place: tap ✏️ on a field, **reply to the card** with the new text, then **💾 Save**. Add, archive and bring back characters, threads and chapters, see **🕘 Versions** and restore one, read a chapter as a file, write or check a chapter. Chapter text isn't edited in Telegram.
 - `/unlink`, `/account`.
 
-Book management works only in the private chat and only for the book's owner; as the owner you also have full rights in every chat connected to your books. Each suggestion of the book chat has a `/details_N` command that shows exactly what it changes.
+Book management works only in the private chat and only for the book's owner; as the owner you also have full rights in every chat connected to your books. Each suggestion of the book chat has a **details** link that shows exactly what it changes. The bot uses Telegram's rich messages (headings, tables, collapsible sections, links inside the text); on a Bot API server without them it falls back to plain messages with buttons.
 
 Answers, notes and chat messages from Telegram are marked with who sent them (✈️ Telegram · @name · chat) in ABook. Disconnect a chat from Book Settings, with `/unbind`, or by removing the bot; deleting the book disconnects its chats.
 

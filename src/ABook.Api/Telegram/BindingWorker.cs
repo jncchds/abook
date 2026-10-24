@@ -34,6 +34,8 @@ public sealed class BindingWorker
     private bool _rewound;
     private DateTime _lastStatusEdit = DateTime.MinValue, _clarifyCheckAt = DateTime.MinValue, _lastSend = DateTime.MinValue;
     private string? _lastStatusHash;
+    /// <summary>The pinned card is a plain message (posted before rich messages): null until the first edit tells.</summary>
+    private bool? _statusPlain;
     private DateTime? _chapterSyncAt, _illustrationSyncAt, _chatSyncAt;
     /// <summary>Last chapter text sent per chapter (loaded from the links once), so a sync costs one query.</summary>
     private Dictionary<int, string?>? _sentChapterHashes;
@@ -304,6 +306,15 @@ public sealed class BindingWorker
 
     // ── Sending ───────────────────────────────────────────────────────────────
 
+    /// <summary>On a suggestions or status link: the message was sent as a rich message (edited as one).</summary>
+    public const int RichLinkVersion = 2;
+
+    private static async Task<bool> Done(Task task)
+    {
+        await task;
+        return true;
+    }
+
     private TimeSpan MinGap => _b.IsPrivate ? TimeSpan.FromSeconds(1.05) : TimeSpan.FromSeconds(3.1);
 
     /// <summary>
@@ -439,7 +450,23 @@ public sealed class BindingWorker
         {
             try
             {
-                await SendAsync(chat => _d.Api.EditMessageTextAsync(chat, editId, status.Html, status.Keyboard, _cts.Token));
+                if (_statusPlain != true && !TelegramRich.Unsupported)
+                {
+                    try
+                    {
+                        await SendAsync(chat => _d.Api.EditRichMessageAsync(chat, editId, status.Html, status.Keyboard, _cts.Token));
+                        _statusPlain = false;
+                        _lastStatusHash = hash;
+                        return;
+                    }
+                    // A card posted before rich messages stays a plain message: edit it as one from now on.
+                    catch (TelegramApiException ex) when (ex.Code == 400 && !ex.NotModified && !ex.MessageMissing && !ex.ChatGone)
+                    {
+                        _statusPlain = true;
+                    }
+                }
+                var (plain, inline) = TelegramRich.ToPlain(status.Html);
+                await SendAsync(chat => _d.Api.EditMessageTextAsync(chat, editId, plain, [.. inline.Select(b => (IReadOnlyList<TgButton>)[b]), .. status.Keyboard], _cts.Token));
                 _lastStatusHash = hash;
                 return;
             }
@@ -453,7 +480,8 @@ public sealed class BindingWorker
     public async Task PostStatusCardAsync(IServiceProvider sp, FormatStatus? status = null)
     {
         status ??= await BuildStatusAsync(sp);
-        var sent = await SendTextAsync(status.Html, status.Keyboard, silent: true);
+        var sent = await SendAsync(chat => TelegramRich.SendAsync(_d.Api, chat, _b.ThreadId, status.Html, status.Keyboard, silent: true, ct: _cts.Token));
+        _statusPlain = null;
         _lastStatusHash = Hash(status.Html + JsonSerializer.Serialize(status.Keyboard));
         var repo = sp.GetRequiredService<ITelegramRepository>();
         if (await repo.GetBindingAsync(_b.Id) is { } binding)
@@ -834,24 +862,36 @@ public sealed class BindingWorker
         var link = await tg.GetLatestLinkAsync(_b.Id, TelegramLinkKind.ChatProposals, m.Id);
         if (link?.ContentHash == hash) return;
 
-        var text = ProposalsText(proposals);
-        if (!canAct && proposals.Any(p => p.Status is ChatProposalStatus.Pending or ChatProposalStatus.Failed))
-            text += "\n\n<i>This chat can only follow the book — apply these in abook, or ask the book's owner for Participate access.</i>";
+        var footer = !canAct && proposals.Any(IsOpen)
+            ? "This chat can only follow the book — apply these in abook, or ask the book's owner for Participate access."
+            : canAct && proposals.Count(IsOpen) >= 2
+                ? "Tick several and apply them together — or reply with their numbers (“1 3”, “reject 2”)."
+                : null;
         var keyboard = canAct ? ProposalsKeyboard(_b.Id, m.Id, proposals, ticked) : [];
-        if (canAct && proposals.Count(IsOpen) >= 2)
-            text += "\n\n<i>Tick several and apply them together — or reply with their numbers (“1 3”, “reject 2”).</i>";
+        var rich = ProposalsRich(_b.Id, proposals, footer is null ? null : H(footer));
         if (link is null)
         {
             var reply = await tg.GetLatestLinkAsync(_b.Id, TelegramLinkKind.ChatMessage, m.Id);
-            var sent = await SendTextAsync(text, keyboard.Count > 0 ? keyboard : null,
-                replyTo: reply is { MessageId: > 0 } ? reply.MessageId : null);
+            var sent = await SendAsync(chat => TelegramRich.SendAsync(_d.Api, chat, _b.ThreadId, rich, keyboard.Count > 0 ? keyboard : null,
+                reply is { MessageId: > 0 } ? reply.MessageId : null, ct: _cts.Token));
             await tg.AddLinkAsync(new TelegramMessageLink
             {
                 BindingId = _b.Id, Kind = TelegramLinkKind.ChatProposals, RefId = m.Id, MessageId = sent.MessageId, ContentHash = hash,
+                Version = RichLinkVersion,
             });
             return;
         }
-        if (link.MessageId > 0) await EditAsync(link.MessageId, text, keyboard);
+        if (link.MessageId > 0)
+        {
+            if (link.Version == RichLinkVersion)
+                await SendAsync(chat => Done(TelegramRich.EditAsync(_d.Api, chat, link.MessageId, rich, keyboard, _cts.Token)));
+            else
+            {
+                // A plain message from before rich messages: it stays plain (with /details commands).
+                var text = ProposalsText(proposals) + (footer is null ? "" : $"\n\n<i>{H(footer)}</i>");
+                await EditAsync(link.MessageId, text, keyboard);
+            }
+        }
         link.ContentHash = hash;
         await tg.UpdateLinkAsync(link);
     }

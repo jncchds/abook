@@ -33,7 +33,6 @@ public sealed partial class TelegramCardService(
     ILogger<TelegramCardService> logger)
 {
     private const int ListPage = 8;
-    private const int TextBudget = 3300;
 
     /// <summary>Everything a card is drawn from, loaded per update.</summary>
     private sealed class Ctx
@@ -60,7 +59,7 @@ public sealed partial class TelegramCardService(
         var ctx = new Ctx { Card = card, State = state, Owner = owner, From = from };
         if (bookId is int id) ctx.Book = await repo.GetByIdAsync(id);
         var (html, keyboard) = await RenderAsync(ctx);
-        var sent = await api.SendMessageAsync(chatId, threadId, html, keyboard, replyTo);
+        var sent = await TelegramRich.SendAsync(api, chatId, threadId, html, keyboard, replyTo);
         card.MessageId = sent.MessageId;
         card.StateJson = state.Serialize();
         await tg.UpdateCardAsync(card);
@@ -86,8 +85,7 @@ public sealed partial class TelegramCardService(
         ctx.Card.StateJson = ctx.State.Serialize();
         await tg.UpdateCardAsync(ctx.Card);
         var (html, keyboard) = await RenderAsync(ctx);
-        try { await api.EditMessageTextAsync(ctx.Card.ChatId, ctx.Card.MessageId, html, keyboard); }
-        catch (TelegramApiException ex) when (ex.NotModified) { }
+        await TelegramRich.EditAsync(api, ctx.Card.ChatId, ctx.Card.MessageId, html, keyboard);
     }
 
     // ── Replies ───────────────────────────────────────────────────────────────

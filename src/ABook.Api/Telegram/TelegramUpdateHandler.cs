@@ -260,7 +260,7 @@ public sealed class TelegramUpdateHandler(
         {
             case "help":
             case "start":
-                await ReplyAsync(message, await HelpAsync(sp, binding));
+                await TelegramRich.SendAsync(api, message.Chat.Id, message.TopicId, await HelpAsync(sp, binding), replyTo: message.MessageId);
                 break;
             case "status":
                 if (worker is not null) dispatcher.Enqueue(binding.Id, w => WithScopeAsync(s => w.PostStatusCardAsync(s)));
@@ -310,38 +310,41 @@ public sealed class TelegramUpdateHandler(
         }
     }
 
+    /// <summary>/help as a rich message: what the thread follows and can do, then the commands for its level.</summary>
     private async Task<string> HelpAsync(IServiceProvider sp, TelegramBinding binding)
     {
         var book = await sp.GetRequiredService<IBookRepository>().GetByIdAsync(binding.BookId);
         var interactive = book?.Mode == BookMode.Interactive;
-        var lines = new List<string>
-        {
-            $"📖 This {(binding.ThreadId is null ? "chat" : "topic")} follows <b>{H(book?.Title ?? "a book")}</b>.",
-            $"Everyone here can {H(LevelText(binding.Level))}.",
-            "",
-            "The pinned card shows what the agents are doing. Chapter files arrive after each chapter edit, and the whole book when it is finished.",
-        };
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<h3>📖 ").Append(H(book?.Title ?? "A book")).Append("</h3>")
+          .Append("<p>This ").Append(binding.ThreadId is null ? "chat" : "topic").Append(" follows the book. Everyone here can ")
+          .Append(H(LevelText(binding.Level))).Append(".</p>")
+          .Append("<p>The pinned card shows what the agents are doing. Chapter files arrive after each chapter edit, and the whole book when it is finished.</p>");
+        if (binding.Level >= TelegramAccessLevel.Participate)
+            sb.Append("<p>").Append(interactive
+                ? "💬 Write here to talk to the book chat; its suggested changes come with buttons — tick several, or tap <i>details</i>."
+                : "❓ When the planner asks something, <b>reply to its question message</b> to answer.").Append("</p>");
+
+        var commands = new List<(string Command, string What)> { ("/status", "post a fresh status card") };
         if (binding.Level >= TelegramAccessLevel.Participate)
         {
-            lines.Add(interactive
-                ? "💬 Write here to talk to the book chat; its suggested changes come with buttons."
-                : "❓ When the planner asks something, <b>reply to its question message</b> to answer.");
-            lines.Add("");
-            lines.Add("/export [epub|fb2|html|metadata] — the book as it stands");
-            lines.Add("/note text — a note the agents follow from now on");
-            lines.Add("/questions — the planner's open question");
+            commands.Add(("/export [epub|fb2|html|metadata]", "the book as it stands"));
+            commands.Add(("/note text", "a note the agents follow from now on"));
+            commands.Add(("/questions", "the planner's open question"));
         }
         if (binding.Level == TelegramAccessLevel.Control)
         {
-            if (!interactive) lines.Add("/run · /continue — start or continue the book");
-            lines.Add("/stop — stop the running agent");
-            lines.Add("/rewind — reply to a message to rewind the book to that moment (or pick one)");
-            lines.Add("/unbind — disconnect this chat");
+            if (!interactive) commands.Add(("/run · /continue", "start or continue the book"));
+            commands.Add(("/stop", "stop the running agent"));
+            commands.Add(("/rewind", "reply to a message to rewind the book to that moment (or pick one)"));
+            commands.Add(("/unbind", "disconnect this chat"));
         }
-        lines.Add("/status — post a fresh status card");
+        sb.Append("<h4>Commands</h4><ul>");
+        foreach (var (command, what) in commands) sb.Append("<li><code>").Append(H(command)).Append("</code> — ").Append(H(what)).Append("</li>");
+        sb.Append("</ul>");
         if (binding.Level == TelegramAccessLevel.Control && binding.ControlAdminsOnly)
-            lines.Add("\n🔒 Starting and stopping runs are for chat admins only.");
-        return string.Join("\n", lines);
+            sb.Append("<footer>🔒 Starting and stopping runs are for chat admins only.</footer>");
+        return sb.ToString();
     }
 
     private async Task AddNoteAsync(IServiceProvider sp, TelegramBinding binding, TgMessage message, string text, string origin)
@@ -525,7 +528,7 @@ public sealed class TelegramUpdateHandler(
         var origin = Origin(callback.From, binding);
         var need = action switch
         {
-            "refresh" => TelegramAccessLevel.Read,
+            "refresh" or "det" => TelegramAccessLevel.Read,
             // Applying, rejecting and undoing book-chat suggestions is how an Interactive book gets written:
             // part of using the book chat, like writing in it.
             "export" or "skipc" or "retry" or "apply" or "applyf" or "applyall" or "reject" or "undo" or "undof"
@@ -539,6 +542,10 @@ public sealed class TelegramUpdateHandler(
 
         switch (action)
         {
+            case "det":
+                // The inline "details" link of a suggestion: its details as a reply to the suggestions message.
+                await SendProposalDetailsAsync(sp, binding, callback.From, null, message.Date != 0 ? message.MessageId : null, arg);
+                return ("Details below.", false);
             case "refresh":
                 worker?.RefreshStatus();
                 return ("Refreshed.", false);
@@ -640,18 +647,23 @@ public sealed class TelegramUpdateHandler(
     }
 
     /// <summary>/details_N: one suggestion in full, as its own message, with Apply / Reject (or Undo) when allowed.</summary>
-    private async Task SendProposalDetailsAsync(IServiceProvider sp, TelegramBinding binding, TgMessage message, int proposalId)
+    private Task SendProposalDetailsAsync(IServiceProvider sp, TelegramBinding binding, TgMessage message, int proposalId) =>
+        SendProposalDetailsAsync(sp, binding, message.From, message, message.MessageId, proposalId);
+
+    /// <summary>The details of one suggestion, as a reply to <paramref name="replyTo"/> (the command or the suggestions message).</summary>
+    private async Task SendProposalDetailsAsync(
+        IServiceProvider sp, TelegramBinding binding, TgUser? from, TgMessage? message, int? replyTo, int proposalId)
     {
         var repo = sp.GetRequiredService<IBookRepository>();
         var proposal = await repo.GetProposalAsync(binding.BookId, proposalId);
         var chatMessage = proposal is null ? null : await repo.GetChatMessageAsync(binding.BookId, proposal.MessageId);
         if (proposal is null || chatMessage is not { HiddenAt: null })
         {
-            await ReplyAsync(message, "ℹ️ That suggestion isn't part of this book's chat any more.");
+            await api.SendMessageAsync(binding.ChatId, binding.ThreadId, "ℹ️ That suggestion isn't part of this book's chat any more.", replyTo: replyTo);
             return;
         }
         var number = chatMessage.Proposals.OrderBy(p => p.Ordinal).ToList().FindIndex(p => p.Id == proposal.Id) + 1;
-        var canAct = await DenialAsync(binding, TelegramAccessLevel.Participate, message.From, message) is null;
+        var canAct = await DenialAsync(binding, TelegramAccessLevel.Participate, from, message) is null;
         var keyboard = new List<IReadOnlyList<TgButton>>();
         if (canAct && IsOpen(proposal))
             keyboard.Add(proposal.OptionGroup is { Length: > 0 } g
@@ -660,7 +672,8 @@ public sealed class TelegramUpdateHandler(
                    new TgButton("✖️ Reject", Callback(binding.Id, "reject", proposal.Id))]);
         else if (canAct && proposal.Status == ChatProposalStatus.Applied && !ABook.Agents.BookChatActions.IsStep(proposal.Type))
             keyboard.Add([new TgButton("↩️ Undo", Callback(binding.Id, "undo", proposal.Id))]);
-        await ReplyAsync(message, ProposalDetails(proposal, number), keyboard.Count > 0 ? keyboard : null);
+        await TelegramRich.SendAsync(api, binding.ChatId, binding.ThreadId, ProposalDetailsRich(proposal, number),
+            keyboard.Count > 0 ? keyboard : null, replyTo);
     }
 
     /// <summary>A reply's open suggestions, in the order they are listed (and numbered).</summary>
@@ -813,7 +826,7 @@ public sealed class TelegramUpdateHandler(
         {
             new[] { new TgButton("⏪ Rewind", Callback(binding.Id, "rwgo", id), Style: "danger"), new TgButton("Cancel", Callback(binding.Id, "rwno", id)) },
         };
-        await api.SendMessageAsync(binding.ChatId, binding.ThreadId, RewindPreview(plan), keyboard, replyTo: replyTo);
+        await TelegramRich.SendAsync(api, binding.ChatId, binding.ThreadId, RewindPreview(plan), keyboard, replyTo);
     }
 
     private async Task<(string? Answer, bool Alert)> OnRewindButtonAsync(
@@ -853,10 +866,11 @@ public sealed class TelegramUpdateHandler(
         }
     }
 
+    /// <summary>Replaces a rich message the bot posted (the rewind preview) with a short line.</summary>
     private async Task EditAsync(TelegramBinding binding, TgMessage message, string html)
     {
         if (message.Date == 0) return;
-        try { await api.EditMessageTextAsync(binding.ChatId, message.MessageId, html); }
+        try { await TelegramRich.EditAsync(api, binding.ChatId, message.MessageId, $"<p>{html}</p>"); }
         catch (TelegramApiException) { /* too old or unchanged */ }
     }
 

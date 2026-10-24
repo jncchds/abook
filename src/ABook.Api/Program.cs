@@ -159,6 +159,7 @@ builder.Services.AddHealthChecks()
     .AddCheck<ABook.Api.Services.DatabaseHealthCheck>("database");
 
 var app = builder.Build();
+ABook.Api.Telegram.TelegramRich.Logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("ABook.Api.Telegram.TelegramRich");
 
 var configuredMaxConcurrentRuns = app.Configuration.GetValue<int?>("AgentSettings:MaxConcurrentRuns") ?? 3;
 var runStateService = app.Services.GetRequiredService<ABook.Agents.AgentRunStateService>();

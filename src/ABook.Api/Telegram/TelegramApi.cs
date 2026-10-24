@@ -145,6 +145,34 @@ public sealed class TelegramApi
             disable_notification = silent ? true : (bool?)null,
         }, ct);
 
+    /// <summary>
+    /// Sends a rich message (Bot API 10.1) written in rich HTML — which, unlike plain messages, can hold buttons inside
+    /// the text (<c>&lt;tg-button type="callback_data" style="link"&gt;</c>).
+    /// </summary>
+    public Task<TgMessage> SendRichMessageAsync(
+        long chatId, int? threadId, string richHtml, IReadOnlyList<IReadOnlyList<TgButton>>? keyboard = null,
+        int? replyTo = null, bool silent = false, CancellationToken ct = default) =>
+        CallAsync<TgMessage>("sendRichMessage", new
+        {
+            chat_id = chatId,
+            message_thread_id = threadId,
+            rich_message = new { html = richHtml },
+            reply_markup = Keyboard(keyboard),
+            reply_parameters = ReplyTo(replyTo),
+            disable_notification = silent ? true : (bool?)null,
+        }, ct);
+
+    /// <summary>Replaces a rich message's content and keyboard.</summary>
+    public Task<JsonElement> EditRichMessageAsync(
+        long chatId, int messageId, string richHtml, IReadOnlyList<IReadOnlyList<TgButton>>? keyboard = null, CancellationToken ct = default) =>
+        CallAsync<JsonElement>("editMessageText", new
+        {
+            chat_id = chatId,
+            message_id = messageId,
+            rich_message = new { html = richHtml },
+            reply_markup = Keyboard(keyboard ?? []),
+        }, ct);
+
     /// <summary>Replaces a message's text and keyboard (an empty keyboard removes it).</summary>
     public Task<JsonElement> EditMessageTextAsync(
         long chatId, int messageId, string html, IReadOnlyList<IReadOnlyList<TgButton>>? keyboard = null, CancellationToken ct = default) =>
