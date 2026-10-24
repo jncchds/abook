@@ -12,7 +12,8 @@ public interface IAgentOrchestrator
     Task StartWorkflowAsync(int bookId, CancellationToken ct = default);
     Task ContinueWorkflowAsync(int bookId, CancellationToken ct = default);
     Task ContinuePlanningAsync(int bookId, CancellationToken ct = default);
-    Task ResumeWithAnswerAsync(int messageId, string answer, CancellationToken ct = default);
+    /// <param name="origin">Where the answer came from when not the web UI (e.g. "Telegram · @anna · Writers' room").</param>
+    Task ResumeWithAnswerAsync(int messageId, string answer, CancellationToken ct = default, string? origin = null);
     /// <summary>
     /// Interactive books: answers the author's chat message <paramref name="authorMessageId"/>, or writes the
     /// opening reply of a new book when null. The reply's changes are only proposed.

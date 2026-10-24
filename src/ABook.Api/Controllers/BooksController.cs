@@ -155,11 +155,14 @@ public class BooksController : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
-    public async Task<IActionResult> Delete(int id)
+    public async Task<IActionResult> Delete(int id, [FromServices] ABook.Api.Telegram.TelegramBindingService telegram)
     {
         var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, id, _repo);
         if (ownershipError is not null) return ownershipError;
 
+        // Tell the book's Telegram chats; their bindings are deleted with the book.
+        try { await telegram.NotifyBookDeletedAsync(id); }
+        catch (Exception ex) { _logger.LogWarning(ex, "[Book {BookId}] Telegram unbind notices failed.", id); }
         await _repo.DeleteAsync(id);
         try { await _vectorStore.DeleteCollectionAsync(id); } catch { /* non-fatal */ }
         return NoContent();

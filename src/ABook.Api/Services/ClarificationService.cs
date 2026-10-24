@@ -20,12 +20,21 @@ public class ClarificationService
         _state = state;
     }
 
-    /// <summary>Applies the given changes (null = keep). Blank text is the caller's to reject.</summary>
-    public async Task<Clarification> UpdateAsync(Clarification clarification, string? question, string? answer, bool? archived)
+    /// <summary>
+    /// Applies the given changes (null = keep). Blank text is the caller's to reject. <paramref name="origin"/> records
+    /// where an answer came from when not the web UI (the Telegram bot).
+    /// </summary>
+    public async Task<Clarification> UpdateAsync(
+        Clarification clarification, string? question, string? answer, bool? archived, string? origin = null)
     {
         var wasOpen = clarification.IsOpen;
         if (question is not null) clarification.Question = question.Trim();
-        if (answer is not null) clarification.Answer = answer.Trim();
+        if (answer is not null)
+        {
+            clarification.Answer = answer.Trim();
+            clarification.Origin = origin;
+        }
+        else if (archived == true && origin is not null) clarification.Origin = origin;
         if (archived.HasValue) clarification.IsArchived = archived.Value;
         await _repo.UpdateClarificationAsync(clarification);
 

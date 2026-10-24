@@ -26,6 +26,8 @@ public class Clarification
     /// </summary>
     public int? QuestionMessageId { get; set; }
     public bool IsArchived { get; set; }
+    /// <summary>Who answered (or added) it when not in the web UI, e.g. "Telegram · @anna · Writers' room".</summary>
+    public string? Origin { get; set; }
 
     /// <summary>Awaiting an answer: active and not yet answered. Archiving an open one skips it.</summary>
     public bool IsOpen => !IsArchived && string.IsNullOrWhiteSpace(Answer);

@@ -7,6 +7,7 @@ import ModeField from '../../components/ModeField'
 import { PROVIDERS, PROVIDER_LABELS, DEFAULT_ENDPOINTS, MODEL_LIST_PROVIDERS, API_KEY_REQUIRED_PROVIDERS, INITIAL_LLM_CONFIG, pickImageSettings } from '../../config/providers'
 import ImageGenSettingsFields from '../../components/ImageGenSettingsFields'
 import ToggleField from '../../components/ToggleField'
+import TelegramCard from '../../components/TelegramCard'
 
 export default function BookSettings() {
   const { bookId } = useParams<{ bookId: string }>()
@@ -400,6 +401,11 @@ export default function BookSettings() {
           </div>
         </section>
       )}
+
+      <section className="settings-section">
+        <h2>Telegram</h2>
+        <TelegramCard bookId={id} />
+      </section>
 
       {/* Book-specific settings */}
       {book && (

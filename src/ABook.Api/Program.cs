@@ -39,6 +39,7 @@ builder.Services.AddScoped<IVectorStoreService, PgvectorVectorStoreService>();
 // ── Core services ─────────────────────────────────────────────────────────────
 builder.Services.AddScoped<IBookRepository, BookRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<ITelegramRepository, TelegramRepository>();
 builder.Services.AddSingleton<ILlmProviderFactory, LlmProviderFactory>();
 builder.Services.AddScoped<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>();
 builder.Services.AddHttpClient("ollama");
@@ -85,7 +86,8 @@ void ConfigureJsonSerializer(System.Text.Json.JsonSerializerOptions opts)
 builder.Services.AddSignalR()
     .AddJsonProtocol(o => ConfigureJsonSerializer(o.PayloadSerializerOptions));
 builder.Services.AddSingleton<BookEventLog>();
-builder.Services.AddScoped<IBookNotifier, SignalRBookNotifier>();
+builder.Services.AddScoped<SignalRBookNotifier>();
+builder.Services.AddScoped<IBookNotifier, ABook.Api.Telegram.FanOutBookNotifier>();
 
 // ── Agents ────────────────────────────────────────────────────────────────────
 builder.Services.AddSingleton<ABook.Agents.AgentRunStateService>();
@@ -110,6 +112,22 @@ builder.Services.AddSingleton<IImageGeneratorFactory, ABook.Infrastructure.Imagi
 builder.Services.AddSingleton<ILlmModelUnloader, ABook.Infrastructure.Imaging.LlmModelUnloader>();
 builder.Services.AddScoped<IAgentOrchestrator, ABook.Agents.AgentOrchestrator>();
 builder.Services.AddHostedService<ABook.Api.HostedServices.RunRecoveryService>();
+
+// ── Telegram bot (one per deployment; off unless TELEGRAM_BOT_TOKEN is set) ───
+var telegramOptions = ABook.Api.Telegram.TelegramOptions.FromConfiguration(builder.Configuration);
+builder.Services.AddSingleton(telegramOptions);
+// The bot token is part of every request URL: the client must never log requests.
+builder.Services.AddHttpClient(ABook.Api.Telegram.TelegramApi.HttpClientName, c => c.Timeout = Timeout.InfiniteTimeSpan)
+    .RemoveAllLoggers();
+builder.Services.AddSingleton<ABook.Api.Telegram.TelegramApi>();
+builder.Services.AddSingleton<ABook.Api.Telegram.TelegramBotState>();
+builder.Services.AddSingleton<ABook.Api.Telegram.TelegramEventSink>();
+builder.Services.AddSingleton<ABook.Api.Telegram.TelegramDispatcher>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ABook.Api.Telegram.TelegramDispatcher>());
+builder.Services.AddSingleton<ABook.Api.Telegram.TelegramUpdateHandler>();
+builder.Services.AddSingleton<ABook.Api.Telegram.TelegramBotService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ABook.Api.Telegram.TelegramBotService>());
+builder.Services.AddScoped<ABook.Api.Telegram.TelegramBindingService>();
 
 // ── MCP Server ────────────────────────────────────────────────────────────────
 builder.Services.AddMcpServer()

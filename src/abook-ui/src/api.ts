@@ -181,6 +181,8 @@ export interface AgentMessage {
   isOptional?: boolean
   /** On an Answer: the question it answers. */
   questionMessageId?: number | null
+  /** Where it came from when not the web UI, e.g. "Telegram · @anna · Writers' room". */
+  origin?: string | null
   createdAt: string
 }
 
@@ -222,6 +224,8 @@ export interface BookChatMessage {
   /** JSON array of ChatConflict. */
   conflictsJson: string
   status: 'Pending' | 'Done' | 'Failed'
+  /** Author messages not typed in the web UI, e.g. "Telegram · @anna · Writers' room". */
+  origin?: string | null
   createdAt: string
   proposals: ChatProposal[]
 }
@@ -536,6 +540,8 @@ export interface Clarification {
   isArchived: boolean
   /** Awaiting an answer (active and unanswered); a waiting planning run resumes once none are left. */
   isOpen: boolean
+  /** Who answered (or added) it when not in the web UI, e.g. "Telegram · @anna · Writers' room". */
+  origin?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -853,3 +859,52 @@ export const renderIllustrations = (bookId: number, scope: RenderScope, targetId
 export const bookImagePath = (bookId: number, imageId: number) => `/books/${bookId}/images/${imageId}`
 export const publicBookImagePath = (bookId: number, imageId: number) => `/public/books/${bookId}/images/${imageId}`
 
+
+// ── Telegram ──────────────────────────────────────────────────────────────────
+// Chats and topics bound to the book: whoever can post there uses the book at the binding's level.
+
+export type TelegramAccessLevel = 'Read' | 'Participate' | 'Control'
+export type TelegramFileFormat = 'epub' | 'fb2' | 'html'
+
+export interface TelegramBinding {
+  id: number
+  chatType: 'private' | 'group' | 'supergroup' | 'channel'
+  chatTitle: string
+  isTopic: boolean
+  level: TelegramAccessLevel
+  /** Starting, stopping and applying need Telegram admin rights in the chat. */
+  controlAdminsOnly: boolean
+  fileFormat: TelegramFileFormat
+  /** Private chats: show the text being written as a live draft. */
+  liveDrafts: boolean
+  createdAt: string
+}
+
+export interface TelegramState {
+  /** TELEGRAM_BOT_TOKEN is set. */
+  enabled: boolean
+  ready: boolean
+  problem: string | null
+  botUsername: string | null
+  /** Topic mode in private chats is on: each book gets its own topic. */
+  privateTopics: boolean
+  webhook: boolean
+  bindings: TelegramBinding[]
+}
+
+export interface TelegramCode {
+  code: string
+  expiresAt: string
+  privateLink: string | null
+  groupLink: string | null
+  bindCommand: string
+}
+
+export const getTelegram = (bookId: number) => api.get<TelegramState>(`/books/${bookId}/telegram`)
+export const createTelegramCode = (bookId: number, level: TelegramAccessLevel) =>
+  api.post<TelegramCode>(`/books/${bookId}/telegram/codes`, { level })
+export const updateTelegramBinding = (bookId: number, id: number,
+  data: Partial<Pick<TelegramBinding, 'level' | 'controlAdminsOnly' | 'fileFormat' | 'liveDrafts'>>) =>
+  api.put<TelegramBinding>(`/books/${bookId}/telegram/bindings/${id}`, data)
+export const revokeTelegramBinding = (bookId: number, id: number) =>
+  api.delete(`/books/${bookId}/telegram/bindings/${id}`)

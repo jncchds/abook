@@ -401,6 +401,7 @@ export default function BookChat() {
           <div key={m.id} className="chat-event"><ReactMarkdown>{m.content}</ReactMarkdown></div>
         ) : m.role === 'Author' ? (
           <div key={m.id} className="chat-msg from-author">
+            {m.origin && <div className="message-origin">✈️ {m.origin}</div>}
             <p>{m.content}</p>
             {m.status === 'Failed' && (
               <div className="chat-msg-failed">

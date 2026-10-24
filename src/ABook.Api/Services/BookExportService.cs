@@ -48,6 +48,45 @@ public class BookExportService
         };
     }
 
+    /// <summary>
+    /// One chapter as its own small book (html, fb2 or epub), with the chapter's illustrations and the cover —
+    /// what the Telegram bot sends after each chapter edit.
+    /// </summary>
+    public async Task<(byte[] Bytes, string ContentType, string Filename)> ExportChapterAsync(int bookId, int chapterId, string format)
+    {
+        var book = await _repo.GetByIdWithActiveDetailsAsync(bookId)
+            ?? throw new KeyNotFoundException($"Book {bookId} not found.");
+        var chapter = book.Chapters.FirstOrDefault(c => c.Id == chapterId)
+            ?? throw new KeyNotFoundException($"Chapter {chapterId} not found.");
+
+        // A detached copy holding only this chapter: the loaded book is tracked, and changing its chapter
+        // collection would read to EF as removing the other chapters.
+        var single = new Book
+        {
+            Id = book.Id,
+            Title = chapter.Title.Length > 0
+                ? $"{book.Title} — Chapter {chapter.Number}: {chapter.Title}"
+                : $"{book.Title} — Chapter {chapter.Number}",
+            Premise = book.Premise,
+            Genre = book.Genre,
+            Language = book.Language,
+            CreatedAt = book.CreatedAt,
+            Chapters = [chapter],
+        };
+        var bible = await _repo.GetStoryBibleAsync(bookId);
+        var art = await LoadArtAsync(book);
+        art = new ExportArt(art.Cover, art.Scenes[chapterId].ToLookup(_ => chapterId));
+        var name = $"{SafeFilename(book.Title)}-ch{chapter.Number:00}";
+
+        return format.ToLowerInvariant() switch
+        {
+            "fb2"  => (Encoding.UTF8.GetBytes(GenerateFb2(single, bible, art)),
+                      "application/x-fictionbook+xml; charset=utf-8", $"{name}.fb2"),
+            "epub" => (GenerateEpub(single, bible, art), "application/epub+zip", $"{name}.epub"),
+            _      => (Encoding.UTF8.GetBytes(GenerateHtml(single, art)), "text/html; charset=utf-8", $"{name}.html"),
+        };
+    }
+
     // ── Metadata ──────────────────────────────────────────────────────────────
 
     private async Task<MetadataSources> LoadMetadataAsync(Book book, StoryBible? bible)

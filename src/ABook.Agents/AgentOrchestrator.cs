@@ -558,7 +558,7 @@ public class AgentOrchestrator : IAgentOrchestrator
     private Task ReportAgentErrorAsync(int bookId, AgentRole role, int? chapterId, string message) =>
         AgentBase.ReportAgentErrorCoreAsync(_repo, _notifier, _logger, bookId, role, chapterId, message);
 
-    public async Task ResumeWithAnswerAsync(int messageId, string answer, CancellationToken ct = default)
+    public async Task ResumeWithAnswerAsync(int messageId, string answer, CancellationToken ct = default, string? origin = null)
     {
         var message = await _repo.FindMessageByIdAsync(messageId);
         if (message is null)
@@ -588,7 +588,8 @@ public class AgentOrchestrator : IAgentOrchestrator
             MessageType = MessageType.Answer,
             Content = answer,
             IsResolved = true,
-            QuestionMessageId = message.Id
+            QuestionMessageId = message.Id,
+            Origin = origin,
         });
 
         // Other open tabs/devices still show the question box until they re-read the messages.

@@ -156,6 +156,7 @@ export default function Clarifications() {
                 <>
                   <h3>{c.question}</h3>
                   <p className="blc-premise" style={{ whiteSpace: 'pre-wrap' }}>{c.answer}</p>
+                  {c.origin && <p className="message-origin">✈️ {c.origin}</p>}
                 </>
               )}
             </div>
@@ -183,6 +184,7 @@ export default function Clarifications() {
                     {c.answer
                       ? <p className="blc-premise" style={{ whiteSpace: 'pre-wrap' }}>{c.answer}</p>
                       : <p className="empty">Skipped without an answer.</p>}
+                    {c.origin && <p className="message-origin">✈️ {c.origin}</p>}
                   </div>
                   <div className="book-list-card-right">
                     <button className="btn-sm" title="Restore" disabled={busyId !== null} onClick={() => setArchived(c, false)}>♻ Restore</button>

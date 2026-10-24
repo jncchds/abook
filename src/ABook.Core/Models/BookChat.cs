@@ -31,6 +31,8 @@ public class BookChatMessage
     /// <summary>Assistant replies: JSON array of the conflicts with the book's canon the LLM flagged.</summary>
     public string ConflictsJson { get; set; } = "[]";
     public BookChatMessageStatus Status { get; set; } = BookChatMessageStatus.Done;
+    /// <summary>Author messages not typed in the web UI: where they came from, e.g. "Telegram · @anna · Writers' room".</summary>
+    public string? Origin { get; set; }
     public DateTime CreatedAt { get; set; }
 
     [JsonIgnore] public Book Book { get; set; } = null!;

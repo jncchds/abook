@@ -17,6 +17,8 @@ public class AgentMessage
     /// On a section-chat message (ChatContext / ChatUser / ChatReply): the human-assisted pause it belongs to.
     /// </summary>
     public int? QuestionMessageId { get; set; }
+    /// <summary>Where a message came from when not the web UI, e.g. "Telegram · @anna · Writers' room".</summary>
+    public string? Origin { get; set; }
     public bool IsDeleted { get; set; }
     public DateTime CreatedAt { get; set; }
 

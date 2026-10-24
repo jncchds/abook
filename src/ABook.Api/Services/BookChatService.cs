@@ -22,8 +22,11 @@ public class BookChatService(
     AgentRunnerService runner,
     AgentRunStateService runState)
 {
-    /// <summary>Saves the author's message and starts the reply in the background.</summary>
-    public async Task<BookChatOutcome> SendAsync(int bookId, string text)
+    /// <summary>
+    /// Saves the author's message and starts the reply in the background. <paramref name="origin"/> marks a message
+    /// that did not come from the web UI (the Telegram bot).
+    /// </summary>
+    public async Task<BookChatOutcome> SendAsync(int bookId, string text, string? origin = null)
     {
         if (string.IsNullOrWhiteSpace(text)) return new(BookChatResult.Invalid, "The message is empty.");
         using var scope = scopeFactory.CreateScope();
@@ -34,6 +37,7 @@ public class BookChatService(
         var message = await repo.AddChatMessageAsync(new BookChatMessage
         {
             BookId = bookId, Role = BookChatRole.Author, Content = text.Trim(), Status = BookChatMessageStatus.Pending,
+            Origin = origin,
         });
         return await StartReplyAsync(repo, scope, bookId, message);
     }

@@ -53,6 +53,7 @@ export default function ChatPage() {
                     <div className="blc-meta">
                       <span className="msg-role">{m.agentRole}</span>
                       <span className="msg-type">[{m.messageType}]</span>
+                      {m.origin && <span className="message-origin">✈️ {m.origin}</span>}
                     </div>
                     {hasBody ? (
                       <details>

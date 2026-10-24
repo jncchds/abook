@@ -43,6 +43,9 @@ public class AppDbContext : DbContext
     public DbSet<Clarification> Clarifications => Set<Clarification>();
     public DbSet<BookChatMessage> BookChatMessages => Set<BookChatMessage>();
     public DbSet<ChatProposal> ChatProposals => Set<ChatProposal>();
+    public DbSet<TelegramBinding> TelegramBindings => Set<TelegramBinding>();
+    public DbSet<TelegramBindCode> TelegramBindCodes => Set<TelegramBindCode>();
+    public DbSet<TelegramMessageLink> TelegramMessageLinks => Set<TelegramMessageLink>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -453,5 +456,58 @@ public class AppDbContext : DbContext
             b.Property(x => x.Reason).HasMaxLength(500);
             b.HasIndex(x => x.BookId);
         });
+
+        modelBuilder.Entity<TelegramBinding>(b =>
+        {
+            b.HasKey(x => x.Id);
+            b.Property(x => x.ChatType).HasMaxLength(20);
+            b.Property(x => x.ChatTitle).HasMaxLength(300);
+            b.Property(x => x.Level).HasConversion<string>().HasMaxLength(20);
+            b.Property(x => x.FileFormat).HasMaxLength(10).HasDefaultValue("epub");
+            b.Property(x => x.LiveDrafts).HasDefaultValue(true);
+            b.Property(x => x.RevokedReason).HasMaxLength(300);
+            b.HasOne(x => x.Book)
+             .WithMany()
+             .HasForeignKey(x => x.BookId)
+             .OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => x.BookId);
+            // One book per chat + topic; a null topic (whole chat / General) counts as a value too.
+            b.HasIndex(x => new { x.ChatId, x.ThreadId })
+             .IsUnique()
+             .AreNullsDistinct(false)
+             .HasFilter("\"RevokedAt\" IS NULL");
+            b.Ignore(x => x.IsActive);
+            b.Ignore(x => x.IsPrivate);
+            b.Ignore(x => x.IsChannel);
+        });
+
+        modelBuilder.Entity<TelegramBindCode>(c =>
+        {
+            c.HasKey(x => x.Id);
+            c.Property(x => x.CodeHash).HasMaxLength(64).IsRequired();
+            c.Property(x => x.Level).HasConversion<string>().HasMaxLength(20);
+            c.HasIndex(x => x.CodeHash).IsUnique();
+            c.HasOne(x => x.Book)
+             .WithMany()
+             .HasForeignKey(x => x.BookId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TelegramMessageLink>(l =>
+        {
+            l.HasKey(x => x.Id);
+            l.Property(x => x.Kind).HasConversion<string>().HasMaxLength(20);
+            l.Property(x => x.ContentHash).HasMaxLength(64);
+            l.HasOne(x => x.Binding)
+             .WithMany()
+             .HasForeignKey(x => x.BindingId)
+             .OnDelete(DeleteBehavior.Cascade);
+            l.HasIndex(x => new { x.BindingId, x.Kind, x.RefId });
+            l.HasIndex(x => new { x.BindingId, x.MessageId });
+        });
+
+        modelBuilder.Entity<AgentMessage>().Property(x => x.Origin).HasMaxLength(300);
+        modelBuilder.Entity<BookChatMessage>().Property(x => x.Origin).HasMaxLength(300);
+        modelBuilder.Entity<Clarification>().Property(x => x.Origin).HasMaxLength(300);
     }
 }

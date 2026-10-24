@@ -42,6 +42,7 @@ A self-hosted web application that uses AI agents to collaboratively write books
 ### Exports & sharing
 - **Multiple export formats** — HTML (6 colour themes, adjustable font size), EPUB, FB2, and a Metadata document (book info, outlines, planning artifacts, agent messages, token stats). Rendered illustrations and the cover are embedded in all of them, compressed to JPEG to keep the download small
 - **Public Library** — browse and read published books without logging in (when public mode is enabled); each chapter has its own URL for bookmarking and sharing
+- **Telegram bot** — connect a book to a Telegram chat, group topic or channel: a pinned status card with Start / Continue / Stop, the planner's questions (reply to answer), a file after each chapter edit, the finished book, illustrations, live drafts while a chapter is written, and the book chat of Interactive books. Whoever can post in the chat gets the access you choose — see [Telegram Bot](#telegram-bot)
 
 ### Infrastructure
 - **Pluggable LLM backend** — Ollama (default, local), OpenAI (or any OpenAI-compatible API), or Google AI Studio; settings kept as presets (your default is copied into each new book) and per book
@@ -167,6 +168,9 @@ volumes:
 | `Jwt__RefreshTokenDays` | `30` | How long a browser stays signed in without using ABook |
 | `AgentSettings__MaxConcurrentRuns` | `3` | Max simultaneous agent runs across all books/users |
 | `PublicMode` | `false` | Enable public library (anonymous access to published books) |
+| `TELEGRAM_BOT_TOKEN` | — | Token from @BotFather; turns the [Telegram bot](#telegram-bot) on |
+| `ABOOK_HOSTNAME` | — | Public host name (e.g. `book.example.com`): the bot gets updates by webhook at `https://{ABOOK_HOSTNAME}/api/telegram/webhook`. Unset = long polling |
+| `TELEGRAM_WEBHOOK_SECRET` | *random* | Secret Telegram sends with each webhook call (`A-Z a-z 0-9 _ -`); unset = a new random one at each start |
 
 > Changing `AgentSettings__MaxConcurrentRuns` requires restarting the API process/container.
 
@@ -260,6 +264,33 @@ ABook includes a built-in [Model Context Protocol](https://modelcontextprotocol.
   }
 }
 ```
+
+### Telegram Bot
+
+One bot per ABook server lets people follow and steer a book from Telegram.
+
+**Setup**
+1. Create a bot with [@BotFather](https://t.me/BotFather) and set `TELEGRAM_BOT_TOKEN`.
+2. In BotFather, turn **privacy mode off** (Group Privacy → Disable) so the bot sees every message in its groups, and optionally turn on **topic mode in private chats** so each book gets its own topic in a private chat (otherwise a private chat holds one book).
+3. If the server is reachable over HTTPS, set `ABOOK_HOSTNAME` (Telegram then posts updates to `https://{ABOOK_HOSTNAME}/api/telegram/webhook` — ports 443, 80, 88 or 8443). Without it the bot polls Telegram, which works behind NAT too.
+
+**Connecting a book** — Book Settings → **Telegram** → choose the access → **Connect a chat**. Use the one-time code (valid 15 minutes) with one of: *Open a private chat with the bot*, *Add the bot to a group*, or send `/bind CODE` in a forum topic or post it in a channel where the bot is an admin. **Everyone who can post in that chat or topic gets the access you chose** — nobody signs in on the Telegram side:
+
+| Access | Can |
+|---|---|
+| Read | See the status card, notices and files |
+| Participate *(default)* | …and answer the planner's questions, `/export`, `/note`, write in the book chat (Interactive books) |
+| Control | …and start, continue and stop runs, apply / reject / undo book-chat changes, `/unbind`. Runs use the book's LLM settings, so everyone there spends its tokens; in groups you can limit Control to the chat's admins |
+
+**In the chat**
+- A pinned **status card** shows what the agents are doing, the chapters done and the tokens of the current run, with **Stop / Start / Continue**, **Refresh** and **Export** buttons for the chat's access.
+- The planner's questions are asked one at a time: **reply to the question message** to answer it, or press **Skip**. Other messages never count as answers.
+- **A file after each chapter edit** (EPUB, FB2 or HTML — set per chat), sent as a reply to the chapter's previous version; the planning document when planning completes; the whole book when the last chapter is done; rendered illustrations as photos.
+- In a private chat the chapter being written shows as a **live draft** (with a stop button for Control).
+- **Interactive books**: write in the chat to talk to the book chat; its suggested changes come with ✅ / ✖️ / ↩️ buttons.
+- Commands: `/status`, `/run`, `/continue`, `/stop`, `/export [epub|fb2|html|metadata]`, `/note text`, `/questions`, `/unbind`, `/help`.
+
+Answers, notes and chat messages from Telegram are marked with who sent them (✈️ Telegram · @name · chat) in ABook. Disconnect a chat from Book Settings, with `/unbind`, or by removing the bot; deleting the book disconnects its chats.
 
 ---
 

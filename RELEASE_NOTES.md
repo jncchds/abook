@@ -1,5 +1,18 @@
 # Release Notes
 
+## v0.5.0 — 2026-10-24
+
+### Telegram bot
+- feat: **follow and steer a book from Telegram.** One bot per server (`TELEGRAM_BOT_TOKEN`; `ABOOK_HOSTNAME` for a webhook, otherwise long polling). Connect a book from Book Settings → **Telegram** with a one-time code: a private chat (each book its own topic when topic mode is on in BotFather), a group, a forum topic (`/bind CODE`) or a channel
+- feat: **access is the chat** — everyone who can post in a connected chat or topic gets the access chosen for it: **Read** (status, notices, files), **Participate** (default: also answer the planner's questions, `/export`, `/note`, the book chat) or **Control** (also start, continue and stop runs and apply book-chat changes; can be limited to the chat's admins). No abook accounts on the Telegram side; disconnect from Book Settings, with `/unbind`, or by removing the bot
+- feat: a pinned **status card** edited live (step, chapters done, words written so far, tokens of the run) with Stop / Start / Continue, Refresh and Export buttons
+- feat: the planner's **questions one at a time** — reply to the question message to answer, or Skip; plain messages never count as answers
+- feat: **a file after each chapter edit** (EPUB, FB2 or HTML per chat), sent as a reply to the chapter's previous version (v2, v3…); manual edits are sent once they settle. Also the planning document when planning completes, the **whole book** when the last chapter is done, rendered **illustrations** as photos, and `/export` on demand
+- feat: **live drafts** in private chats — the chapter as it is being written, with a stop button that stops the run (Control)
+- feat: **Interactive books in Telegram** — write in the chat to talk to the book chat; replies arrive with their suggested changes as ✅ / ✖️ / ↩️ buttons (Apply all, Retry, confirm when something changed since)
+- feat: answers, notes and chat messages sent from Telegram show **who sent them** (✈️ Telegram · @name · chat) in Agent Messages, Clarifications and the book chat; starting, stopping and connecting add a note to the book's messages
+- feat: single-chapter export (`BookExportService.ExportChapterAsync`)
+
 ## v0.4.3 — 2026-10-23
 
 - docs: README, AGENTS.md and CLAUDE.md checked against the code — Semantic Kernel is gone (direct provider clients), the OpenAICompatible provider is listed, the MCP tool count is 53, the workflow buttons are Plan Book / Write Book / Illustrate Book, and the book sub-pages list matches the routes (no `StatePage`)
