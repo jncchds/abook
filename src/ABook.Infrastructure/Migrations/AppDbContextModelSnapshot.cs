@@ -275,6 +275,11 @@ namespace ABook.Infrastructure.Migrations
                     b.Property<DateTime?>("SettingsCopiedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("ShowSectionsInOutput")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("text");
@@ -468,6 +473,9 @@ namespace ABook.Infrastructure.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<bool>("ArchivedWithSection")
+                        .HasColumnType("boolean");
+
                     b.Property<int>("BookId")
                         .HasColumnType("integer");
 
@@ -520,6 +528,9 @@ namespace ABook.Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasDefaultValue("");
 
+                    b.Property<int?>("SectionId")
+                        .HasColumnType("integer");
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
@@ -543,6 +554,8 @@ namespace ABook.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("SectionId");
 
                     b.HasIndex("BookId", "SortOrder");
 
@@ -1504,6 +1517,72 @@ namespace ABook.Infrastructure.Migrations
                     b.ToTable("RefreshTokens");
                 });
 
+            modelBuilder.Entity("ABook.Core.Models.Section", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BookId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CharactersInvolvedJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("[]");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ForeshadowingNotes")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsArchived")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Outline")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PayoffNotes")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PlotThreadsJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("[]");
+
+                    b.Property<string>("PovCharacter")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BookId", "SortOrder");
+
+                    b.ToTable("Sections");
+                });
+
             modelBuilder.Entity("ABook.Core.Models.ServerSecret", b =>
                 {
                     b.Property<string>("Name")
@@ -2102,7 +2181,14 @@ namespace ABook.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("ABook.Core.Models.Section", "Section")
+                        .WithMany("Chapters")
+                        .HasForeignKey("SectionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.Navigation("Book");
+
+                    b.Navigation("Section");
                 });
 
             modelBuilder.Entity("ABook.Core.Models.ChapterVersion", b =>
@@ -2258,6 +2344,17 @@ namespace ABook.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("ABook.Core.Models.Section", b =>
+                {
+                    b.HasOne("ABook.Core.Models.Book", "Book")
+                        .WithMany("Sections")
+                        .HasForeignKey("BookId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Book");
+                });
+
             modelBuilder.Entity("ABook.Core.Models.StoryBible", b =>
                 {
                     b.HasOne("ABook.Core.Models.Book", "Book")
@@ -2374,6 +2471,8 @@ namespace ABook.Infrastructure.Migrations
 
                     b.Navigation("PlotThreads");
 
+                    b.Navigation("Sections");
+
                     b.Navigation("StoryBible");
                 });
 
@@ -2387,6 +2486,11 @@ namespace ABook.Infrastructure.Migrations
                     b.Navigation("AgentMessages");
 
                     b.Navigation("Versions");
+                });
+
+            modelBuilder.Entity("ABook.Core.Models.Section", b =>
+                {
+                    b.Navigation("Chapters");
                 });
 #pragma warning restore 612, 618
         }

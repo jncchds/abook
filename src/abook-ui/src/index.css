@@ -476,6 +476,12 @@ html:has(.app-layout), html:has(.app-layout) body { height: 100%; min-height: 0;
 .chapter-content h1, .chapter-content h2, .chapter-content h3 { margin: 1.25rem 0 0.5rem; }
 .stream-preview { background: rgba(99,102,241,0.08); border: 1px dashed var(--accent); border-radius: 8px; padding: 1rem; margin-top: 1rem; }
 .chapter-prev-next { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.reader-part-heading { text-align: center; font-size: 1.6rem; margin: 1rem 0 1.5rem; letter-spacing: 0.04em; }
+/* Chapters page: a section holding several chapters */
+.section-group { border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.75rem 0.75rem; margin-bottom: 0.75rem; }
+.section-group-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.section-group-header h3 { margin: 0; font-size: 1rem; }
+.section-badge { font-size: 0.72rem; color: var(--text-muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; margin-right: 0.35rem; white-space: nowrap; }
 .chapter-prev-next button { font-size: 0.85rem; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 
@@ -915,7 +921,7 @@ button:disabled:hover { background: var(--accent); }
 /* ======== Circular chapter number badge in library sidebar ======== */
 .lib-ch-circle {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 1.5rem; height: 1.5rem; border-radius: 50%;
+  min-width: 1.5rem; height: 1.5rem; border-radius: 0.75rem; padding: 0 0.3rem; box-sizing: border-box;
   background: rgba(99,102,241,0.15); color: var(--accent);
   font-size: 0.72rem; font-weight: 700; line-height: 1;
   flex-shrink: 0;

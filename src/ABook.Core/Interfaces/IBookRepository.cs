@@ -26,14 +26,39 @@ public interface IBookRepository
     /// <summary>The book's chapters in book order (<see cref="Chapter.SortOrder"/>).</summary>
     Task<IEnumerable<Chapter>> GetChaptersAsync(int bookId, bool includeArchived = false);
     Task<Chapter?> GetChapterAsync(int bookId, int chapterId);
-    /// <summary>Adds a chapter at the end of the book; its number is set from its place.</summary>
+    /// <summary>
+    /// Adds a chapter: with <see cref="Chapter.SectionId"/> set, at the end of that section; otherwise in a new section
+    /// of its own at the end of the book. Numbers are set from the place.
+    /// </summary>
     Task<Chapter> AddChapterAsync(Chapter chapter);
-    /// <summary>Adds a chapter right after <paramref name="afterChapterId"/> (null = at the start); later chapters are renumbered.</summary>
-    Task<Chapter> InsertChapterAsync(Chapter chapter, int? afterChapterId);
-    /// <summary>Moves a chapter (archived ones too) to right after <paramref name="afterChapterId"/> (null = to the start) and renumbers.</summary>
+    /// <summary>
+    /// Adds a chapter after <paramref name="afterChapterId"/> (null = at the start). With <see cref="Chapter.SectionId"/>
+    /// set it goes into that section (the anchor must be in it; null = first in it); with <paramref name="sameSection"/>
+    /// it joins the anchor's section; otherwise it gets a new section of its own, placed after the anchor's section.
+    /// </summary>
+    Task<Chapter> InsertChapterAsync(Chapter chapter, int? afterChapterId, bool sameSection = false);
+    /// <summary>
+    /// Moves a chapter (archived ones too) after <paramref name="afterChapterId"/> (null = to the start). A chapter alone
+    /// in its section moves with its section (placed after the anchor's section); otherwise it joins the anchor's
+    /// section (null: first in its own section).
+    /// </summary>
     Task MoveChapterAsync(int bookId, int chapterId, int? afterChapterId);
-    /// <summary>Sets every chapter's number from its place again.</summary>
+    /// <summary>Moves a chapter into a section, after <paramref name="afterChapterId"/> of it (null = first); an emptied section is removed.</summary>
+    Task MoveChapterToSectionAsync(int bookId, int chapterId, int sectionId, int? afterChapterId);
+    /// <summary>Sets every section's and chapter's number from its place again.</summary>
     Task RenumberChaptersAsync(int bookId);
+
+    /// <summary>The book's sections in order.</summary>
+    Task<IReadOnlyList<Section>> GetSectionsAsync(int bookId, bool includeArchived = false);
+    Task<Section?> GetSectionAsync(int bookId, int sectionId);
+    /// <summary>Saves a section's plan (placement and archive state are kept by the structure methods).</summary>
+    Task UpdateSectionAsync(Section section);
+    /// <summary>Moves a section with its chapters after <paramref name="afterSectionId"/> (null = to the start).</summary>
+    Task MoveSectionAsync(int bookId, int sectionId, int? afterSectionId);
+    /// <summary>Archives every active chapter of the section (it keeps its place).</summary>
+    Task ArchiveSectionAsync(int bookId, int sectionId);
+    /// <summary>Brings back the chapters archived with the section.</summary>
+    Task RestoreSectionAsync(int bookId, int sectionId);
     /// <summary>
     /// Syncs the book's outlines to the given set in a single transaction: chapters matching by Number are
     /// updated in place (prose, status and versions preserved), new numbers are inserted, and non-archived

@@ -57,6 +57,7 @@ public class BookRepository : IBookRepository
         await WithClarificationsAsync(await _db.Books
             .Include(b => b.StoryBible)
             .Include(b => b.Chapters.OrderBy(c => c.SortOrder))
+            .Include(b => b.Sections.OrderBy(s => s.SortOrder))
             .Include(b => b.LlmConfigurations)
             .AsSplitQuery()
             .FirstOrDefaultAsync(b => b.Id == id));
@@ -71,6 +72,7 @@ public class BookRepository : IBookRepository
         await WithClarificationsAsync(await _db.Books
             .Include(b => b.StoryBible)
             .Include(b => b.Chapters.Where(c => !c.IsArchived).OrderBy(c => c.SortOrder))
+            .Include(b => b.Sections.Where(s => !s.IsArchived).OrderBy(s => s.SortOrder))
             .Include(b => b.LlmConfigurations)
             .AsSplitQuery()
             .FirstOrDefaultAsync(b => b.Id == id));
@@ -193,35 +195,114 @@ public class BookRepository : IBookRepository
 
     public async Task<Chapter> AddChapterAsync(Chapter chapter)
     {
-        var (ordered, before) = await LoadChapterOrderAsync(chapter.BookId);
-        ordered.Add(chapter);
-        return await SaveNewChapterAsync(chapter, ordered, before);
+        var book = await LoadStructureAsync(chapter.BookId);
+        if (chapter.SectionId is int sectionId)
+        {
+            // At the end of its section.
+            chapter.Section = FindSection(book, sectionId);
+            var last = book.Ordered.LastOrDefault(c => ReferenceEquals(c.Section, chapter.Section));
+            return await SaveNewChapterAsync(chapter, ChapterOrdering.MoveAfter(book.Ordered, chapter, last), book);
+        }
+        NewSectionFor(chapter);   // a new section at the end
+        book.Ordered.Add(chapter);
+        return await SaveNewChapterAsync(chapter, book.Ordered, book);
     }
 
-    public async Task<Chapter> InsertChapterAsync(Chapter chapter, int? afterChapterId)
+    public async Task<Chapter> InsertChapterAsync(Chapter chapter, int? afterChapterId, bool sameSection = false)
     {
-        var (ordered, before) = await LoadChapterOrderAsync(chapter.BookId);
-        var after = FindAnchor(ordered, afterChapterId);
-        return await SaveNewChapterAsync(chapter, ChapterOrdering.MoveAfter(ordered, chapter, after), before);
+        var book = await LoadStructureAsync(chapter.BookId);
+        var after = FindAnchor(book.Ordered, afterChapterId);
+        if (chapter.SectionId is int sectionId)
+        {
+            chapter.Section = FindSection(book, sectionId);
+            if (after is not null && !ReferenceEquals(after.Section, chapter.Section))
+                throw new InvalidOperationException($"Chapter {after.Id} is not in section {sectionId}.");
+            // after == null: first in the section.
+            var anchor = after ?? book.Ordered.TakeWhile(c => !ReferenceEquals(c.Section, chapter.Section)).LastOrDefault();
+            return await SaveNewChapterAsync(chapter, ChapterOrdering.MoveAfter(book.Ordered, chapter, anchor), book);
+        }
+        if (sameSection && after is not null)
+        {
+            chapter.Section = after.Section;
+            return await SaveNewChapterAsync(chapter, ChapterOrdering.MoveAfter(book.Ordered, chapter, after), book);
+        }
+        // A new section of its own, after the anchor's whole section (or first).
+        var section = NewSectionFor(chapter);
+        var ordered = ChapterOrdering.MoveAfter(book.Ordered, chapter, null);
+        ordered = ChapterOrdering.MoveSectionAfter(ordered, section, after?.Section);
+        return await SaveNewChapterAsync(chapter, ordered, book);
     }
 
-    private async Task<Chapter> SaveNewChapterAsync(Chapter chapter, List<Chapter> ordered, Dictionary<int, int> before)
+    private async Task<Chapter> SaveNewChapterAsync(Chapter chapter, List<Chapter> ordered, BookStructure book)
     {
         chapter.CreatedAt = chapter.UpdatedAt = DateTime.UtcNow;
         _db.Chapters.Add(chapter);
-        ApplyChapterOrder(ordered, before);
+        ApplyStructure(ordered, book);
         await _db.SaveChangesAsync();
         return chapter;
     }
 
+    /// <summary>A new section holding <paramref name="chapter"/>, with its plan (tracked, not saved).</summary>
+    private Section NewSectionFor(Chapter chapter)
+    {
+        var section = new Section { BookId = chapter.BookId, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+        section.CopyPlanFrom(chapter);
+        _db.Sections.Add(section);
+        chapter.Section = section;
+        return section;
+    }
+
     public async Task MoveChapterAsync(int bookId, int chapterId, int? afterChapterId)
     {
-        var (ordered, before) = await LoadChapterOrderAsync(bookId);
-        var chapter = ordered.FirstOrDefault(c => c.Id == chapterId)
+        var book = await LoadStructureAsync(bookId);
+        var chapter = book.Ordered.FirstOrDefault(c => c.Id == chapterId)
             ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
         if (afterChapterId == chapterId) return;
-        var after = FindAnchor(ordered, afterChapterId);
-        ApplyChapterOrder(ChapterOrdering.MoveAfter(ordered, chapter, after), before);
+        var after = FindAnchor(book.Ordered, afterChapterId);
+        var alone = book.Ordered.Count(c => ReferenceEquals(c.Section, chapter.Section)) == 1;
+        List<Chapter> ordered;
+        if (alone)
+            // A chapter alone in its section moves with it: the section goes after the anchor's section.
+            ordered = ChapterOrdering.MoveSectionAfter(book.Ordered, chapter.Section!,
+                after is null || ReferenceEquals(after.Section, chapter.Section) ? null : after.Section);
+        else if (after is null)
+        {
+            // First in its own section.
+            var before = book.Ordered.TakeWhile(c => !ReferenceEquals(c.Section, chapter.Section)).LastOrDefault();
+            ordered = ChapterOrdering.MoveAfter(book.Ordered, chapter, before);
+        }
+        else
+        {
+            chapter.Section = after.Section;   // joins the anchor's section
+            ordered = ChapterOrdering.MoveAfter(book.Ordered, chapter, after);
+        }
+        ApplyStructure(ordered, book);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task MoveChapterToSectionAsync(int bookId, int chapterId, int sectionId, int? afterChapterId)
+    {
+        var book = await LoadStructureAsync(bookId);
+        var chapter = book.Ordered.FirstOrDefault(c => c.Id == chapterId)
+            ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
+        var section = FindSection(book, sectionId);
+        var after = FindAnchor(book.Ordered, afterChapterId);
+        if (after is not null && !ReferenceEquals(after.Section, section))
+            throw new InvalidOperationException($"Chapter {after.Id} is not in section {sectionId}.");
+        if (after?.Id == chapterId) return;
+        chapter.Section = section;
+        var anchor = after ?? book.Ordered.TakeWhile(c => !ReferenceEquals(c.Section, section)).LastOrDefault(c => c.Id != chapterId);
+        ApplyStructure(ChapterOrdering.MoveAfter(book.Ordered, chapter, anchor), book);   // an emptied section is removed
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task MoveSectionAsync(int bookId, int sectionId, int? afterSectionId)
+    {
+        var book = await LoadStructureAsync(bookId);
+        var section = FindSection(book, sectionId);
+        if (afterSectionId == sectionId) return;
+        var after = afterSectionId is int a ? FindSection(book, a) : null;
+        ApplyStructure(ChapterOrdering.MoveSectionAfter(book.Ordered, section, after), book);
         await _db.SaveChangesAsync();
     }
 
@@ -230,26 +311,47 @@ public class BookRepository : IBookRepository
             ? ordered.FirstOrDefault(c => c.Id == id) ?? throw new InvalidOperationException($"Chapter {id} not found.")
             : null;
 
-    /// <summary>All the book's chapters (tracked, archived included) in book order, and the active chapters' numbers now.</summary>
-    private async Task<(List<Chapter> Ordered, Dictionary<int, int> Before)> LoadChapterOrderAsync(int bookId)
+    private static Section FindSection(BookStructure book, int sectionId) =>
+        book.Sections.FirstOrDefault(s => s.Id == sectionId)
+        ?? throw new InvalidOperationException($"Section {sectionId} not found.");
+
+    /// <summary>A book's sections and chapters, tracked, with the active sections' numbers before a change.</summary>
+    private sealed record BookStructure(List<Chapter> Ordered, List<Section> Sections, Dictionary<int, int> SectionNumbersBefore);
+
+    /// <summary>
+    /// Loads the book's chapters (archived included, in book order) and sections, tracked, so a change can be applied
+    /// and saved. A chapter without a section (made before sections existed) gets one of its own.
+    /// </summary>
+    private async Task<BookStructure> LoadStructureAsync(int bookId)
     {
-        var all = ChapterOrdering.InOrder(await _db.Chapters.Where(c => c.BookId == bookId).ToListAsync());
-        return (all, ChapterOrdering.ActiveNumbers(all));
+        var sections = await _db.Sections.Where(s => s.BookId == bookId).ToListAsync();
+        var chapters = ChapterOrdering.InOrder(await _db.Chapters.Where(c => c.BookId == bookId).ToListAsync());
+        var before = ChapterOrdering.ActiveSectionNumbers(sections);
+        foreach (var c in chapters.Where(c => c.Section is null))
+            sections.Add(NewSectionFor(c));
+        return new BookStructure(chapters, sections, before);
     }
 
     /// <summary>
-    /// Writes places and numbers for <paramref name="ordered"/> and moves the chapter numbers that plot threads and
-    /// characters point at along with them. Tracked changes only (the change log must see them); the caller saves.
+    /// Writes places and numbers for <paramref name="ordered"/> (sections and chapters), removes sections left without
+    /// chapters, and moves the section numbers that plot threads and characters point at along with them. Tracked
+    /// changes only (the change log must see them); the caller saves.
     /// </summary>
-    private void ApplyChapterOrder(IReadOnlyList<Chapter> ordered, Dictionary<int, int> before)
+    private void ApplyStructure(IReadOnlyList<Chapter> ordered, BookStructure book)
     {
         var now = DateTime.UtcNow;
-        var places = ordered.Where(c => c.Id != 0).ToDictionary(c => c.Id, c => (c.SortOrder, c.Number));
-        var map = ChapterOrdering.Apply(ordered, before);
-        foreach (var c in ordered)
-            if (c.Id != 0 && places[c.Id] != (c.SortOrder, c.Number)) c.UpdatedAt = now;
-        if (map.Count == 0 || ordered.Count == 0) return;
+        var chapterPlaces = ordered.Where(c => c.Id != 0).ToDictionary(c => c.Id, c => (c.SortOrder, c.Number, c.SectionId));
+        var sectionPlaces = book.Sections.Where(s => s.Id != 0).ToDictionary(s => s.Id, s => (s.SortOrder, s.Number, s.IsArchived));
+        var result = ChapterOrdering.Apply(ordered, book.SectionNumbersBefore);
+        foreach (var c in result.Chapters)
+            if (c.Id != 0 && chapterPlaces[c.Id] != (c.SortOrder, c.Number, c.Section?.Id == 0 ? null : c.Section?.Id)) c.UpdatedAt = now;
+        foreach (var s in result.Sections)
+            if (s.Id != 0 && sectionPlaces[s.Id] != (s.SortOrder, s.Number, s.IsArchived)) s.UpdatedAt = now;
+        foreach (var empty in book.Sections.Where(s => !result.Sections.Contains(s)))
+            _db.Sections.Remove(empty);
 
+        var map = result.SectionNumberMap;
+        if (map.Count == 0 || ordered.Count == 0) return;
         var bookId = ordered[0].BookId;
         foreach (var t in _db.PlotThreads.Where(t => t.BookId == bookId).ToList())
         {
@@ -269,11 +371,11 @@ public class BookRepository : IBookRepository
         }
     }
 
-    /// <summary>Renumbers the book's chapters from their places (e.g. after a rewind wrote old places and numbers back).</summary>
+    /// <summary>Renumbers the book's sections and chapters from their places.</summary>
     public async Task RenumberChaptersAsync(int bookId)
     {
-        var (ordered, before) = await LoadChapterOrderAsync(bookId);
-        ApplyChapterOrder(ordered, before);
+        var book = await LoadStructureAsync(bookId);
+        ApplyStructure(book.Ordered, book);
         await _db.SaveChangesAsync();
     }
 
@@ -291,8 +393,8 @@ public class BookRepository : IBookRepository
         await using var tx = await _db.Database.BeginTransactionAsync();
         try
         {
-            var (ordered, before) = await LoadChapterOrderAsync(bookId);
-            var existing = ordered.Where(c => !c.IsArchived).ToList();
+            var book = await LoadStructureAsync(bookId);
+            var existing = book.Ordered.Where(c => !c.IsArchived).ToList();
 
             var incomingNumbers = incoming.Select(ch => ch.Number).ToHashSet();
             var removed = existing.Where(c => !incomingNumbers.Contains(c.Number)).ToList();
@@ -301,7 +403,7 @@ public class BookRepository : IBookRepository
             var saved = UpsertChapterOutlines(bookId, incoming, existing.Except(removed).ToList());
             // The plan's numbers are its order; archived chapters stay next to the chapter they followed.
             var active = saved.Distinct().OrderBy(c => c.Number).ToList();
-            ApplyChapterOrder(ChapterOrdering.Arrange(ordered, active), before);
+            ApplyStructure(ChapterOrdering.Arrange(book.Ordered, active), book);
 
             await _db.SaveChangesAsync();
             await tx.CommitAsync();
@@ -321,14 +423,14 @@ public class BookRepository : IBookRepository
     /// </summary>
     public async Task<IReadOnlyList<Chapter>> MergeChapterOutlinesAsync(int bookId, IEnumerable<Chapter> chapters)
     {
-        var (ordered, before) = await LoadChapterOrderAsync(bookId);
-        var existing = ordered.Where(c => !c.IsArchived).ToList();
+        var book = await LoadStructureAsync(bookId);
+        var existing = book.Ordered.Where(c => !c.IsArchived).ToList();
 
         var touched = UpsertChapterOutlines(bookId, chapters, existing);
         // Chapters already there keep their order; a salvaged new one goes where its number puts it.
         var active = existing.Concat(touched).Distinct()
             .Select((c, i) => (c, i)).OrderBy(x => x.c.Number).ThenBy(x => x.i).Select(x => x.c).ToList();
-        ApplyChapterOrder(ChapterOrdering.Arrange(ordered, active), before);
+        ApplyStructure(ChapterOrdering.Arrange(book.Ordered, active), book);
         await _db.SaveChangesAsync();
         return touched;
     }
@@ -364,6 +466,7 @@ public class BookRepository : IBookRepository
             {
                 ch.BookId = bookId;
                 ch.CreatedAt = ch.UpdatedAt = now;
+                if (ch.Section is null && ch.SectionId is null) NewSectionFor(ch);
                 _db.Chapters.Add(ch);
                 byNumber[ch.Number] = ch;
                 touched.Add(ch);
@@ -383,35 +486,102 @@ public class BookRepository : IBookRepository
     {
         var chapters = await _db.Chapters.Where(c => c.BookId == bookId).ToListAsync();
         _db.Chapters.RemoveRange(chapters);
+        _db.Sections.RemoveRange(await _db.Sections.Where(s => s.BookId == bookId).ToListAsync());
         await _db.SaveChangesAsync();
     }
 
     // Archiving keeps the chapter's place (and its last number, shown as "was Ch. N"); the chapters after it move up.
-    public Task ArchiveChapterAsync(int bookId, int chapterId) => SetChapterArchivedAsync(bookId, chapterId, true);
-
-    // Restoring brings the chapter back at its place; the chapters after it move down.
-    public Task RestoreChapterAsync(int bookId, int chapterId) => SetChapterArchivedAsync(bookId, chapterId, false);
-
-    private async Task SetChapterArchivedAsync(int bookId, int chapterId, bool archived)
+    // Archiving a section's last active chapter archives the section (and the chapter comes back with it).
+    public async Task ArchiveChapterAsync(int bookId, int chapterId)
     {
-        var (ordered, before) = await LoadChapterOrderAsync(bookId);
-        var chapter = ordered.FirstOrDefault(c => c.Id == chapterId);
-        if (chapter is null || chapter.IsArchived == archived) return;
-        chapter.IsArchived = archived;
+        var book = await LoadStructureAsync(bookId);
+        var chapter = book.Ordered.FirstOrDefault(c => c.Id == chapterId);
+        if (chapter is null || chapter.IsArchived) return;
+        chapter.IsArchived = true;
+        chapter.ArchivedWithSection = !book.Ordered.Any(c => ReferenceEquals(c.Section, chapter.Section) && !c.IsArchived);
         chapter.UpdatedAt = DateTime.UtcNow;
-        ApplyChapterOrder(ordered, before);
+        ApplyStructure(book.Ordered, book);
+        await _db.SaveChangesAsync();
+    }
+
+    // Restoring brings the chapter back at its place (and its section, if it was archived); the chapters after it move down.
+    public async Task RestoreChapterAsync(int bookId, int chapterId)
+    {
+        var book = await LoadStructureAsync(bookId);
+        var chapter = book.Ordered.FirstOrDefault(c => c.Id == chapterId);
+        if (chapter is null || !chapter.IsArchived) return;
+        chapter.IsArchived = false;
+        chapter.ArchivedWithSection = false;
+        chapter.UpdatedAt = DateTime.UtcNow;
+        ApplyStructure(book.Ordered, book);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task ArchiveSectionAsync(int bookId, int sectionId)
+    {
+        var book = await LoadStructureAsync(bookId);
+        var section = FindSection(book, sectionId);
+        var now = DateTime.UtcNow;
+        foreach (var c in book.Ordered.Where(c => ReferenceEquals(c.Section, section) && !c.IsArchived))
+        {
+            c.IsArchived = true;
+            c.ArchivedWithSection = true;
+            c.UpdatedAt = now;
+        }
+        ApplyStructure(book.Ordered, book);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task RestoreSectionAsync(int bookId, int sectionId)
+    {
+        var book = await LoadStructureAsync(bookId);
+        var section = FindSection(book, sectionId);
+        var chapters = book.Ordered.Where(c => ReferenceEquals(c.Section, section)).ToList();
+        // The chapters archived with it; failing that (archived before sections existed), all of them.
+        var back = chapters.Where(c => c.IsArchived && c.ArchivedWithSection).ToList();
+        if (back.Count == 0) back = chapters.Where(c => c.IsArchived).ToList();
+        var now = DateTime.UtcNow;
+        foreach (var c in back)
+        {
+            c.IsArchived = false;
+            c.ArchivedWithSection = false;
+            c.UpdatedAt = now;
+        }
+        ApplyStructure(book.Ordered, book);
         await _db.SaveChangesAsync();
     }
 
     public async Task ArchiveChaptersAsync(int bookId)
     {
         // Tracked, not ExecuteUpdate: the change log (ContentRevision) only sees tracked saves.
+        var book = await LoadStructureAsync(bookId);
         var now = DateTime.UtcNow;
-        foreach (var c in await _db.Chapters.Where(c => c.BookId == bookId && !c.IsArchived).ToListAsync())
+        foreach (var c in book.Ordered.Where(c => !c.IsArchived))
         {
             c.IsArchived = true;
+            c.ArchivedWithSection = true;
             c.UpdatedAt = now;
         }
+        ApplyStructure(book.Ordered, book);
+        await _db.SaveChangesAsync();
+    }
+
+    // ── Sections ─────────────────────────────────────────────────────────────
+
+    public async Task<IReadOnlyList<Section>> GetSectionsAsync(int bookId, bool includeArchived = false)
+    {
+        var query = _db.Sections.Where(s => s.BookId == bookId);
+        if (!includeArchived) query = query.Where(s => !s.IsArchived);
+        return await query.OrderBy(s => s.SortOrder).ThenBy(s => s.Id).ToListAsync();
+    }
+
+    public async Task<Section?> GetSectionAsync(int bookId, int sectionId) =>
+        await _db.Sections.FirstOrDefaultAsync(s => s.BookId == bookId && s.Id == sectionId);
+
+    public async Task UpdateSectionAsync(Section section)
+    {
+        section.UpdatedAt = DateTime.UtcNow;
+        _db.Sections.Update(section);
         await _db.SaveChangesAsync();
     }
 

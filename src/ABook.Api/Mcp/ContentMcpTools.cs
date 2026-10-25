@@ -322,7 +322,7 @@ public class ContentMcpTools : McpToolBase
         var chapters = await _repo.GetChaptersAsync(bookId);
         var result = chapters.Select(c => new
         {
-            c.Id, c.Number, c.Title, c.Outline,
+            c.Id, c.Number, c.SectionId, c.Title, c.Outline,
             Status = c.Status.ToString(),
             c.PovCharacter, c.ForeshadowingNotes, c.PayoffNotes
         });
@@ -350,7 +350,7 @@ public class ContentMcpTools : McpToolBase
     }
 
     [McpServerTool(Name = "create_chapter")]
-    [Description("Add a new chapter to a book: at the end, or right after another chapter (afterChapterId) or at the start (atStart). Chapter numbers follow the order, so the chapters after an inserted one are renumbered.")]
+    [Description("Add a new chapter to a book: at the end, or right after another chapter (afterChapterId) or at the start (atStart). By default a new chapter gets a section of its own (placed after the anchor's section); sameSection = true puts it in the anchor's section instead, and sectionId puts it in a given section. Chapter numbers follow the order, so the chapters after an inserted one are renumbered.")]
     public async Task<string> CreateChapter(
         [Description("The book ID.")] int bookId,
         [Description("Chapter title.")] string title,
@@ -359,12 +359,17 @@ public class ContentMcpTools : McpToolBase
         [Description("Foreshadowing notes — what hints are planted in this chapter (optional).")] string? foreshadowingNotes = null,
         [Description("Payoff notes — what earlier foreshadowing is paid off (optional).")] string? payoffNotes = null,
         [Description("Insert right after this chapter ID (optional; default: at the end).")] int? afterChapterId = null,
-        [Description("Insert as the first chapter (optional).")] bool atStart = false)
+        [Description("Insert as the first chapter (optional).")] bool atStart = false,
+        [Description("Join the section of afterChapterId instead of starting a new section (optional).")] bool sameSection = false,
+        [Description("Put the chapter in this section ID — at its end, or after afterChapterId of it (optional).")] int? sectionId = null)
     {
         await GetOwnedBookAsync(bookId, _repo);
+        if (sectionId is int sid && await _repo.GetSectionAsync(bookId, sid) is null)
+            throw new McpException($"Section {sid} not found in book {bookId}.");
         var chapter = new Chapter
         {
             BookId = bookId,
+            SectionId = sectionId,
             Title = title,
             Outline = outline,
             PovCharacter = povCharacter ?? string.Empty,
@@ -373,10 +378,126 @@ public class ContentMcpTools : McpToolBase
         };
         if (afterChapterId is int after && await _repo.GetChapterAsync(bookId, after) is null)
             throw new McpException($"Chapter {after} not found in book {bookId}.");
-        chapter = atStart || afterChapterId is not null
-            ? await _repo.InsertChapterAsync(chapter, atStart ? null : afterChapterId)
-            : await _repo.AddChapterAsync(chapter);
-        return JsonSerializer.Serialize(new { chapter.Id, chapter.Number, chapter.Title }, JsonOptions);
+        try
+        {
+            chapter = atStart || afterChapterId is not null
+                ? await _repo.InsertChapterAsync(chapter, atStart ? null : afterChapterId, sameSection)
+                : await _repo.AddChapterAsync(chapter);
+        }
+        catch (InvalidOperationException ex) { throw new McpException(ex.Message); }
+        return JsonSerializer.Serialize(new { chapter.Id, chapter.Number, chapter.SectionId, chapter.Title }, JsonOptions);
+    }
+
+    // ── Sections ──────────────────────────────────────────────────────────────
+
+    [McpServerTool(Name = "list_sections", ReadOnly = true)]
+    [Description("List a book's sections in order: parts of the plan, each spanning one or more chapters (by default one). Each has the plan fields a chapter has (title, outline, POV, characters, plot threads, foreshadowing, payoff) but no prose, and the IDs of its chapters. A section with one chapter has that chapter's plan; with several, its plan is the overall one and each chapter has its own detailed plan. Plot threads' introduced/resolved numbers and characters' first appearance count sections.")]
+    public async Task<string> ListSections(
+        [Description("The book ID.")] int bookId,
+        [Description("Include archived sections.")] bool includeArchived = false)
+    {
+        await GetOwnedBookAsync(bookId, _repo);
+        var sections = await _repo.GetSectionsAsync(bookId, includeArchived);
+        var chapters = (await _repo.GetChaptersAsync(bookId, includeArchived)).ToList();
+        return JsonSerializer.Serialize(sections.Select(s => new
+        {
+            s.Id, s.Number, s.Title, s.Outline, s.PovCharacter,
+            CharactersInvolved = ABook.Agents.BookContentRender.Fields(s)["charactersInvolved"],
+            PlotThreads = ABook.Agents.BookContentRender.Fields(s)["plotThreads"],
+            s.ForeshadowingNotes, s.PayoffNotes, s.IsArchived,
+            Chapters = chapters.Where(c => c.SectionId == s.Id).Select(c => new { c.Id, c.Number, c.Title, c.IsArchived }),
+        }), JsonOptions);
+    }
+
+    [McpServerTool(Name = "update_section")]
+    [Description("Update a section's plan. Provide only the fields to change. For a section with a single chapter this updates that chapter's outline (saved as a chapter version) and the section follows it.")]
+    public async Task<string> UpdateSection(
+        [Description("The book ID.")] int bookId,
+        [Description("The section ID.")] int sectionId,
+        [Description("New title.")] string? title = null,
+        [Description("New outline.")] string? outline = null,
+        [Description("New POV character.")] string? povCharacter = null,
+        [Description("Characters involved, comma-separated.")] string? charactersInvolved = null,
+        [Description("Plot thread names, comma-separated.")] string? plotThreads = null,
+        [Description("New foreshadowing notes.")] string? foreshadowingNotes = null,
+        [Description("New payoff notes.")] string? payoffNotes = null)
+    {
+        await GetOwnedBookAsync(bookId, _repo);
+        var changes = new Dictionary<string, string>();
+        if (title != null) changes["title"] = title;
+        if (outline != null) changes["outline"] = outline;
+        if (povCharacter != null) changes["povCharacter"] = povCharacter;
+        if (charactersInvolved != null) changes["charactersInvolved"] = charactersInvolved;
+        if (plotThreads != null) changes["plotThreads"] = plotThreads;
+        if (foreshadowingNotes != null) changes["foreshadowingNotes"] = foreshadowingNotes;
+        if (payoffNotes != null) changes["payoffNotes"] = payoffNotes;
+        try { return JsonSerializer.Serialize(new { (await _content.UpdateSectionPlanAsync(bookId, sectionId, changes, "mcp")).Note }, JsonOptions); }
+        catch (InvalidOperationException ex) { throw new McpException(ex.Message); }
+    }
+
+    [McpServerTool(Name = "move_section")]
+    [Description("Move a section with all its chapters to right after another section, or to the start. Sections and chapters are renumbered; plot threads' and characters' section numbers move along. Refused while an agent run works on the book.")]
+    public async Task<string> MoveSection(
+        [Description("The book ID.")] int bookId,
+        [Description("The section ID to move.")] int sectionId,
+        [Description("Put it right after this section ID (leave null with atStart = true to make it the first).")] int? afterSectionId = null,
+        [Description("Make it the first section.")] bool atStart = false)
+    {
+        await GetOwnedBookAsync(bookId, _repo);
+        if (afterSectionId is null && !atStart) throw new McpException("Give afterSectionId, or atStart = true.");
+        try
+        {
+            _content.EnsureNoActiveRun(bookId);
+            return JsonSerializer.Serialize(new { (await _content.MoveSectionAsync(bookId, sectionId, atStart ? null : afterSectionId)).Note }, JsonOptions);
+        }
+        catch (InvalidOperationException ex) { throw new McpException(ex.Message); }
+    }
+
+    [McpServerTool(Name = "move_chapter_to_section")]
+    [Description("Move a chapter into another section (or to another place in its own), after one of that section's chapters or first. A section left without chapters is removed. Refused while an agent run works on the book.")]
+    public async Task<string> MoveChapterToSection(
+        [Description("The book ID.")] int bookId,
+        [Description("The chapter ID to move.")] int chapterId,
+        [Description("The target section ID.")] int sectionId,
+        [Description("Put it right after this chapter ID of the target section (null = first in it).")] int? afterChapterId = null)
+    {
+        await GetOwnedBookAsync(bookId, _repo);
+        try
+        {
+            _content.EnsureNoActiveRun(bookId);
+            return JsonSerializer.Serialize(new { (await _content.MoveChapterToSectionAsync(bookId, chapterId, sectionId, afterChapterId)).Note }, JsonOptions);
+        }
+        catch (InvalidOperationException ex) { throw new McpException(ex.Message); }
+    }
+
+    [McpServerTool(Name = "archive_section")]
+    [Description("Archive a section and all its active chapters (they keep their place and come back with it). Refused while an agent run works on the book.")]
+    public async Task<string> ArchiveSection(
+        [Description("The book ID.")] int bookId,
+        [Description("The section ID.")] int sectionId)
+    {
+        await GetOwnedBookAsync(bookId, _repo);
+        try
+        {
+            _content.EnsureNoActiveRun(bookId);
+            return JsonSerializer.Serialize(new { (await _content.ArchiveSectionAsync(bookId, sectionId)).Note }, JsonOptions);
+        }
+        catch (InvalidOperationException ex) { throw new McpException(ex.Message); }
+    }
+
+    [McpServerTool(Name = "restore_section")]
+    [Description("Bring back an archived section with the chapters archived along with it, in its place.")]
+    public async Task<string> RestoreSection(
+        [Description("The book ID.")] int bookId,
+        [Description("The section ID.")] int sectionId)
+    {
+        await GetOwnedBookAsync(bookId, _repo);
+        try
+        {
+            _content.EnsureNoActiveRun(bookId);
+            return JsonSerializer.Serialize(new { (await _content.RestoreSectionAsync(bookId, sectionId)).Note }, JsonOptions);
+        }
+        catch (InvalidOperationException ex) { throw new McpException(ex.Message); }
     }
 
     [McpServerTool(Name = "move_chapter")]

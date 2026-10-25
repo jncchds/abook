@@ -7,7 +7,7 @@ import {
   startPlanning, completePlanningPhase, reopenPlanningPhase, clearPlanningPhase,
   startWorkflow, stopWorkflow,
   getTokenUsage, clearMessages, clearTokenUsage,
-  getStoryBible, getCharacters, getPlotThreads, getChapters, getChapter,
+  getStoryBible, getCharacters, getPlotThreads, getChapters, getChapter, getSections,
   getIllustrations, planIllustrations, renderIllustrations, getClarifications,
 } from '../api'
 import { useBookHub } from '../hooks/useBookHub'
@@ -97,6 +97,8 @@ interface BookContextValue {
   answerError: string | null
 
   refreshBook: () => Promise<void>
+  /** Reloads every chapter and section (after a structure change renumbered them). */
+  reloadStructure: () => Promise<void>
   refreshMessages: () => void
 
   /** Sends the typed answer, or `text` when given (Skip passes ''). */
@@ -178,6 +180,14 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
 
   const refreshBook = useCallback(() =>
     getBook(bookId).then(r => setBook(r.data)), [bookId])
+
+  /** Reloads every chapter and section (after a structure change renumbered them). */
+  const reloadStructure = useCallback(() =>
+    Promise.all([getChapters(bookId), getSections(bookId)])
+      .then(([c, s]) => setBook(prev => prev ? { ...prev, chapters: c.data, sections: s.data } : prev)), [bookId])
+  /** Reloads the sections only (a chapter's plan edit may change its section's). */
+  const reloadSections = useCallback(() =>
+    getSections(bookId).then(s => setBook(prev => prev ? { ...prev, sections: s.data } : prev)), [bookId])
 
   // Several events can trigger a refresh in quick succession; only the newest response may win,
   // otherwise a slower, older response overwrites messages that arrived after it.
@@ -410,7 +420,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
         } else if (role === 'ChaptersAgent') {
           setPlannerBuffer('')
           setBook(prev => prev ? { ...prev, chaptersStatus: 'Complete' } : prev)
-          getChapters(bookId).then(r => setBook(prev => prev ? { ...prev, chapters: r.data } : prev))
+          reloadStructure().catch(() => {})
         } else {
           // Writer/Editor/ContinuityChecker Done: patch only the affected chapter.
           // Fall back to reloading all chapters for full-manuscript continuity check (cId=null).
@@ -422,7 +432,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
               ))
               .catch(() => {})
           } else {
-            getChapters(bookId).then(r => setBook(prev => prev ? { ...prev, chapters: r.data } : prev))
+            reloadStructure().catch(() => {})
           }
           refreshMessages()
         }
@@ -436,12 +446,15 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       getChapter(bookId, cId)
         .then(r => {
           const old = bookRef.current?.chapters?.find(ch => ch.id === cId)
-          if (!old || old.sortOrder !== r.data.sortOrder || old.number !== r.data.number || old.isArchived !== r.data.isArchived)
-            getChapters(bookId).then(all => setBook(prev => prev ? { ...prev, chapters: all.data } : prev)).catch(() => {})
-          else
+          if (!old || old.sortOrder !== r.data.sortOrder || old.number !== r.data.number || old.isArchived !== r.data.isArchived
+              || old.sectionId !== r.data.sectionId)
+            reloadStructure().catch(() => {})
+          else {
             setBook(prev => prev
               ? { ...prev, chapters: prev.chapters?.map(ch => ch.id === cId ? r.data : ch) }
               : prev)
+            reloadSections().catch(() => {})   // its section may follow its plan
+          }
         })
         .catch(() => {})
     })
@@ -529,7 +542,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       // Run status and streams are re-read by the join handler.
     })
     setOnJoined(() => { void syncRunState() })
-  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnIllustrationsUpdated, setOnReconnected, setOnJoined, refreshBook, refreshMessages, refreshTokenStats, refreshIllustrations, refreshClarifications, clearStreams, writeStream, syncRunState, bookId, navigate])
+  }, [setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnIllustrationsUpdated, setOnReconnected, setOnJoined, refreshBook, reloadStructure, reloadSections, refreshMessages, refreshTokenStats, refreshIllustrations, refreshClarifications, clearStreams, writeStream, syncRunState, bookId, navigate])
 
   // A rewind may have changed every part of the book: re-read all of it.
   useEffect(() => {
@@ -673,7 +686,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     openClarificationCount: clarifications.filter(c => c.isOpen).length,
     tokenStats, setTokenStats, workflowSteps, setWorkflowSteps, workflowLog,
     answerText, setAnswerText, submittingAnswer, answerError,
-    refreshBook, refreshMessages,
+    refreshBook, reloadStructure, refreshMessages,
     handleAnswer,
     bookChatStream, bookChatVersion, hubConnected,
     handleWriteBook, handlePlanBook, handleStop,

@@ -138,6 +138,7 @@ public class BooksController : ControllerBase
         book.IllustratorSystemPrompt = req.IllustratorSystemPrompt;
         book.Mode = mode;
         if (req.IllustrationsEnabled is bool illustrate) book.IllustrationsEnabled = illustrate;
+        if (req.ShowSectionsInOutput is bool showSections) book.ShowSectionsInOutput = showSections;
         await _repo.UpdateAsync(book);
         await content.RecordBookEditAsync(before, book, EditSources.UserEdit);
         return Ok(book);
@@ -332,5 +333,6 @@ public record UpdateBookRequest(
     string? ContinuityCheckerSystemPrompt = null,
     BookMode? Mode = null,
     string? IllustratorSystemPrompt = null,
-    bool? IllustrationsEnabled = null);
+    bool? IllustrationsEnabled = null,
+    bool? ShowSectionsInOutput = null);
 

@@ -18,7 +18,7 @@ public static class ContentJournal
     /// <summary>The content rows whose every state is logged — what a rewind restores.</summary>
     public static readonly IReadOnlySet<Type> LoggedTypes = new HashSet<Type>
     {
-        typeof(Book), typeof(Chapter), typeof(StoryBible), typeof(CharacterCard), typeof(PlotThread),
+        typeof(Book), typeof(Chapter), typeof(Section), typeof(StoryBible), typeof(CharacterCard), typeof(PlotThread),
         typeof(Clarification), typeof(ChatProposal),
     };
 
@@ -31,6 +31,7 @@ public static class ContentJournal
     {
         Book b => b.Id,
         Chapter c => c.BookId,
+        Section s => s.BookId,
         StoryBible s => s.BookId,
         CharacterCard c => c.BookId,
         PlotThread t => t.BookId,
@@ -101,6 +102,7 @@ public static class ContentJournal
             var rows = new List<object>();
             rows.AddRange(await db.Books.AsNoTracking().Where(b => b.Id == bookId).ToListAsync(ct));
             rows.AddRange(await db.Chapters.AsNoTracking().Where(x => x.BookId == bookId).ToListAsync(ct));
+            rows.AddRange(await db.Sections.AsNoTracking().Where(x => x.BookId == bookId).ToListAsync(ct));
             rows.AddRange(await db.StoryBibles.AsNoTracking().Where(x => x.BookId == bookId).ToListAsync(ct));
             rows.AddRange(await db.CharacterCards.AsNoTracking().Where(x => x.BookId == bookId).ToListAsync(ct));
             rows.AddRange(await db.PlotThreads.AsNoTracking().Where(x => x.BookId == bookId).ToListAsync(ct));
@@ -119,7 +121,38 @@ public static class ContentJournal
             await db.SaveChangesWithoutLogAsync(ct);
             db.ChangeTracker.Clear();
         }
-        return bookIds.Count;
+        return bookIds.Count + await WriteSectionBaselinesAsync(db, ct);
+    }
+
+    /// <summary>
+    /// Sections made by the migration that introduced them (one per chapter) have no revision. Without one, a rewind
+    /// to any earlier moment would think they did not exist yet and archive them, so each gets a baseline dated at its
+    /// book's first revision: as far as the log is concerned, the book always had them.
+    /// </summary>
+    private static async Task<int> WriteSectionBaselinesAsync(AppDbContext db, CancellationToken ct)
+    {
+        var sections = await db.Sections.AsNoTracking()
+            .Where(s => !db.ContentRevisions.Any(r => r.EntityType == nameof(Section) && r.EntityId == s.Id))
+            .ToListAsync(ct);
+        if (sections.Count == 0) return 0;
+        var bookIds = sections.Select(s => s.BookId).Distinct().ToList();
+        var firstAt = await db.ContentRevisions.Where(r => bookIds.Contains(r.BookId))
+            .GroupBy(r => r.BookId).Select(g => new { g.Key, At = g.Min(r => r.At) })
+            .ToDictionaryAsync(x => x.Key, x => x.At, ct);
+        var type = db.Model.FindEntityType(typeof(Section))!;
+        foreach (var s in sections)
+        {
+            var json = Serialize(type, s);
+            db.ContentRevisions.Add(new ContentRevision
+            {
+                BookId = s.BookId, EntityType = nameof(Section), EntityId = s.Id, Op = ContentRevisionOp.Insert,
+                DataJson = json, DataHash = Hash(json), IsBaseline = true,
+                At = firstAt.TryGetValue(s.BookId, out var at) ? at : DateTime.UtcNow,
+            });
+        }
+        await db.SaveChangesWithoutLogAsync(ct);
+        db.ChangeTracker.Clear();
+        return sections.Count;
     }
 
     private static int IdOf(IEntityType type, object entity) =>
@@ -134,6 +167,43 @@ public partial class AppDbContext
     private bool _savingLog;
 
     private sealed record PendingRevision(EntityEntry Entry, ContentRevisionOp Op, string? DeletedJson, int BookId);
+
+    /// <summary>
+    /// A section with a single active chapter has that chapter's plan: whatever saves a chapter's plan (an edit, a
+    /// version, the planner, a rewind) saves it on the section too. True when a section was changed.
+    /// </summary>
+    private async Task<bool> MirrorSingleChapterPlansAsync(CancellationToken ct)
+    {
+        var changed = false;
+        var chapters = ChangeTracker.Entries<Chapter>()
+            .Where(e => e.State is EntityState.Added or EntityState.Modified && !e.Entity.IsArchived
+                && (e.Entity.Section is not null || e.Entity.SectionId is not null)
+                && (e.State == EntityState.Added || e.Property(nameof(Chapter.SectionId)).IsModified
+                    || e.Property(nameof(Chapter.IsArchived)).IsModified
+                    || Section.PlanFields.Any(f => e.Property(f).IsModified)))
+            .Select(e => e.Entity).ToList();
+        foreach (var chapter in chapters)
+        {
+            var section = chapter.Section ?? await Sections.FindAsync([chapter.SectionId!.Value], ct);
+            if (section is null) continue;
+            // The other chapters of the section that are active, as they will be after this save.
+            var tracked = ChangeTracker.Entries<Chapter>()
+                .Where(e => e.State != EntityState.Deleted && !ReferenceEquals(e.Entity, chapter)
+                    && (ReferenceEquals(e.Entity.Section, section) || (section.Id != 0 && e.Entity.SectionId == section.Id)))
+                .Select(e => e.Entity).ToList();
+            var trackedIds = tracked.Where(c => c.Id != 0).Select(c => c.Id).ToList();
+            var othersActive = tracked.Any(c => !c.IsArchived)
+                || (section.Id != 0 && await Chapters.AnyAsync(c => c.SectionId == section.Id && !c.IsArchived
+                    && c.Id != chapter.Id && !trackedIds.Contains(c.Id), ct));
+            if (othersActive) continue;
+            if (section.CopyPlanFrom(chapter))
+            {
+                section.UpdatedAt = DateTime.UtcNow;
+                changed = true;
+            }
+        }
+        return changed;
+    }
 
     /// <summary>Saves without adding change-log entries (the log's own writes, the baseline).</summary>
     public async Task<int> SaveChangesWithoutLogAsync(CancellationToken ct = default)
@@ -155,6 +225,7 @@ public partial class AppDbContext
         if (_savingLog) return await base.SaveChangesAsync(acceptAllChangesOnSuccess, ct);
 
         ChangeTracker.DetectChanges();
+        if (await MirrorSingleChapterPlansAsync(ct)) ChangeTracker.DetectChanges();
         var deletedBooks = ChangeTracker.Entries<Book>().Where(e => e.State == EntityState.Deleted)
             .Select(e => e.Entity.Id).ToHashSet();
         var pending = new List<PendingRevision>();

@@ -106,12 +106,30 @@ public class PublicController : ControllerBase
         if (book is null) return NotFound();
         if (!_mode.IsEnabled && book.UserId is not null && book.UserId != CurrentUserId) return Forbid();
 
-        var chapters = (book.Chapters ?? Enumerable.Empty<ABook.Core.Models.Chapter>())
+        var written = (book.Chapters ?? Enumerable.Empty<ABook.Core.Models.Chapter>())
             .Where(c => !string.IsNullOrWhiteSpace(c.Content))
             .OrderBy(c => c.Number)
+            .ToList();
+        // The part heading ("I. Title") a chapter starts, when the book shows its sections.
+        var parts = ABook.Api.Services.BookExportService.PartStarts(book, written);
+        // Navigation label: with sections shown, "3" for a section's only chapter and "3.2" for the second of several;
+        // otherwise the chapter number.
+        var sectionNumbers = book.Sections.Where(s => !s.IsArchived).ToDictionary(s => s.Id, s => s.Number);
+        var perSection = written.Where(c => c.SectionId is not null).GroupBy(c => c.SectionId!.Value).ToDictionary(g => g.Key, g => g.Count());
+        var seen = new Dictionary<int, int>();
+        string NavLabel(ABook.Core.Models.Chapter c)
+        {
+            if (!book.ShowSectionsInOutput || c.SectionId is not int sid || !sectionNumbers.TryGetValue(sid, out var sn))
+                return c.Number.ToString();
+            seen[sid] = seen.GetValueOrDefault(sid) + 1;
+            return perSection[sid] > 1 ? $"{sn}.{seen[sid]}" : sn.ToString();
+        }
+        var chapters = written
             .Select(c => new
             {
-                c.Id, c.Number, c.Title, c.Outline, c.Content, status = c.Status.ToString()
+                c.Id, c.Number, c.Title, c.Outline, c.Content, status = c.Status.ToString(),
+                part = parts.TryGetValue(c.Id, out var p) ? p.Heading : null,
+                navLabel = NavLabel(c),
             })
             .ToList();
 

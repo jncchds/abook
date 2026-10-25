@@ -12,8 +12,15 @@ public class Chapter
     /// number it last had ("was Ch. N"). Never use it to find a chapter that can move — use the id.
     /// </summary>
     public int Number { get; set; }
-    /// <summary>Where the chapter sits in the book, archived chapters included (they keep their place). 1..N, dense.</summary>
+    /// <summary>
+    /// Where the chapter sits in the book, archived chapters included (they keep their place). 1..N, dense; a section's
+    /// chapters are always together, in the order of the sections.
+    /// </summary>
     public int SortOrder { get; set; }
+    /// <summary>The section the chapter belongs to (every chapter has one; null only while being created).</summary>
+    public int? SectionId { get; set; }
+    /// <summary>Archived because its whole section was; restoring the section brings these chapters back.</summary>
+    public bool ArchivedWithSection { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Outline { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
@@ -35,6 +42,19 @@ public class Chapter
     public DateTime UpdatedAt { get; set; }
 
     [JsonIgnore] public Book Book { get; set; } = null!;
+    [JsonIgnore] public Section? Section { get; set; }
+
+    /// <summary>Copies the plan fields (title, outline, POV, characters, threads, notes) from a section.</summary>
+    public void CopyPlanFrom(Section s)
+    {
+        Title = s.Title;
+        Outline = s.Outline;
+        PovCharacter = s.PovCharacter;
+        CharactersInvolvedJson = s.CharactersInvolvedJson;
+        PlotThreadsJson = s.PlotThreadsJson;
+        ForeshadowingNotes = s.ForeshadowingNotes;
+        PayoffNotes = s.PayoffNotes;
+    }
     [JsonIgnore] public ICollection<AgentMessage> AgentMessages { get; set; } = new List<AgentMessage>();
     [JsonIgnore] public ICollection<ChapterVersion> Versions { get; set; } = new List<ChapterVersion>();
 }

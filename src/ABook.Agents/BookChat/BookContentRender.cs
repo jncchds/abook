@@ -74,6 +74,21 @@ public static class BookContentRender
         ["payoffNotes"] = c.PayoffNotes,
     };
 
+    /// <summary>A section's plan, with the same field names as a chapter's.</summary>
+    public static Dictionary<string, string> Fields(Section s) => new()
+    {
+        ["number"] = s.Number.ToString(),
+        ["title"] = s.Title,
+        ["outline"] = s.Outline,
+        ["povCharacter"] = s.PovCharacter,
+        ["charactersInvolved"] = string.Join(", ", AgentBase.ParseNameList(s.CharactersInvolvedJson)),
+        ["plotThreads"] = string.Join(", ", AgentBase.ParseNameList(s.PlotThreadsJson)),
+        ["foreshadowingNotes"] = s.ForeshadowingNotes,
+        ["payoffNotes"] = s.PayoffNotes,
+    };
+
+    public static string Render(Section? s) => s is null ? "" : Json(Fields(s));
+
     public static string Json(IReadOnlyDictionary<string, string> fields) => JsonSerializer.Serialize(fields, Options);
 
     public static string Render(StoryBible? b) => b is null ? "" : Json(Fields(b));

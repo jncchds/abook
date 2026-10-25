@@ -101,11 +101,11 @@ public static class RewindPlanner
         };
     }
 
-    // Book first (its phase statuses), then content, proposals last.
+    // Book first (its phase statuses), then content (sections before the chapters that point at them), proposals last.
     private static int Order(string type) => type switch
     {
         nameof(Book) => 0, nameof(StoryBible) => 1, nameof(CharacterCard) => 2, nameof(PlotThread) => 3,
-        nameof(Chapter) => 4, nameof(Clarification) => 5, _ => 6,
+        nameof(Section) => 4, nameof(Chapter) => 5, nameof(Clarification) => 6, _ => 7,
     };
 
     public static string Label(RowKey key, string json)
@@ -119,6 +119,8 @@ public static class RewindPlanner
             nameof(StoryBible) => "Story Bible",
             nameof(Chapter) => $"Chapter {(r.TryGetProperty("Number", out var n) ? n.GetRawText() : "?")}" +
                                (S("Title") is { Length: > 0 } t ? $": {t}" : ""),
+            nameof(Section) => $"Section {(r.TryGetProperty("Number", out var sn) ? sn.GetRawText() : "?")}" +
+                               (S("Title") is { Length: > 0 } st ? $": {st}" : ""),
             nameof(CharacterCard) => $"Character {S("Name")}",
             nameof(PlotThread) => $"Plot thread {S("Name")}",
             nameof(Clarification) => $"Clarification “{Short(S("Question"))}”",

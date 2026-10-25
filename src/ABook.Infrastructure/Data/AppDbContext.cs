@@ -18,6 +18,7 @@ public partial class AppDbContext : DbContext
 
     public DbSet<Book> Books => Set<Book>();
     public DbSet<Chapter> Chapters => Set<Chapter>();
+    public DbSet<Section> Sections => Set<Section>();
     public DbSet<ChapterVersion> ChapterVersions => Set<ChapterVersion>();
     public DbSet<AgentMessage> AgentMessages => Set<AgentMessage>();
     public DbSet<LlmConfiguration> LlmConfigurations => Set<LlmConfiguration>();
@@ -81,6 +82,7 @@ public partial class AppDbContext : DbContext
             b.Property(x => x.Status).HasConversion<string>();
             b.Property(x => x.Language).HasMaxLength(100).HasDefaultValue("English");
             b.Property(x => x.IllustrationsEnabled).HasDefaultValue(false);
+            b.Property(x => x.ShowSectionsInOutput).HasDefaultValue(false);
             b.Property(x => x.Mode).HasConversion<string>().HasMaxLength(20);
             b.Property(x => x.ChatMemory).HasDefaultValue(string.Empty);
             b.HasMany(x => x.Chapters).WithOne(x => x.Book).HasForeignKey(x => x.BookId).OnDelete(DeleteBehavior.Cascade);
@@ -112,6 +114,24 @@ public partial class AppDbContext : DbContext
             c.HasIndex(x => new { x.BookId, x.SortOrder });
             c.HasOne(x => x.Book)
              .WithMany(x => x.Chapters)
+             .HasForeignKey(x => x.BookId)
+             .OnDelete(DeleteBehavior.Cascade);
+            c.HasOne(x => x.Section)
+             .WithMany(x => x.Chapters)
+             .HasForeignKey(x => x.SectionId)
+             .OnDelete(DeleteBehavior.SetNull)
+             .IsRequired(false);
+        });
+
+        modelBuilder.Entity<Section>(s =>
+        {
+            s.HasKey(x => x.Id);
+            s.Property(x => x.Title).HasMaxLength(500);
+            s.Property(x => x.CharactersInvolvedJson).HasDefaultValue("[]");
+            s.Property(x => x.PlotThreadsJson).HasDefaultValue("[]");
+            s.HasIndex(x => new { x.BookId, x.SortOrder });
+            s.HasOne(x => x.Book)
+             .WithMany(x => x.Sections)
              .HasForeignKey(x => x.BookId)
              .OnDelete(DeleteBehavior.Cascade);
         });

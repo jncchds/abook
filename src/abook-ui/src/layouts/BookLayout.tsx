@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation, Outlet, Navigate } from 'react-rou
 import { BookContextProvider, useBookContext } from '../contexts/BookContext'
 import Sidebar, { SidebarBtn, SidebarDivider } from '../components/Sidebar'
 import { chapterStatusColor } from '../utils/chapterStatus'
-import { downloadFile, inBookOrder } from '../api'
+import { downloadFile, inBookOrder, chapterNavLabels } from '../api'
 
 function agentCaption(role: string | undefined, state: string | undefined, chapterNum: number | null): string {
   if (state === 'WaitingForInput') return 'Waiting for your answer…'
@@ -59,6 +59,8 @@ function BookSidebar() {
 
   const statusColor = chapterStatusColor
   const interactive = book.mode === 'Interactive'
+  // "3" for a section's only chapter, "3.2" for the second chapter of section 3.
+  const navLabels = chapterNavLabels(book.chapters ?? [], book.sections ?? [])
 
   return (
     <Sidebar
@@ -174,9 +176,10 @@ function BookSidebar() {
             key={c.id}
             className={`sidebar-btn${startsAt(`chapters/${c.id}`) ? ' active' : ''}`}
             onClick={() => navigate(`/books/${id}/chapters/${c.id}`)}
+            title={`Chapter ${c.number}`}
           >
             <span className="s-icon">
-              <span className="lib-ch-circle">{c.number}</span>
+              <span className="lib-ch-circle">{navLabels.get(c.id) ?? c.number}</span>
             </span>
             <span className="s-label">{c.title || 'Untitled'}</span>
             <span className="sidebar-ch-dot" style={{ background: statusColor(c.status) }} />

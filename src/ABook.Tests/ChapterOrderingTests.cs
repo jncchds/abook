@@ -4,8 +4,15 @@ namespace ABook.Tests;
 
 public class ChapterOrderingTests
 {
-    private static Chapter Ch(int id, int number, bool archived = false) =>
-        new() { Id = id, Number = number, SortOrder = id, IsArchived = archived, Title = $"c{id}" };
+    /// <summary>Chapter <paramref name="id"/> in its own section (id + 100), the default one chapter per section.</summary>
+    private static Chapter Ch(int id, int number, bool archived = false, Section? section = null)
+    {
+        section ??= new Section { Id = id + 100, Number = number, IsArchived = archived, Title = $"s{id}" };
+        return new Chapter { Id = id, Number = number, SortOrder = id, IsArchived = archived, Title = $"c{id}", Section = section };
+    }
+
+    private static Dictionary<int, int> Before(IEnumerable<Chapter> chapters) =>
+        ChapterOrdering.ActiveSectionNumbers(chapters.Select(c => c.Section!).Distinct());
 
     private static string Numbers(IEnumerable<Chapter> ordered) =>
         string.Join(" ", ordered.Select(c => c.IsArchived ? $"[{c.Id}]" : $"{c.Id}:{c.Number}"));
@@ -14,69 +21,99 @@ public class ChapterOrderingTests
     public void Apply_NumbersActiveChaptersOnly_ArchivedKeepPlaceAndOldNumber()
     {
         var list = new List<Chapter> { Ch(1, 1), Ch(2, 2, archived: true), Ch(3, 3), Ch(4, 4) };
-        var before = ChapterOrdering.ActiveNumbers(list);
-        var map = ChapterOrdering.Apply(list, before);
+        var r = ChapterOrdering.Apply(list, Before(list));
 
-        Assert.Equal("1:1 [2] 3:2 4:3", Numbers(list));
+        Assert.Equal("1:1 [2] 3:2 4:3", Numbers(r.Chapters));
         Assert.Equal(2, list[1].Number);                 // "was Ch. 2"
-        Assert.Equal([1, 2, 3, 4], list.Select(c => c.SortOrder));
-        Assert.Equal(new Dictionary<int, int> { [3] = 2, [4] = 3 }, map);
+        Assert.Equal([1, 2, 3, 4], r.Chapters.Select(c => c.SortOrder));
+        Assert.True(list[1].Section!.IsArchived);        // its section has no active chapter
+        Assert.Equal([1, 2, 3, 4], r.Sections.Select(s => s.SortOrder));
+        Assert.Equal(new Dictionary<int, int> { [3] = 2, [4] = 3 }, r.SectionNumberMap);
     }
 
     [Fact]
-    public void Insert_ShiftsLaterNumbers()
+    public void Insert_NewSection_ShiftsLaterNumbers()
     {
         var list = new List<Chapter> { Ch(1, 1), Ch(2, 2), Ch(3, 3) };
-        var before = ChapterOrdering.ActiveNumbers(list);
-        var added = new Chapter { Title = "new" };
-        var ordered = ChapterOrdering.MoveAfter(list, added, list[0]);
-        var map = ChapterOrdering.Apply(ordered, before);
+        var before = Before(list);
+        var added = new Chapter { Title = "new", Section = new Section() };
+        var r = ChapterOrdering.Apply(ChapterOrdering.MoveAfter(list, added, list[0]), before);
 
-        Assert.Equal(["c1", "new", "c2", "c3"], ordered.Select(c => c.Title));
+        Assert.Equal(["c1", "new", "c2", "c3"], r.Chapters.Select(c => c.Title));
         Assert.Equal(2, added.Number);
-        Assert.Equal(new Dictionary<int, int> { [2] = 3, [3] = 4 }, map);
+        Assert.Equal(2, added.Section!.Number);
+        Assert.Equal(new Dictionary<int, int> { [2] = 3, [3] = 4 }, r.SectionNumberMap);
     }
 
     [Fact]
-    public void Move_ToStart_AndAfter()
+    public void ChaptersOfASectionStayTogether_InTheOrderOfTheSections()
     {
-        var list = new List<Chapter> { Ch(1, 1), Ch(2, 2), Ch(3, 3) };
-        var before = ChapterOrdering.ActiveNumbers(list);
-        var ordered = ChapterOrdering.MoveAfter(list, list[2], null);
-        var map = ChapterOrdering.Apply(ordered, before);
-        Assert.Equal("3:1 1:2 2:3", Numbers(ordered));
-        Assert.Equal(new Dictionary<int, int> { [3] = 1, [1] = 2, [2] = 3 }, map);
+        var big = new Section { Id = 200, Number = 2 };
+        var a = Ch(1, 1); var b1 = Ch(2, 2, section: big); var c = Ch(3, 4); var b2 = Ch(4, 3, section: big);
+        // b2 was put after c by mistake: it is pulled back next to b1, and sections keep the order of their first chapter.
+        var r = ChapterOrdering.Apply([a, b1, c, b2], Before([a, b1, c, b2]));
 
-        ordered = ChapterOrdering.MoveAfter(ordered, ordered[0], ordered[2]);
-        ChapterOrdering.Apply(ordered, ChapterOrdering.ActiveNumbers(ordered));
-        Assert.Equal("1:1 2:2 3:3", Numbers(ordered));
+        Assert.Equal("1:1 2:2 4:3 3:4", Numbers(r.Chapters));
+        Assert.Equal([1, 2, 3], r.Sections.Select(s => s.Number));
+        Assert.Same(big, r.Sections[1]);
     }
 
     [Fact]
-    public void Archiving_MapsItsNumberToTheNextChapter_OrThePreviousWhenLast()
+    public void MoveSection_MovesAllItsChapters()
+    {
+        var big = new Section { Id = 200, Number = 1 };
+        var a1 = Ch(1, 1, section: big); var a2 = Ch(2, 2, section: big); var b = Ch(3, 3);
+        b.Section!.Number = 2;
+        var list = new List<Chapter> { a1, a2, b };
+        var before = Before(list);
+        var r = ChapterOrdering.Apply(ChapterOrdering.MoveSectionAfter(list, big, b.Section), before);
+
+        Assert.Equal("3:1 1:2 2:3", Numbers(r.Chapters));
+        Assert.Equal(new Dictionary<int, int> { [2] = 1, [1] = 2 }, r.SectionNumberMap);
+    }
+
+    [Fact]
+    public void ChapterNumbersCountChapters_SectionNumbersCountSections()
+    {
+        var big = new Section { Id = 200, Number = 1 };
+        var list = new List<Chapter> { Ch(1, 1, section: big), Ch(2, 2, section: big), Ch(3, 3) };
+        var r = ChapterOrdering.Apply(list, Before(list));
+
+        Assert.Equal("1:1 2:2 3:3", Numbers(r.Chapters));
+        Assert.Equal(1, big.Number);
+        Assert.Equal(2, list[2].Section!.Number);
+        Assert.False(big.IsArchived);
+
+        list[0].IsArchived = true;   // one of two: the section stays
+        ChapterOrdering.Apply(list, Before(list));
+        Assert.False(big.IsArchived);
+        list[1].IsArchived = true;   // both: archived
+        var r2 = ChapterOrdering.Apply(list, Before(list));
+        Assert.True(big.IsArchived);
+        Assert.Equal(1, list[2].Section!.Number);
+        Assert.Equal(new Dictionary<int, int> { [2] = 1 }, r2.SectionNumberMap);   // 1 → next section, also number 1
+    }
+
+    [Fact]
+    public void Archiving_MapsItsNumberToTheNextSection_OrThePreviousWhenLast()
     {
         var list = new List<Chapter> { Ch(1, 1), Ch(2, 2), Ch(3, 3) };
-        var before = ChapterOrdering.ActiveNumbers(list);
-        list[1].IsArchived = true;
-        var map = ChapterOrdering.Apply(list, before);
-        Assert.Equal(new Dictionary<int, int> { [3] = 2 }, map);   // 2 → next chapter, now number 2 too
-
-        list = [Ch(1, 1), Ch(2, 2), Ch(3, 3)];
-        before = ChapterOrdering.ActiveNumbers(list);
+        var before = Before(list);
         list[2].IsArchived = true;
-        map = ChapterOrdering.Apply(list, before);
-        Assert.Equal(new Dictionary<int, int> { [3] = 2 }, map);   // last: maps to the one before
+        var r = ChapterOrdering.Apply(list, before);
+        Assert.Equal(new Dictionary<int, int> { [3] = 2 }, r.SectionNumberMap);
     }
 
     [Fact]
     public void Restore_BringsTheChapterBackInPlace()
     {
         var list = new List<Chapter> { Ch(1, 1), Ch(2, 2, archived: true), Ch(3, 2) };
-        var before = ChapterOrdering.ActiveNumbers(list);
+        var before = Before(list);
         list[1].IsArchived = false;
-        var map = ChapterOrdering.Apply(list, before);
-        Assert.Equal("1:1 2:2 3:3", Numbers(list));
-        Assert.Equal(new Dictionary<int, int> { [2] = 3 }, map);
+        var r = ChapterOrdering.Apply(list, before);
+        Assert.Equal("1:1 2:2 3:3", Numbers(r.Chapters));
+        Assert.False(list[1].Section!.IsArchived);
+        Assert.Equal(new Dictionary<int, int> { [2] = 3 }, r.SectionNumberMap);
     }
 
     [Fact]

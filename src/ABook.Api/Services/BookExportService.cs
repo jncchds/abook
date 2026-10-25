@@ -216,6 +216,8 @@ public class BookExportService
     nav#toc li { margin: 7px 0; }
     nav#toc a { color: var(--fg); opacity: 0.82; text-decoration: none; border-bottom: 1px dotted rgba(128,128,128,0.5); transition: opacity 0.15s; }
     nav#toc a:hover { opacity: 1; }
+    h1.part { font-size: 2em; text-align: center; margin: 96px 0 72px; letter-spacing: 0.04em; }
+    nav#toc li.toc-part { margin-top: 10px; }
     .chapter { margin-bottom: 72px; }
     .chapter h2 { font-size: 1.65em; margin-bottom: 28px; padding-bottom: 12px; border-bottom: 2px solid rgba(128,128,128,0.15); }
     .chapter h3 { font-size: 1.3em; margin: 28px 0 12px; }
@@ -269,6 +271,36 @@ public class BookExportService
       } catch(e) {}
     })();";
 
+    /// <summary>
+    /// With <see cref="Book.ShowSectionsInOutput"/>: the part heading ("I. Title") before each chapter that starts a
+    /// section, by chapter id, numbered by the section; otherwise empty. <paramref name="chapters"/> are the exported
+    /// chapters in order.
+    /// </summary>
+    internal static IReadOnlyDictionary<int, (int Number, string Heading)> PartStarts(Book book, IReadOnlyList<Chapter> chapters)
+    {
+        var starts = new Dictionary<int, (int, string)>();
+        if (!book.ShowSectionsInOutput) return starts;
+        var sections = book.Sections.Where(s => !s.IsArchived).ToDictionary(s => s.Id);
+        int? last = null;
+        foreach (var c in chapters)
+        {
+            if (c.SectionId is int sid && sid != last && sections.TryGetValue(sid, out var s))
+                starts[c.Id] = (s.Number, Roman(s.Number) + (s.Title.Trim().Length > 0 ? ". " + s.Title.Trim() : ""));
+            last = c.SectionId;
+        }
+        return starts;
+    }
+
+    internal static string Roman(int n)
+    {
+        if (n <= 0) return n.ToString();
+        var sb = new StringBuilder();
+        foreach (var (value, symbol) in new[] { (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"),
+                     (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I") })
+            while (n >= value) { sb.Append(symbol); n -= value; }
+        return sb.ToString();
+    }
+
     internal static string GenerateHtml(Book book, ExportArt? art = null)
     {
         art ??= ExportArt.Empty;
@@ -276,19 +308,24 @@ public class BookExportService
             .Where(c => !c.IsArchived && !string.IsNullOrWhiteSpace(c.Content))
             .OrderBy(c => c.Number)
             .ToList();
+        var parts = PartStarts(book, chapters);
 
         var lang = GetLang2(book.Language);
 
         var toc = string.Join("\n", chapters.Select(c =>
         {
             var suffix = c.Title.Length > 0 ? $": {EscHtml(c.Title)}" : "";
-            return $"        <li><a href=\"#chapter-{c.Number}\">Chapter {c.Number}{suffix}</a></li>";
+            var part = parts.TryGetValue(c.Id, out var p)
+                ? $"        <li class=\"toc-part\"><a href=\"#part-{p.Number}\"><strong>{EscHtml(p.Heading)}</strong></a></li>\n" : "";
+            return part + $"        <li><a href=\"#chapter-{c.Number}\">Chapter {c.Number}{suffix}</a></li>";
         }));
 
         var chapHtml = string.Concat(chapters.Select(c =>
         {
             var suffix = c.Title.Length > 0 ? $": {EscHtml(c.Title)}" : "";
-            return $"\n<section id=\"chapter-{c.Number}\" class=\"chapter\">\n" +
+            var part = parts.TryGetValue(c.Id, out var p)
+                ? $"\n<h1 id=\"part-{p.Number}\" class=\"part\">{EscHtml(p.Heading)}</h1>\n" : "";
+            return part + $"\n<section id=\"chapter-{c.Number}\" class=\"chapter\">\n" +
                    $"  <h2>Chapter {c.Number}{suffix}</h2>\n" +
                    $"  {MarkdownToHtml(c.Content, art.FiguresFor(c.Id, HtmlFigure))}\n</section>\n";
         }));
@@ -376,13 +413,25 @@ public class BookExportService
             ? $"<keywords>{EscXml(string.Join(", ", kwParts))}</keywords>"
             : "";
 
-        var sections = string.Concat(chapters.Select(c =>
+        // With parts shown, each part is a section holding its chapters' sections.
+        var parts = PartStarts(book, chapters);
+        var sectionsSb = new StringBuilder();
+        var inPart = false;
+        foreach (var c in chapters)
         {
+            if (parts.TryGetValue(c.Id, out var p))
+            {
+                if (inPart) sectionsSb.Append("\n  </section>");
+                sectionsSb.Append($"\n  <section id=\"part-{p.Number}\">\n    <title><p>{EscXml(p.Heading)}</p></title>");
+                inPart = true;
+            }
             var suffix = c.Title.Length > 0 ? ": " + EscXml(c.Title) : "";
-            return $"\n  <section id=\"chapter-{c.Number}\">\n" +
-                   $"    <title><p>Chapter {c.Number}{suffix}</p></title>\n" +
-                   $"    {MarkdownToFb2(c.Content, art.FiguresFor(c.Id, Fb2Figure))}\n  </section>";
-        }));
+            sectionsSb.Append($"\n  <section id=\"chapter-{c.Number}\">\n" +
+                              $"    <title><p>Chapter {c.Number}{suffix}</p></title>\n" +
+                              $"    {MarkdownToFb2(c.Content, art.FiguresFor(c.Id, Fb2Figure))}\n  </section>");
+        }
+        if (inPart) sectionsSb.Append("\n  </section>");
+        var sections = sectionsSb.ToString();
 
         var sb = new StringBuilder();
         sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
@@ -476,8 +525,23 @@ public class BookExportService
             spineItems.Add("<itemref idref=\"cover\" linear=\"no\"/>");
         }
 
+        var parts = PartStarts(book, chapters);
         foreach (var c in chapters)
         {
+            if (parts.TryGetValue(c.Id, out var p))
+            {
+                // A part gets a page of its own with its heading.
+                var partXhtml =
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                    "<!DOCTYPE html>" +
+                    "<html xmlns=\"http://www.w3.org/1999/xhtml\">" +
+                    $"<head><meta charset=\"UTF-8\"/><title>{EscHtml(p.Heading)}</title>" +
+                    $"<style>{chStyle}h1{{text-align:center;margin-top:30%}}</style></head>" +
+                    $"<body><h1>{EscHtml(p.Heading)}</h1></body></html>";
+                chapterFiles.Add(($"OEBPS/part-{p.Number}.xhtml", partXhtml));
+                manifestItems.Add($"<item id=\"p{p.Number}\" href=\"part-{p.Number}.xhtml\" media-type=\"application/xhtml+xml\"/>");
+                spineItems.Add($"<itemref idref=\"p{p.Number}\"/>");
+            }
             var suffix  = c.Title.Length > 0 ? ": " + EscHtml(c.Title) : "";
             var heading = $"Chapter {c.Number}{suffix}";
             var xhtml   =
@@ -495,7 +559,9 @@ public class BookExportService
         var navItems = string.Concat(chapters.Select(c =>
         {
             var suffix = c.Title.Length > 0 ? ": " + EscHtml(c.Title) : "";
-            return $"<li><a href=\"chapter-{c.Number}.xhtml\">Chapter {c.Number}{suffix}</a></li>";
+            var part = parts.TryGetValue(c.Id, out var p)
+                ? $"<li><a href=\"part-{p.Number}.xhtml\">{EscHtml(p.Heading)}</a></li>" : "";
+            return part + $"<li><a href=\"chapter-{c.Number}.xhtml\">Chapter {c.Number}{suffix}</a></li>";
         }));
         var nav =
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +

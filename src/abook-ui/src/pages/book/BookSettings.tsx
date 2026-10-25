@@ -20,6 +20,7 @@ export default function BookSettings() {
     mode: 'Autonomous' as BookMode,
     targetChapterCount: 0,
     illustrationsEnabled: false,
+    showSectionsInOutput: false,
     storyBibleSystemPrompt: '', charactersSystemPrompt: '',
     plotThreadsSystemPrompt: '', chapterOutlinesSystemPrompt: '',
     writerSystemPrompt: '', editorSystemPrompt: '', continuityCheckerSystemPrompt: '',
@@ -65,6 +66,7 @@ export default function BookSettings() {
         mode: r.data.mode ?? 'Autonomous',
         targetChapterCount: r.data.targetChapterCount ?? 0,
         illustrationsEnabled: r.data.illustrationsEnabled ?? false,
+        showSectionsInOutput: r.data.showSectionsInOutput ?? false,
         storyBibleSystemPrompt: r.data.storyBibleSystemPrompt ?? '',
         charactersSystemPrompt: r.data.charactersSystemPrompt ?? '',
         plotThreadsSystemPrompt: r.data.plotThreadsSystemPrompt ?? '',
@@ -109,6 +111,7 @@ export default function BookSettings() {
         mode: bookForm.mode,
         targetChapterCount: bookForm.targetChapterCount,
         illustrationsEnabled: bookForm.illustrationsEnabled,
+        showSectionsInOutput: bookForm.showSectionsInOutput,
         storyBibleSystemPrompt: bookForm.storyBibleSystemPrompt || undefined,
         charactersSystemPrompt: bookForm.charactersSystemPrompt || undefined,
         plotThreadsSystemPrompt: bookForm.plotThreadsSystemPrompt || undefined,
@@ -439,6 +442,12 @@ export default function BookSettings() {
               onChange={v => setBookForm(f => ({ ...f, illustrationsEnabled: v }))}
               label="Illustrate this book"
               hint="The workflow plans illustrations (prompts and positions) for each finished chapter, and the cover once the book is written. You review them, then render everything from the Illustrations page — with the LLM unloaded if VRAM is short."
+            />
+            <ToggleField
+              checked={bookForm.showSectionsInOutput}
+              onChange={v => setBookForm(f => ({ ...f, showSectionsInOutput: v }))}
+              label="Show sections in the book"
+              hint="Downloads (HTML, EPUB, FB2) and the reader show each section as a part heading (“I. Title”) before its first chapter. Off: sections are only a planning tool."
             />
             <details>
               <summary>Custom Agent System Prompts (optional)</summary>

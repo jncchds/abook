@@ -119,7 +119,7 @@ export default function LibraryLayout() {
                   title={c.title || 'Chapter ' + c.number}
                 >
                   <span className="s-icon">
-                    <span className="lib-ch-circle">{c.number}</span>
+                    <span className="lib-ch-circle">{c.navLabel ?? c.number}</span>
                   </span>
                   <span className="s-label">{c.title || 'Chapter ' + c.number}</span>
                 </button>

@@ -178,6 +178,7 @@ public sealed class BookRewinder(AppDbContext db) : IBookRewinder
         }
         await AddRows(db.Books.Where(b => b.Id == bookId));
         await AddRows(db.Chapters.Where(x => x.BookId == bookId));
+        await AddRows(db.Sections.Where(x => x.BookId == bookId));
         await AddRows(db.StoryBibles.Where(x => x.BookId == bookId));
         await AddRows(db.CharacterCards.Where(x => x.BookId == bookId));
         await AddRows(db.PlotThreads.Where(x => x.BookId == bookId));
@@ -222,6 +223,7 @@ public sealed class BookRewinder(AppDbContext db) : IBookRewinder
                 case nameof(CharacterCard): await RestoreCardAsync<CharacterCard, CharacterCardVersion>(change, nameof(CharacterCardVersion.CharacterCardId), ct); break;
                 case nameof(PlotThread): await RestoreCardAsync<PlotThread, PlotThreadVersion>(change, nameof(PlotThreadVersion.PlotThreadId), ct); break;
                 case nameof(Clarification): await RestoreRowAsync<Clarification>(change, ct); break;
+                case nameof(Section): await RestoreRowAsync<Section>(change, ct); break;
                 case nameof(ChatProposal): await RestoreProposalAsync(change, ct); break;
             }
         }
@@ -233,10 +235,23 @@ public sealed class BookRewinder(AppDbContext db) : IBookRewinder
 
         // Numbers follow places: a revision from before chapters had places (or a chapter archived or brought back
         // above) can leave them out of step. No number map — the rewind already wrote the threads' and cards' numbers.
-        if (changedChapters.Count > 0)
+        if (changedChapters.Count > 0 || planned.Changes.Any(c => c.Key.Type == nameof(Section)))
         {
+            var sections = await db.Sections.Where(s => s.BookId == bookId).ToListAsync(ct);
             var chapters = ChapterOrdering.InOrder(await db.Chapters.Where(c => c.BookId == bookId).ToListAsync(ct));
-            ChapterOrdering.Apply(chapters, new Dictionary<int, int>());
+            foreach (var c in chapters.Where(c => c.Section is null))
+            {
+                // A chapter whose section is gone gets one of its own (with its plan).
+                var section = new Section { BookId = bookId, CreatedAt = now, UpdatedAt = now };
+                section.CopyPlanFrom(c);
+                db.Sections.Add(section);
+                c.Section = section;
+            }
+            // Places from the restored state: sections first, then chapters within them.
+            var flat = chapters.OrderBy(c => c.Section!.SortOrder).ThenBy(c => c.Section!.Id).ThenBy(c => c.SortOrder).ThenBy(c => c.Id).ToList();
+            var result = ChapterOrdering.Apply(flat, new Dictionary<int, int>());
+            foreach (var empty in sections.Where(s => !result.Sections.Contains(s) && !s.IsArchived))
+                empty.IsArchived = true;
             await db.SaveChangesAsync(ct);
         }
         await tx.CommitAsync(ct);

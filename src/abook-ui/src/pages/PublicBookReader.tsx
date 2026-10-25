@@ -49,6 +49,7 @@ export default function PublicBookReader() {
 
   return (
     <div>
+      {currentChapter.part && <h1 className="reader-part-heading">{currentChapter.part}</h1>}
       <div className="page-header">
         <h2>Chapter {currentChapter.number}{currentChapter.title ? ': ' + currentChapter.title : ''}</h2>
       </div>

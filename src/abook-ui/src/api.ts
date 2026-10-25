@@ -122,6 +122,8 @@ export interface Book {
   continuityCheckerSystemPrompt?: string
   illustratorSystemPrompt?: string
   illustrationsEnabled?: boolean
+  /** Downloads and the reader show each section as a part heading ("I. Title"). */
+  showSectionsInOutput?: boolean
   /** Art direction, added word for word to every image so they share one style. */
   illustrationStyle?: string | null
   illustrationPortraitFraming?: string | null
@@ -137,6 +139,31 @@ export interface Book {
   createdAt: string
   updatedAt: string
   chapters?: Chapter[]
+  /** The plan's sections in order (archived ones included). */
+  sections?: Section[]
+}
+
+/**
+ * A part of the plan spanning one or more chapters (by default one). Same plan fields as a chapter, no prose. A
+ * section with a single active chapter has that chapter's plan; with several, its plan is the overall one.
+ */
+export interface Section {
+  id: number
+  bookId: number
+  /** Counts active sections in order; an archived section keeps its last number. */
+  number: number
+  sortOrder: number
+  title: string
+  outline: string
+  povCharacter: string
+  charactersInvolvedJson: string
+  plotThreadsJson: string
+  foreshadowingNotes: string
+  payoffNotes: string
+  /** True when none of its chapters is active. */
+  isArchived: boolean
+  createdAt: string
+  updatedAt: string
 }
 
 export interface CreateBookRequest {
@@ -157,6 +184,8 @@ export interface Chapter {
   number: number
   /** Place in the book, archived chapters included. */
   sortOrder: number
+  /** The section the chapter belongs to. */
+  sectionId?: number | null
   title: string
   outline: string
   content: string
@@ -361,13 +390,69 @@ export const getChapters = (bookId: number) =>
   api.get<Chapter[]>(`/books/${bookId}/chapters`, { params: { includeArchived: true } })
 export const getChapter = (bookId: number, chapterId: number) =>
   api.get<Chapter>(`/books/${bookId}/chapters/${chapterId}`)
-/** Adds a chapter at the end, or right after `afterChapterId`, or first (`atStart`); later chapters are renumbered. */
-export const createChapter = (bookId: number, data: { title: string; outline: string; afterChapterId?: number | null; atStart?: boolean }) =>
-  api.post<Chapter>(`/books/${bookId}/chapters`, { number: 0, ...data })
-/** Moves a chapter to right after `afterChapterId` (null = to the start). Returns every chapter, renumbered. */
+/**
+ * Adds a chapter at the end, or right after `afterChapterId`, or first (`atStart`); later chapters are renumbered.
+ * It gets a section of its own unless `sameSection` (join the anchor's section) or `sectionId` (into that section).
+ */
+export const createChapter = (bookId: number, data: {
+  title: string; outline: string; afterChapterId?: number | null; atStart?: boolean; sameSection?: boolean; sectionId?: number | null
+}) => api.post<Chapter>(`/books/${bookId}/chapters`, { number: 0, ...data })
+/** What a structure change returns: the book's sections and chapters, renumbered. */
+export interface StructureResult { note: string; sections: Section[]; chapters: Chapter[] }
+/**
+ * Moves a chapter to right after `afterChapterId` (null = to the start). A chapter alone in its section moves its
+ * section; otherwise it joins the anchor's section.
+ */
 export const moveChapter = (bookId: number, chapterId: number, afterChapterId: number | null) =>
-  api.post<{ note: string; chapters: Chapter[] }>(`/books/${bookId}/chapters/${chapterId}/move`,
+  api.post<StructureResult>(`/books/${bookId}/chapters/${chapterId}/move`,
     { afterChapterId, atStart: afterChapterId === null })
+/** Moves a chapter into a section, after one of its chapters (null = first in it). */
+export const moveChapterToSection = (bookId: number, chapterId: number, sectionId: number, afterChapterId: number | null) =>
+  api.post<StructureResult>(`/books/${bookId}/chapters/${chapterId}/move-to-section`, { sectionId, afterChapterId })
+
+// Sections
+export const getSections = (bookId: number) =>
+  api.get<Section[]>(`/books/${bookId}/sections`, { params: { includeArchived: true } })
+/** Lists are comma-separated names. A section with one chapter saves that chapter's outline. */
+export const updateSection = (bookId: number, sectionId: number, data: {
+  title: string; outline: string; povCharacter: string; charactersInvolved: string; plotThreads: string
+  foreshadowingNotes: string; payoffNotes: string
+}) => api.put<StructureResult>(`/books/${bookId}/sections/${sectionId}`, data)
+/** Moves a section with its chapters after `afterSectionId` (null = to the start). */
+export const moveSection = (bookId: number, sectionId: number, afterSectionId: number | null) =>
+  api.post<StructureResult>(`/books/${bookId}/sections/${sectionId}/move`, { afterSectionId, atStart: afterSectionId === null })
+export const archiveSection = (bookId: number, sectionId: number) =>
+  api.post<StructureResult>(`/books/${bookId}/sections/${sectionId}/archive`)
+export const restoreSection = (bookId: number, sectionId: number) =>
+  api.post<StructureResult>(`/books/${bookId}/sections/${sectionId}/restore`)
+/** Sections in order. */
+export const sectionsInOrder = (sections: Section[]) =>
+  [...sections].sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id)
+/**
+ * Short navigation labels for the active chapters, by chapter id: the section number, plus ".k" (the chapter's place
+ * in its section) when the section has several active chapters — "3" or "3.2".
+ */
+export const chapterNavLabels = (chapters: Chapter[], sections: Section[]) => {
+  const sectionNumber = new Map(sections.map(s => [s.id, s.number]))
+  const active = inBookOrder(chapters).filter(c => !c.isArchived)
+  const perSection = new Map<number, number>()
+  for (const c of active) if (c.sectionId != null) perSection.set(c.sectionId, (perSection.get(c.sectionId) ?? 0) + 1)
+  const seen = new Map<number, number>()
+  const labels = new Map<number, string>()
+  for (const c of active) {
+    const sn = c.sectionId != null ? sectionNumber.get(c.sectionId) : undefined
+    if (sn === undefined) { labels.set(c.id, String(c.number)); continue }
+    const k = (seen.get(c.sectionId!) ?? 0) + 1
+    seen.set(c.sectionId!, k)
+    labels.set(c.id, (perSection.get(c.sectionId!) ?? 1) > 1 ? `${sn}.${k}` : String(sn))
+  }
+  return labels
+}
+
+/** A JSON name list (as stored) as comma-separated text. */
+export const nameList = (json: string) => {
+  try { return (JSON.parse(json || '[]') as string[]).join(', ') } catch { return '' }
+}
 /** Splits a chapter by its outline; both halves go back to Outlined to be written again. */
 export const splitChapter = (bookId: number, chapterId: number, data: { firstOutline: string; secondTitle: string; secondOutline: string }) =>
   api.post<{ first: Chapter; second: Chapter }>(`/books/${bookId}/chapters/${chapterId}/split`, data)
@@ -762,6 +847,10 @@ export interface PublicChapter {
   outline: string
   content: string
   status: string
+  /** The part heading ("I. Title") this chapter starts, when the book shows its sections; otherwise null. */
+  part?: string | null
+  /** Sidebar label: "3" / "3.2" (section.chapter) when the book shows its sections, else the chapter number. */
+  navLabel?: string
 }
 
 export interface PublicBookDetail {

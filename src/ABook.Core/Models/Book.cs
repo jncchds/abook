@@ -21,6 +21,11 @@ public class Book
     public string? IllustratorSystemPrompt { get; set; }
     /// <summary>When true, the workflow plans illustrations (prompts and positions) for each finished chapter and the cover.</summary>
     public bool IllustrationsEnabled { get; set; } = false;
+    /// <summary>
+    /// When true, exports (HTML, EPUB, FB2) and the reader show each section as a part heading ("I. Title") before
+    /// its first chapter. Off by default: sections are a planning tool.
+    /// </summary>
+    public bool ShowSectionsInOutput { get; set; }
 
     // ── Art direction: written once per book by the illustration planner, editable, and added word for
     //    word to every image at render time so all portraits and scenes share one style. ─────────────
@@ -61,6 +66,8 @@ public class Book
     [JsonIgnore] public ICollection<Book> DerivedBooks { get; set; } = new List<Book>();
 
     public ICollection<Chapter> Chapters { get; set; } = new List<Chapter>();
+    /// <summary>The plan's sections (loaded with the chapters by the detail queries; empty otherwise).</summary>
+    public ICollection<Section> Sections { get; set; } = new List<Section>();
     [JsonIgnore] public ICollection<AgentMessage> AgentMessages { get; set; } = new List<AgentMessage>();
     [JsonIgnore] public ICollection<LlmConfiguration> LlmConfigurations { get; set; } = new List<LlmConfiguration>();
     [JsonIgnore] public StoryBible? StoryBible { get; set; }

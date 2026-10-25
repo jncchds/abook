@@ -2,17 +2,36 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import axios from 'axios'
 import { useBookContext } from '../../contexts/BookContext'
-import { createChapter, archiveChapter, restoreChapter, clearChapterContent, getChapterVersions, getChapterVersion, getChapters, moveChapter, inBookOrder } from '../../api'
-import type { Chapter, ChapterVersionMeta, ChapterVersionFull } from '../../api'
+import {
+  createChapter, archiveChapter, restoreChapter, clearChapterContent, getChapterVersions, getChapterVersion, moveChapter,
+  moveChapterToSection, moveSection, archiveSection, restoreSection, updateSection, inBookOrder, sectionsInOrder, nameList,
+} from '../../api'
+import type { Chapter, Section, ChapterVersionMeta, ChapterVersionFull } from '../../api'
 import { parsePlanningStream } from '../../utils/streamParsers'
 import { chapterStatusColor } from '../../utils/chapterStatus'
 import PhaseActionBar from '../../components/PhaseActionBar'
 
-/** Where the add form inserts: at the end, at the start, or right after a chapter (its id). */
-type AddPlace = 'end' | 'start' | number
+/** Where the add form inserts. */
+type AddPlace =
+  | { kind: 'end' }
+  | { kind: 'start' }
+  /** A new section of its own after the chapter's section. */
+  | { kind: 'after'; chapterId: number }
+  /** In the chapter's section, right after it. */
+  | { kind: 'inSection'; chapterId: number }
+
+const placeKey = (p: AddPlace) => p.kind === 'end' || p.kind === 'start' ? p.kind : `${p.kind}:${p.chapterId}`
 
 const errorText = (err: unknown) =>
   axios.isAxiosError(err) ? (err.response?.data?.message ?? err.message) : String(err)
+
+interface SectionForm {
+  title: string; outline: string; povCharacter: string; charactersInvolved: string; plotThreads: string
+  foreshadowingNotes: string; payoffNotes: string
+}
+
+/** One section with the chapters shown in it. */
+interface Group { section: Section | null; chapters: Chapter[] }
 
 export default function Chapters() {
   const { bookId } = useParams<{ bookId: string }>()
@@ -20,7 +39,7 @@ export default function Chapters() {
   const navigate = useNavigate()
 
   const {
-    book, setBook,
+    book, setBook, reloadStructure,
     canEdit,
     plannerBuffer, runStatus,
   } = useBookContext()
@@ -31,6 +50,8 @@ export default function Chapters() {
   const [showArchived, setShowArchived] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [editingSectionId, setEditingSectionId] = useState<number | null>(null)
+  const [sectionForm, setSectionForm] = useState<SectionForm | null>(null)
 
   // Per-chapter version history state (archived chapters)
   const [itemHistoryChapterId, setItemHistoryChapterId] = useState<number | null>(null)
@@ -41,22 +62,33 @@ export default function Chapters() {
   if (!book) return null
 
   const chapters = inBookOrder(book.chapters ?? [])
+  const sections = sectionsInOrder(book.sections ?? [])
   const activeChapters = chapters.filter(c => !c.isArchived)
   const archivedCount = chapters.length - activeChapters.length
-  // Archived chapters are shown in their place, between the chapters around them.
-  const visible = showArchived ? chapters : activeChapters
+  const visibleChapters = showArchived ? chapters : activeChapters
+
+  // Sections in order, each with the chapters shown in it; chapters without a section (not reloaded yet) on their own.
+  const groups: Group[] = []
+  const sectionById = new Map(sections.map(s => [s.id, s]))
+  for (const c of visibleChapters) {
+    const s = c.sectionId != null ? sectionById.get(c.sectionId) ?? null : null
+    const last = groups[groups.length - 1]
+    if (last && s && last.section?.id === s.id) last.chapters.push(c)
+    else groups.push({ section: s, chapters: [c] })
+  }
+  // A section counts as "several chapters" when it holds more than one chapter at all (archived included).
+  const chapterCount = (s: Section | null) => s ? chapters.filter(c => c.sectionId === s.id).length : 1
+  const anyMulti = sections.some(s => chapterCount(s) > 1)
+  const activeSectionCount = sections.filter(s => !s.isArchived).length
   const planningChapters = parsePlanningStream(plannerBuffer)
 
-  const setChapters = (list: Chapter[]) => setBook(prev => prev ? { ...prev, chapters: list } : prev)
-  const reloadChapters = async () => setChapters((await getChapters(id)).data)
-
-  /** Runs a structure change; numbers of other chapters change too, so the list is reloaded. */
+  /** Runs a structure change; numbers of other chapters and sections change too, so everything is reloaded. */
   const change = async (action: () => Promise<unknown>) => {
     setBusy(true)
     setError(null)
     try {
       await action()
-      await reloadChapters()
+      await reloadStructure()
     } catch (err) {
       setError(errorText(err))
     } finally {
@@ -74,23 +106,51 @@ export default function Chapters() {
       const r = await createChapter(id, {
         title: newTitle.trim(),
         outline: newOutline.trim(),
-        afterChapterId: typeof place === 'number' ? place : null,
-        atStart: place === 'start',
+        afterChapterId: place.kind === 'after' || place.kind === 'inSection' ? place.chapterId : null,
+        atStart: place.kind === 'start',
+        sameSection: place.kind === 'inSection',
       })
       createdId = r.data.id
     })
     closeAdd()
-    if (createdId !== null && place === 'end') navigate(`/books/${id}/chapters/${createdId}`)
+    if (createdId !== null && place.kind === 'end') navigate(`/books/${id}/chapters/${createdId}`)
   }
 
-  /** Moves a chapter one step up or down among the chapters shown. */
-  const handleMove = (chapter: Chapter, direction: -1 | 1) => {
-    const i = visible.findIndex(c => c.id === chapter.id)
-    const after = direction < 0
-      ? (i >= 2 ? visible[i - 2].id : null)
-      : visible[i + 1]?.id
-    if (direction > 0 && after === undefined) return
-    return change(() => moveChapter(id, chapter.id, after ?? null))
+  /** Moves a whole section one step among the sections shown. */
+  const handleMoveSection = (section: Section, direction: -1 | 1) => {
+    const shown = groups.map(g => g.section).filter((s): s is Section => s !== null)
+    const i = shown.findIndex(s => s.id === section.id)
+    if (direction > 0 && i + 1 >= shown.length) return
+    const after = direction < 0 ? (i >= 2 ? shown[i - 2].id : null) : shown[i + 1].id
+    return change(() => moveSection(id, section.id, after))
+  }
+
+  /**
+   * Moves a chapter one step. Alone in its section, it moves its section; inside a section of several chapters it
+   * moves within it, and past its first or last chapter into the neighbouring section.
+   */
+  const handleMoveChapter = (group: Group, chapter: Chapter, direction: -1 | 1) => {
+    if (!group.section) {
+      // Not reloaded with its section yet: the server moves it (with its section) after the chapter two up / one down.
+      const i = visibleChapters.findIndex(c => c.id === chapter.id)
+      const after = direction < 0 ? (i >= 2 ? visibleChapters[i - 2].id : null) : visibleChapters[i + 1]?.id
+      if (direction > 0 && after === undefined) return
+      return change(() => moveChapter(id, chapter.id, after ?? null))
+    }
+    if (chapterCount(group.section) <= 1) return handleMoveSection(group.section, direction)
+    const i = group.chapters.findIndex(c => c.id === chapter.id)
+    const gi = groups.indexOf(group)
+    if (direction < 0) {
+      if (i > 0) return change(() => moveChapterToSection(id, chapter.id, group.section!.id, i >= 2 ? group.chapters[i - 2].id : null))
+      const prev = groups[gi - 1]
+      if (!prev?.section) return
+      return change(() => moveChapterToSection(id, chapter.id, prev.section!.id, prev.chapters[prev.chapters.length - 1].id))
+    }
+    if (i < group.chapters.length - 1)
+      return change(() => moveChapterToSection(id, chapter.id, group.section!.id, group.chapters[i + 1].id))
+    const next = groups[gi + 1]
+    if (!next?.section) return
+    return change(() => moveChapterToSection(id, chapter.id, next.section!.id, null))
   }
 
   const handleArchive = (chapterId: number) => change(() => archiveChapter(id, chapterId))
@@ -109,6 +169,22 @@ export default function Chapters() {
     } : prev)
   }
 
+  const startEditSection = (s: Section) => {
+    setEditingSectionId(s.id)
+    setSectionForm({
+      title: s.title, outline: s.outline, povCharacter: s.povCharacter,
+      charactersInvolved: nameList(s.charactersInvolvedJson), plotThreads: nameList(s.plotThreadsJson),
+      foreshadowingNotes: s.foreshadowingNotes, payoffNotes: s.payoffNotes,
+    })
+  }
+  const saveSection = async () => {
+    if (editingSectionId === null || !sectionForm) return
+    const sid = editingSectionId
+    await change(() => updateSection(id, sid, sectionForm))
+    setEditingSectionId(null)
+    setSectionForm(null)
+  }
+
   const handleOpenItemHistory = async (chapterId: number) => {
     if (itemHistoryChapterId === chapterId) { setItemHistoryChapterId(null); return }
     setLoadingItemHistory(true)
@@ -124,11 +200,13 @@ export default function Chapters() {
     setItemPreviewVersion(r.data)
   }
 
-  const addForm = (place: AddPlace) => addingAt === place && (
+  const addForm = (place: AddPlace) => addingAt !== null && placeKey(addingAt) === placeKey(place) && (
     <div className="card" style={{ maxWidth: 560, margin: '0.5rem 0 1rem' }}>
-      <h3>{place === 'end' ? 'Add chapter at the end'
-        : place === 'start' ? 'Add chapter at the start'
-        : `Insert chapter after Chapter ${chapters.find(c => c.id === place)?.number ?? ''}`}</h3>
+      <h3>{place.kind === 'end' ? 'Add a section at the end'
+        : place.kind === 'start' ? 'Add a section at the start'
+        : place.kind === 'after' ? `New section after Chapter ${chapters.find(c => c.id === place.chapterId)?.number ?? ''}`
+        : `New chapter after Chapter ${chapters.find(c => c.id === place.chapterId)?.number ?? ''}, in the same section`}</h3>
+      {place.kind !== 'inSection' && <p className="hint">It gets one chapter with this title and outline.</p>}
       <label>
         Title
         <input
@@ -186,27 +264,169 @@ export default function Chapters() {
     </div>
   )
 
-  const moveButtons = (c: Chapter, i: number) => canEdit && (
-    <>
-      <button className="btn-sm btn-ghost" title="Move up" disabled={busy || i === 0} onClick={() => handleMove(c, -1)}>↑</button>
-      <button className="btn-sm btn-ghost" title="Move down" disabled={busy || i === visible.length - 1} onClick={() => handleMove(c, 1)}>↓</button>
-    </>
+  const statusBadge = (status: string) => (
+    <span className="status" style={{ background: chapterStatusColor(status), color: '#fff', borderRadius: 4, padding: '1px 7px', fontSize: '0.75rem' }}>
+      {status}
+    </span>
   )
+
+  /** A chapter card. `single`: the chapter is its section's only one (the card stands for the section). */
+  const chapterCard = (group: Group, c: Chapter, single: boolean) => {
+    const gi = groups.indexOf(group)
+    const i = group.chapters.findIndex(x => x.id === c.id)
+    const first = single ? gi === 0 : i === 0 && !groups.slice(0, gi).some(g => g.section)
+    const last = single ? gi === groups.length - 1 : i === group.chapters.length - 1 && !groups.slice(gi + 1).some(g => g.section)
+    const moveButtons = canEdit && (
+      <>
+        <button className="btn-sm btn-ghost" title={single ? 'Move up' : 'Move up (past the first chapter: into the section before)'}
+          disabled={busy || first} onClick={() => handleMoveChapter(group, c, -1)}>↑</button>
+        <button className="btn-sm btn-ghost" title={single ? 'Move down' : 'Move down (past the last chapter: into the section after)'}
+          disabled={busy || last} onClick={() => handleMoveChapter(group, c, 1)}>↓</button>
+      </>
+    )
+    const sectionBadge = single && anyMulti && group.section && !group.section.isArchived
+      ? <span className="section-badge" title="Section">§{group.section.number}</span> : null
+
+    if (c.isArchived) return (
+      <div key={c.id} className="book-list-card" style={{ opacity: 0.6 }}>
+        <div className="book-list-card-left">
+          <h3>{c.title || 'Untitled'} <span className="history-source-badge">archived · was Ch. {c.number}</span></h3>
+          <div className="blc-meta">{statusBadge(c.status)}</div>
+          {c.outline && <p className="blc-premise">{c.outline}</p>}
+          {historyPanel(c)}
+        </div>
+        <div className="book-list-card-right">
+          {moveButtons}
+          <button className="btn-sm btn-ghost" title="Version History" onClick={() => handleOpenItemHistory(c.id)}>📜</button>
+          <button className="btn-sm" title="Bring the chapter back here" disabled={busy} onClick={() => handleRestore(c.id)}>♻ Restore</button>
+        </div>
+      </div>
+    )
+
+    return (
+      <div key={c.id}>
+        <div className="book-list-card">
+          <div className="book-list-card-left">
+            <h3 style={{ cursor: 'pointer' }} onClick={() => navigate(`/books/${id}/chapters/${c.id}`)}>
+              {sectionBadge}{c.number}. {c.title || 'Untitled'}
+            </h3>
+            <div className="blc-meta">
+              {statusBadge(c.status)}
+              {c.povCharacter && <span className="blc-genre">POV: {c.povCharacter}</span>}
+            </div>
+            {c.outline && <p className="blc-premise">{c.outline}</p>}
+            {c.foreshadowingNotes && (
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                <em>Foreshadowing:</em> {c.foreshadowingNotes}
+              </p>
+            )}
+            {c.payoffNotes && (
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                <em>Payoff:</em> {c.payoffNotes}
+              </p>
+            )}
+          </div>
+          <div className="book-list-card-right">
+            {canEdit && (
+              <>
+                {moveButtons}
+                <button className="btn-sm btn-ghost" title="Add a new section (with one chapter) after this one"
+                  onClick={() => setAddingAt({ kind: 'after', chapterId: c.id })}>＋ After</button>
+                <button className="btn-sm btn-ghost" title="Add another chapter to this section, right after this chapter"
+                  onClick={() => setAddingAt({ kind: 'inSection', chapterId: c.id })}>＋ Chapter here</button>
+                <button className="btn-sm btn-ghost" title="Split this chapter in two by its outline" onClick={() => navigate(`/books/${id}/chapters/${c.id}?split=1`)}>✂ Split</button>
+                <button className="btn-sm btn-ghost" title="Clear chapter content (keep outline)" onClick={() => handleClearChapter(c.id)}>🗑 Clear</button>
+                <button className="btn-archive" title={single ? 'Archive (with its section; it keeps its place)' : 'Archive chapter (it keeps its place)'}
+                  disabled={busy} onClick={() => handleArchive(c.id)}>🗄</button>
+              </>
+            )}
+          </div>
+        </div>
+        {addForm({ kind: 'after', chapterId: c.id })}
+        {addForm({ kind: 'inSection', chapterId: c.id })}
+      </div>
+    )
+  }
+
+  const sectionGroup = (group: Group) => {
+    const s = group.section!
+    const shown = groups.map(g => g.section).filter((x): x is Section => x !== null)
+    const si = shown.findIndex(x => x.id === s.id)
+    const editing = editingSectionId === s.id && sectionForm
+    const field = (key: keyof SectionForm, label: string, rows = 0) => (
+      <label key={key}>
+        {label}
+        {rows > 0
+          ? <textarea rows={rows} value={sectionForm![key]} onChange={e => setSectionForm(f => f ? { ...f, [key]: e.target.value } : f)} />
+          : <input value={sectionForm![key]} onChange={e => setSectionForm(f => f ? { ...f, [key]: e.target.value } : f)} />}
+      </label>
+    )
+    return (
+      <div key={`s${s.id}`} className="section-group" style={s.isArchived ? { opacity: 0.6 } : undefined}>
+        <div className="section-group-header">
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h3>
+              <span className="section-badge">§{s.number}</span>{s.title || 'Untitled section'}
+              {s.isArchived && <span className="history-source-badge" style={{ marginLeft: '0.4rem' }}>archived</span>}
+            </h3>
+            {!editing && s.outline && <p className="blc-premise" style={{ marginTop: '0.25rem' }}>{s.outline}</p>}
+          </div>
+          {canEdit && !editing && (
+            <div>
+              <button className="btn-sm btn-ghost" title="Move the section up" disabled={busy || si <= 0} onClick={() => handleMoveSection(s, -1)}>↑</button>
+              <button className="btn-sm btn-ghost" title="Move the section down" disabled={busy || si >= shown.length - 1} onClick={() => handleMoveSection(s, 1)}>↓</button>
+              {!s.isArchived && <button className="btn-sm btn-ghost" title="Edit the section's overall plan" onClick={() => startEditSection(s)}>✎ Plan</button>}
+              {s.isArchived
+                ? <button className="btn-sm" disabled={busy} onClick={() => change(() => restoreSection(id, s.id))}>♻ Restore section</button>
+                : <button className="btn-archive" title="Archive the section with its chapters" disabled={busy}
+                    onClick={() => confirm(`Archive section ${s.number} with its chapters? They keep their place and come back with it.`) && change(() => archiveSection(id, s.id))}>🗄</button>}
+            </div>
+          )}
+        </div>
+        {editing && (
+          <div className="card" style={{ marginBottom: '0.75rem' }}>
+            {field('title', 'Title')}
+            {field('outline', 'Overall outline', 5)}
+            {field('povCharacter', 'POV character')}
+            {field('charactersInvolved', 'Characters (comma-separated)')}
+            {field('plotThreads', 'Plot threads (comma-separated)')}
+            {field('foreshadowingNotes', 'Foreshadowing', 2)}
+            {field('payoffNotes', 'Payoff', 2)}
+            <div className="actions">
+              <button disabled={busy} onClick={saveSection}>Save</button>
+              <button className="btn-ghost" onClick={() => { setEditingSectionId(null); setSectionForm(null) }}>Cancel</button>
+            </div>
+          </div>
+        )}
+        <div className="book-list">
+          {group.chapters.map(c => chapterCard(group, c, false))}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div>
       <div className="page-header">
-        <h2>Chapters ({activeChapters.length}{archivedCount > 0 ? ' + ' + archivedCount + ' archived' : ''})</h2>
-        {canEdit && <button className="btn-sm" onClick={() => setAddingAt('end')}>+ Add</button>}
+        <h2>
+          Chapters ({activeChapters.length}{archivedCount > 0 ? ' + ' + archivedCount + ' archived' : ''})
+          {anyMulti && <span className="hint" style={{ fontWeight: 'normal', marginLeft: '0.5rem' }}>in {activeSectionCount} sections</span>}
+        </h2>
+        {canEdit && <button className="btn-sm" onClick={() => setAddingAt({ kind: 'end' })}>+ Add</button>}
       </div>
 
       {/* Phase action bar */}
       <PhaseActionBar
         phase="chapters"
-        onClear={() => setBook(prev => prev ? { ...prev, chapters: (prev.chapters ?? []).map(c => ({ ...c, isArchived: true })) } : prev)}
+        onClear={() => { reloadStructure().catch(() => {}) }}
         clearLabel="🗑 Clear All"
         style={{ marginBottom: '1rem' }}
       />
+
+      <p className="hint">
+        The plan is made of <strong>sections</strong>; each starts with one chapter. A section can hold several chapters —
+        add one with <strong>＋ Chapter here</strong> or <strong>✂ Split</strong> — and then has an overall plan of its own.
+      </p>
 
       {error && <p className="error-msg" role="alert">{error}</p>}
 
@@ -216,7 +436,7 @@ export default function Chapters() {
         </button>
       )}
 
-      {addForm('end')}
+      {addForm({ kind: 'end' })}
 
       {/* Live planning stream preview */}
       {runStatus?.role === 'ChaptersAgent' && plannerBuffer && planningChapters.length > 0 && (
@@ -226,9 +446,7 @@ export default function Chapters() {
               <div key={c.number} className="book-list-card">
                 <div className="book-list-card-left">
                   <h3>{c.number}. {c.title}</h3>
-                  <div className="blc-meta">
-                    <span className="status" style={{ background: chapterStatusColor('Outlined'), color: '#fff', borderRadius: 4, padding: '1px 7px', fontSize: '0.75rem' }}>Outlined</span>
-                  </div>
+                  <div className="blc-meta">{statusBadge('Outlined')}</div>
                   {c.outline && <p className="blc-premise">{c.outline}</p>}
                 </div>
               </div>
@@ -242,74 +460,15 @@ export default function Chapters() {
         <p className="empty">No chapters yet. Use <strong>Plan Book</strong> to generate outlines, or add one manually.</p>
       ) : !(plannerBuffer && runStatus?.role === 'ChaptersAgent') && (
         <div className="book-list">
-          {canEdit && visible.length > 0 && (
+          {canEdit && visibleChapters.length > 0 && (
             <div>
-              <button className="btn-sm btn-ghost" title="Insert a chapter before the first one" onClick={() => setAddingAt('start')}>＋ Insert at the start</button>
-              {addForm('start')}
+              <button className="btn-sm btn-ghost" title="Add a section before the first one" onClick={() => setAddingAt({ kind: 'start' })}>＋ Insert at the start</button>
+              {addForm({ kind: 'start' })}
             </div>
           )}
-          {visible.map((c, i) => c.isArchived ? (
-            <div key={c.id} className="book-list-card" style={{ opacity: 0.6 }}>
-              <div className="book-list-card-left">
-                <h3>{c.title || 'Untitled'} <span className="history-source-badge">archived · was Ch. {c.number}</span></h3>
-                <div className="blc-meta">
-                  <span className="status" style={{ background: chapterStatusColor(c.status), color: '#fff', borderRadius: 4, padding: '1px 7px', fontSize: '0.75rem' }}>{c.status}</span>
-                </div>
-                {c.outline && <p className="blc-premise">{c.outline}</p>}
-                {historyPanel(c)}
-              </div>
-              <div className="book-list-card-right">
-                {moveButtons(c, i)}
-                <button className="btn-sm btn-ghost" title="Version History" onClick={() => handleOpenItemHistory(c.id)}>📜</button>
-                <button className="btn-sm" title="Bring the chapter back here" disabled={busy} onClick={() => handleRestore(c.id)}>♻ Restore</button>
-              </div>
-            </div>
-          ) : (
-            <div key={c.id}>
-              <div className="book-list-card">
-                <div className="book-list-card-left">
-                  <h3
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => navigate(`/books/${id}/chapters/${c.id}`)}
-                  >
-                    {c.number}. {c.title || 'Untitled'}
-                  </h3>
-                  <div className="blc-meta">
-                    <span
-                      className="status"
-                      style={{ background: chapterStatusColor(c.status), color: '#fff', borderRadius: 4, padding: '1px 7px', fontSize: '0.75rem' }}
-                    >
-                      {c.status}
-                    </span>
-                    {c.povCharacter && <span className="blc-genre">POV: {c.povCharacter}</span>}
-                  </div>
-                  {c.outline && <p className="blc-premise">{c.outline}</p>}
-                  {c.foreshadowingNotes && (
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                      <em>Foreshadowing:</em> {c.foreshadowingNotes}
-                    </p>
-                  )}
-                  {c.payoffNotes && (
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      <em>Payoff:</em> {c.payoffNotes}
-                    </p>
-                  )}
-                </div>
-                <div className="book-list-card-right">
-                  {canEdit && (
-                    <>
-                      {moveButtons(c, i)}
-                      <button className="btn-sm btn-ghost" title="Insert a new chapter after this one" onClick={() => setAddingAt(c.id)}>＋ After</button>
-                      <button className="btn-sm btn-ghost" title="Split this chapter in two by its outline" onClick={() => navigate(`/books/${id}/chapters/${c.id}?split=1`)}>✂ Split</button>
-                      <button className="btn-sm btn-ghost" title="Clear chapter content (keep outline)" onClick={() => handleClearChapter(c.id)}>🗑 Clear</button>
-                      <button className="btn-archive" title="Archive chapter (it keeps its place)" disabled={busy} onClick={() => handleArchive(c.id)}>🗄</button>
-                    </>
-                  )}
-                </div>
-              </div>
-              {addForm(c.id)}
-            </div>
-          ))}
+          {groups.map(g => g.section && chapterCount(g.section) > 1
+            ? sectionGroup(g)
+            : g.chapters.map(c => chapterCard(g, c, true)))}
         </div>
       )}
     </div>
