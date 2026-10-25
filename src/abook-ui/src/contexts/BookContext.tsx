@@ -514,6 +514,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
       refreshTokenStats().catch(() => {})
       refreshIllustrations()
       refreshClarifications()
+      setBookChatVersion(v => v + 1)
       // Run status and streams are re-read by the join handler.
     })
     setOnJoined(() => { void syncRunState() })

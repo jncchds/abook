@@ -38,6 +38,8 @@ const LONG_ACTIONS = new Set(['write_chapter', 'revise_chapter'])
 /** Steps re-run a check or summary: they change nothing themselves, can be run again, and have nothing to undo. */
 const STEP_ACTIONS = new Set(['check_outline', 'check_chapter', 'summarize_chapter'])
 
+const LOAD_ERROR = 'Could not load the chat:'
+
 function errorText(err: unknown) {
   return axios.isAxiosError(err) ? (err.response?.data?.message ?? err.message) : String(err)
 }
@@ -233,6 +235,8 @@ export default function BookChat() {
   }, [userId, bookId])
 
   const requestSeq = useRef(0)
+  // A failed load is retried (5 s, 10 s, 20 s … up to a minute) until one succeeds; its error then goes away.
+  const [loadFailures, setLoadFailures] = useState(0)
   const load = useCallback(async () => {
     if (!bookId) return
     const seq = ++requestSeq.current
@@ -241,20 +245,41 @@ export default function BookChat() {
       if (seq !== requestSeq.current) return
       setChat(r.data)
       writeChatCache(userId, bookId, r.data)
+      setLoadFailures(0)
+      setError(e => e?.startsWith(LOAD_ERROR) ? null : e)
     } catch (err) {
       if (seq !== requestSeq.current) return
-      // Gone or not ours (any more): the cached copy must not stay on screen.
+      // Gone or not ours (any more): the cached copy must not stay on screen, and retrying is pointless.
       if (axios.isAxiosError(err) && (err.response?.status === 403 || err.response?.status === 404)) {
         removeChatCache(userId, bookId)
         setChat(null)
+        setError(`${LOAD_ERROR} ${errorText(err)}`)
+        return
       }
-      setError(`Could not load the chat: ${errorText(err)}`)
+      setLoadFailures(n => n + 1)
+      setError(`${LOAD_ERROR} ${errorText(err)} — retrying…`)
     }
   }, [userId, bookId])
 
   useEffect(() => { void load() }, [load, bookChatVersion])
   // A run that ends (Stop, failure) without a chat event still changes "busy".
   useEffect(() => { void load() }, [load, isRunning])
+  useEffect(() => {
+    if (loadFailures === 0) return
+    const t = setTimeout(() => { void load() }, Math.min(60_000, 5000 * 2 ** (loadFailures - 1)))
+    return () => clearTimeout(t)
+  }, [load, loadFailures])
+  // Back online or back to the tab (timers sleep with the device): retry a failed load at once.
+  useEffect(() => {
+    if (loadFailures === 0) return
+    const retry = () => { if (document.visibilityState === 'visible') void load() }
+    window.addEventListener('online', retry)
+    document.addEventListener('visibilitychange', retry)
+    return () => {
+      window.removeEventListener('online', retry)
+      document.removeEventListener('visibilitychange', retry)
+    }
+  }, [load, loadFailures])
 
   const loadOlder = async () => {
     const first = (older[0] ?? chat?.messages[0])?.id
