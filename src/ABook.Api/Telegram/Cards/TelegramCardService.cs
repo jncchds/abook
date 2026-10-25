@@ -286,6 +286,8 @@ public sealed partial class TelegramCardService(
             case "arch":
             case "unarch":
                 return await ArchiveAsync(ctx, archive: op == "arch");
+            case "mv":   // ⬆️ / ⬇️ a chapter one place
+                return await MoveChapterAsync(ctx, up: arg == "up");
             case "create":
                 return await CreateBookAsync(ctx);
             case "open":
@@ -334,7 +336,7 @@ public sealed partial class TelegramCardService(
     /// is Participate — like writing in the book chat and applying what it suggests.
     /// </summary>
     public static bool NeedsControlFor(string kind, string op) =>
-        op is "restore" or "arch" or "unarch" or "write" or "check"
+        op is "restore" or "arch" or "unarch" or "write" or "check" or "mv"
         || (kind == "book" && op is "ed" or "set" or "save" or "save!" or "undo");
 
     // ── Saving ────────────────────────────────────────────────────────────────
@@ -468,6 +470,24 @@ public sealed partial class TelegramCardService(
     }
 
     // ── Archive, versions, presets ────────────────────────────────────────────
+
+    /// <summary>
+    /// Moves the card's chapter one place among the active chapters (a chapter alone in its section moves with it;
+    /// otherwise it joins the neighbouring chapter's section).
+    /// </summary>
+    private async Task<string?> MoveChapterAsync(Ctx ctx, bool up)
+    {
+        var s = ctx.State;
+        if (s.Kind != "chapter" || s.ItemId is not int id || await RefuseWhileBusyAsync(ctx)) return null;
+        var bookId = ctx.Book!.Id;
+        var chapters = (await repo.GetChaptersAsync(bookId)).ToList();
+        var i = chapters.FindIndex(c => c.Id == id);
+        if (i < 0 || (up && i == 0) || (!up && i == chapters.Count - 1)) return null;
+        int? after = up ? (i >= 2 ? chapters[i - 2].Id : null) : chapters[i + 1].Id;
+        try { s.Note = "✅ " + (await content.MoveChapterAsync(bookId, id, after)).Note; }
+        catch (InvalidOperationException ex) { s.Note = "⚠️ " + ex.Message; }
+        return null;
+    }
 
     private async Task<string?> ArchiveAsync(Ctx ctx, bool archive)
     {

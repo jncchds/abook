@@ -23,6 +23,7 @@ const TYPE_LABELS: Record<string, string> = {
   add_chapter: 'New chapter',
   update_chapter_outline: 'Outline',
   archive_chapter: 'Remove chapter',
+  move_chapter: 'Move chapter',
   write_chapter: 'Write',
   revise_chapter: 'Revise',
   patch_chapter: 'Edit passage',

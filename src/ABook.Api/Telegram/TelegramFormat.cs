@@ -315,7 +315,7 @@ public static partial class TelegramFormat
         ["update_premise"] = "Premise", ["update_story_bible"] = "Story Bible",
         ["upsert_character"] = "Character", ["archive_character"] = "Character",
         ["upsert_plot_thread"] = "Plot thread", ["archive_plot_thread"] = "Plot thread",
-        ["add_chapter"] = "New chapter", ["update_chapter_outline"] = "Outline", ["archive_chapter"] = "Remove chapter",
+        ["add_chapter"] = "New chapter", ["update_chapter_outline"] = "Outline", ["archive_chapter"] = "Remove chapter", ["move_chapter"] = "Move chapter",
         ["write_chapter"] = "Write", ["revise_chapter"] = "Revise", ["patch_chapter"] = "Edit passage", ["add_note"] = "Note",
         ["check_outline"] = "Outline check", ["check_chapter"] = "Continuity check", ["summarize_chapter"] = "Summary",
     };

@@ -64,11 +64,11 @@ public class BookChatTests
     }
 
     [Fact]
-    public void Normalize_AddChapter_AlwaysAppends_AndAWriteOfItDependsOnIt()
+    public void Normalize_AddChapter_AppendsByDefault_AndAWriteOfItDependsOnIt()
     {
         var (actions, dropped) = BookChatActions.Normalize(
             [
-                A(BookChatActions.AddChapter, chapter: 1, changes: [("title", "Ash"), ("outline", "Fire.")]),
+                A(BookChatActions.AddChapter, changes: [("title", "Ash"), ("outline", "Fire.")]),
                 A(BookChatActions.WriteChapter, chapter: 3),
             ],
             State(false, new BookChatChapter(10, 1, "One", ""), new BookChatChapter(11, 2, "Two", "")));
@@ -76,19 +76,58 @@ public class BookChatTests
         Assert.Empty(dropped);
         Assert.Equal(3, actions[0].Payload.ChapterNumber);
         Assert.Equal("Add Chapter 3: Ash", actions[0].Label);
+        Assert.Null(actions[0].Payload.AfterChapterId);
+        Assert.False(actions[0].Payload.AtStart);
         Assert.Null(actions[1].Payload.ChapterId);
         Assert.Equal(0, actions[1].DependsOnIndex);
     }
 
     [Fact]
-    public void Normalize_ArchiveChapter_OnlyTheLastOne()
+    public void Normalize_AddChapter_WithAnEarlierChapter_InsertsAfterIt()
     {
-        var state = State(false, new BookChatChapter(10, 1, "One", ""), new BookChatChapter(11, 2, "Two", ""));
+        var state = State(false, new BookChatChapter(10, 1, "One", "Written."), new BookChatChapter(11, 2, "Two", ""));
         var (actions, dropped) = BookChatActions.Normalize(
-            [A(BookChatActions.ArchiveChapter, chapter: 1), A(BookChatActions.ArchiveChapter, chapter: 2)], state);
+            [
+                A(BookChatActions.AddChapter, chapter: 1, changes: [("title", "Ash")]),
+                A(BookChatActions.AddChapter, chapter: 0, changes: [("title", "Prologue")]),
+                A(BookChatActions.AddChapter, chapter: 2, changes: [("title", "End")]),   // after the last: appended
+            ], state);
 
-        Assert.Equal(11, Assert.Single(actions).Payload.ChapterId);
-        Assert.Contains("only the last chapter", Assert.Single(dropped));
+        Assert.Empty(dropped);
+        Assert.Equal((10, false), (actions[0].Payload.AfterChapterId!.Value, actions[0].Payload.AtStart));
+        Assert.Equal("Insert a chapter after Chapter 1: Ash", actions[0].Label);
+        Assert.True(actions[1].Payload.AtStart);
+        Assert.Equal("Add Chapter 3: End", actions[2].Label);
+    }
+
+    [Fact]
+    public void Normalize_ArchiveChapter_AnyUnwritten_WrittenOnlyTheLast()
+    {
+        var state = State(false, new BookChatChapter(10, 1, "One", "Prose."), new BookChatChapter(11, 2, "Two", "Prose."),
+            new BookChatChapter(12, 3, "Three", ""));
+        var (actions, dropped) = BookChatActions.Normalize(
+            [A(BookChatActions.ArchiveChapter, chapter: 1), A(BookChatActions.ArchiveChapter, chapter: 3)], state);
+
+        Assert.Equal(12, Assert.Single(actions).Payload.ChapterId);
+        Assert.Contains("only the last one", Assert.Single(dropped));
+    }
+
+    [Fact]
+    public void Normalize_MoveChapter_OnlyUnwritten_ToAnExistingPlace()
+    {
+        var state = State(false, new BookChatChapter(10, 1, "One", "Prose."), new BookChatChapter(11, 2, "Two", ""),
+            new BookChatChapter(12, 3, "Three", ""));
+        var (actions, dropped) = BookChatActions.Normalize(
+            [
+                A(BookChatActions.MoveChapter, chapter: 3, changes: [("after", "0")]),
+                A(BookChatActions.MoveChapter, chapter: 1, changes: [("after", "3")]),   // written
+                A(BookChatActions.MoveChapter, chapter: 2, changes: [("after", "9")]),   // no such chapter
+                A(BookChatActions.MoveChapter, chapter: 2, changes: [("after", "1")]),   // already there
+            ], state);
+
+        var move = Assert.Single(actions);
+        Assert.Equal((12, true, "Move Chapter 3 to the start"), (move.Payload.ChapterId!.Value, move.Payload.AtStart, move.Label));
+        Assert.Equal(3, dropped.Count);
     }
 
     [Fact]

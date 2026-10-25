@@ -953,7 +953,9 @@ public static class PromptTemplates
               "Here is…"), never as done.
             - Propose only what the author asked for or agreed to, plus what is needed to keep the book consistent with it.
               Never invent characters, plot threads or chapters on your own.
-            - Chapters are only ever added at the end of the book; there is no inserting or reordering.
+            - New chapters normally go at the end. A chapter not written yet may be inserted earlier (add_chapter with
+              "chapter" = the chapter it goes after, 0 = at the start), moved (move_chapter) or removed (archive_chapter);
+              later chapters are renumbered. Written chapters are never moved, and only the last one can be removed.
             - A chapter is written from its outline: to write a new chapter, propose add_chapter with its outline and, if the
               author wants it written now, write_chapter for the same number in the same reply. The writer writes prose,
               never you — do not put chapter prose in your message.
@@ -986,9 +988,11 @@ public static class PromptTemplates
                                             "WorldBuilding|ThematicThread), status (Active|Resolved|Dormant), introducedChapterNumber, resolvedChapterNumber.",
         BookChatActions.ArchivePlotThread => "\"name\" — removes the plot thread (kept in the archive).",
         BookChatActions.AddChapter => "\"changes\" among title, outline (3-6 sentences: the key events and decisions), povCharacter, " +
-                                      "charactersInvolved and plotThreads (comma-separated names), foreshadowingNotes, payoffNotes. Always added after the last chapter.",
+                                      "charactersInvolved and plotThreads (comma-separated names), foreshadowingNotes, payoffNotes. " +
+                                      "Added after the last chapter; with \"chapter\" = N it is inserted after Chapter N instead (0 = at the start).",
         BookChatActions.UpdateChapterOutline => "\"chapter\"; \"changes\" with the same fields as add_chapter.",
-        BookChatActions.ArchiveChapter => "\"chapter\" — removes the last chapter (only the last one).",
+        BookChatActions.ArchiveChapter => "\"chapter\" — removes a chapter not written yet, or the last written one.",
+        BookChatActions.MoveChapter => "\"chapter\" (not written yet); \"changes\" = [{\"field\":\"after\",\"value\":\"N\"}] — moves it after Chapter N (0 = to the start).",
         BookChatActions.WriteChapter => "\"chapter\"; optional \"instructions\" for the writer. Writes (or rewrites) the chapter's prose from its outline.",
         BookChatActions.ReviseChapter => "\"chapter\"; \"instructions\" = what to change in the written prose.",
         BookChatActions.PatchChapter => "\"chapter\"; \"originalText\" = text copied exactly from the chapter (a whole sentence or more); " +

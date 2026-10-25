@@ -15,9 +15,12 @@ public sealed record RawChatAction(
 public sealed record ParsedChatReply(string Message, IReadOnlyList<ChatConflict> Conflicts, IReadOnlyList<RawChatAction> Actions);
 
 /// <summary>A checked action, resolved against the book — what a <see cref="ChatProposal"/> stores as its payload.</summary>
+/// <param name="AfterChapterId">add_chapter / move_chapter: the chapter it goes after (with <paramref name="AtStart"/> false; neither = at the end).</param>
+/// <param name="UndoAfterChapterId">move_chapter, set when applied: where it was (after this chapter, or at the start) — for undo.</param>
 public sealed record ChatActionPayload(
     string Type, int? ChapterId, int? ChapterNumber, string? Name, Dictionary<string, string> Changes,
-    string? Instructions, string? OriginalText, string? ReplacementText, string? Text)
+    string? Instructions, string? OriginalText, string? ReplacementText, string? Text,
+    int? AfterChapterId = null, bool AtStart = false, int? UndoAfterChapterId = null, bool UndoAtStart = false)
 {
     private static readonly JsonSerializerOptions Options = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     public string ToJson() => JsonSerializer.Serialize(this, Options);
@@ -54,6 +57,7 @@ public static class BookChatActions
     public const string AddChapter = "add_chapter";
     public const string UpdateChapterOutline = "update_chapter_outline";
     public const string ArchiveChapter = "archive_chapter";
+    public const string MoveChapter = "move_chapter";
     public const string WriteChapter = "write_chapter";
     public const string ReviseChapter = "revise_chapter";
     public const string PatchChapter = "patch_chapter";
@@ -68,7 +72,7 @@ public static class BookChatActions
     public static readonly string[] All =
     [
         UpdatePremise, UpdateStoryBible, UpsertCharacter, ArchiveCharacter, UpsertPlotThread, ArchivePlotThread,
-        AddChapter, UpdateChapterOutline, ArchiveChapter, WriteChapter, ReviseChapter, PatchChapter, AddNote,
+        AddChapter, UpdateChapterOutline, ArchiveChapter, MoveChapter, WriteChapter, ReviseChapter, PatchChapter, AddNote,
         CheckOutline, CheckChapter, SummarizeChapter,
     ];
 
@@ -154,6 +158,7 @@ public static class BookChatActions
         UpsertCharacter => BookContentRender.CharacterFields,
         UpsertPlotThread => BookContentRender.ThreadFields,
         AddChapter or UpdateChapterOutline => BookContentRender.ChapterFields,
+        MoveChapter => ["after"],
         _ => [],
     };
 
@@ -287,6 +292,21 @@ public static class BookChatActions
                     return null;
                 }
 
+                // "chapter" past the last one (or null) = at the end, as before.
+                case AddChapter when a.Chapter is int anchor && anchor >= 0 && anchor < lastNumber:
+                {
+                    // Inserted after chapter `anchor` (0 = at the start): later chapters move down. It cannot be
+                    // referred to by number in the same reply — its Write card comes once it is applied.
+                    if (!changes.ContainsKey("title") && !changes.ContainsKey("outline")) return "no title or outline." + UnknownNote();
+                    var after = anchor == 0 ? null : chapters.FirstOrDefault(c => c.Number == anchor);
+                    if (anchor != 0 && after is null) return $"the book has no Chapter {anchor} to insert after.";
+                    var title = changes.GetValueOrDefault("title", "").Trim();
+                    actions.Add(Make(Payload(a.Type, number: anchor + 1, changes: changes) with { AfterChapterId = after?.Id, AtStart = after is null },
+                        (anchor == 0 ? "Insert a chapter at the start" : $"Insert a chapter after Chapter {anchor}") + (title.Length > 0 ? $": {title}" : ""),
+                        null));
+                    return null;
+                }
+
                 case AddChapter:
                 {
                     if (!changes.ContainsKey("title") && !changes.ContainsKey("outline")) return "no title or outline." + UnknownNote();
@@ -298,7 +318,7 @@ public static class BookChatActions
                     return null;
                 }
 
-                case UpdateChapterOutline or ArchiveChapter or WriteChapter or ReviseChapter or PatchChapter
+                case UpdateChapterOutline or ArchiveChapter or MoveChapter or WriteChapter or ReviseChapter or PatchChapter
                     or CheckOutline or CheckChapter or SummarizeChapter:
                 {
                     if (a.Chapter is not int number) return "no chapter number.";
@@ -325,11 +345,26 @@ public static class BookChatActions
                                 $"Update the outline of Chapter {number}", BookContentService.ChapterTarget(chapter.Id)));
                             return null;
                         case ArchiveChapter:
-                            if (number != lastNumber || added.Count > 0)
-                                return $"only the last chapter (Chapter {lastNumber}) can be removed — chapters are only ever added at the end.";
+                            if (hasProse && (number != lastNumber || added.Count > 0))
+                                return $"Chapter {number} is written — of the written chapters only the last one (Chapter {lastNumber}) can be removed.";
                             actions.Add(Make(Payload(a.Type, chapter.Id, number),
                                 $"Remove Chapter {number}: {chapter.Title}", BookContentService.ChapterTarget(chapter.Id)));
                             return null;
+                        case MoveChapter:
+                        {
+                            if (hasProse) return $"Chapter {number} is written — only chapters not written yet can be moved.";
+                            var afterText = changes.GetValueOrDefault("after")?.Trim();
+                            if (BookContentRender.Number(afterText) is null && afterText != "0")
+                                return "no \"after\" chapter number (0 = to the start)." + UnknownNote();
+                            var target = BookContentRender.Number(afterText) ?? 0;
+                            var afterChapter = target == 0 ? null : chapters.FirstOrDefault(c => c.Number == target);
+                            if (target != 0 && afterChapter is null) return $"the book has no Chapter {target} to move it after.";
+                            if (target == number || target == number - 1) return $"Chapter {number} is already there.";
+                            actions.Add(Make(Payload(a.Type, chapter.Id, number) with { AfterChapterId = afterChapter?.Id, AtStart = afterChapter is null },
+                                target == 0 ? $"Move Chapter {number} to the start" : $"Move Chapter {number} after Chapter {target}",
+                                BookContentService.ChapterTarget(chapter.Id)));
+                            return null;
+                        }
                         case WriteChapter:
                             actions.Add(Make(Payload(a.Type, chapter.Id, number, instructions: a.Instructions),
                                 hasProse ? $"Rewrite Chapter {number} from its outline" : $"Write Chapter {number}",

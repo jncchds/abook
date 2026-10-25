@@ -398,9 +398,23 @@ public class ProposalExecutor(
                 return (await content.ArchivePlotThreadAsync(bookId, a.Name!), null);
             case BookChatActions.AddChapter:
             {
-                var change = await content.AddChapterAsync(bookId, a.Changes);
+                var change = a.AtStart || a.AfterChapterId is not null
+                    ? await content.InsertChapterAsync(bookId, a.AtStart ? null : a.AfterChapterId, a.Changes)
+                    : await content.AddChapterAsync(bookId, a.Changes);
                 p.Target = BookContentService.ChapterTarget(change.ChapterId!.Value);
                 return (change, null);
+            }
+            case BookChatActions.MoveChapter:
+            {
+                var chapters = (await repo.GetChaptersAsync(bookId)).ToList();
+                var index = chapters.FindIndex(c => c.Id == a.ChapterId);
+                if (index < 0) throw new InvalidOperationException("The chapter no longer exists.");
+                if (chapters[index].Content.Trim().Length > 0)
+                    throw new InvalidOperationException($"Chapter {chapters[index].Number} has been written — only chapters not written yet can be moved.");
+                // Where it was, for undo.
+                var previous = index > 0 ? chapters[index - 1] : null;
+                p.PayloadJson = (a with { UndoAfterChapterId = previous?.Id, UndoAtStart = previous is null }).ToJson();
+                return (await content.MoveChapterAsync(bookId, a.ChapterId!.Value, a.AtStart ? null : a.AfterChapterId), null);
             }
             case BookChatActions.UpdateChapterOutline:
                 return (await content.UpdateChapterOutlineAsync(bookId, a.ChapterId!.Value, a.Changes), null);
@@ -657,6 +671,8 @@ public class ProposalExecutor(
                 BookChatActions.UpdateChapterOutline => await content.UpdateChapterOutlineAsync(bookId, a.ChapterId!.Value,
                     BookContentRender.Parse(before).Where(kv => kv.Key != "number").ToDictionary()),
                 BookChatActions.ArchiveChapter => await content.RestoreLastChapterAsync(bookId, a.ChapterId!.Value),
+                BookChatActions.MoveChapter => await content.MoveChapterAsync(bookId, a.ChapterId!.Value,
+                    a.UndoAtStart ? null : a.UndoAfterChapterId),
                 BookChatActions.AddNote => await content.ArchiveNoteAsync(bookId, TargetId(p, "note:")),
                 _ => await content.RestoreProseAsync(bookId, TargetId(p, "prose:"), p.BeforeVersionId, ct),
             };

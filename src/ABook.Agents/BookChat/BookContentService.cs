@@ -386,13 +386,16 @@ public class BookContentService : AgentBase
         chapter.PayoffNotes = Get("payoffNotes");
     }
 
-    /// <summary>Archives the book's last chapter — only the last one, so chapter numbers never have gaps.</summary>
+    /// <summary>
+    /// Archives a chapter (it keeps its place; the chapters after it are renumbered): any chapter not written yet, and
+    /// of the written ones only the last — the story told so far is not cut out of the middle.
+    /// </summary>
     public async Task<ContentChange> ArchiveLastChapterAsync(int bookId, int chapterId)
     {
         var chapter = await LoadActiveChapterAsync(bookId, chapterId);
         var last = (await Repo.GetChaptersAsync(bookId)).MaxBy(c => c.Number);
-        if (last?.Id != chapterId)
-            throw new InvalidOperationException($"Only the last chapter can be removed; Chapter {chapter.Number} is not the last.");
+        if (last?.Id != chapterId && chapter.Content.Trim().Length > 0)
+            throw new InvalidOperationException($"Chapter {chapter.Number} is written and not the last — only the last written chapter can be removed.");
         var before = BookContentRender.Render(chapter);
         await Repo.ArchiveChapterAsync(bookId, chapterId);
         try { await VectorStore.DeleteChapterChunksAsync(bookId, chapterId); }
@@ -401,15 +404,12 @@ public class BookContentService : AgentBase
         return new ContentChange($"Removed Chapter {chapter.Number} \"{chapter.Title}\" (archived).", before, "", chapterId);
     }
 
-    /// <summary>Brings an archived chapter back as the last chapter, provided its number is still free.</summary>
+    /// <summary>Brings an archived chapter back in its place (the chapters after it are renumbered).</summary>
     public async Task<ContentChange> RestoreLastChapterAsync(int bookId, int chapterId)
     {
         var chapter = await Repo.GetChapterAsync(bookId, chapterId)
             ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
-        var lastNumber = (await Repo.GetChaptersAsync(bookId)).Select(c => c.Number).DefaultIfEmpty(0).Max();
-        if (chapter.Number != lastNumber + 1)
-            throw new InvalidOperationException(
-                $"Chapter {chapter.Number} cannot come back: the book now has {lastNumber} chapter(s) and chapters are only added at the end.");
+        if (!chapter.IsArchived) throw new InvalidOperationException($"Chapter {chapter.Number} is not archived.");
         await Repo.RestoreChapterAsync(bookId, chapterId);
         var restored = await LoadActiveChapterAsync(bookId, chapterId);
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId);

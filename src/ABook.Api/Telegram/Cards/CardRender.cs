@@ -439,6 +439,8 @@ public sealed partial class TelegramCardService
                 if (!string.IsNullOrWhiteSpace(chapter.Content)) actions.Add(B(ctx, "🔍 Check", "check"));
             }
             if (actions.Count > 0) rows.Add(actions);
+            if (ctx.CanControl)
+                rows.Add([B(ctx, "⬆️ Move up", "mv", "up"), B(ctx, "⬇️ Move down", "mv", "down")]);
         }
         var last = new List<TgButton>();
         if (s.ItemId is not null)
