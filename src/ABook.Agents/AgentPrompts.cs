@@ -1012,6 +1012,9 @@ public static class PromptTemplates
     /// <summary>A resent book event (bible locked, chapter written …).</summary>
     public static string BookChatPastEvent(string content) => $"[Book event] {content}";
 
+    /// <summary>A resent revision request: the author's note on the suggestions of an earlier reply.</summary>
+    public static string BookChatPastRevision(string content) => $"[Asked to revise the suggestions of your earlier reply] {content}";
+
     /// <summary>The digest and the rolling memory, sent as the first author turn of every request.</summary>
     public static string BookChatContext(string digest, string memory) =>
         memory.Trim().Length > 0
@@ -1023,6 +1026,35 @@ public static class PromptTemplates
         ragPassages.Trim().Length > 0
             ? $"Passages from the written chapters that may be relevant:\n{ragPassages}\n\n---\n\n{authorText}"
             : authorText;
+
+    /// <summary>What a revision request without text asks for.</summary>
+    public const string BookChatReviseDefault = "Look at these suggestions again and fix whatever is wrong with them.";
+
+    /// <summary>
+    /// The author's turn of a revision ("Anything else?" on a reply's suggestions): every suggestion of that reply in
+    /// full, and the author's note. The answer is the complete corrected list, which replaces the open ones.
+    /// </summary>
+    public static string BookChatReviseTurn(
+        string ragPassages, string replyMessage, IEnumerable<(string Status, string Type, string Label, string PayloadJson, string? Note)> suggestions,
+        string authorText)
+    {
+        var list = string.Join("\n", suggestions.Select((p, i) =>
+            $"{i + 1}. [{p.Status.ToLowerInvariant()}] {p.Type}: {p.Label}\n   {p.PayloadJson}" +
+            (p.Note is { Length: > 0 } note ? $"\n   (note: {note})" : "")));
+        var turn = $$"""
+            In your reply "{{replyMessage}}" you suggested these changes:
+
+            {{list}}
+
+            Revise them. Your "actions" are the complete new list and replace every suggestion above that is still open
+            (pending, failed or queued): keep the ones that are still right (improved where they can be), fix the wrong
+            ones, drop what no longer fits, and add everything my note below asks for. Applied ones are already done — do
+            not propose them again. In "message", say briefly what you changed.
+
+            My note: {{authorText}}
+            """;
+        return BookChatTurn(ragPassages, turn);
+    }
 
     /// <summary>What the first reply of a new Interactive book answers instead of an author message.</summary>
     public const string BookChatKickoff =

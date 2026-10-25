@@ -149,6 +149,11 @@ public sealed class TelegramUpdateHandler(
                     && ParseProposalPick(text) is { } pick
                     && await OnProposalPickAsync(sp, binding, message, link.RefId, pick.Reject, pick.Numbers))
                     return;
+                // Any other text in reply to a reply with open suggestions: "anything else?" — a revised list.
+                if (link.Kind is TelegramLinkKind.ChatProposals or TelegramLinkKind.ChatMessage
+                    && link.Version != UserMessageVersion
+                    && await OnReviseAsync(sp, binding, message, link.RefId, text))
+                    return;
             }
             await OnPlainMessageAsync(sp, binding, message, text);
         });
@@ -322,7 +327,7 @@ public sealed class TelegramUpdateHandler(
           .Append("<p>The pinned card shows what the agents are doing. Chapter files arrive after each chapter edit, and the whole book when it is finished.</p>");
         if (binding.Level >= TelegramAccessLevel.Participate)
             sb.Append("<p>").Append(interactive
-                ? "💬 Write here to talk to the book chat; its suggested changes come with buttons — tick several, or tap <i>details</i>."
+                ? "💬 Write here to talk to the book chat; its suggested changes come with buttons — tick several, or tap <i>details</i>. Reply to them with anything else to change and get a revised list."
                 : "❓ When the planner asks something, <b>reply to its question message</b> to answer.").Append("</p>");
 
         var commands = new List<(string Command, string What)> { ("/status", "post a fresh status card") };
@@ -410,6 +415,33 @@ public sealed class TelegramUpdateHandler(
         }
         await sp.GetRequiredService<IAgentOrchestrator>().ResumeWithAnswerAsync(question.Id, text, origin: origin);
         await ReactAsync(message, "👍");
+    }
+
+    /// <summary>
+    /// Text in reply to a book-chat reply (or its suggestions) that still has open suggestions: they are revised with
+    /// the text — the answer is a full corrected list that replaces them. False when there is nothing to revise (the
+    /// text is then an ordinary book-chat message).
+    /// </summary>
+    private async Task<bool> OnReviseAsync(IServiceProvider sp, TelegramBinding binding, TgMessage message, int chatMessageId, string text)
+    {
+        var book = await sp.GetRequiredService<IBookRepository>().GetByIdAsync(binding.BookId);
+        if (book?.Mode != BookMode.Interactive) return false;
+        var revised = await sp.GetRequiredService<IBookRepository>().GetChatMessageAsync(binding.BookId, chatMessageId);
+        if (revised is not { Role: BookChatRole.Assistant, HiddenAt: null } || !revised.Proposals.Any(ABook.Agents.BookChatAgent.IsRevisable))
+            return false;
+        if (!await RequireAsync(binding, TelegramAccessLevel.Participate, message.From, message)) return true;
+        var outcome = await chat.ReviseAsync(binding.BookId, chatMessageId, text, Origin(message.From, binding));
+        if (outcome.MessageId is int authorMessageId)
+            await sp.GetRequiredService<ITelegramRepository>().AddLinkAsync(new TelegramMessageLink
+            {
+                BindingId = binding.Id, Kind = TelegramLinkKind.ChatMessage, RefId = authorMessageId,
+                MessageId = message.MessageId, Version = UserMessageVersion,
+                ContentHash = outcome.Result == BookChatResult.Started ? nameof(BookChatMessageStatus.Pending) : null,
+            });
+        if (outcome.Result == BookChatResult.Started) await ReactAsync(message, "👀");
+        else await ReplyAsync(message, "⏳ " + H(outcome.Message ?? "The book chat can't take a message right now."));
+        dispatcher.Worker(binding.Id)?.SyncChatSoon();
+        return true;
     }
 
     private async Task OnPlainMessageAsync(IServiceProvider sp, TelegramBinding binding, TgMessage message, string text)

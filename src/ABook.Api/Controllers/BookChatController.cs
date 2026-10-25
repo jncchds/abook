@@ -44,6 +44,11 @@ public class BookChatController(IBookRepository repo, BookChatService chat, Agen
     public async Task<IActionResult> Send(int bookId, [FromBody] BookChatSendRequest req) =>
         await RunAsync(bookId, () => chat.SendAsync(bookId, req.Message ?? ""));
 
+    /// <summary>"Anything else?" on a reply's suggestions: a revised list that covers the note and replaces them.</summary>
+    [HttpPost("revise/{messageId:int}")]
+    public async Task<IActionResult> Revise(int bookId, int messageId, [FromBody] BookChatSendRequest? req) =>
+        await RunAsync(bookId, () => chat.ReviseAsync(bookId, messageId, req?.Message));
+
     [HttpPost("retry/{messageId:int}")]
     public async Task<IActionResult> Retry(int bookId, int messageId) =>
         await RunAsync(bookId, () => chat.RetryAsync(bookId, messageId));

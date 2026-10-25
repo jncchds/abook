@@ -42,6 +42,29 @@ public class BookChatService(
         return await StartReplyAsync(repo, scope, bookId, message);
     }
 
+    /// <summary>
+    /// "Anything else?" on a reply's suggestions: sends the author's note together with that reply's suggestions, and
+    /// the answer is a full corrected list that replaces the open ones. An empty note asks just to fix them.
+    /// </summary>
+    public async Task<BookChatOutcome> ReviseAsync(int bookId, int messageId, string? text, string? origin = null)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var repo = scope.ServiceProvider.GetRequiredService<IBookRepository>();
+        if (await RequireInteractiveAsync(repo, bookId) is { } refused) return refused;
+        var revised = await repo.GetChatMessageAsync(bookId, messageId);
+        if (revised is not { Role: BookChatRole.Assistant, HiddenAt: null } || !revised.Proposals.Any(BookChatAgent.IsRevisable))
+            return new(BookChatResult.NotFound, "This reply has no open suggestions to revise.");
+        if (IsBusy(bookId)) return Busy();
+
+        var message = await repo.AddChatMessageAsync(new BookChatMessage
+        {
+            BookId = bookId, Role = BookChatRole.Author, Status = BookChatMessageStatus.Pending, Origin = origin,
+            Content = string.IsNullOrWhiteSpace(text) ? PromptTemplates.BookChatReviseDefault : text.Trim(),
+            RevisesMessageId = revised.Id,
+        });
+        return await StartReplyAsync(repo, scope, bookId, message);
+    }
+
     /// <summary>Answers again an author message whose reply failed or was stopped.</summary>
     public async Task<BookChatOutcome> RetryAsync(int bookId, int messageId)
     {

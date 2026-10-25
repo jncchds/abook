@@ -229,6 +229,8 @@ export interface BookChatMessage {
   status: 'Pending' | 'Done' | 'Failed'
   /** Author messages not typed in the web UI, e.g. "Telegram · @anna · Writers' room". */
   origin?: string | null
+  /** An author message asking to revise the suggestions of that earlier reply ("Anything else?"). */
+  revisesMessageId?: number | null
   /** Set when the book was rewound to before this message: shown collapsed, never sent to the LLM again. */
   hiddenAt?: string | null
   createdAt: string
@@ -383,6 +385,9 @@ export const getBookChat = (bookId: number, before?: number, limit = 50) =>
   api.get<BookChatState>(`/books/${bookId}/book-chat`, { params: { before, limit } })
 export const sendBookChat = (bookId: number, message: string) =>
   api.post<{ messageId: number }>(`/books/${bookId}/book-chat`, { message })
+/** "Anything else?" on a reply's suggestions: a revised list covering the note replaces the open ones. */
+export const reviseBookChat = (bookId: number, messageId: number, message: string) =>
+  api.post<{ messageId: number }>(`/books/${bookId}/book-chat/revise/${messageId}`, { message })
 export const retryBookChat = (bookId: number, messageId: number) =>
   api.post(`/books/${bookId}/book-chat/retry/${messageId}`)
 export const kickoffBookChat = (bookId: number) =>

@@ -40,6 +40,19 @@ public class BookChatMcpTools(BookChatService chat, IBookRepository repo, IServi
         return await WaitAndSnapshotAsync(book, waitSeconds);
     }
 
+    [McpServerTool(Name = "revise_book_chat_suggestions")]
+    [Description("Ask the co-author LLM to revise the open suggestions of one of its replies: it gets them together with your note and returns a complete corrected list (covering the note) that replaces them. Waits for the reply and returns the latest messages.")]
+    public async Task<string> ReviseBookChatSuggestions(
+        [Description("The book ID.")] int bookId,
+        [Description("The id of the assistant message whose suggestions to revise.")] int messageId,
+        [Description("What else to fix or change (optional).")] string? note = null,
+        [Description(WaitHelp)] int waitSeconds = 180)
+    {
+        var book = await GetOwnedBookAsync(bookId, repo);
+        Throw(await chat.ReviseAsync(bookId, messageId, note));
+        return await WaitAndSnapshotAsync(book, waitSeconds);
+    }
+
     [McpServerTool(Name = "start_book_chat")]
     [Description("Interactive books with an empty chat: ask the LLM for its opening reply — a Story Bible proposal and questions about the premise.")]
     public async Task<string> StartBookChat(

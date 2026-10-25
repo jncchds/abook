@@ -34,6 +34,11 @@ public class BookChatMessage
     /// <summary>Author messages not typed in the web UI: where they came from, e.g. "Telegram · @anna · Writers' room".</summary>
     public string? Origin { get; set; }
     /// <summary>
+    /// An author message that asks to revise the suggestions of an earlier reply (its "Anything else?" box): the reply
+    /// to it gets that reply's suggestions with this text and returns the full corrected list, which replaces them.
+    /// </summary>
+    public int? RevisesMessageId { get; set; }
+    /// <summary>
     /// Set when the book was rewound to a moment before this message: it stays in the record (collapsed in the UI) but is
     /// never sent to the LLM again and takes no part in the conversation.
     /// </summary>

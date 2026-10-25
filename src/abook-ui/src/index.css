@@ -1098,3 +1098,5 @@ button:disabled:hover { background: var(--accent); }
 .copy-block-btn { position: absolute; top: 0.3rem; right: 0.3rem; }
 
 .studio-offline { font-size: 0.8rem; color: var(--warning, #b7791f); margin-left: 0.5rem; }
+.proposal-revise { display: flex; gap: 0.5rem; align-items: flex-end; margin-top: 0.5rem; }
+.proposal-revise textarea { flex: 1; min-width: 0; resize: vertical; font: inherit; }

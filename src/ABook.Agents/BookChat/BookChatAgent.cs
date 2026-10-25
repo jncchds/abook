@@ -52,10 +52,12 @@ public class BookChatAgent : AgentBase
         try
         {
             await _summarizer.RefreshStaleAsync(bookId, SummaryRefreshPerTurn, ct);
-            var reply = await ComposeReplyAsync(bookId, author, ct);
+            var (reply, parsed) = await ComposeReplyAsync(bookId, author, ct);
             await Repo.AddChatMessageAsync(reply);
             await ResolveDependenciesAsync(reply);
             await SupersedeOlderAsync(bookId, reply);
+            // A revision's list replaces the revised reply's open suggestions — only once a list was actually read.
+            if (parsed && author?.RevisesMessageId is int revised) await ReplaceRevisedAsync(bookId, revised, reply);
             if (author is not null)
             {
                 author.Status = BookChatMessageStatus.Done;
@@ -132,7 +134,25 @@ public class BookChatAgent : AgentBase
 
     // ── One reply ───────────────────────────────────────────────────────────────
 
-    private async Task<BookChatMessage> ComposeReplyAsync(int bookId, BookChatMessage? author, CancellationToken ct)
+    /// <summary>A suggestion still waiting for the author: what a revision replaces.</summary>
+    public static bool IsRevisable(ChatProposal p) =>
+        p.Status is ChatProposalStatus.Pending or ChatProposalStatus.Failed or ChatProposalStatus.Queued;
+
+    /// <summary>The open suggestions of the revised reply give way to the revised list.</summary>
+    private async Task ReplaceRevisedAsync(int bookId, int revisedId, BookChatMessage reply)
+    {
+        if (await Repo.GetChatMessageAsync(bookId, revisedId) is not { } revised) return;
+        foreach (var p in revised.Proposals.Where(IsRevisable))
+        {
+            p.Status = ChatProposalStatus.Superseded;
+            p.ResultNote = "Replaced by the revised list below.";
+            await Repo.UpdateProposalAsync(p);
+        }
+        await Notifier.NotifyBookChatAsync(bookId, revised.Id, CancellationToken.None);
+    }
+
+    /// <summary>The reply, and whether its JSON could be read (a reply that couldn't carries no list).</summary>
+    private async Task<(BookChatMessage Reply, bool Parsed)> ComposeReplyAsync(int bookId, BookChatMessage? author, CancellationToken ct)
     {
         var book = await Repo.GetByIdAsync(bookId) ?? throw new InvalidOperationException($"Book {bookId} not found.");
         var locked = BookContentService.IsBibleLocked(book);
@@ -152,10 +172,17 @@ public class BookChatAgent : AgentBase
         var (client, config) = await GetChatClientAsync(bookId);
         var rag = author is null || !chapters.Any(c => c.Content.Length > 0)
             ? ""
-            : await GetRagContextAsync(bookId, authorText, 6, LlmFactory, config, ct: ct);
+            : await GetRagContextAsync(bookId, authorText + await RevisedLabelsAsync(bookId, author), 6, LlmFactory, config, ct: ct);
 
         var history = author is null ? [] : await HistoryAsync(bookId, author.Id);
-        var messages = BuildMessages(system, history, PromptTemplates.BookChatTurn(rag, authorText));
+        var revised = author?.RevisesMessageId is int revisedId ? await Repo.GetChatMessageAsync(bookId, revisedId) : null;
+        var turn = revised is null
+            ? PromptTemplates.BookChatTurn(rag, authorText)
+            : PromptTemplates.BookChatReviseTurn(rag, StripNotes(revised.Content),
+                revised.Proposals.OrderBy(p => p.Ordinal)
+                    .Select(p => (p.Status.ToString(), p.Type, p.Label, p.PayloadJson, p.ConflictNote ?? (IsRevisable(p) ? p.ResultNote : null))),
+                authorText);
+        var messages = BuildMessages(system, history, turn);
         var schema = BookChatActions.ReplySchema(locked);
 
         var raw = await StreamResponseAsync(client, config, messages, bookId, null, AgentRole.BookChat, ct,
@@ -175,13 +202,13 @@ public class BookChatAgent : AgentBase
         }
 
         if (parsed is null)
-            return new BookChatMessage
+            return (new BookChatMessage
             {
                 BookId = bookId,
                 Role = BookChatRole.Assistant,
                 Content = (raw.Trim().Length > 0 ? raw.Trim() : "(no reply)") +
                           "\n\n⚠️ _The reply was not in the expected format, so no changes could be read from it. Send your message again to retry._",
-            };
+            }, false);
 
         var state = new BookChatState(locked, characters.Select(c => c.Name).ToList(), threads.Select(t => t.Name).ToList(),
             chapters.Select(c => new BookChatChapter(c.Id, c.Number, c.Title, c.Content, c.Outline)).ToList());
@@ -207,8 +234,14 @@ public class BookChatAgent : AgentBase
         // executor through the ordinal stored here.
         foreach (var (action, ordinal) in actions.Select((a, i) => (a, i)))
             if (action.DependsOnIndex is int dep) proposals[ordinal].DependsOnProposalId = -(dep + 1);
-        return reply;
+        return (reply, true);
     }
+
+    /// <summary>A revision's search also looks for the passages its suggestions are about.</summary>
+    private async Task<string> RevisedLabelsAsync(int bookId, BookChatMessage? author) =>
+        author?.RevisesMessageId is int id && await Repo.GetChatMessageAsync(bookId, id) is { } revised
+            ? "\n" + string.Join("\n", revised.Proposals.Select(p => p.Label))
+            : "";
 
     /// <summary>A proposal with its preview: the target as it reads now and as the change would leave it.</summary>
     private async Task<ChatProposal> ToProposalAsync(int bookId, NormalizedAction action, int ordinal, IReadOnlyList<Chapter> chapters)
@@ -312,6 +345,7 @@ public class BookChatAgent : AgentBase
             BookChatRole.Assistant => PromptTemplates.BookChatPastReply(StripNotes(m.Content),
                 m.Proposals.OrderBy(p => p.Ordinal).Select(p => (p.Label, p.Status.ToString()))),
             BookChatRole.Event => PromptTemplates.BookChatPastEvent(m.Content),
+            BookChatRole.Author when m.RevisesMessageId is not null => PromptTemplates.BookChatPastRevision(m.Content),
             _ => m.Content,
         };
         if (content.Length > PromptTemplates.BookChatHistoryMessageChars)

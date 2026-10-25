@@ -8,7 +8,7 @@ import { partialJsonString } from '../../utils/streamParsers'
 import { readChatCache, removeChatCache, writeChatCache } from '../../utils/chatCache'
 import { useAuth } from '../../hooks/useAuth'
 import {
-  getBookChat, sendBookChat, retryBookChat, kickoffBookChat, applyProposals, rejectProposals, undoProposal,
+  getBookChat, sendBookChat, reviseBookChat, retryBookChat, kickoffBookChat, applyProposals, rejectProposals, undoProposal,
   lockStoryBible,
   type BookChatMessage, type BookChatState, type ChatProposal, type ChatConflict, type BookChatConflict,
 } from '../../api'
@@ -119,11 +119,30 @@ function ProposalCard({ p, bookId, busy, locked, onApply, onReject, onUndo, sele
   )
 }
 
-function Proposals({ message, ...rest }: {
+/** "Anything else?": the reply's suggestions and the note go back to the LLM, which answers with a corrected list. */
+function ReviseBox({ busy, onRevise }: { busy: boolean; onRevise: (note: string) => Promise<boolean> }) {
+  const [note, setNote] = useState('')
+  const submit = async () => {
+    if (busy) return
+    if (await onRevise(note.trim())) setNote('')
+  }
+  return (
+    <form className="proposal-revise" onSubmit={e => { e.preventDefault(); void submit() }}>
+      <textarea rows={2} value={note} disabled={busy} placeholder="Anything else? Say what to change — you get a revised list of these suggestions."
+        onChange={e => setNote(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void submit() } }} />
+      <button type="submit" className="btn-sm btn-ghost" disabled={busy}>↻ Revise suggestions</button>
+    </form>
+  )
+}
+
+function Proposals({ message, onRevise, ...rest }: {
   message: BookChatMessage; bookId: number; busy: boolean; locked: boolean
   onApply: (ids: number[]) => void; onReject: (ids: number[]) => void; onUndo: (id: number) => void
+  onRevise: (messageId: number, note: string) => Promise<boolean>
 }) {
   const proposals = message.proposals
+  const revisable = proposals.some(p => p.status === 'Pending' || p.status === 'Failed' || p.status === 'Queued')
   const pending = proposals.filter(p => p.status === 'Pending' || p.status === 'Failed')
   const plain = pending.filter(p => !p.optionGroup)
   const groups = [...new Set(proposals.map(p => p.optionGroup).filter((g): g is string => !!g))].sort()
@@ -177,6 +196,7 @@ function Proposals({ message, ...rest }: {
           )}
         </div>
       )}
+      {revisable && <ReviseBox busy={rest.busy} onRevise={note => onRevise(message.id, note)} />}
     </div>
   )
 }
@@ -374,6 +394,26 @@ export default function BookChat() {
     }
   }
 
+  /** Sends a revision request; true when it was accepted (the box can be cleared). */
+  const revise = async (messageId: number, note: string) => {
+    if (busy) return false
+    setSending(true)
+    setError(null)
+    setPendingAuthor({ text: `↻ ${note || 'Revise these suggestions'}`, afterId: lastId })
+    stickToBottom.current = true
+    try {
+      await reviseBookChat(bookId, messageId, note)
+      await load()
+      return true
+    } catch (err) {
+      setPendingAuthor(null)
+      setError(`Could not revise: ${errorText(err)}`)
+      return false
+    } finally {
+      setSending(false)
+    }
+  }
+
   const apply = async (ids: number[]) => {
     setError(null)
     try {
@@ -418,7 +458,7 @@ export default function BookChat() {
     )
   }
 
-  const cardProps = { bookId, busy, locked, onApply: apply, onReject: (ids: number[]) => void run(() => rejectProposals(bookId, ids)), onUndo: undo }
+  const cardProps = { bookId, busy, locked, onRevise: revise, onApply: apply, onReject: (ids: number[]) => void run(() => rejectProposals(bookId, ids)), onUndo: undo }
 
   return (
     <div className="studio">
@@ -462,6 +502,7 @@ export default function BookChat() {
         ) : m.role === 'Author' ? (
           <div key={m.id} className="chat-msg from-author">
             {m.origin && <div className="message-origin">✈️ {m.origin}</div>}
+            {m.revisesMessageId && <div className="message-origin">↻ Revise the suggestions above</div>}
             <p>{m.content}</p>
             {m.status === 'Failed' && (
               <div className="chat-msg-failed">

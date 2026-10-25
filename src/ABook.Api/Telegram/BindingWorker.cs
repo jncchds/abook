@@ -865,8 +865,11 @@ public sealed class BindingWorker
         var footer = !canAct && proposals.Any(IsOpen)
             ? "This chat can only follow the book — apply these in abook, or ask the book's owner for Participate access."
             : canAct && proposals.Count(IsOpen) >= 2
-                ? "Tick several and apply them together — or reply with their numbers (“1 3”, “reject 2”)."
-                : null;
+                ? "Tick several and apply them together — or reply with their numbers (“1 3”, “reject 2”). " +
+                  "Anything else? Reply with what to change and get a revised list."
+                : canAct && proposals.Any(IsOpen)
+                    ? "Anything else? Reply with what to change and get a revised list."
+                    : null;
         var keyboard = canAct ? ProposalsKeyboard(_b.Id, m.Id, proposals, ticked) : [];
         var rich = ProposalsRich(_b.Id, proposals, footer is null ? null : H(footer));
         if (link is null)
