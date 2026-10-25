@@ -96,7 +96,7 @@ public class UserMcpTools : McpToolBase
     [McpServerTool(Name = "set_llm_config")]
     [Description("Set LLM settings. Without bookId: updates the current user's default preset (copied into every new book; existing books keep their own settings). If the default is a shared preset or there is none, a private preset named 'Default' is created from it and made the default. With bookId: updates only that book's settings. Valid providers: Ollama, OpenAI, GoogleAIStudio.")]
     public async Task<string> SetLlmConfig(
-        [Description("LLM provider name. Valid values: Ollama, OpenAI, GoogleAIStudio.")] string provider,
+        [Description("LLM provider name. Valid values: Ollama, OpenAI, GoogleAIStudio, OpenAICompatible (LM Studio, OpenRouter, vLLM and similar; reads reasoning_content).")] string provider,
         [Description("Model name to use (e.g. llama3, gpt-4o, gemini-2.0-flash).")] string modelName,
         [Description("API endpoint URL. Required for Ollama; optional for OpenAI-compatible providers.")] string endpoint = "",
         [Description("API key. Required for OpenAI and GoogleAIStudio.")] string? apiKey = null,
@@ -113,7 +113,7 @@ public class UserMcpTools : McpToolBase
         [Description("A book ID to change only that book's settings; omit to change the user's default preset.")] int? bookId = null)
     {
         if (!Enum.TryParse<LlmProvider>(provider, ignoreCase: true, out var providerEnum))
-            throw new McpException($"Unknown provider '{provider}'. Valid values: Ollama, OpenAI, GoogleAIStudio.");
+            throw new McpException($"Unknown provider '{provider}'. Valid values: {string.Join(", ", Enum.GetNames<LlmProvider>())}.");
         ImageProvider? imageProviderEnum = null;
         if (!string.IsNullOrWhiteSpace(imageProvider))
         {

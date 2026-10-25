@@ -64,7 +64,7 @@ React is built at image-build time and served from `wwwroot/` — there is no se
 |---|---|
 | `src/ABook.Core` | Domain models (`Book`, `Chapter`, `AgentMessage`, …) and interfaces (`IBookRepository`, `IAgentOrchestrator`, `ILlmProviderFactory`, `IVectorStoreService`, …) |
 | `src/ABook.Infrastructure` | EF Core `AppDbContext`, repositories, LLM provider factory + strategies, pgvector service, migrations |
-| `src/ABook.Agents` | All agent classes (`WriterAgent`, `EditorAgent`, `ContinuityCheckerAgent`, `PlannerAgent`, `StoryBibleAgent`, `CharactersAgent`, `PlotThreadsAgent`, `QuestionAgent`), `AgentOrchestrator`, `AgentRunStateService`, `AgentPrompts` |
+| `src/ABook.Agents` | All agent classes (`WriterAgent`, `EditorAgent`, `ContinuityCheckerAgent`, `PlannerAgent`, `StoryBibleAgent`, `CharactersAgent`, `PlotThreadsAgent`, `QuestionAgent`, `IllustrationPlannerAgent`, `ChapterSummarizer`, and the book chat in `BookChat/`: `BookChatAgent`, `ProposalExecutor`, `BookContentService`), `AgentOrchestrator`, `AgentRunStateService`, `AgentPrompts` |
 | `src/ABook.Api` | Controllers, SignalR `BookHub`, MCP tool classes, `Program.cs`, hosted services |
 | `src/abook-ui` | React 19 + TypeScript + Vite SPA |
 

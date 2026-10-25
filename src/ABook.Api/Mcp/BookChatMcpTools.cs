@@ -53,6 +53,18 @@ public class BookChatMcpTools(BookChatService chat, IBookRepository repo, IServi
         return await WaitAndSnapshotAsync(book, waitSeconds);
     }
 
+    [McpServerTool(Name = "retry_book_chat_message")]
+    [Description("Answer one of your book-chat messages again when its reply failed or was stopped (its status in get_book_chat is Failed). Waits for the reply and returns the latest messages.")]
+    public async Task<string> RetryBookChatMessage(
+        [Description("The book ID.")] int bookId,
+        [Description("The id of your (author) message whose reply failed.")] int messageId,
+        [Description(WaitHelp)] int waitSeconds = 180)
+    {
+        var book = await GetOwnedBookAsync(bookId, repo);
+        Throw(await chat.RetryAsync(bookId, messageId));
+        return await WaitAndSnapshotAsync(book, waitSeconds);
+    }
+
     [McpServerTool(Name = "start_book_chat")]
     [Description("Interactive books with an empty chat: ask the LLM for its opening reply — a Story Bible proposal and questions about the premise.")]
     public async Task<string> StartBookChat(

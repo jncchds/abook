@@ -122,6 +122,9 @@ public class TelegramFormatTests
         var idle = View(BookMode.Autonomous, null);
         Assert.Contains("9:cont", Buttons(TelegramAccessLevel.Control, idle));
         Assert.Contains("9:start", Buttons(TelegramAccessLevel.Control, View(BookMode.Autonomous, null, chapters: 0)));
+        // An unplanned book can also be only planned, to review the plan first.
+        Assert.Contains("9:plan", Buttons(TelegramAccessLevel.Control, View(BookMode.Autonomous, null, chapters: 0)));
+        Assert.DoesNotContain("9:plan", Buttons(TelegramAccessLevel.Control, idle));
         // Interactive books are written in the chat: no Start/Continue.
         Assert.DoesNotContain("9:cont", Buttons(TelegramAccessLevel.Control, View(BookMode.Interactive, null)));
     }

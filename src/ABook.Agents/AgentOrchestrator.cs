@@ -158,8 +158,64 @@ public class AgentOrchestrator : IAgentOrchestrator
             c => _editor.EditAsync(bookId, chapterId, c));
 
     public Task StartContinuityCheckAsync(int bookId, int? chapterId = null, CancellationToken ct = default) =>
-        ExecuteAgentRunAsync(bookId, AgentRole.ContinuityChecker, chapterId, ct,
-            async c => await _continuity.CheckAsync(bookId, chapterId, c));
+        ExecuteAgentRunAsync(bookId, AgentRole.ContinuityChecker, chapterId, ct, async c =>
+        {
+            // The checker reviews written chapters only; asked about another it would review the whole manuscript.
+            if (chapterId is int id && await _repo.GetChapterAsync(bookId, id) is { } chapter
+                && chapter.Status is not (ChapterStatus.Done or ChapterStatus.Review))
+                throw new InvalidOperationException($"Chapter {chapter.Number} is not written yet ({chapter.Status}) — only written chapters (Review or Done) can be checked.");
+            await _continuity.CheckAsync(bookId, chapterId, c);
+        });
+
+    /// <summary>
+    /// One section of an Autonomous book, the way the workflow writes it: broken down first when the planner expects
+    /// several chapters, then every chapter not Done goes through pre-check → write → check → fixes, in order.
+    /// </summary>
+    public Task StartSectionWritingAsync(int bookId, int sectionId, CancellationToken ct = default) =>
+        ExecuteAgentRunAsync(bookId, AgentRole.Writer, null, ct, async c =>
+        {
+            var section = await _repo.GetSectionAsync(bookId, sectionId)
+                ?? throw new InvalidOperationException($"Section {sectionId} not found.");
+            await _notifier.NotifyWorkflowProgressAsync(bookId, $"Writing section {section.Number}: {section.Title}…", false, c);
+
+            var own = (await _repo.GetChaptersAsync(bookId)).Where(ch => ch.SectionId == sectionId).ToList();
+            if (section.PlannedChapters > 1 && own.Count == 1 && string.IsNullOrWhiteSpace(own[0].Content))
+            {
+                _state.UpdateRunRole(bookId, AgentRole.ChaptersAgent, null);
+                await _planner.BreakDownSectionAsync(bookId, sectionId, section.PlannedChapters, c);
+                // Reload: the breakdown added chapters.
+                own = (await _repo.GetChaptersAsync(bookId)).Where(ch => ch.SectionId == sectionId).ToList();
+            }
+
+            foreach (var chapter in own)
+            {
+                c.ThrowIfCancellationRequested();
+                if (chapter.Status == ChapterStatus.Done)
+                {
+                    await _notifier.NotifyWorkflowProgressAsync(bookId, $"Chapter {chapter.Number} already done — skipping.", false, c);
+                    continue;
+                }
+                await ProcessChapterAsync(bookId, chapter, c, resumeFromStatus: chapter.Status);
+            }
+        }, runType: "write-section");
+
+    /// <summary>Checks each written chapter of a section against what came before it (one check per chapter).</summary>
+    public Task StartSectionCheckAsync(int bookId, int sectionId, CancellationToken ct = default) =>
+        ExecuteAgentRunAsync(bookId, AgentRole.ContinuityChecker, null, ct, async c =>
+        {
+            var written = (await _repo.GetChaptersAsync(bookId))
+                .Where(ch => ch.SectionId == sectionId && ch.Status is ChapterStatus.Done or ChapterStatus.Review)
+                .ToList();
+            if (written.Count == 0)
+                throw new InvalidOperationException("This section has no written chapters to check.");
+            foreach (var chapter in written)
+            {
+                c.ThrowIfCancellationRequested();
+                _state.UpdateRunRole(bookId, AgentRole.ContinuityChecker, chapter.Id);
+                await _notifier.NotifyWorkflowProgressAsync(bookId, $"Checking Chapter {chapter.Number}…", false, c);
+                await _continuity.CheckAsync(bookId, chapter.Id, c);
+            }
+        }, runType: "continuity");
 
     /// <summary>
     /// Full autonomous workflow: Plan → Write+Edit each chapter → Continuity check.
@@ -376,6 +432,7 @@ public class AgentOrchestrator : IAgentOrchestrator
         var completionMsg = runType switch
         {
             "write"      => "Writing complete.",
+            "write-section" => "Section written.",
             "edit"       => "Editing complete.",
             "continuity" => "Continuity check complete.",
             "plan"       => "Planning complete.",

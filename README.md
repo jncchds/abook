@@ -20,7 +20,7 @@ A self-hosted web application that uses AI agents to collaboratively write books
 - **Guided planning Q&A** — before planning, the planner posts its clarifying questions to the book's **Clarifications** page and waits; answer each one there (or skip it), and submitting the last answer completes the round and planning carries on. Answers are kept as **clarifications** and added to the premise in every prompt, so nothing is lost if planning is interrupted, and the round isn't repeated once it's done. Edit, add, archive or restore them on the same page, or reopen the round to be asked again
 - **Two ways to write a book** — **Interactive**: write it in a chat with the LLM, in any order, approving every change; **Autonomous**: the LLM plans the whole book and writes it on its own
 - **Book chat (Interactive books)** — say what you want (a character, a plot thread, a chapter, a change); the LLM answers, flags **conflicts** with what the book already establishes, and proposes changes as cards with a diff — nothing changes until you **Apply** them, and every applied change can be **Undone**. No chapter count, no up-front outline: chapters are added at the end as you go, and each written chapter is summarized and checked, with the fixes proposed back in the chat. The premise and Story Bible are settled first and then **locked** while you write (only you can unlock them). Works on a phone; also available over MCP
-- **Flexible workflow controls** — **Plan Book** and **Write Book** (both pick up where the book left off), **Illustrate Book**, and individual per-chapter agent buttons; **Stop** cancels any running agent cleanly
+- **Flexible workflow controls** — **Plan Book** and **Write Book** (both pick up where the book left off), **Illustrate Book**, per-section runs on the Chapters page (**▶ Write section** writes a section's unfinished chapters the way Write Book does, breaking it down first when the planner expects several chapters; **🔍 Check** checks each written chapter of it) and per-chapter runs on the chapter page (**✍️ Write / Rewrite**, **🖋 Edit prose**, **🔍 Check**); **Stop** cancels any running agent cleanly
 - **Refresh-safe progress** — reloading the page (or losing the connection) mid-run keeps the current step, the latest progress message and everything streamed so far; new text continues where it left off
 - **Interrupted runs keep their output** — if a Characters, Plot Threads, or Chapter Outlines run times out, drops, or is stopped part-way, everything that finished streaming is saved instead of discarded; run the phase again to pick up where it left off
 - **Re-runs build on what exists** — regenerating a planning phase sends the current characters, plot threads, or outlines back to the model to refine and extend, rather than starting from a blank page; archived items stay out of it and are never overwritten
@@ -49,7 +49,7 @@ A self-hosted web application that uses AI agents to collaboratively write books
 ### Infrastructure
 - **Pluggable LLM backend** — Ollama (default, local), OpenAI (or any OpenAI-compatible API), or Google AI Studio; settings kept as presets (your default is copied into each new book) and per book
 - **Real-time streaming** — watch chapters being written token by token via SignalR; planning phases stream with live progressive JSON previews. Only book content streams — a reasoning model's thinking is saved to the chat as one "💭 Thinking" message when each step finishes (even when it fails), and the live view reconnects by itself after a network drop. Live updates are numbered, so after a drop the page gets exactly the updates it missed replayed; a heartbeat every 15 seconds notices a connection that died silently and reconnects it
-- **Fail-safe runs** — a stalled LLM connection times out instead of hanging the book; double-clicking a start button can't launch two runs; runs interrupted by a server restart are closed out with a note telling you to use **Continue**
+- **Fail-safe runs** — a stalled LLM connection times out instead of hanging the book; double-clicking a start button can't launch two runs; runs interrupted by a server restart are closed out with a note telling you how to pick up (**Plan Book** / **Write Book**, or `/plan` / `/continue` in Telegram)
 - **Health endpoint** — `GET /health` reports whether the database is reachable (for Docker/uptime checks)
 - **Token usage statistics** — per-agent prompt and completion token counts, persisted to the database and displayed in a collapsible panel. Calls that error, time out, or are cancelled are recorded too, with a Status column and the failure reason shown next to their partial counts
 - **MCP server** — built-in Model Context Protocol server at `/mcp`; connect Claude Desktop, VS Code Copilot, or any MCP client using a per-user API token
@@ -237,6 +237,23 @@ Workflow: enable **Illustrate this book** in the book settings → write the boo
 
 ABook includes a built-in [Model Context Protocol](https://modelcontextprotocol.io/) server at `/mcp`. Any MCP-compatible client can connect to read and write book content and trigger agent workflows.
 
+**Tools** (each tool's description says exactly what it does):
+
+| Area | Tools |
+|---|---|
+| Account & LLM | `get_current_user`, `get_llm_config`, `set_llm_config`, `list_presets`, `apply_preset` |
+| Books | `list_books`, `get_book`, `create_book`, `update_book`, `delete_book`, `generate_book`, `export_book` (html / fb2 / epub / metadata, or one chapter), `get_agent_messages`, `get_agent_status`, `get_token_usage` |
+| Planning | `list_clarifications`, `add_clarification`, `update_clarification`, `complete_planning_phase`, `reopen_planning_phase`, `clear_planning_phase` |
+| Content | `get_story_bible`, `update_story_bible`, `list_characters`, `create_character`, `update_character`, `delete_character`, `list_plot_threads`, `create_plot_thread`, `update_plot_thread`, `delete_plot_thread` |
+| Sections & chapters | `list_sections`, `update_section`, `move_section`, `archive_section`, `restore_section`, `list_chapters`, `get_chapter`, `create_chapter`, `update_chapter`, `move_chapter`, `move_chapter_to_section`, `split_chapter`, `archive_chapter`, `restore_chapter` |
+| History | `list_chapter_versions`, `get_chapter_version`, `activate_chapter_version`, `archive_character`, `restore_character`, `list_character_versions`, `restore_character_version`, `archive_plot_thread`, `restore_plot_thread`, `list_plot_thread_versions`, `restore_plot_thread_version`, `list_story_bible_versions`, `restore_story_bible_version` |
+| Runs (Autonomous books) | `start_planning`, `continue_planning`, `start_workflow`, `continue_workflow`, `stop_workflow`, `break_down_section`, `write_section`, `write_chapter`, `edit_chapter`, `run_continuity_check` (book, section or chapter), `answer_agent_question` |
+| Book chat (Interactive books) | `get_book_chat`, `start_book_chat`, `send_book_chat_message`, `revise_book_chat_suggestions`, `retry_book_chat_message`, `apply_book_chat_proposals`, `reject_book_chat_proposals`, `undo_book_chat_proposal`, `lock_story_bible` |
+| Illustrations | `list_illustrations`, `update_illustration`, `list_visual_assets`, `update_visual_asset`, `plan_illustrations`, `render_illustrations` |
+| Rewind | `list_rewind_points`, `preview_rewind`, `rewind_book` |
+
+Unlocking the Story Bible is left to the author (Book Settings); presets, prompts, illustration style and Telegram connections are managed in the web UI.
+
 **Setup:**
 1. Open **Settings** → **MCP Access**
 2. Generate an API token (or click Regenerate to rotate)
@@ -272,7 +289,7 @@ ABook includes a built-in [Model Context Protocol](https://modelcontextprotocol.
 
 **⏪ Rewind** (book sidebar) brings the whole book back to how it was at a moment you pick from a list: before one of your book-chat messages, after a reply, after a chapter version, or before/after an agent run.
 
-- **Preview first** — every chapter, the Story Bible, characters, plot threads, clarifications, book fields (title, premise, planning progress) and book-chat suggestion that would change, and how many chat messages get hidden. Nothing happens until you confirm.
+- **Preview first** — every section, chapter, the Story Bible, characters, plot threads, clarifications, book fields (title, premise, planning progress) and book-chat suggestion that would change, and how many chat messages get hidden. Nothing happens until you confirm.
 - **A new state, not a deletion** — each part gets the state it had then *as a new version* (a chapter gets a new version, the Story Bible a new snapshot, characters and threads a new version). Everything in between stays in each part's history, where you can still open or restore it. Parts created since are archived; parts deleted since come back.
 - **The chat** — messages after the moment are collapsed ("⏪ rewound") and never sent to the LLM again; the chat's rolling memory goes back to what it was then. Suggestions applied since are open again. There is no fast-forward.
 - Settings (prompts, LLM, mode, language, art direction) and illustrations are not rewound. A rewind is refused while an agent runs.
@@ -295,22 +312,22 @@ One bot per ABook server lets people follow and steer a book from Telegram.
 |---|---|
 | Read | See the status card, notices and files |
 | Participate *(default)* | …and answer the planner's questions, `/export`, `/note`, write in the book chat (Interactive books) and apply / reject / undo what it suggests |
-| Control | …and start, continue and stop runs, `/rewind`, `/unbind`. Runs use the book's LLM settings, so everyone there spends its tokens; in groups you can limit starting and stopping to the chat's admins (rewind and disconnect are always admins-only in groups) |
+| Control | …and start, continue, plan and stop runs, `/rewind`, `/unbind`. Runs use the book's LLM settings, so everyone there spends its tokens; in groups you can limit starting and stopping to the chat's admins (rewind and disconnect are always admins-only in groups) |
 
 **In the chat**
-- A pinned **status card** shows what the agents are doing, the chapters done and the tokens of the current run, with **Stop / Start / Continue**, **Refresh** and **Export** buttons for the chat's access.
+- A pinned **status card** shows what the agents are doing, the chapters done and the tokens of the current run, with **Stop / Start / Continue**, **Plan only** (before the book is planned: plan it and stop for review), **Refresh** and **Export** buttons for the chat's access.
 - The planner's questions are asked one at a time: **reply to the question message** to answer it, or press **Skip**. Other messages never count as answers.
 - **A file after each chapter edit** (EPUB, FB2 or HTML — set per chat), sent as a reply to the chapter's previous version; the planning document when planning completes; the whole book when the last chapter is done; rendered illustrations as photos.
 - In a private chat the chapter being written shows as a **live draft** (with a stop button for Control).
 - **Interactive books**: write in the chat to talk to the book chat. Its suggested changes come with buttons: ✅ / ✖️ per suggestion, **tick boxes** (☐/☑) to pick several and **Apply ticked** / **Reject ticked** them together, **Apply all** / **Reject all**, one button per alternative (option A/B), and ↩️ Undo. Or reply to the suggestions with their numbers — `1 3`, `apply 1, 3`, `reject 2`.
 - **Rewind**: reply `/rewind` to any message of the thread to rewind the book to when it was posted (to just before it, for your own book-chat message), or send `/rewind` alone to pick a recent moment from buttons. The bot shows the preview with **⏪ Rewind** / **Cancel** (valid 10 minutes); after the rewind every connected thread gets a divider message, rewound chat replies are crossed out, and changed chapters arrive as new file versions. Control only — and in groups only the chat's admins.
 - `/book` — the book's card (see below), for the book's owner and for everyone with Participate access in that chat. Participate can view everything, edit the Story Bible, characters, plot threads and chapter outlines, answer clarifications and download; the book's settings, archiving, restoring versions and writing/checking chapters need Control. Only the person who opened a card can use it.
-- Commands: `/status`, `/run`, `/continue`, `/stop`, `/export [epub|fb2|html|metadata]`, `/note text`, `/questions`, `/rewind`, `/book`, `/unbind`, `/help`.
+- Commands: `/status`, `/run`, `/continue`, `/plan`, `/stop`, `/export [epub|fb2|html|metadata]`, `/note text`, `/questions`, `/rewind`, `/book`, `/unbind`, `/help`.
 
 **Your account and your books** — link your Telegram account in **Settings → Telegram** (a one-time link). Then, in the private chat with the bot:
 - `/newbook` — a wizard card: reply to it with the title and premise, pick genre, language, mode and chapter count, **✅ Create**. It uses your default LLM preset, and the card turns into the new book's card.
 - `/books` — your books; tap one to see and edit it in the same card. Opening a book doesn't follow it anywhere.
-- The **book card**: its settings and LLM preset, the Story Bible, characters, plot threads, **sections** (edit a section's plan, add a chapter to it, move it, ⋔ break it down into chapters, archive it), chapters (with ⬆️/⬇️ to move them) and clarifications, and **⬇️ EPUB / FB2 / HTML / 🗂 Metadata** downloads. Cards are single messages edited in place: tap ✏️ on a field, **reply to the card** with the new text, then **💾 Save**. Add, archive and bring back characters, threads and chapters, see **🕘 Versions** and restore one, read a chapter as a file, write or check a chapter. Chapter text isn't edited in Telegram.
+- The **book card**: its settings and LLM preset, the Story Bible, characters, plot threads, **sections** (edit a section's plan, add a chapter to it, move it, ⋔ break it down into chapters, **✍️ Write section** / **🔍 Check section** in Autonomous books, archive it), chapters (with ⬆️/⬇️ to move them) and clarifications, **🔒 Lock bible & start writing** for Interactive books, and **⬇️ EPUB / FB2 / HTML / 🗂 Metadata** downloads. Cards are single messages edited in place: tap ✏️ on a field, **reply to the card** with the new text, then **💾 Save**. Add, archive and bring back characters, threads and chapters, see **🕘 Versions** and restore one, read a chapter as a file, write or check a chapter. Chapter text isn't edited in Telegram.
 - **Following a book** is explicit: the card's **🔗 Chats** lists the chats that follow the book (each with *disconnect*) and makes a one-time code for the access you pick (Read / Participate / Control) — the same code as Book Settings → Telegram, with a link for this private chat, a link to add the bot to a group, and `/bind CODE` for a topic or channel.
 - `/unlink`, `/account`.
 
@@ -370,7 +387,12 @@ Agents stream tokens via SignalR as they write.
 | **Plan Book** | Runs only the incomplete planning phases and stops so you can review outlines |
 | **Write Book** | Full pipeline (idempotent — skips completed phases and Done chapters, so it also resumes an interrupted run) |
 | **Illustrate Book** | Renders the planned illustrations (shown when illustrations are enabled) |
+| **▶ Write section** / **▶ Write** (Chapters page) | One section as Write Book writes it: broken down first when the planner expects several chapters, then pre-check → write → check → fixes for each chapter not Done (a one-chapter section shows it on the chapter as **▶ Write**) |
+| **🔍 Check** (Chapters page) | Checks each written chapter of the section, one at a time; findings arrive in Agent Messages |
+| **✍️ Write / Rewrite**, **🖋 Edit prose**, **🔍 Check** (chapter page) | One agent on one chapter: the Writer from the outline, the Editor on the prose, or a continuity check of that chapter |
 | **Stop** | Cancels any running agent cleanly |
+
+Interactive books have none of these: their chapters are written, edited and checked from the book chat.
 
 ### Interactive books — the book chat
 
@@ -385,7 +407,7 @@ Choose **Interactive** when you create a book (Autonomous is the default; the mo
 
 While writing, the premise and Story Bible are **locked**: the chat cannot change them and the Story Bible page is read-only. You can unlock them in **Book Settings** if you really need to — the LLM never does.
 
-Each request sends the LLM a compact digest of the book plus only the last few messages (older ones are kept as a short running summary), so long chats stay fast and cheap. The page works on a phone. Over MCP: `send_book_chat_message`, `get_book_chat`, `apply_book_chat_proposals`, `reject_book_chat_proposals`, `undo_book_chat_proposal`, `start_book_chat`, `lock_story_bible`.
+Each request sends the LLM a compact digest of the book plus only the last few messages (older ones are kept as a short running summary), so long chats stay fast and cheap. The page works on a phone. Over MCP: `send_book_chat_message`, `get_book_chat`, `revise_book_chat_suggestions`, `retry_book_chat_message`, `apply_book_chat_proposals`, `reject_book_chat_proposals`, `undo_book_chat_proposal`, `start_book_chat`, `lock_story_bible`. In Telegram, the book card has **🔒 Lock bible & start writing**.
 
 Chapter edits you make by hand are re-embedded in the background, so retrieval for later chapters sees your text rather than the version the agent wrote.
 

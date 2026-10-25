@@ -2,6 +2,7 @@ using ABook.Agents;
 using ABook.Core.Interfaces;
 using ABook.Core.Models;
 using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using System.ComponentModel;
 using System.Security.Claims;
@@ -14,12 +15,54 @@ public class BookMcpTools : McpToolBase
 {
     private readonly IBookRepository _repo;
     private readonly AgentRunStateService _runState;
+    private readonly ABook.Api.Services.BookExportService _exporter;
 
-    public BookMcpTools(IBookRepository repo, AgentRunStateService runState, IHttpContextAccessor http)
+    public BookMcpTools(IBookRepository repo, AgentRunStateService runState, ABook.Api.Services.BookExportService exporter, IHttpContextAccessor http)
         : base(http)
     {
         _repo = repo;
         _runState = runState;
+        _exporter = exporter;
+    }
+
+    // ── Export ────────────────────────────────────────────────────────────────
+
+    [McpServerTool(Name = "export_book", ReadOnly = true)]
+    [Description("Download a book as a file — the same files as the web UI's downloads: html (the default), fb2, epub, or metadata (book info and stats, the Story Bible, clarifications, characters, plot threads, the plan of sections and chapters, and the full timeline). With chapterId: one chapter as its own small book (html, fb2 or epub). Archived chapters are never included; sections become part headings when the book's showSectionsInOutput is on. Text formats come back as an embedded text resource, epub as a base64 blob.")]
+    public async Task<CallToolResult> ExportBook(
+        [Description("The book ID.")] int bookId,
+        [Description("html, fb2, epub or metadata.")] string format = "html",
+        [Description("Optional chapter ID: export only that chapter (not with metadata).")] int? chapterId = null)
+    {
+        await GetOwnedBookAsync(bookId, _repo);
+        format = format.Trim().ToLowerInvariant();
+        if (format is not ("html" or "fb2" or "epub" or "metadata"))
+            throw new McpException("format must be html, fb2, epub or metadata.");
+        if (chapterId is not null && format == "metadata")
+            throw new McpException("metadata covers the whole book; omit chapterId.");
+
+        (byte[] Bytes, string ContentType, string Filename) file;
+        try
+        {
+            file = chapterId is int id
+                ? await _exporter.ExportChapterAsync(bookId, id, format)
+                : await _exporter.ExportAsync(bookId, format);
+        }
+        catch (KeyNotFoundException ex) { throw new McpException(ex.Message); }
+
+        var uri = $"abook://books/{bookId}/export/{Uri.EscapeDataString(file.Filename)}";
+        var mime = file.ContentType.Split(';')[0].Trim();
+        ResourceContents resource = format == "epub"
+            ? BlobResourceContents.FromBytes(file.Bytes, uri, mime)
+            : new TextResourceContents { Uri = uri, MimeType = mime, Text = System.Text.Encoding.UTF8.GetString(file.Bytes) };
+        return new CallToolResult
+        {
+            Content =
+            [
+                new TextContentBlock { Text = $"{file.Filename} ({file.Bytes.Length:N0} bytes, {mime})" },
+                new EmbeddedResourceBlock { Resource = resource },
+            ],
+        };
     }
 
 

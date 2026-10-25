@@ -5,7 +5,7 @@ import type { Book, AgentMessage, AgentRunStatus, StoryBible, CharacterCard, Plo
 import {
   getBook, getMessages, postAnswer, getAgentStatus,
   startPlanning, completePlanningPhase, reopenPlanningPhase, clearPlanningPhase,
-  startWorkflow, stopWorkflow,
+  startWorkflow, stopWorkflow, startWriting, startEditing, startContinuityCheck, startSectionWriting,
   getTokenUsage, clearMessages, clearTokenUsage,
   getStoryBible, getCharacters, getPlotThreads, getChapters, getChapter, getSections,
   getIllustrations, planIllustrations, renderIllustrations, getClarifications,
@@ -112,6 +112,10 @@ interface BookContextValue {
   hubConnected: boolean
   handleWriteBook: () => Promise<void>
   handlePlanBook: () => Promise<void>
+  /** Single-chapter runs: the Writer, the Editor, or a continuity check of that chapter. */
+  handleChapterRun: (kind: 'write' | 'edit' | 'check', chapterId: number) => Promise<void>
+  /** Section runs: write its chapters as Write Book does (Autonomous books), or check each written one. */
+  handleSectionRun: (kind: 'write' | 'check', sectionId: number) => Promise<void>
   handleStop: () => Promise<void>
   handleCompletePhase: (phase: string) => Promise<void>
   handleReopenPhase: (phase: string) => Promise<void>
@@ -580,8 +584,8 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   const handleWriteBook = useCallback(() => startAgentRun(() => startWorkflow(bookId), 'Planner'), [startAgentRun, bookId])
   const handlePlanBook = useCallback(() => startAgentRun(() => startPlanning(bookId), 'Planner'), [startAgentRun, bookId])
 
-  // Unlike startAgentRun these report every refusal (no text yet, no image endpoint), not only 409.
-  const startIllustrationRun = useCallback(async (apiCall: () => Promise<unknown>, role: string) => {
+  // Unlike startAgentRun these report every refusal (no text yet, no image endpoint, archived), not only 409.
+  const startReportedRun = useCallback(async (apiCall: () => Promise<unknown>, role: string) => {
     if (isRunning) return
     setWorkflowLog([])
     try {
@@ -593,10 +597,21 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   }, [isRunning])
 
   const handlePlanIllustrations = useCallback((scope: IllustrationPlanScope, targetId?: number) =>
-    startIllustrationRun(() => planIllustrations(bookId, scope, targetId), 'IllustrationPlanner'), [startIllustrationRun, bookId])
+    startReportedRun(() => planIllustrations(bookId, scope, targetId), 'IllustrationPlanner'), [startReportedRun, bookId])
 
   const handleRenderIllustrations = useCallback((scope: RenderScope, targetId?: number, reroll = false) =>
-    startIllustrationRun(() => renderIllustrations(bookId, scope, targetId, reroll), 'Illustrator'), [startIllustrationRun, bookId])
+    startReportedRun(() => renderIllustrations(bookId, scope, targetId, reroll), 'Illustrator'), [startReportedRun, bookId])
+
+  const handleChapterRun = useCallback((kind: 'write' | 'edit' | 'check', chapterId: number) =>
+    kind === 'write' ? startReportedRun(() => startWriting(bookId, chapterId), 'Writer')
+      : kind === 'edit' ? startReportedRun(() => startEditing(bookId, chapterId), 'Editor')
+      : startReportedRun(() => startContinuityCheck(bookId, { chapterId }), 'ContinuityChecker'),
+  [startReportedRun, bookId])
+
+  const handleSectionRun = useCallback((kind: 'write' | 'check', sectionId: number) =>
+    kind === 'write' ? startReportedRun(() => startSectionWriting(bookId, sectionId), 'Writer')
+      : startReportedRun(() => startContinuityCheck(bookId, { sectionId }), 'ContinuityChecker'),
+  [startReportedRun, bookId])
 
   const handleStop = async () => {
     try { await stopWorkflow(bookId) } catch { /* ignore */ }
@@ -689,7 +704,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     refreshBook, reloadStructure, refreshMessages,
     handleAnswer,
     bookChatStream, bookChatVersion, hubConnected,
-    handleWriteBook, handlePlanBook, handleStop,
+    handleWriteBook, handlePlanBook, handleChapterRun, handleSectionRun, handleStop,
     handleCompletePhase, handleReopenPhase, handleClearPhase, isPhaseComplete,
     clearMessagesForBook, clearTokenUsageForBook,
   }

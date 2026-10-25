@@ -42,7 +42,7 @@ export default function Chapters() {
   const {
     book, setBook, reloadStructure,
     canEdit, isRunning,
-    plannerBuffer, runStatus,
+    plannerBuffer, runStatus, handleSectionRun,
   } = useBookContext()
 
   const [addingAt, setAddingAt] = useState<AddPlace | null>(null)
@@ -166,6 +166,38 @@ export default function Chapters() {
   /** A section can be broken down while none of its chapters is written. */
   const canBreakDown = (s: Section | null) => !!s && !s.isArchived && !isRunning
     && chapters.filter(c => c.sectionId === s.id && !c.isArchived).every(c => !c.content?.trim())
+
+  /**
+   * Autonomous books: write a section as Write Book does (pre-check, write, check, fixes — broken down first when
+   * the planner expects several chapters), or check its written chapters. A one-chapter section shows them on its chapter.
+   */
+  const sectionRunButtons = (s: Section) => {
+    if (book.mode === 'Interactive' || isRunning || s.isArchived) return null
+    const own = chapters.filter(c => c.sectionId === s.id && !c.isArchived)
+    const single = own.length === 1
+    const toWrite = own.filter(c => c.status !== 'Done').length
+    const written = own.filter(c => c.content?.trim() && (c.status === 'Done' || c.status === 'Review')).length
+    return (
+      <>
+        {toWrite > 0 && (
+          <button className="btn-sm" onClick={() => handleSectionRun('write', s.id)}
+            title={single
+              ? 'Pre-check, write, check and fix this chapter, as Write Book does'
+              : `Pre-check, write, check and fix the section's ${toWrite} unfinished chapter${toWrite === 1 ? '' : 's'} in order, as Write Book does`}>
+            ▶ {single ? 'Write' : 'Write section'}
+          </button>
+        )}
+        {written > 0 && (
+          <button className="btn-sm btn-ghost" onClick={() => handleSectionRun('check', s.id)}
+            title={single
+              ? 'Check this chapter against the Story Bible, characters and the chapters before it; findings arrive in Agent Messages'
+              : `Check the section's ${written} written chapter${written === 1 ? '' : 's'}, one at a time; findings arrive in Agent Messages`}>
+            🔍 Check
+          </button>
+        )}
+      </>
+    )
+  }
 
   const handleArchive = (chapterId: number) => change(() => archiveChapter(id, chapterId))
   const handleRestore = (chapterId: number) => change(() => restoreChapter(id, chapterId))
@@ -341,6 +373,7 @@ export default function Chapters() {
             )}
           </div>
           <div className="book-list-card-right">
+            {single && group.section && sectionRunButtons(group.section)}
             {canEdit && (
               <>
                 {moveButtons}
@@ -389,6 +422,7 @@ export default function Chapters() {
             </h3>
             {!editing && s.outline && <p className="blc-premise" style={{ marginTop: '0.25rem' }}>{s.outline}</p>}
           </div>
+          {!editing && <div>{sectionRunButtons(s)}</div>}
           {canEdit && !editing && (
             <div>
               <button className="btn-sm btn-ghost" title="Move the section up" disabled={busy || si <= 0} onClick={() => handleMoveSection(s, -1)}>↑</button>

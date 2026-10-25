@@ -101,7 +101,7 @@ public class RunRecoveryService : BackgroundService
                     MessageType = MessageType.SystemNote,
                     Content = isChat
                         ? $"❌ {reason} (run {run.Id})"
-                        : $"❌ {reason} Use Continue (or Continue Planning) to pick up where it stopped. (run {run.Id})",
+                        : $"❌ {reason} {ResumeHint(run.RunType)} (run {run.Id})",
                     IsResolved = true
                 });
 
@@ -113,7 +113,7 @@ public class RunRecoveryService : BackgroundService
                 }
 
                 await notifier.NotifyAgentErrorAsync(run.BookId, run.CurrentRole.ToString(),
-                    isChat ? reason : $"{reason} Use Continue to pick up where it stopped.", ct);
+                    isChat ? reason : $"{reason} {ResumeHint(run.RunType)}", ct);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -126,4 +126,12 @@ public class RunRecoveryService : BackgroundService
         _logger.LogInformation("RunRecoveryService: orphaned {Waiting} waiting and {Running} running run(s).",
             waiting.Count, running.Count);
     }
+
+    /// <summary>
+    /// How to pick an interrupted run up again, named after the buttons and commands that do it (the workflow's run
+    /// type is "plan" or "write" by its first role, so those hints cover it too).
+    /// </summary>
+    internal static string ResumeHint(string runType) => runType == "rewind"
+        ? "Nothing was changed; start the rewind again."
+        : "Plan Book and Write Book pick up where it stopped (Telegram: /plan, /continue); a chapter or section run can simply be started again.";
 }

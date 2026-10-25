@@ -243,6 +243,8 @@ public sealed partial class TelegramCardService
         rows.Add([B(ctx, "📚 Chapters", "nav", "chapters"), B(ctx, "❓ Clarifications", "nav", "clars")]);
         if (book.Mode == BookMode.Interactive && !(await repo.GetChatMessagesAsync(book.Id, null, 1)).Any(m => m.Role != BookChatRole.Event))
             rows.Add([B(ctx, "💬 Start the book chat", "kick", style: "success")]);
+        else if (book.Mode == BookMode.Interactive && !BookContentService.IsBibleLocked(book) && ctx.CanControl)
+            rows.Add([B(ctx, "🔒 Lock bible & start writing", "lock")]);
         rows.Add([B(ctx, "⬇️ EPUB", "exp", "epub"), B(ctx, "FB2", "exp", "fb2"), B(ctx, "HTML", "exp", "html"), B(ctx, "🗂 Metadata", "exp", "metadata")]);
         var last = new List<TgButton>();
         if (ctx.IsOwner) last.Add(B(ctx, "🔗 Chats", "view", "chats"));
@@ -542,6 +544,14 @@ public sealed partial class TelegramCardService
                 rows.Add(controls);
                 if (active.Count > 0 && active.All(c => string.IsNullOrWhiteSpace(c.Content)))
                     rows.Add([B(ctx, "⋔ Break down (planner decides)", "brk"), B(ctx, "⋔ into 2", "brk", 2), B(ctx, "3", "brk", 3)]);
+                // Autonomous books: the section as Write Book writes it, or a check of each written chapter.
+                if (ctx.Book!.Mode == BookMode.Autonomous)
+                {
+                    var runs = new List<TgButton>();
+                    if (active.Any(c => c.Status != ChapterStatus.Done)) runs.Add(B(ctx, "✍️ Write section", "wsec"));
+                    if (active.Any(c => c.Status is ChapterStatus.Done or ChapterStatus.Review)) runs.Add(B(ctx, "🔍 Check section", "csec"));
+                    if (runs.Count > 0) rows.Add(runs);
+                }
             }
         }
         var last = new List<TgButton>();

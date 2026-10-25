@@ -43,6 +43,7 @@ public sealed class TelegramUpdateHandler(
     [
         ("status", "Post a fresh status card"),
         ("run", "Start the book (plan and write)"),
+        ("plan", "Only plan the book, to review the plan before writing"),
         ("continue", "Continue where the book stopped"),
         ("stop", "Stop the running agent"),
         ("export", "Send the book as a file (epub, fb2, html or metadata)"),
@@ -332,11 +333,15 @@ public sealed class TelegramUpdateHandler(
                 break;
             case "run":
                 if (!await RequireAsync(binding, TelegramAccessLevel.Control, message.From, message)) return;
-                await ReplyAsync(message, await StartRunAsync(sp, binding, continueRun: false, origin));
+                await ReplyAsync(message, await StartRunAsync(sp, binding, RunKind.Start, origin));
                 break;
             case "continue":
                 if (!await RequireAsync(binding, TelegramAccessLevel.Control, message.From, message)) return;
-                await ReplyAsync(message, await StartRunAsync(sp, binding, continueRun: true, origin));
+                await ReplyAsync(message, await StartRunAsync(sp, binding, RunKind.Continue, origin));
+                break;
+            case "plan":
+                if (!await RequireAsync(binding, TelegramAccessLevel.Control, message.From, message)) return;
+                await ReplyAsync(message, await StartRunAsync(sp, binding, RunKind.Plan, origin));
                 break;
             case "stop":
                 if (!await RequireAsync(binding, TelegramAccessLevel.Control, message.From, message)) return;
@@ -389,7 +394,11 @@ public sealed class TelegramUpdateHandler(
         }
         if (binding.Level == TelegramAccessLevel.Control)
         {
-            if (!interactive) commands.Add(("/run · /continue", "start or continue the book"));
+            if (!interactive)
+            {
+                commands.Add(("/run · /continue", "start or continue the book"));
+                commands.Add(("/plan", "only plan it (Story Bible, characters, plot threads, sections) and stop for review"));
+            }
             commands.Add(("/stop", "stop the running agent"));
             commands.Add(("/rewind", "reply to a message to rewind the book to that moment (or pick one)"));
             commands.Add(("/unbind", "disconnect this chat"));
@@ -525,7 +534,10 @@ public sealed class TelegramUpdateHandler(
 
     // ── Runs ──────────────────────────────────────────────────────────────────
 
-    private async Task<string> StartRunAsync(IServiceProvider sp, TelegramBinding binding, bool continueRun, string origin)
+    /// <summary>The runs a chat with Control can start for an Autonomous book.</summary>
+    private enum RunKind { Start, Continue, Plan }
+
+    private async Task<string> StartRunAsync(IServiceProvider sp, TelegramBinding binding, RunKind kind, string origin)
     {
         var repo = sp.GetRequiredService<IBookRepository>();
         var book = await repo.GetByIdAsync(binding.BookId);
@@ -534,20 +546,34 @@ public sealed class TelegramUpdateHandler(
             return "💬 This is an Interactive book: it is written in the book chat — just write here.";
 
         var bookId = book.Id;
-        var result = continueRun
-            ? runner.TryStart(bookId, AgentRole.Writer, null, (o, c) => o.ContinueWorkflowAsync(bookId, c))
-            : runner.TryStart(bookId, AgentRole.Planner, null, (o, c) => o.StartWorkflowAsync(bookId, c));
+        var result = kind switch
+        {
+            RunKind.Continue => runner.TryStart(bookId, AgentRole.Writer, null, (o, c) => o.ContinueWorkflowAsync(bookId, c)),
+            // Only the planning phases not complete yet, then it stops so the plan can be reviewed (Plan Book).
+            RunKind.Plan => runner.TryStart(bookId, AgentRole.Planner, null, (o, c) => o.StartPlanningAsync(bookId, c)),
+            _ => runner.TryStart(bookId, AgentRole.Planner, null, (o, c) => o.StartWorkflowAsync(bookId, c)),
+        };
         if (result != RunStartResult.Success) return "⏳ " + H(result.ToMessage());
 
         await repo.AddMessageAsync(new AgentMessage
         {
-            BookId = bookId, AgentRole = continueRun ? AgentRole.Writer : AgentRole.Planner, MessageType = MessageType.SystemNote,
-            Content = continueRun ? "⏩ Workflow continued from Telegram." : "▶️ Workflow started from Telegram.",
+            BookId = bookId, AgentRole = kind == RunKind.Continue ? AgentRole.Writer : AgentRole.Planner, MessageType = MessageType.SystemNote,
+            Content = kind switch
+            {
+                RunKind.Continue => "⏩ Workflow continued from Telegram.",
+                RunKind.Plan => "🗂 Planning started from Telegram.",
+                _ => "▶️ Workflow started from Telegram.",
+            },
             IsResolved = true, Origin = origin,
         });
         await sp.GetRequiredService<IBookNotifier>().NotifyMessagesUpdatedAsync(bookId);
         dispatcher.Worker(binding.Id)?.RefreshStatus();
-        return continueRun ? "⏩ Continuing the book." : "▶️ Starting the book.";
+        return kind switch
+        {
+            RunKind.Continue => "⏩ Continuing the book.",
+            RunKind.Plan => "🗂 Planning the book — it stops when the plan (Story Bible, characters, plot threads, sections) is ready, so you can review it. /run or Continue writes it.",
+            _ => "▶️ Starting the book.",
+        };
     }
 
     private async Task<string> StopRunAsync(IServiceProvider sp, TelegramBinding binding, string origin)
@@ -636,7 +662,9 @@ public sealed class TelegramUpdateHandler(
                 return ("Preparing the file…", false);
             case "start":
             case "cont":
-                return (Plain(await StartRunAsync(sp, binding, continueRun: action == "cont", origin)), false);
+            case "plan":
+                return (Plain(await StartRunAsync(sp, binding,
+                    action switch { "cont" => RunKind.Continue, "plan" => RunKind.Plan, _ => RunKind.Start }, origin)), false);
             case "stop":
                 return (Plain(await StopRunAsync(sp, binding, origin)), false);
             case "skipc":

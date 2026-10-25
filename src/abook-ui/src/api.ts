@@ -519,7 +519,12 @@ export const breakDownSection = (bookId: number, sectionId: number, chapters?: n
   api.post(`/books/${bookId}/agent/breakdown/${sectionId}`, null, { params: chapters ? { chapters } : {} })
 export const startEditing = (bookId: number, chapterId: number) =>
   api.post(`/books/${bookId}/agent/edit/${chapterId}`)
-export const startContinuityCheck = (bookId: number) => api.post(`/books/${bookId}/agent/continuity`)
+/** The whole manuscript, one chapter, or each written chapter of one section. */
+export const startContinuityCheck = (bookId: number, target?: { chapterId?: number; sectionId?: number }) =>
+  api.post(`/books/${bookId}/agent/continuity`, null, { params: target ?? {} })
+/** Autonomous books: writes a section's chapters as Write Book does (breaking it down first when planned). */
+export const startSectionWriting = (bookId: number, sectionId: number) =>
+  api.post(`/books/${bookId}/agent/write-section/${sectionId}`)
 export const startWorkflow = (bookId: number) => api.post(`/books/${bookId}/agent/workflow/start`)
 export const stopWorkflow = (bookId: number) => api.post(`/books/${bookId}/agent/workflow/stop`)
 export const getAgentStatus = (bookId: number) =>

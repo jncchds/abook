@@ -143,14 +143,43 @@ public class AgentMcpTools : McpToolBase
     }
 
     [McpServerTool(Name = "run_continuity_check")]
-    [Description("Run the Continuity Checker agent. When chapterId is provided, checks that specific chapter against established facts. When omitted, performs a full cross-manuscript review of all chapters.")]
+    [Description("Run the Continuity Checker agent. With chapterId: checks that chapter against established facts. With sectionId: checks each written chapter of that section, one at a time. With neither: a full cross-manuscript review of all chapters. Only written chapters (Review or Done) are checked; findings arrive in the agent messages.")]
     public async Task<string> RunContinuityCheck(
         [Description("The book ID.")] int bookId,
-        [Description("Optional chapter ID for a focused per-chapter check. Omit for a full manuscript check.")] int? chapterId = null)
+        [Description("Optional chapter ID for a focused per-chapter check.")] int? chapterId = null,
+        [Description("Optional section ID: check each written chapter of the section (not with chapterId).")] int? sectionId = null)
     {
+        if (chapterId is not null && sectionId is not null) throw new McpException("Pass chapterId or sectionId, not both.");
+        if (sectionId is int sid)
+        {
+            await GetActiveSectionAsync(bookId, sid);
+            if (!(await _repo.GetChaptersAsync(bookId)).Any(c => c.SectionId == sid && c.Status is ChapterStatus.Done or ChapterStatus.Review))
+                throw new McpException("This section has no written chapters to check.");
+            await StartAsync(bookId, AgentRole.ContinuityChecker, null, (o, c) => o.StartSectionCheckAsync(bookId, sid, c));
+            return JsonSerializer.Serialize(new { started = true, bookId, sectionId, phase = "continuity_check" }, JsonOptions);
+        }
         await StartAsync(bookId, AgentRole.ContinuityChecker, chapterId,
             (o, c) => o.StartContinuityCheckAsync(bookId, chapterId, c));
         return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "continuity_check" }, JsonOptions);
+    }
+
+    [McpServerTool(Name = "write_section")]
+    [Description("Autonomous books: write one section (see list_sections) the way start_workflow writes the book — a section the planner expects to need several chapters is broken down first, then every chapter of it that is not Done goes through pre-write check → Writer → check → fixes, in order. Done chapters are skipped, so it also resumes. Runs in the background; use list_chapters / get_chapter when it completes.")]
+    public async Task<string> WriteSection(
+        [Description("The book ID.")] int bookId,
+        [Description("The section ID.")] int sectionId)
+    {
+        await GetActiveSectionAsync(bookId, sectionId);
+        await StartAsync(bookId, AgentRole.Writer, null, (o, c) => o.StartSectionWritingAsync(bookId, sectionId, c));
+        return JsonSerializer.Serialize(new { started = true, bookId, sectionId, phase = "writing_section" }, JsonOptions);
+    }
+
+    private async Task GetActiveSectionAsync(int bookId, int sectionId)
+    {
+        await GetOwnedBookAsync(bookId, _repo);
+        var section = await _repo.GetSectionAsync(bookId, sectionId)
+            ?? throw new McpException($"Section {sectionId} not found in book {bookId}.");
+        if (section.IsArchived) throw new McpException($"Section {sectionId} is archived. Restore it first.");
     }
 
     // ── Human-in-the-loop ─────────────────────────────────────────────────────

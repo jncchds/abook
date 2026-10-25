@@ -141,7 +141,8 @@ public static partial class TelegramFormat
             if (v.Run is { IsActive: true })
                 rows.Add([new TgButton("⏹ Stop", Callback(b, "stop"), Style: "danger")]);
             else if (v.Chapters.Count == 0)
-                rows.Add([new TgButton("▶️ Start the book", Callback(b, "start"), Style: "success")]);
+                rows.Add([new TgButton("▶️ Start the book", Callback(b, "start"), Style: "success"),
+                          new TgButton("🗂 Plan only", Callback(b, "plan"))]);
             else if (v.Chapters.Any(c => c.Status != ChapterStatus.Done))
                 rows.Add([new TgButton("⏩ Continue", Callback(b, "cont"), Style: "success")]);
             else if (v.Chapters.Count < v.Book.TargetChapterCount)

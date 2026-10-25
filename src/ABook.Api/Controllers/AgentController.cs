@@ -84,9 +84,39 @@ public class AgentController : ControllerBase
     public Task<IActionResult> Edit(int bookId, int chapterId) =>
         StartAsync(bookId, AgentRole.Editor, chapterId, (o, c) => o.StartEditingAsync(bookId, chapterId, c));
 
+    /// <summary>
+    /// The whole manuscript, one chapter (<c>chapterId</c>) or each written chapter of one section (<c>sectionId</c>).
+    /// </summary>
     [HttpPost("continuity")]
-    public Task<IActionResult> Continuity(int bookId) =>
-        StartAsync(bookId, AgentRole.ContinuityChecker, null, (o, c) => o.StartContinuityCheckAsync(bookId, null, c));
+    public async Task<IActionResult> Continuity(int bookId, [FromQuery] int? chapterId = null, [FromQuery] int? sectionId = null)
+    {
+        if (chapterId is not null && sectionId is not null)
+            return BadRequest(new { message = "Pass chapterId or sectionId, not both." });
+        if (sectionId is int sid)
+        {
+            if (await CheckSectionAsync(bookId, sid) is { } bad) return bad;
+            if (!(await _repo.GetChaptersAsync(bookId)).Any(c => c.SectionId == sid && c.Status is ChapterStatus.Done or ChapterStatus.Review))
+                return BadRequest(new { message = "This section has no written chapters to check." });
+            return await StartAsync(bookId, AgentRole.ContinuityChecker, null, (o, c) => o.StartSectionCheckAsync(bookId, sid, c));
+        }
+        return await StartAsync(bookId, AgentRole.ContinuityChecker, chapterId, (o, c) => o.StartContinuityCheckAsync(bookId, chapterId, c));
+    }
+
+    /// <summary>Autonomous books: writes a section's chapters the way Write Book does (breaking it down first when planned).</summary>
+    [HttpPost("write-section/{sectionId:int}")]
+    public async Task<IActionResult> WriteSection(int bookId, int sectionId)
+    {
+        if (await CheckSectionAsync(bookId, sectionId) is { } bad) return bad;
+        return await StartAutonomousAsync(bookId, AgentRole.Writer, (o, c) => o.StartSectionWritingAsync(bookId, sectionId, c));
+    }
+
+    private async Task<IActionResult?> CheckSectionAsync(int bookId, int sectionId)
+    {
+        var section = await _repo.GetSectionAsync(bookId, sectionId);
+        if (section is null) return NotFound(new { message = $"Section {sectionId} not found." });
+        if (section.IsArchived) return BadRequest(new { message = "This section is archived. Restore it first." });
+        return null;
+    }
 
     [HttpPost("workflow/start")]
     public Task<IActionResult> StartWorkflow(int bookId) =>

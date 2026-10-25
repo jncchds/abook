@@ -179,7 +179,7 @@ public class PlotThreadsAgent : AgentBase
         Repo.AddPlotThreadVersionsBatchAsync(VersionsOf(bookId, threads, AgentCreatedBy.PlotThreads));
 
     /// <summary>One history version per saved thread, attributed to <paramref name="createdBy"/>.</summary>
-    internal static IEnumerable<PlotThreadVersion> VersionsOf(int bookId, IEnumerable<PlotThread> threads, string createdBy) =>
+    public static IEnumerable<PlotThreadVersion> VersionsOf(int bookId, IEnumerable<PlotThread> threads, string createdBy) =>
         threads.Select(thread => new PlotThreadVersion
         {
             PlotThreadId = thread.Id,

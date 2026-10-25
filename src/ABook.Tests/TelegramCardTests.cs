@@ -118,6 +118,9 @@ public class TelegramProposalDetailsTests
     [InlineData("section", "brk", true)]
     [InlineData("section", "arch", true)]
     [InlineData("chapter", "mv", true)]
+    [InlineData("section", "wsec", true)]   // section runs
+    [InlineData("section", "csec", true)]
+    [InlineData("book", "lock", true)]      // locking the bible starts the writing stage
     public void CardActions_ControlOnlyForSettingsArchivingRestoringAndRuns(string kind, string op, bool control) =>
         Assert.Equal(control, ABook.Api.Telegram.Cards.TelegramCardService.NeedsControlFor(kind, op));
 

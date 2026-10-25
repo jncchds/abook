@@ -208,7 +208,7 @@ public class ContentMcpTools : McpToolBase
     }
 
     [McpServerTool(Name = "delete_character", Destructive = true)]
-    [Description("Delete a character card from a book.")]
+    [Description("Permanently delete a character card from a book. To take a character out of the story but keep it restorable, use archive_character instead.")]
     public async Task<string> DeleteCharacter(
         [Description("The book ID.")] int bookId,
         [Description("The character card ID to delete.")] int characterId)
@@ -301,7 +301,7 @@ public class ContentMcpTools : McpToolBase
     }
 
     [McpServerTool(Name = "delete_plot_thread", Destructive = true)]
-    [Description("Delete a plot thread from a book.")]
+    [Description("Permanently delete a plot thread from a book. To drop a thread but keep it restorable, use archive_plot_thread instead.")]
     public async Task<string> DeletePlotThread(
         [Description("The book ID.")] int bookId,
         [Description("The plot thread ID to delete.")] int threadId)

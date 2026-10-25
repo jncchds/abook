@@ -16,6 +16,7 @@ export default function ChapterView() {
   const {
     book, setBook, streamBuffer, streamingChapterId, isRunning, canEdit, isWaitingForInput,
     illustrations, characters, refreshIllustrations, handlePlanIllustrations, handleRenderIllustrations,
+    handleChapterRun,
   } = useBookContext()
 
   const [editingChapter, setEditingChapter] = useState(false)
@@ -42,6 +43,11 @@ export default function ChapterView() {
   if (!chapter) return <p className="empty">Chapter not found.</p>
 
   const bookId = book.id
+  // Interactive books run these steps from the book chat instead.
+  const autonomous = book.mode !== 'Interactive'
+  const hasText = !!chapter.content?.trim()
+  // The checker reviews written chapters only (Review or Done).
+  const checkable = hasText && (chapter.status === 'Done' || chapter.status === 'Review')
   const reloadChapters = async () => {
     const r = await getChapters(bookId)
     setBook(prev => prev ? { ...prev, chapters: r.data } : prev)
@@ -259,6 +265,20 @@ export default function ChapterView() {
               <span className="phase-status-badge" style={{ background: chapter.status === 'Done' ? 'rgba(34,197,94,0.15)' : statusColor(chapter.status) + '22', color: chapter.status === 'Done' ? '#22c55e' : statusColor(chapter.status) }}>{chapter.status}</span>
             )}
             {chapter.isArchived && <span className="history-source-badge">archived</span>}
+            {autonomous && !isRunning && !chapter.isArchived && (
+              <button className="btn-icon" onClick={() => {
+                if (hasText && !confirm('Write this chapter again from its outline? The current text stays in its version history.')) return
+                handleChapterRun('write', chapter.id)
+              }} title="Have the Writer write this chapter from its outline">{hasText ? '✍️ Rewrite' : '✍️ Write'}</button>
+            )}
+            {autonomous && !isRunning && !chapter.isArchived && hasText && (
+              <button className="btn-icon" onClick={() => handleChapterRun('edit', chapter.id)}
+                title="Have the Editor revise this chapter's prose">🖋 Edit prose</button>
+            )}
+            {autonomous && !isRunning && !chapter.isArchived && checkable && (
+              <button className="btn-icon" onClick={() => handleChapterRun('check', chapter.id)}
+                title="Check this chapter against the Story Bible, characters and the chapters before it; findings arrive in Agent Messages">🔍 Check</button>
+            )}
             {canEdit && !chapter.isArchived && (
               <button className="btn-icon" onClick={startEditingChapter} title="Edit chapter title, outline and content">✎ Edit</button>
             )}

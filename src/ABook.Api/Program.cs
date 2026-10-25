@@ -143,12 +143,14 @@ builder.Services.AddMcpServer()
     .WithTools<AgentMcpTools>()
     .WithTools<BookChatMcpTools>()
     .WithTools<IllustrationMcpTools>()
-    .WithTools<RewindMcpTools>();
+    .WithTools<RewindMcpTools>()
+    .WithTools<HistoryMcpTools>();
 // ── Public mode ───────────────────────────────────────────────────────────────
 var isPublicMode = builder.Configuration.GetValue<bool>("PublicMode");
 builder.Services.AddSingleton(new ABook.Api.Services.PublicModeOptions(isPublicMode));
 builder.Services.AddScoped<ABook.Api.Services.BookExportService>();
 builder.Services.AddScoped<ABook.Api.Services.ClarificationService>();
+builder.Services.AddScoped<ABook.Api.Services.PlanningPhaseService>();
 builder.Services.AddScoped<ABook.Api.Services.UserProvisioningService>();
 // ── API ───────────────────────────────────────────────────────────────────────
 builder.Services.AddControllers()

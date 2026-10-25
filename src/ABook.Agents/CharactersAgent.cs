@@ -179,7 +179,7 @@ public class CharactersAgent : AgentBase
         Repo.AddCharacterVersionsBatchAsync(VersionsOf(bookId, cards, AgentCreatedBy.Characters));
 
     /// <summary>One history version per saved card, attributed to <paramref name="createdBy"/>.</summary>
-    internal static IEnumerable<CharacterCardVersion> VersionsOf(int bookId, IEnumerable<CharacterCard> cards, string createdBy) =>
+    public static IEnumerable<CharacterCardVersion> VersionsOf(int bookId, IEnumerable<CharacterCard> cards, string createdBy) =>
         cards.Select(card => new CharacterCardVersion
         {
             CharacterCardId = card.Id,

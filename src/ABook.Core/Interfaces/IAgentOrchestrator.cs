@@ -11,6 +11,13 @@ public interface IAgentOrchestrator
     Task StartEditingAsync(int bookId, int chapterId, CancellationToken ct = default);
     /// <summary>Checks one chapter when <paramref name="chapterId"/> is given, otherwise the whole manuscript.</summary>
     Task StartContinuityCheckAsync(int bookId, int? chapterId = null, CancellationToken ct = default);
+    /// <summary>
+    /// Autonomous books: writes one section as the workflow would — broken down first when the planner expects several
+    /// chapters, then each chapter not Done through pre-check → write → check → fixes.
+    /// </summary>
+    Task StartSectionWritingAsync(int bookId, int sectionId, CancellationToken ct = default);
+    /// <summary>Checks every written chapter of a section, one chapter at a time.</summary>
+    Task StartSectionCheckAsync(int bookId, int sectionId, CancellationToken ct = default);
     Task StartWorkflowAsync(int bookId, CancellationToken ct = default);
     Task ContinueWorkflowAsync(int bookId, CancellationToken ct = default);
     Task ContinuePlanningAsync(int bookId, CancellationToken ct = default);

@@ -308,6 +308,17 @@ public sealed partial class TelegramCardService(
                 return await StartRunAsync(ctx, "write");
             case "check":
                 return await StartRunAsync(ctx, "check");
+            case "wsec":   // ✍️ the section as Write Book writes it (Autonomous books)
+            case "csec":   // 🔍 each written chapter of the section
+                return StartSectionRun(ctx, write: op == "wsec");
+            case "lock":   // 🔒 Interactive books: premise and Story Bible become canon, writing starts
+            {
+                var outcome = await chat.LockBibleAsync(ctx.Book!.Id);
+                s.Note = outcome.Result is BookChatResult.Done or BookChatResult.Started
+                    ? "🔒 Premise and Story Bible locked — the book chat now writes chapters. Only the owner can unlock them, in Book Settings."
+                    : "⚠️ " + outcome.Message;
+                return null;
+            }
             case "file":
                 return await SendChapterFileAsync(ctx);
             case "exp":   // ⬇️ the book (epub/fb2/html) or its metadata, as a file under the card
@@ -348,7 +359,7 @@ public sealed partial class TelegramCardService(
     /// is Participate — like writing in the book chat and applying what it suggests.
     /// </summary>
     public static bool NeedsControlFor(string kind, string op) =>
-        op is "restore" or "arch" or "unarch" or "write" or "check" or "mv" or "brk"
+        op is "restore" or "arch" or "unarch" or "write" or "check" or "mv" or "brk" or "wsec" or "csec" or "lock"
         || (kind == "book" && op is "ed" or "set" or "save" or "save!" or "undo");
 
     // ── Saving ────────────────────────────────────────────────────────────────
@@ -684,6 +695,29 @@ public sealed partial class TelegramCardService(
             : runner.TryStart(bookId, AgentRole.ContinuityChecker, chapterId, (o, c) => o.StartContinuityCheckAsync(bookId, chapterId, c));
         ctx.State.Note = result == RunStartResult.Success
             ? (what == "write" ? "✍️ Writing the chapter — follow it on the status card." : "🔍 Checking the chapter — findings arrive in the book's messages.")
+            : "⏳ " + result.ToMessage();
+        return null;
+    }
+
+    /// <summary>
+    /// The section card's runs: write it as Write Book does (broken down first when planned; Autonomous books only), or
+    /// check each written chapter of it.
+    /// </summary>
+    private string? StartSectionRun(Ctx ctx, bool write)
+    {
+        if (ctx.State.Kind != "section" || ctx.State.ItemId is not int sectionId) return null;
+        var book = ctx.Book!;
+        if (write && book.Mode == BookMode.Interactive)
+        {
+            ctx.State.Note = "💬 This is an Interactive book: its chapters are written in the book chat.";
+            return null;
+        }
+        var bookId = book.Id;
+        var result = write
+            ? runner.TryStart(bookId, AgentRole.Writer, null, (o, c) => o.StartSectionWritingAsync(bookId, sectionId, c))
+            : runner.TryStart(bookId, AgentRole.ContinuityChecker, null, (o, c) => o.StartSectionCheckAsync(bookId, sectionId, c));
+        ctx.State.Note = result == RunStartResult.Success
+            ? (write ? "✍️ Writing the section — follow it on the status card." : "🔍 Checking the section's chapters — findings arrive in the book's messages.")
             : "⏳ " + result.ToMessage();
         return null;
     }
