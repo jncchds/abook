@@ -150,7 +150,7 @@ export default function TelegramCard({ bookId }: { bookId: number }) {
           {code.privateLink && (
             <CopyField label="Private chat" value={code.privateLink} copied={copied === 'private'} onCopy={() => void copy('private', code.privateLink!)}
               open={code.privateLink}
-              hint={state.privateTopics ? 'Opens a private chat with the bot; the book gets its own topic there.' : 'Opens a private chat with the bot; it holds one book (topic mode is off in @BotFather).'} />
+              hint="Opens a private chat with the bot and connects it to this book (a private chat follows one book; use groups or their topics for more)." />
           )}
           {code.groupLink && (
             <CopyField label="Group" value={code.groupLink} copied={copied === 'group'} onCopy={() => void copy('group', code.groupLink!)}

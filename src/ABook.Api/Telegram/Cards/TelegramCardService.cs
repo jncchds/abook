@@ -8,21 +8,23 @@ using static ABook.Api.Telegram.TelegramFormat;
 namespace ABook.Api.Telegram.Cards;
 
 /// <summary>
-/// Book management in the owner's private chat with the bot, as cards: one message per card, edited in place as its
-/// state changes. Buttons choose; replying to the card fills the field it asks for. Changes collect in a draft until
-/// 💾 Save (single answers save at once). Only for the owner, through their linked account.
+/// Book management as cards: one message per card, edited in place as its state changes. Buttons choose; replying to
+/// the card fills the field it asks for. Changes collect in a draft until 💾 Save (single answers save at once).
+/// The owner, through their linked account, uses them anywhere (/books and /newbook in the private chat, /book in any
+/// chat that follows the book); others only through /book in a chat that follows the book, when they may control it
+/// there (<see cref="MayManage"/>, checked again on every press). Only the one who opened a card can use it.
 /// <para>
-/// Button data: <c>k{cardId}:{op}:{arg}</c>. Cards: newbook (wizard), books (list), book (settings, sections), bible,
-/// chars/char, threads/thread, chapters/chapter (outline, file, write, check, versions), clars (clarifications).
+/// Button data: <c>k{cardId}:{op}:{arg}</c>. Cards: newbook (wizard), books (list), book (settings, sections,
+/// downloads), bible, chars/char, threads/thread, chapters/chapter (outline, file, write, check, versions), clars.
 /// </para>
 /// </summary>
 public sealed partial class TelegramCardService(
     ITelegramRepository tg,
     IBookRepository repo,
+    IUserRepository users,
     BookContentService content,
     TelegramApi api,
     TelegramAccountService accounts,
-    TelegramBindingService bindings,
     TelegramDispatcher dispatcher,
     AgentRunnerService runner,
     AgentRunStateService runState,
@@ -34,14 +36,21 @@ public sealed partial class TelegramCardService(
 {
     private const int ListPage = 8;
 
+    /// <summary>Whether <c>user</c> may manage the book through the chat <c>binding</c> (Control there, admins in groups).</summary>
+    public delegate Task<bool> MayManage(TelegramBinding binding, TgUser user);
+
     /// <summary>Everything a card is drawn from, loaded per update.</summary>
     private sealed class Ctx
     {
         public required TelegramCard Card { get; init; }
         public required CardState State { get; init; }
+        /// <summary>The book's owner (the account whose presets and books the card uses).</summary>
         public required AppUser Owner { get; init; }
         public required TgUser From { get; init; }
         public Book? Book { get; set; }
+        /// <summary>The card is used by the owner themself (not by someone the chat lets control the book).</summary>
+        public bool IsOwner => Card.OpenedByTelegramUserId == Owner.TelegramUserId;
+        public bool InPrivateChat => Card.ChatId > 0;
     }
 
     // ── Opening ───────────────────────────────────────────────────────────────
@@ -65,13 +74,26 @@ public sealed partial class TelegramCardService(
         await tg.UpdateCardAsync(card);
     }
 
-    /// <summary>The card a reply or button belongs to, with the sender checked: only its owner may use it.</summary>
-    private async Task<Ctx?> LoadAsync(TelegramCard? card, TgUser from)
+    /// <summary>
+    /// The card a reply or button belongs to, with the sender checked: only the one who opened it, and they must still
+    /// own the book — or, for a card opened through a chat that follows the book, still be allowed to manage it there.
+    /// </summary>
+    private async Task<Ctx?> LoadAsync(TelegramCard? card, TgUser from, MayManage mayManage)
     {
         if (card is null || card.OpenedByTelegramUserId != from.Id) return null;
+        var state = CardState.Parse(card.StateJson);
+        if (state.BindingId is int bindingId)
+        {
+            var binding = await tg.GetBindingAsync(bindingId);
+            if (binding is not { IsActive: true } || binding.BookId != card.BookId || !await mayManage(binding, from)) return null;
+            var book = await repo.GetByIdAsync(binding.BookId);
+            var bookOwner = book?.UserId is int ownerId ? await users.GetByIdAsync(ownerId) : null;
+            if (book is null || bookOwner is null) return null;
+            return new Ctx { Card = card, State = state, Owner = bookOwner, From = from, Book = book };
+        }
         var owner = await accounts.LinkedUserAsync(from.Id);
         if (owner is null) return null;
-        var ctx = new Ctx { Card = card, State = CardState.Parse(card.StateJson), Owner = owner, From = from };
+        var ctx = new Ctx { Card = card, State = state, Owner = owner, From = from };
         if (card.BookId is int id)
         {
             ctx.Book = await repo.GetByIdAsync(id);
@@ -91,12 +113,12 @@ public sealed partial class TelegramCardService(
     // ── Replies ───────────────────────────────────────────────────────────────
 
     /// <summary>A reply to one of the bot's messages: true when it was a card (handled), false otherwise.</summary>
-    public async Task<bool> OnReplyAsync(TgMessage message, string text)
+    public async Task<bool> OnReplyAsync(TgMessage message, string text, MayManage mayManage)
     {
         if (message.ReplyToMessage is not { } replied || message.From is null) return false;
         var card = await tg.FindCardAsync(message.Chat.Id, replied.MessageId);
         if (card is null) return false;
-        var ctx = await LoadAsync(card, message.From);
+        var ctx = await LoadAsync(card, message.From, mayManage);
         if (ctx is null) return true;   // someone else's card: ignore
 
         var s = ctx.State;
@@ -164,12 +186,12 @@ public sealed partial class TelegramCardService(
     public static bool IsCardCallback(string? data) => data is { Length: > 1 } && data[0] == 'k' && char.IsDigit(data[1]);
 
     /// <summary>A card button. Returns the short answer for the button.</summary>
-    public async Task<(string? Answer, bool Alert)> OnButtonAsync(TgCallbackQuery callback)
+    public async Task<(string? Answer, bool Alert)> OnButtonAsync(TgCallbackQuery callback, MayManage mayManage)
     {
         var parts = callback.Data!.Split(':', 3);
         if (parts.Length < 2 || !int.TryParse(parts[0][1..], out var cardId)) return ("This button is no longer valid.", false);
-        var ctx = await LoadAsync(await tg.GetCardAsync(cardId), callback.From);
-        if (ctx is null) return ("This card isn't yours, or the book is gone.", true);
+        var ctx = await LoadAsync(await tg.GetCardAsync(cardId), callback.From, mayManage);
+        if (ctx is null) return ("This card isn't yours (send /book to open your own), or the book is gone.", true);
         var op = parts[1];
         var arg = parts.Length > 2 ? parts[2] : "";
         string? answer;
@@ -216,11 +238,13 @@ public sealed partial class TelegramCardService(
             case "nav":
             {
                 if (s.Draft.Count > 0) { s.Note = "💾 Save or ↩️ discard your changes first."; return "Unsaved changes"; }
+                if (arg is "books" or "newbook" && !ctx.IsOwner) return "Only the book's owner can do that.";
                 var dot = arg.IndexOf('.');
                 s.GoTo(dot < 0 ? arg : arg[..dot], dot < 0 ? null : int.Parse(arg[(dot + 1)..]));
                 return null;
             }
             case "view":
+                if (arg == "presets" && !ctx.IsOwner) return "Only the book's owner can change its LLM settings.";
                 s.View = arg;
                 s.Page = 0;
                 s.Awaiting = null;
@@ -258,6 +282,8 @@ public sealed partial class TelegramCardService(
                 return await StartRunAsync(ctx, "check");
             case "file":
                 return await SendChapterFileAsync(ctx);
+            case "exp":   // ⬇️ the book (epub/fb2/html) or its metadata, as a file under the card
+                return await SendBookFileAsync(ctx, arg);
             case "kick":
             {
                 var outcome = await chat.KickoffAsync(ctx.Book!.Id);
@@ -265,6 +291,7 @@ public sealed partial class TelegramCardService(
                 return null;
             }
             case "preset":
+                if (!ctx.IsOwner) return "Only the book's owner can change its LLM settings.";
                 return await ApplyPresetAsync(ctx, int.Parse(arg));
             case "ans":
                 s.Awaiting = $"answer.{arg}";
@@ -524,29 +551,27 @@ public sealed partial class TelegramCardService(
             Content = "📘 Book created from Telegram.", IsResolved = true, Origin = OriginOf(ctx),
         });
 
-        var chatInfo = new TgChat { Id = ctx.Card.ChatId, Type = "private" };
-        var (binding, error) = await bindings.OpenForOwnerAsync(book, chatInfo, ctx.From, ctx.Owner.Id);
-        d.Clear();
-        s.Awaiting = null;
-        s.Kind = "created";
-        s.ItemId = book.Id;
-        s.Note = binding is not null
-            ? $"✅ “{book.Title}” is created{(binding.ThreadId is not null ? " — it has its own topic now" : "")}."
-            : $"✅ “{book.Title}” is created, but couldn't open here: {error}";
-        if (binding is not null)
-            await OpenAsync(binding.ChatId, binding.ThreadId, ctx.From, ctx.Owner, new CardState { Kind = "book" }, book.Id);
+        // The card becomes the new book's card; following it somewhere is a separate, explicit /follow.
+        ShowBook(ctx, book);
+        s.Note = $"✅ “{book.Title}” is created. To get its updates in a chat, send /follow {book.Id} there.";
         return "Created.";
     }
 
+    /// <summary>A book of the list, opened in this same card — nothing is followed or subscribed.</summary>
     private async Task<string?> OpenBookAsync(Ctx ctx, int bookId)
     {
+        if (!ctx.IsOwner) return "Only the book's owner can do that.";
         var book = await repo.GetByIdAsync(bookId);
         if (book is null || book.UserId != ctx.Owner.Id) return "That book isn't yours.";
-        var (binding, error) = await bindings.OpenForOwnerAsync(book, new TgChat { Id = ctx.Card.ChatId, Type = "private" }, ctx.From, ctx.Owner.Id);
-        if (binding is null) { ctx.State.Note = "⚠️ " + error; return null; }
-        await OpenAsync(binding.ChatId, binding.ThreadId, ctx.From, ctx.Owner, new CardState { Kind = "book" }, book.Id);
-        ctx.State.Note = $"📖 “{book.Title}” is open{(binding.ThreadId is not null ? " in its topic" : " here")}.";
+        ShowBook(ctx, book);
         return null;
+    }
+
+    private static void ShowBook(Ctx ctx, Book book)
+    {
+        ctx.Card.BookId = book.Id;
+        ctx.Book = book;
+        ctx.State.GoTo("book");
     }
 
     // ── Runs and files ────────────────────────────────────────────────────────
@@ -576,9 +601,27 @@ public sealed partial class TelegramCardService(
         return "Sent.";
     }
 
+    /// <summary>The whole book (epub, fb2, html) or its metadata document, sent as a file under the card.</summary>
+    private async Task<string?> SendBookFileAsync(Ctx ctx, string format)
+    {
+        if (format is not ("epub" or "fb2" or "html" or "metadata")) return null;
+        var book = ctx.Book!;
+        if (format != "metadata" && !(await repo.GetChaptersAsync(book.Id)).Any(c => !string.IsNullOrWhiteSpace(c.Content)))
+        {
+            ctx.State.Note = "No chapter has text yet — the 🗂 metadata download already shows the plan.";
+            return null;
+        }
+        var (bytes, contentType, fileName) = await exporter.ExportAsync(book.Id, format);
+        var caption = format == "metadata"
+            ? $"🗂 <b>{H(Clip(book.Title, 150))}</b> — metadata: each section as it is now, then the full timeline"
+            : $"📕 <b>{H(Clip(book.Title, 150))}</b> — the book as it stands";
+        await api.SendDocumentAsync(ctx.Card.ChatId, ctx.Card.ThreadId, fileName, bytes, contentType, caption, ctx.Card.MessageId);
+        return "Sent.";
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static string OriginOf(Ctx ctx) => $"Telegram · {ctx.From.Display} · private chat";
+    private static string OriginOf(Ctx ctx) => $"Telegram · {ctx.From.Display} · {(ctx.InPrivateChat ? "private chat" : "group card")}";
 
     private async Task ReactAsync(TgMessage message, string emoji)
     {

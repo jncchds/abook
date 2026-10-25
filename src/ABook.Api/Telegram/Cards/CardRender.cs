@@ -190,7 +190,7 @@ public sealed partial class TelegramCardService
         if (books.Count == 0) sb.Append("<p><i>None yet — start one with ➕ New book.</i></p>");
         else
         {
-            sb.Append("<p><i>Tap one to open it here; it gets its own topic.</i></p><ul>");
+            sb.Append("<p><i>Tap one to see and edit it here. To get a book's updates in a chat, open it and use its /follow command.</i></p><ul>");
             foreach (var b in books.Skip(page * ListPage).Take(ListPage))
                 sb.Append("<li>").Append(b.Mode == BookMode.Interactive ? "💬 " : "🤖 ").Append(L(ctx, Clip(b.Title, 60), "open", b.Id))
                   .Append(b.Genre.Length > 0 ? $" · <i>{H(b.Genre)}</i>" : "").Append("</li>");
@@ -230,14 +230,39 @@ public sealed partial class TelegramCardService
                    $"<p>{(book.Mode == BookMode.Interactive ? "💬 Interactive" : "🤖 Autonomous")} · " +
                    $"{chapters.Count(c => c.Status == ChapterStatus.Done)}/{chapters.Count} chapters done" +
                    (BookContentService.IsBibleLocked(book) ? " · 🔒 bible locked" : "") + "<br>" +
-                   $"🧠 {H(config is null ? "no LLM settings" : $"{config.Provider} · {config.ModelName}")} · {L(ctx, "change", "view", "presets")}</p>" + text;
+                   $"🧠 {H(config is null ? "no LLM settings" : $"{config.Provider} · {config.ModelName}")}" +
+                   (ctx.IsOwner ? $" · {L(ctx, "change", "view", "presets")}" : "") + "</p>" + text;
+        if (ctx.IsOwner) html += await FollowInfoAsync(book);
         var rows = FieldButtons(ctx, CardFields.Book, clipped);
         rows.Add([B(ctx, "🌍 Story Bible", "nav", "bible"), B(ctx, "👤 Characters", "nav", "chars")]);
         rows.Add([B(ctx, "🧵 Plot threads", "nav", "threads"), B(ctx, "📚 Chapters", "nav", "chapters")]);
         rows.Add([B(ctx, "❓ Clarifications", "nav", "clars")]);
         if (book.Mode == BookMode.Interactive && !(await repo.GetChatMessagesAsync(book.Id, null, 1)).Any(m => m.Role != BookChatRole.Event))
             rows.Add([B(ctx, "💬 Start the book chat", "kick", style: "success")]);
+        rows.Add([B(ctx, "⬇️ EPUB", "exp", "epub"), B(ctx, "FB2", "exp", "fb2"), B(ctx, "HTML", "exp", "html"), B(ctx, "🗂 Metadata", "exp", "metadata")]);
+        if (ctx.IsOwner && ctx.InPrivateChat) rows.Add([B(ctx, "📚 All books", "nav", "books")]);
         return (html, rows);
+    }
+
+    /// <summary>
+    /// How to follow the book in a chat — the command to send there (tap to copy) — and where it is followed now.
+    /// Opening a book in a card never follows it anywhere.
+    /// </summary>
+    private async Task<string> FollowInfoAsync(Book book)
+    {
+        var followed = (await tg.GetBindingsForBookAsync(book.Id)).Where(b => b.IsActive).ToList();
+        var sb = new StringBuilder("<details><summary><b>📡 Follow in a chat</b>")
+            .Append(followed.Count > 0 ? $" · {followed.Count} now" : "").Append("</summary>")
+            .Append("<p>Send <code>/follow ").Append(book.Id).Append("</code> in the chat or topic that should get the book's status card, ")
+            .Append("chapter files and book chat. In a group, add who may do what: <code>/follow ").Append(book.Id)
+            .Append(" read</code>, <code>participate</code> (the default) or <code>control</code>. <code>/unbind</code> there stops it.</p>");
+        if (followed.Count > 0)
+        {
+            sb.Append("<ul>");
+            foreach (var b in followed) sb.Append("<li>").Append(H(Clip(b.ChatTitle, 80))).Append(" · <i>").Append(b.Level).Append("</i></li>");
+            sb.Append("</ul>");
+        }
+        return sb.Append("</details>").ToString();
     }
 
     // ── Story Bible ───────────────────────────────────────────────────────────

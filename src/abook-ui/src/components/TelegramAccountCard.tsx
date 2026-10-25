@@ -69,7 +69,8 @@ export default function TelegramAccountCard() {
       <p className="hint">
         Link your Telegram account to create and manage your books in the private chat with the bot
         {state.botUsername && <> (<a href={`https://t.me/${state.botUsername}`} target="_blank" rel="noreferrer">@{state.botUsername}</a>)</>}:
-        {' '}<code>/newbook</code>, <code>/books</code>, <code>/book</code>. In chats connected to your books you also get full rights.
+        {' '}<code>/newbook</code>, <code>/books</code>. Send <code>/follow ID</code> (shown on each book's card) in a chat or group
+        to get a book's updates there, and <code>/book</code> in such a chat for its card. In chats connected to your books you also get full rights.
       </p>
       {state.problem && <p className="error-msg" role="alert">{state.problem}</p>}
       {error && <p className="error-msg" role="alert">{error}</p>}

@@ -61,8 +61,11 @@ public sealed class TelegramBotService(
                     logger.LogInformation("Telegram bot @{Username} receives updates by long polling (set {Key} to use a webhook).",
                         me.Username, TelegramOptions.HostnameKey);
                 }
-                if (me.HasTopicsEnabled != true)
-                    logger.LogInformation("Telegram: topic mode in private chats is off — a private chat can hold one book. Turn it on in @BotFather to give each book its own topic.");
+                // The bot never opens topics itself; with topic mode on, Telegram starts a new topic for every message
+                // sent outside one, which makes the private chat (book management) awkward.
+                if (me.HasTopicsEnabled == true)
+                    logger.LogInformation("Telegram: topic mode in private chats is on — every message sent outside a topic starts a new one. " +
+                                          "The bot doesn't need it (books are managed in the private chat and followed with /follow); turn it off in @BotFather if that gets in the way.");
                 state.SetReady(me);
                 return;
             }

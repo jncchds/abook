@@ -285,7 +285,7 @@ One bot per ABook server lets people follow and steer a book from Telegram.
 
 **Setup**
 1. Create a bot with [@BotFather](https://t.me/BotFather) and set `TELEGRAM_BOT_TOKEN`.
-2. In BotFather, turn **privacy mode off** (Group Privacy → Disable) so the bot sees every message in its groups, and optionally turn on **topic mode in private chats** so each book gets its own topic in a private chat (otherwise a private chat holds one book).
+2. In BotFather, turn **privacy mode off** (Group Privacy → Disable) so the bot sees every message in its groups. Leave **topic mode in private chats** off: the bot doesn't use topics there (with it on, Telegram starts a new topic for every message you send outside one). A private chat follows one book; follow more books in groups or their topics.
 3. If the server is reachable over HTTPS, set `ABOOK_HOSTNAME` (Telegram then posts updates to `https://{ABOOK_HOSTNAME}/api/telegram/webhook` — ports 443, 80, 88 or 8443). Without it the bot polls Telegram, which works behind NAT too.
 
 **Connecting a book** — Book Settings → **Telegram** → choose the access → **Connect a chat**. Use the one-time code (valid 15 minutes) with one of: *Open a private chat with the bot*, *Add the bot to a group*, or send `/bind CODE` in a forum topic or post it in a channel where the bot is an admin. **Everyone who can post in that chat or topic gets the access you chose** — nobody signs in on the Telegram side:
@@ -303,15 +303,17 @@ One bot per ABook server lets people follow and steer a book from Telegram.
 - In a private chat the chapter being written shows as a **live draft** (with a stop button for Control).
 - **Interactive books**: write in the chat to talk to the book chat. Its suggested changes come with buttons: ✅ / ✖️ per suggestion, **tick boxes** (☐/☑) to pick several and **Apply ticked** / **Reject ticked** them together, **Apply all** / **Reject all**, one button per alternative (option A/B), and ↩️ Undo. Or reply to the suggestions with their numbers — `1 3`, `apply 1, 3`, `reject 2`.
 - **Rewind**: reply `/rewind` to any message of the thread to rewind the book to when it was posted (to just before it, for your own book-chat message), or send `/rewind` alone to pick a recent moment from buttons. The bot shows the preview with **⏪ Rewind** / **Cancel** (valid 10 minutes); after the rewind every connected thread gets a divider message, rewound chat replies are crossed out, and changed chapters arrive as new file versions. Control only — and in groups only the chat's admins.
-- Commands: `/status`, `/run`, `/continue`, `/stop`, `/export [epub|fb2|html|metadata]`, `/note text`, `/questions`, `/rewind`, `/unbind`, `/help`.
+- `/book` — the book's card (see below), for the book's owner and for whoever may control the book in that chat (Control access; in groups also a chat admin). Only the person who opened a card can use it.
+- Commands: `/status`, `/run`, `/continue`, `/stop`, `/export [epub|fb2|html|metadata]`, `/note text`, `/questions`, `/rewind`, `/book`, `/unbind`, `/help`.
 
 **Your account and your books** — link your Telegram account in **Settings → Telegram** (a one-time link). Then, in the private chat with the bot:
-- `/newbook` — a wizard card: reply to it with the title and premise, pick genre, language, mode and chapter count, **✅ Create**. The book gets its own topic (with topic mode on in BotFather) and uses your default LLM preset.
-- `/books` — your books; tap one to open it in its own topic.
-- `/book` (in a book's topic) — the book card: its settings and LLM preset, and the Story Bible, characters, plot threads, chapters and clarifications. Cards are single messages edited in place: tap ✏️ on a field, **reply to the card** with the new text, then **💾 Save**. Add, archive and bring back characters, threads and chapters, see **🕘 Versions** and restore one, read a chapter as a file, write or check a chapter. Chapter text isn't edited in Telegram.
+- `/newbook` — a wizard card: reply to it with the title and premise, pick genre, language, mode and chapter count, **✅ Create**. It uses your default LLM preset, and the card turns into the new book's card.
+- `/books` — your books; tap one to see and edit it in the same card. Opening a book doesn't follow it anywhere.
+- The **book card**: its settings and LLM preset, the Story Bible, characters, plot threads, chapters and clarifications, and **⬇️ EPUB / FB2 / HTML / 🗂 Metadata** downloads. Cards are single messages edited in place: tap ✏️ on a field, **reply to the card** with the new text, then **💾 Save**. Add, archive and bring back characters, threads and chapters, see **🕘 Versions** and restore one, read a chapter as a file, write or check a chapter. Chapter text isn't edited in Telegram.
+- **Following a book** is explicit: the card shows its command, `/follow ID` — send it in the chat or topic that should get the book's status card, files and book chat (this private chat, or a group: `/follow ID read|participate|control`, default participate). The card lists where the book is followed; `/unbind` there stops it.
 - `/unlink`, `/account`.
 
-Book management works only in the private chat and only for the book's owner; as the owner you also have full rights in every chat connected to your books. Each suggestion of the book chat has a **details** link that shows exactly what it changes. The bot uses Telegram's rich messages (headings, tables, collapsible sections, links inside the text); on a Bot API server without them it falls back to plain messages with buttons.
+As the owner you also have full rights in every chat connected to your books. Each suggestion of the book chat has a **details** link that shows exactly what it changes. The bot uses Telegram's rich messages (headings, tables, collapsible sections, links inside the text); on a Bot API server without them it falls back to plain messages with buttons.
 
 Answers, notes and chat messages from Telegram are marked with who sent them (✈️ Telegram · @name · chat) in ABook. Disconnect a chat from Book Settings, with `/unbind`, or by removing the bot; deleting the book disconnects its chats.
 

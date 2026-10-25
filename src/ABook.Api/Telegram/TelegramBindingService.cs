@@ -17,7 +17,6 @@ public sealed partial class TelegramBindingService(
     IBookRepository books,
     IBookNotifier notifier,
     TelegramApi api,
-    TelegramBotState bot,
     TelegramDispatcher dispatcher,
     ILogger<TelegramBindingService> logger)
 {
@@ -61,36 +60,9 @@ public sealed partial class TelegramBindingService(
 
         var chat = message.Chat;
         var thread = message.TopicId;
-        var title = chat.Display;
-        if (chat.Type == "private")
-        {
-            title = $"Private chat with {message.From?.Display ?? chat.Display}";
-            if (thread is null && bot.TopicsInPrivateChats)
-            {
-                // Each book gets its own topic in the private chat.
-                try
-                {
-                    var topic = await api.CreateForumTopicAsync(chat.Id, Clip(book.Title, 120));
-                    thread = topic.MessageThreadId;
-                    title += $" · {topic.Name}";
-                }
-                catch (TelegramApiException ex)
-                {
-                    logger.LogWarning("Telegram: could not create a topic for book {BookId}: {Description}", book.Id, ex.Description);
-                }
-            }
-        }
-        else if (thread is not null)
-            title += " · topic";
-
-        if (await tg.FindActiveBindingAsync(chat.Id, thread) is { } existing)
-        {
-            var other = await books.GetByIdAsync(existing.BookId);
-            return $"❌ This {(thread is null ? "chat" : "topic")} is already connected to “{H(other?.Title ?? "another book")}”. " +
-                   (chat.Type == "private" && thread is null
-                       ? "Send /unbind first — or the bot's admin can turn on topic mode in @BotFather so each book gets its own topic."
-                       : "Send /unbind there first, or use another topic.");
-        }
+        // The chat (or topic) the code was sent in — the bot never opens topics of its own.
+        var title = ChatTitle(message);
+        if (await BusyAsync(chat.Id, thread, book.Id) is { } busy) return busy;
 
         if (!await tg.TryUseBindCodeAsync(found.Id)) return "❌ This code was already used. Ask the book's owner for a new one.";
 
@@ -124,54 +96,51 @@ public sealed partial class TelegramBindingService(
     }
 
     /// <summary>
-    /// Opens one of a linked owner's books in their private chat with the bot, without a code: in a new topic when topic
-    /// mode is on, otherwise in the chat itself (if it holds no book yet). An active binding there is reused. Returns
-    /// the binding, or null with the reason why not.
+    /// <c>/follow ID</c> from a linked owner: the chat (or topic) the command was sent in starts following one of their
+    /// books, without a code — at Control in their private chat, at <paramref name="level"/> in a group or channel.
+    /// Returns null on success (the new binding's worker greets the chat) or the HTML reply explaining why not.
     /// </summary>
-    public async Task<(TelegramBinding? Binding, string? Error)> OpenForOwnerAsync(Book book, TgChat chat, TgUser owner, int ownerUserId)
+    public async Task<string?> FollowAsync(Book book, TgMessage message, TelegramAccessLevel level, int ownerUserId)
     {
-        if (chat.Type != "private") return (null, "Books are managed in the private chat with the bot.");
-        var existing = (await tg.GetActiveBindingsInChatAsync(chat.Id)).FirstOrDefault(b => b.BookId == book.Id);
-        if (existing is not null) return (existing, null);
-
-        int? thread = null;
-        var title = $"Private chat with {owner.Display}";
-        if (bot.TopicsInPrivateChats)
-        {
-            try
-            {
-                var topic = await api.CreateForumTopicAsync(chat.Id, Clip(book.Title, 120));
-                thread = topic.MessageThreadId;
-                title += $" · {topic.Name}";
-            }
-            catch (TelegramApiException ex)
-            {
-                return (null, $"Telegram refused to create a topic for the book: {ex.Description}");
-            }
-        }
-        else if (await tg.FindActiveBindingAsync(chat.Id, null) is { } busy && busy.BookId != book.Id)
-        {
-            var other = await books.GetByIdAsync(busy.BookId);
-            return (null, $"This chat already follows “{other?.Title ?? "another book"}”. Turn on topic mode for the bot in @BotFather so each book gets its own topic, or /unbind that one first.");
-        }
-
+        var chat = message.Chat;
+        var thread = message.TopicId;
+        if (await BusyAsync(chat.Id, thread, book.Id) is { } busy) return busy;
         TelegramBinding binding;
         try
         {
             binding = await tg.AddBindingAsync(new TelegramBinding
             {
                 BookId = book.Id, ChatId = chat.Id, ThreadId = thread, ChatType = chat.Type,
-                ChatTitle = Clip(title, 300), Level = TelegramAccessLevel.Control, CreatedByUserId = ownerUserId,
+                ChatTitle = Clip(ChatTitle(message), 300),
+                Level = chat.Type == "private" ? TelegramAccessLevel.Control : chat.Type == "channel" ? TelegramAccessLevel.Read : level,
+                CreatedByUserId = ownerUserId,
             });
         }
         catch (DbUpdateException)
         {
-            return (null, "This chat was connected to a book a moment ago. Try again.");
+            return "❌ This chat was connected to a book a moment ago. Send /unbind first.";
         }
         await RecordExistingContentAsync(binding);
-        await AddBookNoteAsync(book.Id, $"🔗 Opened in Telegram: {binding.ChatTitle}.", $"Telegram · {owner.Display} · private chat");
+        await AddBookNoteAsync(book.Id, $"🔗 Connected to Telegram: {binding.ChatTitle} ({binding.Level}) with /follow.", Origin(message.From, binding));
         dispatcher.Attach(binding);
-        return (binding, null);
+        logger.LogInformation("Telegram: book {BookId} followed in chat {ChatId} topic {ThreadId} ({Level}).", book.Id, chat.Id, thread, binding.Level);
+        return null;
+    }
+
+    private static string ChatTitle(TgMessage message) =>
+        message.Chat.Type == "private"
+            ? $"Private chat with {message.From?.Display ?? message.Chat.Display}{(message.TopicId is not null ? " · topic" : "")}"
+            : message.Chat.Display + (message.TopicId is not null ? " · topic" : "");
+
+    /// <summary>Why this chat (or topic) can't take the book: it already follows it, or another one. Null when free.</summary>
+    private async Task<string?> BusyAsync(long chatId, int? thread, int bookId)
+    {
+        if (await tg.FindActiveBindingAsync(chatId, thread) is not { } existing) return null;
+        var where = thread is null ? "chat" : "topic";
+        if (existing.BookId == bookId) return $"ℹ️ This {where} already follows this book.";
+        var other = await books.GetByIdAsync(existing.BookId);
+        return $"❌ This {where} already follows “{H(other?.Title ?? "another book")}”. Send /unbind here first" +
+               (thread is null ? ", or use a group (or one of its topics) for the other book." : ", or use another topic.");
     }
 
     /// <summary>

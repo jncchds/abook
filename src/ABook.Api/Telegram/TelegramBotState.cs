@@ -7,7 +7,7 @@ public sealed class TelegramBotState
 
     public string? Username { get; private set; }
     public long BotId { get; private set; }
-    /// <summary>Topic mode in private chats is on (BotFather): each book gets its own topic in a private chat.</summary>
+    /// <summary>Topic mode in private chats is on (BotFather). Only reported: the bot never opens topics itself.</summary>
     public bool TopicsInPrivateChats { get; private set; }
     public bool IsReady => _ready.Task.IsCompleted;
     /// <summary>The last startup problem (bad token, Telegram unreachable…), shown in the web UI.</summary>

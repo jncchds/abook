@@ -28,6 +28,11 @@ public sealed class CardState
     public string? Focus { get; set; }
     /// <summary>A one-line status under the card: saved, why something was refused…</summary>
     public string? Note { get; set; }
+    /// <summary>
+    /// Set when someone other than the owner opened the card with /book in a chat that follows the book: the binding
+    /// whose access they use (checked again on every press). Null for the owner's own cards.
+    /// </summary>
+    public int? BindingId { get; set; }
 
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     public string Serialize() => JsonSerializer.Serialize(this, Json);
