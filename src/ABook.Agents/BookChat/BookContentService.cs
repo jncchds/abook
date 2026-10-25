@@ -93,16 +93,61 @@ public class BookContentService : AgentBase
         return new ContentChange("Updated the premise.", before, book.Premise);
     }
 
-    /// <summary>Sets the given Story Bible fields, creating the bible when the book has none.</summary>
-    public async Task<ContentChange> UpdateStoryBibleAsync(int bookId, IReadOnlyDictionary<string, string> changes, bool ignoreLock = false)
+    /// <summary>The book's info (title, premise…) as a snapshot.</summary>
+    public static BookSnapshot SnapshotOf(Book b, string reason) => new()
+    {
+        BookId = b.Id, Title = b.Title, Premise = b.Premise, Genre = b.Genre,
+        TargetChapterCount = b.TargetChapterCount, Language = b.Language, Mode = b.Mode, Reason = reason,
+    };
+
+    private static bool SameBookInfo(BookSnapshot a, BookSnapshot b) =>
+        a.Title == b.Title && a.Premise == b.Premise && a.Genre == b.Genre
+        && a.TargetChapterCount == b.TargetChapterCount && a.Language == b.Language && a.Mode == b.Mode;
+
+    /// <summary>
+    /// Records a manual edit of the book's info (web UI, Telegram card) after it was saved: the state it replaced is kept
+    /// unless the newest snapshot already holds it, and the new state is a snapshot of its own — or, on top of a manual
+    /// snapshot of the replaced state, amends that one (<see cref="EditSources"/>).
+    /// </summary>
+    public async Task RecordBookEditAsync(BookSnapshot before, Book after, string source)
+    {
+        if (SameBookInfo(before, SnapshotOf(after, source))) return;
+        var latest = (await Repo.GetBookSnapshotsAsync(after.Id)).FirstOrDefault();
+        if (latest is not null && EditSources.IsManual(latest.Reason) && SameBookInfo(latest, before))
+        {
+            await Repo.AmendBookSnapshotAsync(latest.Id, SnapshotOf(after, source));
+            return;
+        }
+        if (latest is null || !SameBookInfo(latest, before))
+            await Repo.AddBookSnapshotAsync(new BookSnapshot
+            {
+                BookId = after.Id, Title = before.Title, Premise = before.Premise, Genre = before.Genre,
+                TargetChapterCount = before.TargetChapterCount, Language = before.Language, Mode = before.Mode, Reason = "before-edit",
+            });
+        await Repo.AddBookSnapshotAsync(SnapshotOf(after, source));
+    }
+
+    /// <summary>
+    /// Sets the given Story Bible fields, creating the bible when the book has none. <paramref name="source"/> is who
+    /// made the change: null for the book chat, or a manual source (<see cref="EditSources"/>: the web UI, a Telegram
+    /// card). History: the state it replaces is kept unless the newest snapshot already holds it, and the new state is
+    /// a snapshot of its own — a manual edit on top of a manual snapshot amends that snapshot instead.
+    /// </summary>
+    public async Task<ContentChange> UpdateStoryBibleAsync(
+        int bookId, IReadOnlyDictionary<string, string> changes, bool ignoreLock = false, string? source = null)
     {
         var book = await LoadBookAsync(bookId);
         if (IsBibleLocked(book) && !ignoreLock) throw new StoryBibleLockedException();
 
         var existing = await Repo.GetStoryBibleAsync(bookId);
         var before = BookContentRender.Render(existing);
-        if (existing is not null)
-            await Repo.AddStoryBibleSnapshotAsync(BibleSnapshot(bookId, existing, "chat-overwrite"));
+        var latest = (await Repo.GetStoryBibleSnapshotsAsync(bookId)).FirstOrDefault();
+        // Amend only a manual snapshot that holds the current state (older "user-update" snapshots hold the state
+        // before an edit and stay as they are).
+        var amend = latest is not null && existing is not null && EditSources.IsManual(source)
+                    && EditSources.IsManual(latest.Reason) && SameBible(latest, existing);
+        if (existing is not null && !amend && (latest is null || !SameBible(latest, existing)))
+            await Repo.AddStoryBibleSnapshotAsync(BibleSnapshot(bookId, existing, source is null ? "chat-overwrite" : "before-edit"));
 
         var bible = existing ?? new StoryBible { BookId = bookId };
         var fields = BookContentRender.Merge(BookContentRender.Fields(bible), changes);
@@ -113,7 +158,8 @@ public class BookContentService : AgentBase
         bible.WorldRules = fields["worldRules"];
         bible.Notes = fields["notes"];
         var saved = await Repo.UpsertStoryBibleAsync(bible);
-        await Repo.AddStoryBibleSnapshotAsync(BibleSnapshot(bookId, saved, "chat-revised"));
+        if (amend) await Repo.AmendStoryBibleSnapshotAsync(latest!.Id, BibleSnapshot(bookId, saved, source!));
+        else await Repo.AddStoryBibleSnapshotAsync(BibleSnapshot(bookId, saved, source ?? "chat-revised"));
 
         book = await LoadBookAsync(bookId);
         book.StoryBibleStatus = PlanningPhaseStatus.Complete;
@@ -138,6 +184,10 @@ public class BookContentService : AgentBase
         await Repo.UpdateAsync(book);
         return new ContentChange("Removed the Story Bible.", BookContentRender.Render(existing), "");
     }
+
+    private static bool SameBible(StoryBibleSnapshot s, StoryBible b) =>
+        s.SettingDescription == b.SettingDescription && s.TimePeriod == b.TimePeriod && s.Themes == b.Themes
+        && s.ToneAndStyle == b.ToneAndStyle && s.WorldRules == b.WorldRules && s.Notes == b.Notes;
 
     private static StoryBibleSnapshot BibleSnapshot(int bookId, StoryBible b, string reason) => new()
     {
@@ -305,12 +355,21 @@ public class BookContentService : AgentBase
     }
 
     /// <summary>Sets outline fields of a chapter; its number, prose and status stay as they are.</summary>
-    public async Task<ContentChange> UpdateChapterOutlineAsync(int bookId, int chapterId, IReadOnlyDictionary<string, string> changes)
+    public async Task<ContentChange> UpdateChapterOutlineAsync(
+        int bookId, int chapterId, IReadOnlyDictionary<string, string> changes, string createdBy = AgentCreatedBy.BookChat)
     {
         var chapter = await LoadActiveChapterAsync(bookId, chapterId);
         var before = BookContentRender.Render(chapter);
         ApplyOutline(chapter, BookContentRender.Merge(BookContentRender.Fields(chapter), changes));
-        await Repo.UpdateChapterAsync(chapter);
+        // Saved as a chapter version (the version list shows it; a manual edit amends a manual version).
+        await Repo.AddChapterVersionAsync(new ChapterVersion
+        {
+            ChapterId = chapterId, BookId = bookId, Title = chapter.Title, Outline = chapter.Outline,
+            Content = chapter.Content, Status = chapter.Status, PovCharacter = chapter.PovCharacter,
+            CharactersInvolvedJson = chapter.CharactersInvolvedJson, PlotThreadsJson = chapter.PlotThreadsJson,
+            ForeshadowingNotes = chapter.ForeshadowingNotes, PayoffNotes = chapter.PayoffNotes,
+            CreatedBy = createdBy,   // the prose is unchanged: the repository moves its embeddings over
+        });
         await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId);
         return new ContentChange($"Updated the outline of Chapter {chapter.Number}.", before, BookContentRender.Render(chapter), chapterId);
     }

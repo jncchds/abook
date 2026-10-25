@@ -211,6 +211,8 @@ public interface IBookRepository
 
     // Snapshots (append-only history)
     Task AddStoryBibleSnapshotAsync(StoryBibleSnapshot snapshot);
+    /// <summary>Overwrites a snapshot with <paramref name="values"/>, dated now (a manual edit amending a manual snapshot).</summary>
+    Task AmendStoryBibleSnapshotAsync(int snapshotId, StoryBibleSnapshot values);
     Task<IEnumerable<StoryBibleSnapshot>> GetStoryBibleSnapshotsAsync(int bookId);
     Task<StoryBibleSnapshot?> GetStoryBibleSnapshotAsync(int bookId, int snapshotId);
     Task<StoryBible> RestoreStoryBibleSnapshotAsync(int bookId, int snapshotId);
@@ -226,6 +228,8 @@ public interface IBookRepository
     Task<IEnumerable<PlotThread>> RestorePlotThreadsSnapshotAsync(int bookId, int snapshotId);
 
     Task AddBookSnapshotAsync(BookSnapshot snapshot);
+    /// <summary>Overwrites a snapshot with <paramref name="values"/>, dated now (a manual edit amending a manual snapshot).</summary>
+    Task AmendBookSnapshotAsync(int snapshotId, BookSnapshot values);
     Task<IEnumerable<BookSnapshot>> GetBookSnapshotsAsync(int bookId);
     Task<BookSnapshot?> GetBookSnapshotAsync(int bookId, int snapshotId);
 

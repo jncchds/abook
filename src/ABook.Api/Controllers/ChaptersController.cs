@@ -71,10 +71,11 @@ public class ChaptersController : ControllerBase
 
         var contentCleared = string.IsNullOrEmpty(req.Content) && !string.IsNullOrEmpty(chapter.Content);
         var contentChanged = req.Content != chapter.Content && !string.IsNullOrEmpty(req.Content);
-        var outlineChanged = req.Title != chapter.Title || req.Outline != chapter.Outline;
+        var anyChange = req.Content != chapter.Content || req.Title != chapter.Title
+                        || req.Outline != chapter.Outline || req.Status != chapter.Status;
 
-        // Create a version snapshot if content changed OR if title/outline changed
-        if (contentChanged || (outlineChanged && !contentCleared))
+        // Every edit is a version (an edit on top of the author's own last version amends it — see EditSources).
+        if (anyChange)
         {
             var version = new ChapterVersion
             {
@@ -93,28 +94,16 @@ public class ChaptersController : ControllerBase
                 HasEmbeddings = false
             };
             var saved = await _repo.AddChapterVersionAsync(version);
-            // The new version is now the active one, so the previous version's chunks no longer
-            // answer searches — embed the author's text in the background or the chapter drops
-            // out of RAG entirely.
-            if (contentChanged)
+            // The active version answers searches: new prose is embedded in the background (unchanged prose keeps
+            // its embeddings), cleared prose leaves RAG.
+            if (contentCleared)
+                try { await _vectorStore.DeleteChapterChunksAsync(bookId, chapterId); } catch { /* non-fatal */ }
+            else if (contentChanged || (!saved.HasEmbeddings && !string.IsNullOrEmpty(saved.Content)))
                 _indexing.QueueIndex(bookId, chapterId, saved.Id);
-            // AddChapterVersionAsync already syncs fields to Chapter, so just return it
-            var updated = await _repo.GetChapterAsync(bookId, chapterId);
             TellTelegram(bookId, chapterId);
-            return Ok(updated);
         }
-
-        chapter.Title = req.Title;
-        chapter.Outline = req.Outline;
-        chapter.Content = req.Content;
-        chapter.Status = req.Status;
-        await _repo.UpdateChapterAsync(chapter);
-        TellTelegram(bookId, chapterId);
-
-        if (contentCleared)
-            try { await _vectorStore.DeleteChapterChunksAsync(bookId, chapterId); } catch { /* non-fatal */ }
-
-        return Ok(chapter);
+        // AddChapterVersionAsync already syncs fields to Chapter, so just return it
+        return Ok(await _repo.GetChapterAsync(bookId, chapterId));
     }
 
     [HttpPost("{chapterId:int}/archive")]

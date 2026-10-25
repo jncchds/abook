@@ -300,7 +300,7 @@ public sealed partial class TelegramCardService(
             var note = s.Kind switch
             {
                 "book" => await SaveBookAsync(ctx),
-                "bible" => (await content.UpdateStoryBibleAsync(ctx.Book!.Id, s.Draft)).Note,
+                "bible" => (await content.UpdateStoryBibleAsync(ctx.Book!.Id, s.Draft, source: EditSources.TelegramEdit)).Note,
                 "char" => await SaveCharacterAsync(ctx),
                 "thread" => await SaveThreadAsync(ctx),
                 "chapter" => await SaveChapterAsync(ctx),
@@ -334,11 +334,7 @@ public sealed partial class TelegramCardService(
         if (d.ContainsKey("premise") && d["premise"].Trim() != book.Premise.Trim() && BookContentService.IsBibleLocked(book))
             throw new StoryBibleLockedException();
 
-        await repo.AddBookSnapshotAsync(new BookSnapshot
-        {
-            BookId = book.Id, Title = book.Title, Premise = book.Premise, Genre = book.Genre,
-            TargetChapterCount = book.TargetChapterCount, Language = book.Language, Mode = book.Mode, Reason = "telegram",
-        });
+        var before = BookContentService.SnapshotOf(book, EditSources.TelegramEdit);
         if (d.TryGetValue("title", out var title)) book.Title = title;
         if (d.TryGetValue("premise", out var premise)) book.Premise = premise;
         if (d.TryGetValue("genre", out var genre)) book.Genre = genre;
@@ -347,6 +343,7 @@ public sealed partial class TelegramCardService(
         book.Mode = mode;
         book.TargetChapterCount = Math.Max(0, target);
         await repo.UpdateAsync(book);
+        await content.RecordBookEditAsync(before, book, EditSources.TelegramEdit);
         ctx.Book = book;
         return "Book settings saved.";
     }
@@ -400,7 +397,7 @@ public sealed partial class TelegramCardService(
     private async Task<string> SaveChapterAsync(Ctx ctx)
     {
         if (ctx.State.ItemId is int id)
-            return (await content.UpdateChapterOutlineAsync(ctx.Book!.Id, id, ctx.State.Draft)).Note;
+            return (await content.UpdateChapterOutlineAsync(ctx.Book!.Id, id, ctx.State.Draft, AgentCreatedBy.Telegram)).Note;
         // A new chapter always goes at the end.
         var change = await content.AddChapterAsync(ctx.Book!.Id, ctx.State.Draft);
         ctx.State.ItemId = change.ChapterId;

@@ -58,9 +58,9 @@ public class TelegramProposalDetailsTests
         var html = TelegramFormat.ProposalDetailsRich(p, 2);
         Assert.Contains("🔍 2. Make Mortimer crueler", html);
         Assert.Contains("<b>Character</b>", html);
-        Assert.Contains("−   \"personality\": \"grumpy\",", html);
-        Assert.Contains("+   \"personality\": \"cruel &lt;and&gt; cold\",", html);
-        Assert.Contains("    \"arc\": \"redemption\"", html);   // context
+        Assert.Contains("🔴 <s>  \"personality\": \"grumpy\",</s>", html);
+        Assert.Contains("🟢   \"personality\": \"cruel &lt;and&gt; cold\",", html);
+        Assert.Contains("<br>  \"arc\": \"redemption\"", html);   // context
         Assert.Contains("Conflict", html);
         Assert.DoesNotContain("Open ↗", html);   // only once applied
     }
@@ -99,6 +99,15 @@ public class TelegramProposalDetailsTests
         Assert.Contains("  line 12", diff);
         Assert.DoesNotContain("line 13", diff);
         Assert.Equal("", TelegramFormat.DiffText("same", "same"));
+    }
+
+    [Fact]
+    public void DiffRich_WrapsLinesInsteadOfACodeBlock()
+    {
+        var html = TelegramFormat.DiffRich("a\nold <x>\nc", "a\nnew\nc");
+        Assert.Equal("a<br>🟢 new<br>🔴 <s>old &lt;x&gt;</s><br>c", html);
+        var p = new ChatProposal { Label = "Edit", Type = "upsert_character", PreviewBefore = "a", PreviewAfter = "b" };
+        Assert.DoesNotContain("<pre>", TelegramFormat.ProposalDetailsRich(p, 1));
     }
 
     [Fact]

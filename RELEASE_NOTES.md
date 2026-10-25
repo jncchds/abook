@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.5.4 — 2026-10-25
+
+- fix(telegram): a suggestion's **changes** no longer sit in a code block that scrolls sideways on a phone — each changed line wraps, added lines marked 🟢, removed ones 🔴 and struck through
+- fix: **every edit of the book's content is a version** — editing a chapter's outline in a Telegram card or through the book chat now saves a chapter version (before it changed the chapter in place, so its version list didn't show it), and the Story Bible and book details keep the state you saved, not only the one before. To keep the lists short, an edit by you (web UI or Telegram) on top of your own last version **updates that version**; anything else in between (an agent, the book chat, a restore) starts a new one. The change log behind Rewind still keeps every save. An outline-only edit keeps the chapter's embeddings and summary instead of making them again
+- feat(export): the **metadata** download starts with what each section holds **now** — Story Bible, clarifications (open first, archived folded), characters, plot threads (archived folded) and chapters (plan, status, words, summary) — with links to each section, and only then the full timeline
+
 ## v0.5.3 — 2026-10-25
 
 - feat(book chat): **Anything else?** under every set of suggestions — write what else to change and tap **↻ Revise suggestions**: the co-author gets those suggestions in full together with your note and answers with a complete corrected list (keeping what was right, fixing the rest, adding what you asked), which replaces the open ones. In Telegram, reply to the suggestions (or their reply) with your note. MCP: `revise_book_chat_suggestions`. Migration `AddChatRevision`

@@ -17,6 +17,8 @@ internal sealed class MetadataSources
     public IReadOnlyList<CharacterCard> Characters { get; init; } = [];
     public IReadOnlyList<CharacterCardVersion> CharacterVersions { get; init; } = [];
     public IReadOnlyList<CharactersSnapshot> CharacterSnapshots { get; init; } = [];
+    /// <summary>All plot threads, archived included.</summary>
+    public IReadOnlyList<PlotThread> PlotThreads { get; init; } = [];
     public IReadOnlyList<PlotThreadVersion> PlotThreadVersions { get; init; } = [];
     public IReadOnlyList<PlotThreadsSnapshot> PlotThreadSnapshots { get; init; } = [];
     /// <summary>Versions of the active chapters.</summary>
@@ -101,10 +103,13 @@ internal static class MetadataExport
         html.Append("  <main>\n");
         html.Append("    <header class=\"doc-header\">\n");
         html.Append($"      <h1>{Esc(book.Title)}</h1>\n");
-        html.Append("      <p class=\"subtitle\">How this book was made — every planning step, edit, conversation and LLM call in the order it happened. ");
+        html.Append("      <p class=\"subtitle\">How this book was made — first what each section holds now (Story Bible, clarifications, characters, ");
+        html.Append("plot threads, chapters), then every planning step, edit, conversation and LLM call in the order it happened. ");
         html.Append("The book text and the images shown in the book are not included. Times are UTC.</p>\n");
         html.Append("    </header>\n");
+        AppendContents(html);
         AppendOverview(html, s, chapters, timeline);
+        AppendCurrentState(html, s, chapters);
         AppendTimeline(html, timeline);
         html.Append("  </main>\n  <script>\n").Append(Js).Append("\n  </script>\n</body>\n</html>\n");
         return html.ToString();
@@ -120,13 +125,18 @@ internal static class MetadataExport
         ("Mode", mode.ToString()), ("Premise", premise),
     ];
 
+    /// <summary>A snapshot holding the state an edit by the author saved (newer edits), not the state before one.</summary>
+    private static bool IsAfterEdit(string reason) => reason is EditSources.UserEdit or EditSources.TelegramEdit;
+
     /// <summary>
-    /// A book snapshot holds the values in force <em>before</em> the edit made at its timestamp, so the
-    /// creation values are the oldest snapshot's and each edit runs from one snapshot to the next.
+    /// Book snapshots, oldest first, are the states the book went through. Most hold the values in force
+    /// <em>before</em> the edit made at their timestamp (the creation values are the oldest snapshot's); the
+    /// author's newer edits ("user-edit", "telegram-edit") hold the state they saved, dated when it was saved.
     /// </summary>
     private static IEnumerable<Ev> BookEvents(Book book, IReadOnlyList<BookSnapshot> snapshots)
     {
-        var states = snapshots.OrderBy(x => x.CreatedAt)
+        var ordered = snapshots.OrderBy(x => x.CreatedAt).ToList();
+        var states = ordered
             .Select(x => BookFields(x.Title, x.Genre, x.Language, x.TargetChapterCount, x.Mode, x.Premise))
             .Append(BookFields(book.Title, book.Genre, book.Language, book.TargetChapterCount, book.Mode, book.Premise))
             .ToList();
@@ -136,11 +146,22 @@ internal static class MetadataExport
             created = $"<p class=\"note\">Continuation of book #{baseId} — its planning is inherited.</p>" + created;
         yield return new Ev(book.CreatedAt, Cat.Planning, Author, "Book created", created);
 
-        var ordered = snapshots.OrderBy(x => x.CreatedAt).ToList();
         for (var i = 0; i < ordered.Count; i++)
         {
             var diff = Diff(states[i], states[i + 1]);
-            if (diff.Length > 0) yield return new Ev(ordered[i].CreatedAt, Cat.Planning, Author, "Book details edited", diff);
+            if (diff.Length == 0) continue;
+            // The change that led to the next state: saved at the next snapshot when that one holds what was
+            // saved, otherwise made right after this one (which holds what it replaced).
+            var savedNext = i + 1 < ordered.Count && IsAfterEdit(ordered[i + 1].Reason);
+            var by = savedNext ? ordered[i + 1] : ordered[i];
+            var (actor, title) = by.Reason switch
+            {
+                "chat" => (Role(AgentRole.BookChat), "Book details changed"),
+                var r when r.StartsWith("rewind") => ("Rewind", "Book details rewound"),
+                EditSources.TelegramEdit or "telegram" => (Author, "Book details edited in Telegram"),
+                _ => (Author, "Book details edited"),
+            };
+            yield return new Ev(by.CreatedAt, Cat.Planning, actor, title, diff);
         }
     }
 
@@ -289,6 +310,16 @@ internal static class MetadataExport
                     pendingEdit = null;
                     Emit(snap.CreatedAt, Role(AgentRole.StoryBibleAgent), "Story bible generated", fields);
                     break;
+                case EditSources.UserEdit or EditSources.TelegramEdit:
+                    // The state the author saved (a run of edits amends one such snapshot).
+                    pendingEdit = null;
+                    if (Changed(fields))
+                        Emit(snap.CreatedAt, Author, snap.Reason == EditSources.TelegramEdit ? "Story bible edited in Telegram" : "Story bible edited", fields, asDiff: true);
+                    break;
+                case "chat-revised":
+                    pendingEdit = null;
+                    if (Changed(fields)) Emit(snap.CreatedAt, Role(AgentRole.BookChat), "Story bible revised", fields, asDiff: true);
+                    break;
                 case "planning-phase-reset":
                     Flush(fields);
                     events.Add(new Ev(snap.CreatedAt, Cat.Planning, Author, "Story bible cleared"));
@@ -299,7 +330,7 @@ internal static class MetadataExport
                     // Content nobody recorded on arrival (e.g. written by hand before the first snapshot).
                     if (Changed(fields))
                         Emit(snap.CreatedAt, Author, "Story bible as it stood before the next change", fields);
-                    if (snap.Reason == "user-update") pendingEdit = snap.CreatedAt;
+                    if (snap.Reason is "user-update" or "telegram") pendingEdit = snap.CreatedAt;
                     break;
             }
         }
@@ -434,6 +465,8 @@ internal static class MetadataExport
                     "agent:Writer" => $"Chapter {c.Number} drafted",
                     "agent:Editor" => $"Chapter {c.Number} revised",
                     "user"         => $"Chapter {c.Number} edited by the author",
+                    "telegram"     => $"Chapter {c.Number} edited in Telegram",
+                    "agent:BookChat" => $"Chapter {c.Number} changed in the book chat",
                     var by when by.StartsWith("restore:") => $"Chapter {c.Number} restored to {by["restore:".Length..]}",
                     _              => $"Chapter {c.Number} saved",
                 };
@@ -445,7 +478,7 @@ internal static class MetadataExport
                 previousWords = words;
             }
 
-            // Planning edited after the last version (outline edits don't create versions).
+            // Planning edited after the last version (older outline edits didn't create versions).
             var now = ChapterFields(c.Title, c.PovCharacter, c.CharactersInvolvedJson, c.PlotThreadsJson, c.Outline, c.ForeshadowingNotes, c.PayoffNotes);
             var late = Diff(previousPlan, now);
             if (late.Length > 0)
@@ -632,10 +665,6 @@ internal static class MetadataExport
             html.Append("  </div>\n");
         }
 
-        if (book.Clarifications.Count > 0)
-            html.Append(Fold($"Clarifications (current) · {book.Clarifications.Count}",
-                string.Concat(book.Clarifications.Select(ClarificationQa))));
-
         var art = Fields(
         [
             ("Style", book.IllustrationStyle), ("Portrait framing", book.IllustrationPortraitFraming),
@@ -652,6 +681,89 @@ internal static class MetadataExport
         ]);
         if (prompts.Length > 0) html.Append(Fold("Custom system prompts (current)", prompts));
         html.Append("</section>\n");
+    }
+
+    // ── Current state ─────────────────────────────────────────────────────────
+
+    private static readonly (string Id, string Label)[] Sections =
+    [
+        ("overview", "Overview"), ("story-bible", "Story Bible"), ("clarifications", "Clarifications"),
+        ("characters", "Characters"), ("plot-threads", "Plot threads"), ("chapters", "Chapters"), ("timeline", "Timeline"),
+    ];
+
+    private static void AppendContents(StringBuilder html)
+    {
+        html.Append("<nav class=\"contents\">");
+        foreach (var (id, label) in Sections) html.Append($"<a href=\"#{id}\">{Esc(label)}</a>");
+        html.Append("</nav>\n");
+    }
+
+    /// <summary>What each section of the book holds now, as the web UI shows it — before the history that led there.</summary>
+    private static void AppendCurrentState(StringBuilder html, MetadataSources s, List<Chapter> chapters)
+    {
+        void Section(string id, string title, string body) =>
+            html.Append($"<section id=\"{id}\" class=\"md-section\">\n  <h2>{Esc(title)}</h2>\n{body}</section>\n");
+        static string Item(string heading, string body) => $"<article class=\"item\"><h4>{heading}</h4>{body}</article>";
+        const string none = "<p class=\"note\">None.</p>";
+
+        // Story Bible
+        var bible = s.Bible is { } b
+            ? Fields(BibleFields(b.SettingDescription, b.TimePeriod, b.Themes, b.ToneAndStyle, b.WorldRules, b.Notes))
+            : "";
+        if (s.Book.StoryBibleLockedAt is DateTime locked)
+            bible = $"<p class=\"note\">🔒 Locked since {locked:yyyy-MM-dd HH:mm} (writing started).</p>" + bible;
+        Section("story-bible", "Story Bible", bible.Length > 0 ? bible : "<p class=\"note\">No Story Bible yet.</p>");
+
+        // Clarifications: open first, then answered; archived folded away.
+        var active = s.Clarifications.Where(c => !c.IsArchived).OrderBy(c => c.IsOpen ? 0 : 1).ThenBy(c => c.CreatedAt).ToList();
+        var archivedClarifications = s.Clarifications.Where(c => c.IsArchived).OrderBy(c => c.CreatedAt).ToList();
+        var clarifications = new StringBuilder();
+        foreach (var c in active)
+            clarifications.Append(Item(Esc(c.Question) + (c.IsOpen ? " <span class=\"chap\">open</span>" : ""),
+                c.IsOpen ? "" : Fields([("Answer", c.Answer)], stacked: true)));
+        if (active.Count == 0) clarifications.Append(none);
+        if (archivedClarifications.Count > 0)
+            clarifications.Append(Fold($"Archived · {archivedClarifications.Count}", string.Concat(archivedClarifications.Select(ClarificationQa))));
+        Section("clarifications", "Clarifications", clarifications.ToString());
+
+        // Characters
+        var characters = new StringBuilder();
+        var activeCharacters = s.Characters.Where(c => !c.IsArchived).OrderBy(c => c.Role).ThenBy(c => c.Name).ToList();
+        foreach (var c in activeCharacters)
+            characters.Append(Item($"{Esc(c.Name)} <span class=\"chap\">{Esc(c.Role.ToString())}</span>",
+                Fields(CharacterFields(c).Where(f => f.Item1 is not ("Name" or "Role")))));
+        if (activeCharacters.Count == 0) characters.Append(none);
+        var archivedCharacters = s.Characters.Where(c => c.IsArchived).OrderBy(c => c.Name).ToList();
+        if (archivedCharacters.Count > 0)
+            characters.Append(Fold($"Archived · {archivedCharacters.Count}",
+                string.Concat(archivedCharacters.Select(c => Item(Esc(c.Name), Fields(CharacterFields(c)))))));
+        Section("characters", "Characters", characters.ToString());
+
+        // Plot threads
+        var threads = new StringBuilder();
+        var activeThreads = s.PlotThreads.Where(t => !t.IsArchived).OrderBy(t => t.Type).ThenBy(t => t.Name).ToList();
+        foreach (var t in activeThreads)
+            threads.Append(Item($"{Esc(t.Name)} <span class=\"chap\">{Esc(t.Type.ToString())} · {Esc(t.Status.ToString())}</span>",
+                Fields(ThreadFields(t).Where(f => f.Item1 is not ("Name" or "Type" or "Status")))));
+        if (activeThreads.Count == 0) threads.Append(none);
+        var archivedThreads = s.PlotThreads.Where(t => t.IsArchived).OrderBy(t => t.Name).ToList();
+        if (archivedThreads.Count > 0)
+            threads.Append(Fold($"Archived · {archivedThreads.Count}",
+                string.Concat(archivedThreads.Select(t => Item(Esc(t.Name), Fields(ThreadFields(t)))))));
+        Section("plot-threads", "Plot threads", threads.ToString());
+
+        // Chapters: the plan of each and how far it got (never the prose).
+        var chapterHtml = new StringBuilder();
+        foreach (var c in chapters)
+        {
+            var words = WordCount(c.Content);
+            chapterHtml.Append(Item($"Chapter {c.Number}: {Esc(c.Title)} <span class=\"chap\">{Esc(c.Status.ToString())}{(words > 0 ? $" · {words:N0} words" : "")}</span>",
+                Fields(ChapterFields(c.Title, c.PovCharacter, c.CharactersInvolvedJson, c.PlotThreadsJson, c.Outline, c.ForeshadowingNotes, c.PayoffNotes)
+                    .Where(f => f.Item1 != "Title")
+                    .Append(("Summary", c.Summary)))));
+        }
+        if (chapters.Count == 0) chapterHtml.Append(none);
+        Section("chapters", "Chapters", chapterHtml.ToString());
     }
 
     private static void AppendUsageTable(StringBuilder html, string caption, IEnumerable<IGrouping<string, TokenUsageRecord>> groups)
@@ -867,6 +979,11 @@ internal static class MetadataExport
     .note { opacity: 0.6; font-size: 0.88em; margin: 4px 0; }
     .text { white-space: pre-wrap; word-break: break-word; font-size: 0.92em; }
     .fail { color: #dc2626; }
+    nav.contents { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 28px; font-size: 0.9em; }
+    nav.contents a { color: inherit; opacity: 0.75; }
+    .md-section { scroll-margin-top: 60px; }
+    article.item { padding: 8px 12px; margin: 8px 0; border: 1px solid var(--border); border-radius: 6px; }
+    article.item > h4 { font-size: 1em; margin-bottom: 6px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; }
     nav.days { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 16px; font-size: 0.85em; }
     nav.days a { color: inherit; opacity: 0.7; }
     h3.day { font-size: 1em; padding: 10px 0 6px; margin-top: 18px; border-bottom: 1px solid var(--border); scroll-margin-top: 80px; }

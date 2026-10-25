@@ -109,25 +109,13 @@ public class BooksController : ControllerBase
     }
 
     [HttpPut("{id:int}")]
-    public async Task<IActionResult> Update(int id, [FromBody] UpdateBookRequest req)
+    public async Task<IActionResult> Update(int id, [FromBody] UpdateBookRequest req, [FromServices] BookContentService content)
     {
         var ownershipResult = await ControllerExtensions.RequireBookOwnershipAndLoadAsync(this, id, _repo);
         if (ownershipResult.Error is not null) return ownershipResult.Error;
         var book = ownershipResult.Book!;
 
-        // Snapshot the current metadata before overwriting
-        await _repo.AddBookSnapshotAsync(new ABook.Core.Models.BookSnapshot
-        {
-            BookId = id,
-            Title = book.Title,
-            Premise = book.Premise,
-            Genre = book.Genre,
-            TargetChapterCount = book.TargetChapterCount,
-            Language = book.Language,
-            Mode = book.Mode,
-            Reason = "user-update"
-        });
-
+        var before = BookContentService.SnapshotOf(book, EditSources.UserEdit);
         var mode = req.Mode ?? book.Mode;
         if (mode == BookMode.Autonomous && req.TargetChapterCount < 1)
             return BadRequest(new { message = "An Autonomous book needs a target chapter count." });
@@ -151,6 +139,7 @@ public class BooksController : ControllerBase
         book.Mode = mode;
         if (req.IllustrationsEnabled is bool illustrate) book.IllustrationsEnabled = illustrate;
         await _repo.UpdateAsync(book);
+        await content.RecordBookEditAsync(before, book, EditSources.UserEdit);
         return Ok(book);
     }
 

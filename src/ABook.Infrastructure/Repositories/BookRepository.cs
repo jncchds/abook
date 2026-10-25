@@ -340,21 +340,37 @@ public class BookRepository : IBookRepository
 
     public async Task<ChapterVersion> AddChapterVersionAsync(ChapterVersion version)
     {
-        // Deactivate all existing versions for this chapter
-        await _db.ChapterVersions
-            .Where(v => v.ChapterId == version.ChapterId)
-            .ExecuteUpdateAsync(s => s.SetProperty(v => v.IsActive, false));
-
-        version.CreatedAt = DateTime.UtcNow;
-        version.IsActive = true;
-
-        // Auto-assign version number
-        var maxVersion = await _db.ChapterVersions
-            .Where(v => v.ChapterId == version.ChapterId)
-            .MaxAsync(v => (int?)v.VersionNumber) ?? 0;
-        version.VersionNumber = maxVersion + 1;
-
-        _db.ChapterVersions.Add(version);
+        var active = await _db.ChapterVersions.FirstOrDefaultAsync(v => v.ChapterId == version.ChapterId && v.IsActive);
+        // The same prose as the active version (an outline edit): its embeddings and summary move to the new version
+        // instead of being made again.
+        ChapterVersion? sameProse = null;
+        // A manual edit on top of a manual active version amends it (see EditSources).
+        if (active is not null && EditSources.IsManual(version.CreatedBy) && EditSources.IsManual(active.CreatedBy))
+        {
+            if (active.Content != version.Content) active.HasEmbeddings = false;
+            active.Title = version.Title;
+            active.Outline = version.Outline;
+            active.Content = version.Content;
+            active.Status = version.Status;
+            active.PovCharacter = version.PovCharacter;
+            active.CharactersInvolvedJson = version.CharactersInvolvedJson;
+            active.PlotThreadsJson = version.PlotThreadsJson;
+            active.ForeshadowingNotes = version.ForeshadowingNotes;
+            active.PayoffNotes = version.PayoffNotes;
+            active.CreatedBy = version.CreatedBy;
+            active.CreatedAt = DateTime.UtcNow;
+            version = active;
+        }
+        else
+        {
+            if (active is not null && active.Content == version.Content && active.HasEmbeddings)
+            {
+                sameProse = active;
+                version.HasEmbeddings = true;
+                active.HasEmbeddings = false;   // activated again later, it is indexed again
+            }
+            await AddNewChapterVersionAsync(version);
+        }
 
         // Sync denormalized fields back to Chapter
         var chapter = await _db.Chapters.FindAsync(version.ChapterId);
@@ -373,7 +389,37 @@ public class BookRepository : IBookRepository
         }
 
         await _db.SaveChangesAsync();
+        if (sameProse is not null)
+        {
+            await _db.ChapterEmbeddings
+                .Where(e => e.ChapterVersionId == sameProse.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(e => e.ChapterVersionId, version.Id));
+            if (chapter is not null && chapter.SummaryVersionId == sameProse.Id)
+            {
+                chapter.SummaryVersionId = version.Id;
+                await _db.SaveChangesAsync();
+            }
+        }
         return version;
+    }
+
+    private async Task AddNewChapterVersionAsync(ChapterVersion version)
+    {
+        // Deactivate all existing versions for this chapter
+        await _db.ChapterVersions
+            .Where(v => v.ChapterId == version.ChapterId)
+            .ExecuteUpdateAsync(s => s.SetProperty(v => v.IsActive, false));
+
+        version.CreatedAt = DateTime.UtcNow;
+        version.IsActive = true;
+
+        // Auto-assign version number
+        var maxVersion = await _db.ChapterVersions
+            .Where(v => v.ChapterId == version.ChapterId)
+            .MaxAsync(v => (int?)v.VersionNumber) ?? 0;
+        version.VersionNumber = maxVersion + 1;
+
+        _db.ChapterVersions.Add(version);
     }
 
     public async Task UpdateChapterVersionAsync(ChapterVersion version)
@@ -953,10 +999,28 @@ public class BookRepository : IBookRepository
 
     public async Task<CharacterCardVersion> AddCharacterVersionAsync(CharacterCardVersion version)
     {
-        var maxVersion = await _db.CharacterCardVersions
+        var latest = await _db.CharacterCardVersions
             .Where(v => v.CharacterCardId == version.CharacterCardId)
-            .MaxAsync(v => (int?)v.VersionNumber) ?? 0;
-        version.VersionNumber = maxVersion + 1;
+            .OrderByDescending(v => v.VersionNumber)
+            .FirstOrDefaultAsync();
+        // A manual edit on top of a manual version amends it (see EditSources).
+        if (latest is not null && EditSources.IsManual(version.CreatedBy) && EditSources.IsManual(latest.CreatedBy))
+        {
+            latest.Name = version.Name;
+            latest.Role = version.Role;
+            latest.PhysicalDescription = version.PhysicalDescription;
+            latest.Personality = version.Personality;
+            latest.Backstory = version.Backstory;
+            latest.GoalMotivation = version.GoalMotivation;
+            latest.Arc = version.Arc;
+            latest.FirstAppearanceChapterNumber = version.FirstAppearanceChapterNumber;
+            latest.Notes = version.Notes;
+            latest.CreatedBy = version.CreatedBy;
+            latest.CreatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+            return latest;
+        }
+        version.VersionNumber = (latest?.VersionNumber ?? 0) + 1;
         version.CreatedAt = DateTime.UtcNow;
         _db.CharacterCardVersions.Add(version);
         await _db.SaveChangesAsync();
@@ -1148,10 +1212,25 @@ public class BookRepository : IBookRepository
 
     public async Task<PlotThreadVersion> AddPlotThreadVersionAsync(PlotThreadVersion version)
     {
-        var maxVersion = await _db.PlotThreadVersions
+        var latest = await _db.PlotThreadVersions
             .Where(v => v.PlotThreadId == version.PlotThreadId)
-            .MaxAsync(v => (int?)v.VersionNumber) ?? 0;
-        version.VersionNumber = maxVersion + 1;
+            .OrderByDescending(v => v.VersionNumber)
+            .FirstOrDefaultAsync();
+        // A manual edit on top of a manual version amends it (see EditSources).
+        if (latest is not null && EditSources.IsManual(version.CreatedBy) && EditSources.IsManual(latest.CreatedBy))
+        {
+            latest.Name = version.Name;
+            latest.Description = version.Description;
+            latest.Type = version.Type;
+            latest.IntroducedChapterNumber = version.IntroducedChapterNumber;
+            latest.ResolvedChapterNumber = version.ResolvedChapterNumber;
+            latest.Status = version.Status;
+            latest.CreatedBy = version.CreatedBy;
+            latest.CreatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+            return latest;
+        }
+        version.VersionNumber = (latest?.VersionNumber ?? 0) + 1;
         version.CreatedAt = DateTime.UtcNow;
         _db.PlotThreadVersions.Add(version);
         await _db.SaveChangesAsync();
@@ -1301,6 +1380,21 @@ public class BookRepository : IBookRepository
         await _db.SaveChangesAsync();
     }
 
+    public async Task AmendStoryBibleSnapshotAsync(int snapshotId, StoryBibleSnapshot values)
+    {
+        var snapshot = await _db.StoryBibleSnapshots.FirstOrDefaultAsync(s => s.Id == snapshotId && s.BookId == values.BookId)
+            ?? throw new InvalidOperationException($"Snapshot {snapshotId} not found.");
+        snapshot.SettingDescription = values.SettingDescription;
+        snapshot.TimePeriod = values.TimePeriod;
+        snapshot.Themes = values.Themes;
+        snapshot.ToneAndStyle = values.ToneAndStyle;
+        snapshot.WorldRules = values.WorldRules;
+        snapshot.Notes = values.Notes;
+        snapshot.Reason = values.Reason;
+        snapshot.CreatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+    }
+
     public async Task<IEnumerable<StoryBibleSnapshot>> GetStoryBibleSnapshotsAsync(int bookId) =>
         await _db.StoryBibleSnapshots.Where(s => s.BookId == bookId).OrderByDescending(s => s.CreatedAt).ToListAsync();
 
@@ -1389,6 +1483,21 @@ public class BookRepository : IBookRepository
     {
         snapshot.CreatedAt = DateTime.UtcNow;
         _db.BookSnapshots.Add(snapshot);
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task AmendBookSnapshotAsync(int snapshotId, BookSnapshot values)
+    {
+        var snapshot = await _db.BookSnapshots.FirstOrDefaultAsync(s => s.Id == snapshotId && s.BookId == values.BookId)
+            ?? throw new InvalidOperationException($"Snapshot {snapshotId} not found.");
+        snapshot.Title = values.Title;
+        snapshot.Premise = values.Premise;
+        snapshot.Genre = values.Genre;
+        snapshot.TargetChapterCount = values.TargetChapterCount;
+        snapshot.Language = values.Language;
+        snapshot.Mode = values.Mode;
+        snapshot.Reason = values.Reason;
+        snapshot.CreatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
     }
 

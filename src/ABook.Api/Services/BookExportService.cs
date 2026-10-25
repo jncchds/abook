@@ -96,8 +96,9 @@ public class BookExportService
         foreach (var c in characters)
             characterVersions.AddRange(await _repo.GetCharacterVersionsAsync(book.Id, c.Id));
 
+        var plotThreads = (await _repo.GetAllPlotThreadsAsync(book.Id)).ToList();
         var plotThreadVersions = new List<PlotThreadVersion>();
-        foreach (var t in await _repo.GetAllPlotThreadsAsync(book.Id))
+        foreach (var t in plotThreads)
             plotThreadVersions.AddRange(await _repo.GetPlotThreadVersionsAsync(book.Id, t.Id));
 
         var chapterVersions = new List<ChapterVersion>();
@@ -116,6 +117,7 @@ public class BookExportService
             Characters          = characters,
             CharacterVersions   = characterVersions,
             CharacterSnapshots  = (await _repo.GetCharactersSnapshotsAsync(book.Id)).ToList(),
+            PlotThreads         = plotThreads,
             PlotThreadVersions  = plotThreadVersions,
             PlotThreadSnapshots = (await _repo.GetPlotThreadsSnapshotsAsync(book.Id)).ToList(),
             ChapterVersions     = chapterVersions,

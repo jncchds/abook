@@ -1,5 +1,28 @@
 namespace ABook.Core.Models;
 
+/// <summary>
+/// Who made an edit, as versions and snapshots record it. The author's own edits — in the web UI or a Telegram card —
+/// are <b>manual</b>: a manual edit on top of a manual version amends that version instead of adding another, so a run
+/// of small fixes leaves one version; any other change (an agent, the book chat, a restore) starts a new one. The
+/// change log (<see cref="ContentRevision"/>) still keeps every save for a rewind.
+/// </summary>
+public static class EditSources
+{
+    /// <summary>A version (CreatedBy) the author saved in the web UI.</summary>
+    public const string User = "user";
+    /// <summary>A version (CreatedBy) the author saved in a Telegram card.</summary>
+    public const string Telegram = "telegram";
+    /// <summary>
+    /// A book or Story Bible snapshot (Reason) holding the state the author saved in the web UI. Older snapshots with
+    /// "user-update" / "telegram" hold the state <em>before</em> such an edit and are not manual in this sense.
+    /// </summary>
+    public const string UserEdit = "user-edit";
+    /// <summary>A snapshot holding the state the author saved in a Telegram card.</summary>
+    public const string TelegramEdit = "telegram-edit";
+
+    public static bool IsManual(string? source) => source is User or Telegram or UserEdit or TelegramEdit;
+}
+
 public class StoryBibleSnapshot
 {
     public int Id { get; set; }

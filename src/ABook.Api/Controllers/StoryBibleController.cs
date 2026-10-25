@@ -12,8 +12,13 @@ namespace ABook.Api.Controllers;
 public class StoryBibleController : ControllerBase
 {
     private readonly IBookRepository _repo;
+    private readonly ABook.Agents.BookContentService _content;
 
-    public StoryBibleController(IBookRepository repo) => _repo = repo;
+    public StoryBibleController(IBookRepository repo, ABook.Agents.BookContentService content)
+    {
+        _repo = repo;
+        _content = content;
+    }
 
     [HttpGet]
     public async Task<IActionResult> Get(int bookId)
@@ -35,34 +40,17 @@ public class StoryBibleController : ControllerBase
         if (ownershipError is not null) return ownershipError;
         if (await RefuseIfLockedAsync(bookId) is { } locked) return locked;
 
-        // Snapshot the existing bible before overwriting
-        var existing = await _repo.GetStoryBibleAsync(bookId);
-        if (existing is not null)
+        // Saved like every bible edit, with its history (EditSources: edits on top of the author's own amend it).
+        await _content.UpdateStoryBibleAsync(bookId, new Dictionary<string, string>
         {
-            await _repo.AddStoryBibleSnapshotAsync(new StoryBibleSnapshot
-            {
-                BookId = bookId,
-                SettingDescription = existing.SettingDescription,
-                TimePeriod = existing.TimePeriod,
-                Themes = existing.Themes,
-                ToneAndStyle = existing.ToneAndStyle,
-                WorldRules = existing.WorldRules,
-                Notes = existing.Notes,
-                Reason = "user-update"
-            });
-        }
-        var bible = new StoryBible
-        {
-            BookId = bookId,
-            SettingDescription = req.SettingDescription,
-            TimePeriod = req.TimePeriod,
-            Themes = req.Themes,
-            ToneAndStyle = req.ToneAndStyle,
-            WorldRules = req.WorldRules,
-            Notes = req.Notes
-        };
-        var result = await _repo.UpsertStoryBibleAsync(bible);
-        return Ok(result);
+            ["settingDescription"] = req.SettingDescription,
+            ["timePeriod"] = req.TimePeriod,
+            ["themes"] = req.Themes,
+            ["toneAndStyle"] = req.ToneAndStyle,
+            ["worldRules"] = req.WorldRules,
+            ["notes"] = req.Notes,
+        }, source: EditSources.UserEdit);
+        return Ok(await _repo.GetStoryBibleAsync(bookId));
     }
 
     [HttpGet("history")]

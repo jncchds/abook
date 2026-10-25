@@ -348,9 +348,9 @@ public static partial class TelegramFormat
 
         if (!longAction && (p.PreviewBefore.Length > 0 || p.PreviewAfter.Length > 0))
         {
-            var diff = DiffText(p.PreviewBefore, p.PreviewAfter, 12000);
+            var diff = DiffRich(p.PreviewBefore, p.PreviewAfter, 12000);
             sb.Append(diff.Length > 0
-                ? $"<p><b>Changes</b></p><pre><code class=\"language-diff\">{H(diff)}</code></pre>"
+                ? $"<p><b>Changes</b></p><blockquote>{diff}</blockquote>"
                 : "<p><i>No changes.</i></p>");
         }
         if (p.ResultNote is { Length: > 0 } result)
@@ -426,6 +426,21 @@ public static partial class TelegramFormat
         }
         Flush();
         return sb.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>
+    /// <see cref="DiffText"/> as HTML whose lines wrap (a code block scrolls sideways on a phone): added lines marked 🟢,
+    /// removed ones 🔴 and struck through, unchanged context as is, folded stretches in italics. Empty when nothing differs.
+    /// </summary>
+    public static string DiffRich(string before, string after, int max = 12000)
+    {
+        var diff = DiffText(before, after, max);
+        if (diff.Length == 0) return "";
+        return string.Join("<br>", diff.Split('\n').Select(line =>
+            line.StartsWith("+ ", StringComparison.Ordinal) ? "🟢 " + H(line[2..])
+            : line.StartsWith("− ", StringComparison.Ordinal) ? "🔴 <s>" + H(line[2..]) + "</s>"
+            : line.StartsWith("  ", StringComparison.Ordinal) ? H(line[2..])
+            : "<i>" + H(line) + "</i>"));
     }
 
     /// <summary>Line diff (longest common subsequence after the common prefix and suffix), as the web UI computes it.</summary>

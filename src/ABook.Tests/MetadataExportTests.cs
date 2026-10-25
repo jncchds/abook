@@ -21,11 +21,42 @@ public class MetadataExportTests
         ],
     };
 
+    /// <summary>The timeline part of the export (the current-state sections before it repeat what is current).</summary>
+    private static string Timeline(string html) => html[Pos(html, "id=\"timeline\"")..];
+
     private static int Pos(string html, string text)
     {
         var i = html.IndexOf(text, StringComparison.Ordinal);
         Assert.True(i >= 0, $"\"{text}\" not found");
         return i;
+    }
+
+    [Fact]
+    public void Generate_ShowsEachSectionsCurrentState_BeforeTheTimeline()
+    {
+        var html = MetadataExport.Generate(new MetadataSources
+        {
+            Book = BookWithChapter(),
+            Bible = new StoryBible { SettingDescription = "A drowned city." },
+            Characters = [new CharacterCard { Id = 1, Name = "Mara", Role = CharacterRole.Protagonist, Personality = "Stubborn." },
+                          new CharacterCard { Id = 2, Name = "Gone", IsArchived = true }],
+            PlotThreads = [new PlotThread { Id = 1, Name = "The flood", Description = "Water rises." }],
+            Clarifications = [new Clarification { Source = ClarificationSource.Author, Question = "Tone?", Answer = "Bleak.", CreatedAt = T0 }],
+            // Book info: the state before the author's edits, then the state they saved.
+            BookSnapshots =
+            [
+                new BookSnapshot { Title = "Old title", Premise = "p", Reason = "before-edit", CreatedAt = T0.AddMinutes(1) },
+                new BookSnapshot { Title = "New title", Premise = "p", Reason = EditSources.UserEdit, CreatedAt = T0.AddMinutes(5) },
+            ],
+        });
+
+        var timeline = Pos(html, "id=\"timeline\"");
+        var order = new[] { "id=\"story-bible\"", "A drowned city.", "id=\"clarifications\"", "Bleak.", "id=\"characters\"", "Stubborn.",
+                            "Archived · 1", "id=\"plot-threads\"", "Water rises.", "id=\"chapters\"" }.Select(t => Pos(html, t)).ToList();
+        Assert.Equal(order.OrderBy(p => p), order);
+        Assert.True(order[^1] < timeline);
+        // The edit is filed when the author saved it.
+        Assert.Contains("10:05:00</time><span class=\"actor\">Author</span><span class=\"title\">Book details edited", html);
     }
 
     [Fact]
@@ -109,6 +140,10 @@ public class MetadataExportTests
             ],
         });
 
+        // The current state lists them before the timeline.
+        Assert.True(Pos(html, "His daughter.") < Pos(html, "id=\"timeline\""));
+        html = Timeline(html);
+
         // Each question is one entry holding its outcome, in the order the questions were asked.
         var narrates = Pos(html, "Who narrates?");
         Assert.True(narrates < Pos(html, "Author answered") && Pos(html, "Author answered") < Pos(html, "His daughter."));
@@ -155,6 +190,7 @@ public class MetadataExportTests
             ],
         });
 
+        html = Timeline(html);
         // The phase note replaces its chat messages: filed at the question's time, by the asking agent.
         Assert.DoesNotContain("Story Bible is ready", html);
         Assert.Single(Regex.Matches(html, "More rain\\."));
