@@ -95,38 +95,6 @@ public sealed partial class TelegramBindingService(
         return null;
     }
 
-    /// <summary>
-    /// <c>/follow ID</c> from a linked owner: the chat (or topic) the command was sent in starts following one of their
-    /// books, without a code — at Control in their private chat, at <paramref name="level"/> in a group or channel.
-    /// Returns null on success (the new binding's worker greets the chat) or the HTML reply explaining why not.
-    /// </summary>
-    public async Task<string?> FollowAsync(Book book, TgMessage message, TelegramAccessLevel level, int ownerUserId)
-    {
-        var chat = message.Chat;
-        var thread = message.TopicId;
-        if (await BusyAsync(chat.Id, thread, book.Id) is { } busy) return busy;
-        TelegramBinding binding;
-        try
-        {
-            binding = await tg.AddBindingAsync(new TelegramBinding
-            {
-                BookId = book.Id, ChatId = chat.Id, ThreadId = thread, ChatType = chat.Type,
-                ChatTitle = Clip(ChatTitle(message), 300),
-                Level = chat.Type == "private" ? TelegramAccessLevel.Control : chat.Type == "channel" ? TelegramAccessLevel.Read : level,
-                CreatedByUserId = ownerUserId,
-            });
-        }
-        catch (DbUpdateException)
-        {
-            return "❌ This chat was connected to a book a moment ago. Send /unbind first.";
-        }
-        await RecordExistingContentAsync(binding);
-        await AddBookNoteAsync(book.Id, $"🔗 Connected to Telegram: {binding.ChatTitle} ({binding.Level}) with /follow.", Origin(message.From, binding));
-        dispatcher.Attach(binding);
-        logger.LogInformation("Telegram: book {BookId} followed in chat {ChatId} topic {ThreadId} ({Level}).", book.Id, chat.Id, thread, binding.Level);
-        return null;
-    }
-
     private static string ChatTitle(TgMessage message) =>
         message.Chat.Type == "private"
             ? $"Private chat with {message.From?.Display ?? message.Chat.Display}{(message.TopicId is not null ? " · topic" : "")}"

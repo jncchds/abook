@@ -53,7 +53,6 @@ public sealed class TelegramUpdateHandler(
         ("newbook", "Start a new book (private chat, linked account)"),
         ("books", "See and edit your books (private chat, linked account)"),
         ("book", "The book's card: settings, content, downloads"),
-        ("follow", "Get one of your books' updates here: /follow ID"),
         ("help", "What the bot does here"),
     ];
 
@@ -110,16 +109,11 @@ public sealed class TelegramUpdateHandler(
             await WithScopeAsync(sp => OnBookCommandAsync(sp, message));
             return;
         }
-        if (command is "follow" && !isChannel)
-        {
-            await WithScopeAsync(sp => OnFollowAsync(sp, message, args));
-            return;
-        }
         // A reply to a card: it fills the field the card asks for.
         if (message.ReplyToMessage is not null && command is null && !isChannel)
         {
             var handled = false;
-            await WithScopeAsync(async sp => handled = await sp.GetRequiredService<Cards.TelegramCardService>().OnReplyAsync(message, text, MayManageAsync));
+            await WithScopeAsync(async sp => handled = await sp.GetRequiredService<Cards.TelegramCardService>().OnReplyAsync(message, text, CardAccessAsync));
             if (handled) return;
         }
         if (command is "start" or "bind" && BindCodeFrom(args) is { } code)
@@ -230,9 +224,9 @@ public sealed class TelegramUpdateHandler(
     }
 
     /// <summary>
-    /// /book: the card of the book this chat (or topic) follows — for its owner (linked account), and for others who
-    /// may control the book here (the chat's Control level and, in groups, chat admins). Elsewhere in the private chat
-    /// of a linked account: the list of their books.
+    /// /book: the card of the book this chat (or topic) follows — for its owner (linked account), and for anyone with
+    /// Participate access here (what their card may change follows their level: <see cref="Cards.TelegramCardService.NeedsControlFor"/>).
+    /// Elsewhere in the private chat of a linked account: the list of their books.
     /// </summary>
     private async Task OnBookCommandAsync(IServiceProvider sp, TgMessage message)
     {
@@ -246,7 +240,7 @@ public sealed class TelegramUpdateHandler(
             if (message.Chat.Type == "private" && linked is not null)
                 await cards.OpenAsync(message.Chat.Id, message.TopicId, from, linked, new Cards.CardState { Kind = "books" }, null, message.MessageId);
             else
-                await ReplyAsync(message, "📖 This chat doesn't follow a book. Its owner can connect it with <code>/follow ID</code> (the ID is on the book's card in the private chat with the bot).");
+                await ReplyAsync(message, "📖 This chat doesn't follow a book. A book's owner can connect it from the book's card (🔗 Chats) or from Book Settings → Telegram in abook.");
             return;
         }
         if (linked is not null && book.UserId == linked.Id)
@@ -254,9 +248,9 @@ public sealed class TelegramUpdateHandler(
             await cards.OpenAsync(message.Chat.Id, message.TopicId, from, linked, new Cards.CardState { Kind = "book" }, book.Id, message.MessageId);
             return;
         }
-        if (await DenialAsync(binding, TelegramAccessLevel.Control, from, message, adminsAlways: true) is { } denied)
+        if (await DenialAsync(binding, TelegramAccessLevel.Participate, from, message) is { } denied)
         {
-            await ReplyAsync(message, H(denied) + " The book's card is for its owner and for those who may control it here.");
+            await ReplyAsync(message, H(denied) + " The book's card needs Participate access here.");
             return;
         }
         var owner = book.UserId is int ownerId ? await sp.GetRequiredService<IUserRepository>().GetByIdAsync(ownerId) : null;
@@ -270,45 +264,15 @@ public sealed class TelegramUpdateHandler(
     }
 
     /// <summary>
-    /// /follow ID [read|participate|control]: the chat (or topic) it is sent in starts following one of the sender's books
-    /// (linked account) — the explicit way to subscribe; opening a book in a card never does. The level applies in
-    /// groups (default Participate); the owner's private chat is always Control.
+    /// For cards opened by someone other than the owner: what they may still do with the book through this chat —
+    /// Control (as for /run here, admins-only when the chat says so), Participate, or nothing.
     /// </summary>
-    private async Task OnFollowAsync(IServiceProvider sp, TgMessage message, string args)
+    private async Task<TelegramAccessLevel?> CardAccessAsync(TelegramBinding binding, TgUser user)
     {
-        if (message.From is not { } from) return;
-        var user = await sp.GetRequiredService<TelegramAccountService>().LinkedUserAsync(from.Id);
-        if (user is null)
-        {
-            await ReplyAsync(message, "🔗 /follow is for book owners with a linked account (abook: <b>Settings → Telegram</b>). " +
-                                      "Others connect a chat with a code from the book's settings: <code>/bind CODE</code>.");
-            return;
-        }
-        var parts = args.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 0 || !int.TryParse(parts[0].TrimStart('#'), out var bookId))
-        {
-            await ReplyAsync(message, "📡 Send <code>/follow ID</code> — each book's card (/books in the private chat) shows its command.");
-            return;
-        }
-        var level = TelegramAccessLevel.Participate;
-        if (parts.Length > 1 && !(Enum.TryParse(parts[1], ignoreCase: true, out level) && Enum.IsDefined(level) && !int.TryParse(parts[1], out _)))
-        {
-            await ReplyAsync(message, "📡 The level is <code>read</code>, <code>participate</code> or <code>control</code>.");
-            return;
-        }
-        var book = await sp.GetRequiredService<IBookRepository>().GetByIdAsync(bookId);
-        if (book is null || book.UserId != user.Id)
-        {
-            await ReplyAsync(message, "❌ That isn't one of your books. /books lists them (in the private chat with the bot).");
-            return;
-        }
-        if (await sp.GetRequiredService<TelegramBindingService>().FollowAsync(book, message, level, user.Id) is { } error)
-            await ReplyAsync(message, error);
+        if (await DenialAsync(binding, TelegramAccessLevel.Control, user, null) is null) return TelegramAccessLevel.Control;
+        if (await DenialAsync(binding, TelegramAccessLevel.Participate, user, null) is null) return TelegramAccessLevel.Participate;
+        return null;
     }
-
-    /// <summary>For cards opened by someone other than the owner: may they still manage the book through this chat?</summary>
-    private async Task<bool> MayManageAsync(TelegramBinding binding, TgUser user) =>
-        await DenialAsync(binding, TelegramAccessLevel.Control, user, null, adminsAlways: true) is null;
 
     private async Task OnUnboundAsync(IServiceProvider sp, TgMessage message, string? command)
     {
@@ -319,7 +283,7 @@ public sealed class TelegramUpdateHandler(
             && await sp.GetRequiredService<TelegramAccountService>().LinkedUserAsync(from.Id) is { } linked)
         {
             await ReplyAsync(message, $"👋 You're linked as <b>{H(linked.Username)}</b>.\n\n/newbook — start a book\n/books — see and edit your books here\n" +
-                                      "<code>/follow ID</code> — get a book's updates in this chat (or a group); each book's card shows its command");
+                                      "To get a book's updates in this chat or a group: its card → 🔗 Chats");
             return;
         }
 
@@ -419,12 +383,14 @@ public sealed class TelegramUpdateHandler(
             commands.Add(("/export [epub|fb2|html|metadata]", "the book as it stands"));
             commands.Add(("/note text", "a note the agents follow from now on"));
             commands.Add(("/questions", "the planner's open question"));
+            commands.Add(("/book", binding.Level == TelegramAccessLevel.Control
+                ? "the book's card: settings, content, downloads"
+                : "the book's card: content and downloads (settings, archiving and runs need Control)"));
         }
         if (binding.Level == TelegramAccessLevel.Control)
         {
             if (!interactive) commands.Add(("/run · /continue", "start or continue the book"));
             commands.Add(("/stop", "stop the running agent"));
-            commands.Add(("/book", "the book's card: settings, content, downloads"));
             commands.Add(("/rewind", "reply to a message to rewind the book to that moment (or pick one)"));
             commands.Add(("/unbind", "disconnect this chat"));
         }
@@ -607,7 +573,7 @@ public sealed class TelegramUpdateHandler(
         {
             if (Cards.TelegramCardService.IsCardCallback(callback.Data))
             {
-                await WithScopeAsync(async sp => (answer, alert) = await sp.GetRequiredService<Cards.TelegramCardService>().OnButtonAsync(callback, MayManageAsync));
+                await WithScopeAsync(async sp => (answer, alert) = await sp.GetRequiredService<Cards.TelegramCardService>().OnButtonAsync(callback, CardAccessAsync));
                 return;
             }
             if (!TryParseCallback(callback.Data, out var bindingId, out var action, out var arg) || callback.Message is not { } message)

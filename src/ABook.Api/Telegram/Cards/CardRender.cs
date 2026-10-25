@@ -190,7 +190,7 @@ public sealed partial class TelegramCardService
         if (books.Count == 0) sb.Append("<p><i>None yet — start one with ➕ New book.</i></p>");
         else
         {
-            sb.Append("<p><i>Tap one to see and edit it here. To get a book's updates in a chat, open it and use its /follow command.</i></p><ul>");
+            sb.Append("<p><i>Tap one to see and edit it here. To get a book's updates in a chat, open it and use 🔗 Connect a chat.</i></p><ul>");
             foreach (var b in books.Skip(page * ListPage).Take(ListPage))
                 sb.Append("<li>").Append(b.Mode == BookMode.Interactive ? "💬 " : "🤖 ").Append(L(ctx, Clip(b.Title, 60), "open", b.Id))
                   .Append(b.Genre.Length > 0 ? $" · <i>{H(b.Genre)}</i>" : "").Append("</li>");
@@ -223,46 +223,57 @@ public sealed partial class TelegramCardService
                 [[B(ctx, "⬅️ Back", "view", "main")]]);
         }
 
+        if (s.View == "chats" && ctx.IsOwner) return await RenderChatsAsync(ctx, title);
+
         var config = await repo.GetLlmConfigAsync(book.Id);
         var chapters = (await repo.GetChaptersAsync(book.Id)).ToList();
-        var (text, clipped) = Fields(ctx, CardFields.Book, saved);
+        // The book's own settings are Control's; the rest of the card is open to Participate.
+        var (text, clipped) = Fields(ctx, CardFields.Book, saved, canEdit: ctx.CanControl);
         var html = title +
                    $"<p>{(book.Mode == BookMode.Interactive ? "💬 Interactive" : "🤖 Autonomous")} · " +
                    $"{chapters.Count(c => c.Status == ChapterStatus.Done)}/{chapters.Count} chapters done" +
                    (BookContentService.IsBibleLocked(book) ? " · 🔒 bible locked" : "") + "<br>" +
                    $"🧠 {H(config is null ? "no LLM settings" : $"{config.Provider} · {config.ModelName}")}" +
                    (ctx.IsOwner ? $" · {L(ctx, "change", "view", "presets")}" : "") + "</p>" + text;
-        if (ctx.IsOwner) html += await FollowInfoAsync(book);
-        var rows = FieldButtons(ctx, CardFields.Book, clipped);
+        var rows = FieldButtons(ctx, CardFields.Book, clipped, canEdit: ctx.CanControl);
         rows.Add([B(ctx, "🌍 Story Bible", "nav", "bible"), B(ctx, "👤 Characters", "nav", "chars")]);
         rows.Add([B(ctx, "🧵 Plot threads", "nav", "threads"), B(ctx, "📚 Chapters", "nav", "chapters")]);
         rows.Add([B(ctx, "❓ Clarifications", "nav", "clars")]);
         if (book.Mode == BookMode.Interactive && !(await repo.GetChatMessagesAsync(book.Id, null, 1)).Any(m => m.Role != BookChatRole.Event))
             rows.Add([B(ctx, "💬 Start the book chat", "kick", style: "success")]);
         rows.Add([B(ctx, "⬇️ EPUB", "exp", "epub"), B(ctx, "FB2", "exp", "fb2"), B(ctx, "HTML", "exp", "html"), B(ctx, "🗂 Metadata", "exp", "metadata")]);
-        if (ctx.IsOwner && ctx.InPrivateChat) rows.Add([B(ctx, "📚 All books", "nav", "books")]);
+        var last = new List<TgButton>();
+        if (ctx.IsOwner) last.Add(B(ctx, "🔗 Chats", "view", "chats"));
+        if (ctx.IsOwner && ctx.InPrivateChat) last.Add(B(ctx, "📚 All books", "nav", "books"));
+        if (last.Count > 0) rows.Add(last);
         return (html, rows);
     }
 
     /// <summary>
-    /// How to follow the book in a chat — the command to send there (tap to copy) — and where it is followed now.
-    /// Opening a book in a card never follows it anywhere.
+    /// The chats that follow the book (each with a disconnect link) and 🔗 buttons that make a one-time code to connect
+    /// another — the same codes as Book Settings → Telegram. Opening a book in a card never follows it anywhere.
     /// </summary>
-    private async Task<string> FollowInfoAsync(Book book)
+    private async Task<(string, List<IReadOnlyList<TgButton>>)> RenderChatsAsync(Ctx ctx, string title)
     {
-        var followed = (await tg.GetBindingsForBookAsync(book.Id)).Where(b => b.IsActive).ToList();
-        var sb = new StringBuilder("<details><summary><b>📡 Follow in a chat</b>")
-            .Append(followed.Count > 0 ? $" · {followed.Count} now" : "").Append("</summary>")
-            .Append("<p>Send <code>/follow ").Append(book.Id).Append("</code> in the chat or topic that should get the book's status card, ")
-            .Append("chapter files and book chat. In a group, add who may do what: <code>/follow ").Append(book.Id)
-            .Append(" read</code>, <code>participate</code> (the default) or <code>control</code>. <code>/unbind</code> there stops it.</p>");
-        if (followed.Count > 0)
+        var followed = (await tg.GetBindingsForBookAsync(ctx.Book!.Id)).Where(b => b.IsActive).ToList();
+        var sb = new StringBuilder(title).Append("<h4>🔗 Chats that follow the book</h4>");
+        if (followed.Count == 0) sb.Append("<p><i>None yet.</i></p>");
+        else
         {
             sb.Append("<ul>");
-            foreach (var b in followed) sb.Append("<li>").Append(H(Clip(b.ChatTitle, 80))).Append(" · <i>").Append(b.Level).Append("</i></li>");
+            foreach (var b in followed)
+                sb.Append("<li>").Append(H(Clip(b.ChatTitle, 80))).Append(" · <i>").Append(b.Level).Append("</i> · ")
+                  .Append(L(ctx, "disconnect", "unbind", b.Id)).Append("</li>");
             sb.Append("</ul>");
         }
-        return sb.Append("</details>").ToString();
+        sb.Append("<p><i>To connect a chat, pick what everyone there may do: the bot sends a one-time code (15 minutes) with a link ")
+          .Append("for this private chat, one to add the bot to a group, and a command for a topic or channel.</i></p>");
+        return (sb.ToString(),
+        [
+            [B(ctx, "🔗 Read", "code", nameof(TelegramAccessLevel.Read)), B(ctx, "🔗 Participate", "code", nameof(TelegramAccessLevel.Participate)),
+             B(ctx, "🔗 Control", "code", nameof(TelegramAccessLevel.Control))],
+            [B(ctx, "⬅️ Book", "view", "main")],
+        ]);
     }
 
     // ── Story Bible ───────────────────────────────────────────────────────────
@@ -315,7 +326,9 @@ public sealed partial class TelegramCardService
 
     private static (string, List<IReadOnlyList<TgButton>>) VersionView(Ctx ctx, string heading, string label, string body) =>
         ($"{heading}<h4>🕘 {H(label)}</h4>{body}",
-            [[B(ctx, "♻️ Restore this version", "restore", style: "danger"), B(ctx, "⬅️ Versions", "view", "versions")]]);
+            [ctx.CanControl
+                ? [B(ctx, "♻️ Restore this version", "restore", style: "danger"), B(ctx, "⬅️ Versions", "view", "versions")]
+                : [B(ctx, "⬅️ Versions", "view", "versions")]]);
 
     // ── Lists: characters, plot threads, chapters ─────────────────────────────
 
@@ -419,15 +432,18 @@ public sealed partial class TelegramCardService
         {
             var actions = new List<TgButton>();
             if (!string.IsNullOrWhiteSpace(chapter.Content)) actions.Add(B(ctx, "📄 File", "file"));
-            actions.Add(B(ctx, string.IsNullOrWhiteSpace(chapter.Content) ? "✍️ Write" : "✍️ Rewrite", "write"));
-            if (!string.IsNullOrWhiteSpace(chapter.Content)) actions.Add(B(ctx, "🔍 Check", "check"));
-            rows.Add(actions);
+            if (ctx.CanControl)
+            {
+                actions.Add(B(ctx, string.IsNullOrWhiteSpace(chapter.Content) ? "✍️ Write" : "✍️ Rewrite", "write"));
+                if (!string.IsNullOrWhiteSpace(chapter.Content)) actions.Add(B(ctx, "🔍 Check", "check"));
+            }
+            if (actions.Count > 0) rows.Add(actions);
         }
         var last = new List<TgButton>();
         if (s.ItemId is not null)
         {
             last.Add(B(ctx, "🕘 Versions", "view", "versions"));
-            last.Add(archived ? B(ctx, "♻️ Bring back", "unarch") : B(ctx, "🗄 Archive", "arch"));
+            if (ctx.CanControl) last.Add(archived ? B(ctx, "♻️ Bring back", "unarch") : B(ctx, "🗄 Archive", "arch"));
         }
         last.Add(B(ctx, "⬅️ List", "nav", listKind));
         rows.Add(last);

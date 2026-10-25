@@ -11,8 +11,11 @@ namespace ABook.Api.Telegram.Cards;
 /// Book management as cards: one message per card, edited in place as its state changes. Buttons choose; replying to
 /// the card fills the field it asks for. Changes collect in a draft until 💾 Save (single answers save at once).
 /// The owner, through their linked account, uses them anywhere (/books and /newbook in the private chat, /book in any
-/// chat that follows the book); others only through /book in a chat that follows the book, when they may control it
-/// there (<see cref="MayManage"/>, checked again on every press). Only the one who opened a card can use it.
+/// chat that follows the book); others only through /book in a chat that follows the book, with the access that chat
+/// gives them (<see cref="CardAccess"/>, checked again on every press): Participate edits the content (Story Bible,
+/// characters, plot threads, chapter outlines, clarifications) and downloads; Control also the book's settings,
+/// archiving, restoring versions and runs. Only the owner changes the LLM preset and connects chats (one-time codes).
+/// Only the one who opened a card can use it.
 /// <para>
 /// Button data: <c>k{cardId}:{op}:{arg}</c>. Cards: newbook (wizard), books (list), book (settings, sections,
 /// downloads), bible, chars/char, threads/thread, chapters/chapter (outline, file, write, check, versions), clars.
@@ -25,6 +28,8 @@ public sealed partial class TelegramCardService(
     BookContentService content,
     TelegramApi api,
     TelegramAccountService accounts,
+    TelegramBindingService bindings,
+    TelegramBotState bot,
     TelegramDispatcher dispatcher,
     AgentRunnerService runner,
     AgentRunStateService runState,
@@ -36,8 +41,8 @@ public sealed partial class TelegramCardService(
 {
     private const int ListPage = 8;
 
-    /// <summary>Whether <c>user</c> may manage the book through the chat <c>binding</c> (Control there, admins in groups).</summary>
-    public delegate Task<bool> MayManage(TelegramBinding binding, TgUser user);
+    /// <summary>What <c>user</c> may do with the book through the chat <c>binding</c>: Control, Participate, or null (no card).</summary>
+    public delegate Task<TelegramAccessLevel?> CardAccess(TelegramBinding binding, TgUser user);
 
     /// <summary>Everything a card is drawn from, loaded per update.</summary>
     private sealed class Ctx
@@ -51,7 +56,12 @@ public sealed partial class TelegramCardService(
         /// <summary>The card is used by the owner themself (not by someone the chat lets control the book).</summary>
         public bool IsOwner => Card.OpenedByTelegramUserId == Owner.TelegramUserId;
         public bool InPrivateChat => Card.ChatId > 0;
+        /// <summary>What the user may do here: Control for the owner, else what the chat gives them.</summary>
+        public TelegramAccessLevel Level { get; init; } = TelegramAccessLevel.Control;
+        public bool CanControl => Level >= TelegramAccessLevel.Control;
     }
+
+    private const string NeedsControl = "🔒 That needs Control access in this chat.";
 
     // ── Opening ───────────────────────────────────────────────────────────────
 
@@ -76,20 +86,22 @@ public sealed partial class TelegramCardService(
 
     /// <summary>
     /// The card a reply or button belongs to, with the sender checked: only the one who opened it, and they must still
-    /// own the book — or, for a card opened through a chat that follows the book, still be allowed to manage it there.
+    /// own the book — or, for a card opened through a chat that follows the book, still have (at least Participate)
+    /// access there.
     /// </summary>
-    private async Task<Ctx?> LoadAsync(TelegramCard? card, TgUser from, MayManage mayManage)
+    private async Task<Ctx?> LoadAsync(TelegramCard? card, TgUser from, CardAccess access)
     {
         if (card is null || card.OpenedByTelegramUserId != from.Id) return null;
         var state = CardState.Parse(card.StateJson);
         if (state.BindingId is int bindingId)
         {
             var binding = await tg.GetBindingAsync(bindingId);
-            if (binding is not { IsActive: true } || binding.BookId != card.BookId || !await mayManage(binding, from)) return null;
+            if (binding is not { IsActive: true } || binding.BookId != card.BookId) return null;
+            if (await access(binding, from) is not { } level || level < TelegramAccessLevel.Participate) return null;
             var book = await repo.GetByIdAsync(binding.BookId);
             var bookOwner = book?.UserId is int ownerId ? await users.GetByIdAsync(ownerId) : null;
             if (book is null || bookOwner is null) return null;
-            return new Ctx { Card = card, State = state, Owner = bookOwner, From = from, Book = book };
+            return new Ctx { Card = card, State = state, Owner = bookOwner, From = from, Book = book, Level = level };
         }
         var owner = await accounts.LinkedUserAsync(from.Id);
         if (owner is null) return null;
@@ -113,12 +125,12 @@ public sealed partial class TelegramCardService(
     // ── Replies ───────────────────────────────────────────────────────────────
 
     /// <summary>A reply to one of the bot's messages: true when it was a card (handled), false otherwise.</summary>
-    public async Task<bool> OnReplyAsync(TgMessage message, string text, MayManage mayManage)
+    public async Task<bool> OnReplyAsync(TgMessage message, string text, CardAccess access)
     {
         if (message.ReplyToMessage is not { } replied || message.From is null) return false;
         var card = await tg.FindCardAsync(message.Chat.Id, replied.MessageId);
         if (card is null) return false;
-        var ctx = await LoadAsync(card, message.From, mayManage);
+        var ctx = await LoadAsync(card, message.From, access);
         if (ctx is null) return true;   // someone else's card: ignore
 
         var s = ctx.State;
@@ -186,11 +198,11 @@ public sealed partial class TelegramCardService(
     public static bool IsCardCallback(string? data) => data is { Length: > 1 } && data[0] == 'k' && char.IsDigit(data[1]);
 
     /// <summary>A card button. Returns the short answer for the button.</summary>
-    public async Task<(string? Answer, bool Alert)> OnButtonAsync(TgCallbackQuery callback, MayManage mayManage)
+    public async Task<(string? Answer, bool Alert)> OnButtonAsync(TgCallbackQuery callback, CardAccess access)
     {
         var parts = callback.Data!.Split(':', 3);
         if (parts.Length < 2 || !int.TryParse(parts[0][1..], out var cardId)) return ("This button is no longer valid.", false);
-        var ctx = await LoadAsync(await tg.GetCardAsync(cardId), callback.From, mayManage);
+        var ctx = await LoadAsync(await tg.GetCardAsync(cardId), callback.From, access);
         if (ctx is null) return ("This card isn't yours (send /book to open your own), or the book is gone.", true);
         var op = parts[1];
         var arg = parts.Length > 2 ? parts[2] : "";
@@ -210,6 +222,7 @@ public sealed partial class TelegramCardService(
     {
         var s = ctx.State;
         s.Note = null;
+        if (NeedsControlFor(s.Kind, op) && !ctx.CanControl) return NeedsControl;
         switch (op)
         {
             case "ed":   // ✏️ a field: the next reply fills it (choices also offer buttons)
@@ -245,6 +258,7 @@ public sealed partial class TelegramCardService(
             }
             case "view":
                 if (arg == "presets" && !ctx.IsOwner) return "Only the book's owner can change its LLM settings.";
+                if (arg == "chats" && !ctx.IsOwner) return "Only the book's owner can connect chats.";
                 s.View = arg;
                 s.Page = 0;
                 s.Awaiting = null;
@@ -306,9 +320,22 @@ public sealed partial class TelegramCardService(
                 s.Note = "Archived.";
                 return null;
             }
+            case "code":   // 🔗 a one-time code that connects a chat at this level
+                return await SendConnectCodeAsync(ctx, arg);
+            case "unbind":
+                return await DisconnectAsync(ctx, int.Parse(arg));
         }
         return null;
     }
+
+    /// <summary>
+    /// What only Control may do from a card: the book's own settings, archiving and bringing back, restoring a version,
+    /// starting a chapter run. Everything else a card does (content fields, adding items, clarifications, downloads)
+    /// is Participate — like writing in the book chat and applying what it suggests.
+    /// </summary>
+    public static bool NeedsControlFor(string kind, string op) =>
+        op is "restore" or "arch" or "unarch" or "write" or "check"
+        || (kind == "book" && op is "ed" or "set" or "save" or "save!" or "undo");
 
     // ── Saving ────────────────────────────────────────────────────────────────
 
@@ -551,9 +578,9 @@ public sealed partial class TelegramCardService(
             Content = "📘 Book created from Telegram.", IsResolved = true, Origin = OriginOf(ctx),
         });
 
-        // The card becomes the new book's card; following it somewhere is a separate, explicit /follow.
+        // The card becomes the new book's card; following it in a chat is a separate, explicit step (🔗 Connect a chat).
         ShowBook(ctx, book);
-        s.Note = $"✅ “{book.Title}” is created. To get its updates in a chat, send /follow {book.Id} there.";
+        s.Note = $"✅ “{book.Title}” is created. To get its updates in a chat, use 🔗 Connect a chat.";
         return "Created.";
     }
 
@@ -599,6 +626,39 @@ public sealed partial class TelegramCardService(
         await api.SendDocumentAsync(ctx.Card.ChatId, ctx.Card.ThreadId, fileName, bytes, contentType,
             $"📄 <b>Chapter {chapter.Number}: {H(Clip(chapter.Title, 150))}</b>\n{N(CountWords(chapter.Content))} words", ctx.Card.MessageId);
         return "Sent.";
+    }
+
+    /// <summary>
+    /// Connecting a chat from the card: the same one-time code as Book Settings → Telegram (15 minutes, used once, only
+    /// its hash stored), sent as its own message under the card with the ways to use it. The chat it is used in follows
+    /// the book at <paramref name="levelName"/>. Owner only.
+    /// </summary>
+    private async Task<string?> SendConnectCodeAsync(Ctx ctx, string levelName)
+    {
+        if (!ctx.IsOwner) return "Only the book's owner can connect chats.";
+        if (!Enum.TryParse<TelegramAccessLevel>(levelName, out var level) || !Enum.IsDefined(level)) return null;
+        var code = await bindings.CreateCodeAsync(ctx.Book!.Id, level, ctx.Owner.Id);
+        var sb = new StringBuilder("<h4>🔗 Connect a chat to “").Append(H(Clip(ctx.Book.Title, 80))).Append("” · ").Append(level).Append("</h4>")
+            .Append("<p>Works once, for 15 minutes. Everyone who can post in that chat gets ").Append(H(LevelText(level))).Append(".</p><ul>");
+        if (bot.PrivateLink(code.Code) is { } privateLink)
+            sb.Append("<li><a href=\"").Append(H(privateLink)).Append("\">This private chat</a> — a private chat follows one book</li>");
+        if (bot.GroupLink(code.Code) is { } groupLink)
+            sb.Append("<li><a href=\"").Append(H(groupLink)).Append("\">Add the bot to a group</a> — it follows the book there</li>");
+        sb.Append("<li>A forum topic or a channel: send <code>/bind ").Append(H(code.Code)).Append("</code> there</li></ul>");
+        await TelegramRich.SendAsync(api, ctx.Card.ChatId, ctx.Card.ThreadId, sb.ToString(), replyTo: ctx.Card.MessageId);
+        ctx.State.Note = "🔗 The code is in the message below.";
+        return "Code sent.";
+    }
+
+    /// <summary>Disconnects one of the chats that follow the book (owner only), like /unbind there.</summary>
+    private async Task<string?> DisconnectAsync(Ctx ctx, int bindingId)
+    {
+        if (!ctx.IsOwner) return "Only the book's owner can disconnect chats.";
+        var binding = await tg.GetBindingAsync(bindingId);
+        if (binding is not { IsActive: true } || binding.BookId != ctx.Book!.Id) return "That chat isn't connected any more.";
+        await bindings.RevokeAsync(binding, $"disconnected by {ctx.From.Display} from the book card", tellChat: true, OriginOf(ctx));
+        ctx.State.Note = $"🔌 Disconnected: {binding.ChatTitle}.";
+        return null;
     }
 
     /// <summary>The whole book (epub, fb2, html) or its metadata document, sent as a file under the card.</summary>

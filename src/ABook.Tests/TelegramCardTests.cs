@@ -101,6 +101,20 @@ public class TelegramProposalDetailsTests
         Assert.Equal("", TelegramFormat.DiffText("same", "same"));
     }
 
+    [Theory]
+    [InlineData("bible", "ed", false)]      // content: Participate
+    [InlineData("char", "save", false)]
+    [InlineData("chapter", "add", false)]
+    [InlineData("clars", "ans", false)]
+    [InlineData("book", "exp", false)]      // downloads
+    [InlineData("book", "ed", true)]        // the book's own settings
+    [InlineData("book", "save", true)]
+    [InlineData("char", "arch", true)]
+    [InlineData("chapter", "restore", true)]
+    [InlineData("chapter", "write", true)]
+    public void CardActions_ControlOnlyForSettingsArchivingRestoringAndRuns(string kind, string op, bool control) =>
+        Assert.Equal(control, ABook.Api.Telegram.Cards.TelegramCardService.NeedsControlFor(kind, op));
+
     [Fact]
     public void DiffRich_WrapsLinesInsteadOfACodeBlock()
     {
