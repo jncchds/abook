@@ -46,31 +46,59 @@ public class TelegramCardFieldTests
 public class TelegramProposalDetailsTests
 {
     [Fact]
-    public void Details_ShowEachChangedField_WasAndNow()
+    public void Details_ShowTheChangeAsTheUiDiff()
     {
         var p = new ChatProposal
         {
-            Id = 45, Label = "Make Mortimer crueler", Type = "upsert_character", Status = ChatProposalStatus.Pending,
-            PreviewBefore = """{"name":"Mortimer","personality":"grumpy","arc":"redemption"}""",
-            PreviewAfter = """{"name":"Mortimer","personality":"cruel <and> cold","arc":"redemption"}""",
+            Id = 45, BookId = 7, Label = "Make Mortimer crueler", Type = "upsert_character", Status = ChatProposalStatus.Pending,
+            PreviewBefore = "{\n  \"name\": \"Mortimer\",\n  \"personality\": \"grumpy\",\n  \"arc\": \"redemption\"\n}",
+            PreviewAfter = "{\n  \"name\": \"Mortimer\",\n  \"personality\": \"cruel <and> cold\",\n  \"arc\": \"redemption\"\n}",
             ConflictNote = "Chapter 2 calls him kind.",
         };
-        var html = TelegramFormat.ProposalDetails(p, 2);
-        Assert.Contains("🔍 <b>2. Make Mortimer crueler</b>", html);
-        Assert.Contains("<b>Personality</b>", html);
-        Assert.Contains("grumpy", html);
-        Assert.Contains("cruel &lt;and&gt; cold", html);
-        Assert.DoesNotContain("<b>Arc</b>", html);   // unchanged
+        var html = TelegramFormat.ProposalDetailsRich(p, 2);
+        Assert.Contains("🔍 2. Make Mortimer crueler", html);
+        Assert.Contains("<b>Character</b>", html);
+        Assert.Contains("−   \"personality\": \"grumpy\",", html);
+        Assert.Contains("+   \"personality\": \"cruel &lt;and&gt; cold\",", html);
+        Assert.Contains("    \"arc\": \"redemption\"", html);   // context
         Assert.Contains("Conflict", html);
+        Assert.DoesNotContain("Open ↗", html);   // only once applied
     }
 
     [Fact]
-    public void Details_OfAPlainTextAction_ShowWhatItDoes()
+    public void Details_OfAWriteAction_ShowItsInstructions()
     {
-        var p = new ChatProposal { Label = "Write Chapter 4", Type = "write_chapter", PreviewAfter = "A tense chase across the rooftops." };
-        var html = TelegramFormat.ProposalDetails(p, 1);
-        Assert.Contains("What it does", html);
+        var p = new ChatProposal
+        {
+            Label = "Write Chapter 4", Type = "write_chapter", Status = ChatProposalStatus.Pending,
+            PayloadJson = """{"type":"write_chapter","instructions":"A tense chase across the rooftops."}""",
+        };
+        var html = TelegramFormat.ProposalDetailsRich(p, 1, bibleLocked: false);
         Assert.Contains("rooftops", html);
+        Assert.Contains("locks the premise", html);
+        Assert.DoesNotContain("Changes", html);
+    }
+
+    [Fact]
+    public void Details_OfAnAppliedChange_LinkToIt()
+    {
+        var p = new ChatProposal { BookId = 7, Label = "Add Mara", Type = "upsert_character", Status = ChatProposalStatus.Applied,
+            Target = "character:Mara", PreviewAfter = "{\n  \"name\": \"Mara\"\n}" };
+        Assert.Contains("https://book.example.com/books/7/characters", TelegramFormat.ProposalDetailsRich(p, 1, baseUrl: "https://book.example.com"));
+    }
+
+    [Fact]
+    public void Diff_FoldsLongUnchangedStretches()
+    {
+        var before = string.Join("\n", Enumerable.Range(1, 20).Select(i => $"line {i}"));
+        var after = before.Replace("line 10", "line ten");
+        var diff = TelegramFormat.DiffText(before, after);
+        Assert.Contains("⋯ 7 unchanged lines", diff);
+        Assert.Contains("− line 10", diff);
+        Assert.Contains("+ line ten", diff);
+        Assert.Contains("  line 12", diff);
+        Assert.DoesNotContain("line 13", diff);
+        Assert.Equal("", TelegramFormat.DiffText("same", "same"));
     }
 
     [Fact]

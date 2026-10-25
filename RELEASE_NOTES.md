@@ -1,5 +1,9 @@
 # Release Notes
 
+## v0.5.3 — 2026-10-25
+
+- fix(telegram): a suggestion's **details** now show what the web UI's card shows — its kind and status, the instructions for Write/Revise, the change as the same line diff (+/− lines, unchanged stretches folded), the result, and an **Open ↗** link once applied. Before, write/revise suggestions showed nothing and other changes only loose field blocks
+
 ## v0.5.2 — 2026-10-24
 
 ### Telegram: your account and your books

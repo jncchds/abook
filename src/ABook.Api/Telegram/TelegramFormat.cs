@@ -308,119 +308,164 @@ public static partial class TelegramFormat
         return sb.ToString();
     }
 
-    /// <summary>One suggestion in full as a rich message: each changed field in its own collapsible section, was → now.</summary>
-    public static string ProposalDetailsRich(ChatProposal p, int number)
+    /// <summary>What the web UI calls each action type (the card's tag).</summary>
+    private static readonly Dictionary<string, string> TypeLabels = new()
     {
+        ["update_premise"] = "Premise", ["update_story_bible"] = "Story Bible",
+        ["upsert_character"] = "Character", ["archive_character"] = "Character",
+        ["upsert_plot_thread"] = "Plot thread", ["archive_plot_thread"] = "Plot thread",
+        ["add_chapter"] = "New chapter", ["update_chapter_outline"] = "Outline", ["archive_chapter"] = "Remove chapter",
+        ["write_chapter"] = "Write", ["revise_chapter"] = "Revise", ["patch_chapter"] = "Edit passage", ["add_note"] = "Note",
+        ["check_outline"] = "Outline check", ["check_chapter"] = "Continuity check", ["summarize_chapter"] = "Summary",
+    };
+
+    public static string TypeLabel(string type) => TypeLabels.GetValueOrDefault(type, type.Replace('_', ' '));
+
+    /// <summary>
+    /// One suggestion in full, as the web UI's card shows it: its kind and status, the Writer's or Editor's instructions
+    /// for long actions, the conflict it answers, the change as a line diff (unchanged stretches folded), what applying
+    /// it did, and — once applied — a link to what it changed.
+    /// </summary>
+    public static string ProposalDetailsRich(ChatProposal p, int number, bool bibleLocked = true, string? baseUrl = null)
+    {
+        var step = ABook.Agents.BookChatActions.IsStep(p.Type);
+        var longAction = p.Type is ABook.Agents.BookChatActions.WriteChapter or ABook.Agents.BookChatActions.ReviseChapter;
+        var status = step && p.Status == ChatProposalStatus.Applying ? "Running"
+            : step && p.Status == ChatProposalStatus.Applied ? "Done" : p.Status.ToString();
+
         var sb = new StringBuilder();
         sb.Append("<h3>🔍 ").Append(number).Append(". ").Append(H(Clip(p.Label, 300))).Append("</h3>");
-        sb.Append("<p>").Append(ProposalStatusIcon(p.Status)).Append(' ').Append(p.Status)
-          .Append(" · <i>").Append(H(p.Type.Replace('_', ' '))).Append("</i>");
+        sb.Append("<p><b>").Append(H(TypeLabel(p.Type))).Append("</b> · ").Append(ProposalStatusIcon(p.Status)).Append(' ').Append(status);
         if (p.OptionGroup is { Length: > 0 } g) sb.Append(" · option ").Append(H(g));
         sb.Append("</p>");
+        if (longAction && PayloadInstructions(p) is { Length: > 0 } instructions)
+            sb.Append("<blockquote>").Append(Lines(Clip(instructions, 4000))).Append("</blockquote>");
+        if (p.Type == ABook.Agents.BookChatActions.WriteChapter && !bibleLocked && IsOpen(p))
+            sb.Append("<p><i>Applying this locks the premise and Story Bible.</i></p>");
         if (p.ConflictNote is { Length: > 0 } conflict)
-            sb.Append("<details open><summary>⚠️ Conflict with the book</summary><p>").Append(Lines(Clip(conflict, 1500))).Append("</p></details>");
+            sb.Append("<p><b>⚠️ Conflict with the book</b></p><blockquote>").Append(Lines(Clip(conflict, 1500))).Append("</blockquote>");
+
+        if (!longAction && (p.PreviewBefore.Length > 0 || p.PreviewAfter.Length > 0))
+        {
+            var diff = DiffText(p.PreviewBefore, p.PreviewAfter, 12000);
+            sb.Append(diff.Length > 0
+                ? $"<p><b>Changes</b></p><pre><code class=\"language-diff\">{H(diff)}</code></pre>"
+                : "<p><i>No changes.</i></p>");
+        }
         if (p.ResultNote is { Length: > 0 } result)
             sb.Append("<p><b>Result:</b> ").Append(H(Clip(result, 600))).Append("</p>");
-
-        var before = FlatFields(p.PreviewBefore);
-        var after = FlatFields(p.PreviewAfter);
-        if (before is not null || after is not null)
-        {
-            before ??= new Dictionary<string, string>();
-            after ??= new Dictionary<string, string>();
-            var keys = after.Keys.Union(before.Keys).Where(k => before.GetValueOrDefault(k, "") != after.GetValueOrDefault(k, "")).ToList();
-            if (keys.Count == 0) sb.Append("<p><i>No field changes.</i></p>");
-            foreach (var k in keys)
-            {
-                var was = before.GetValueOrDefault(k, "");
-                var now = after.GetValueOrDefault(k, "");
-                sb.Append(keys.Count <= 3 ? "<details open>" : "<details>").Append("<summary>").Append(H(FieldLabel(k))).Append("</summary>");
-                if (was.Length > 0) sb.Append("<p><i>was</i></p><blockquote>").Append(Lines(Clip(was, 4000))).Append("</blockquote><p><i>now</i></p>");
-                sb.Append("<blockquote>").Append(now.Length > 0 ? Lines(Clip(now, 4000)) : "<i>(empty)</i>").Append("</blockquote></details>");
-            }
-        }
-        else
-        {
-            if (p.PreviewBefore.Length > 0)
-                sb.Append("<details><summary>Was</summary><blockquote>").Append(Lines(Clip(p.PreviewBefore, 6000))).Append("</blockquote></details>");
-            if (p.PreviewAfter.Length > 0)
-                sb.Append("<details open><summary>").Append(p.PreviewBefore.Length > 0 ? "Now" : "What it does").Append("</summary><blockquote>")
-                  .Append(Lines(Clip(p.PreviewAfter, 6000))).Append("</blockquote></details>");
-        }
+        if (p.Status == ChatProposalStatus.Applied && baseUrl is { Length: > 0 } && TargetPath(p.BookId, p.Target) is { } path)
+            sb.Append("<p><a href=\"").Append(H(baseUrl.TrimEnd('/') + path)).Append("\">Open ↗</a></p>");
         return sb.ToString();
     }
 
-    /// <summary>Escaped text with its line breaks kept (rich HTML collapses newlines like any HTML).</summary>
-    public static string Lines(string text) => H(text).Replace("\r\n", "\n").Replace("\n", "<br>");
-
-    /// <summary>
-    /// One suggestion in full: what it is, its status, the conflict it answers, and what it changes — field by field,
-    /// as it was and as it would be (or was made), each in an expandable quote.
-    /// </summary>
-    public static string ProposalDetails(ChatProposal p, int number)
+    /// <summary>The instructions a write/revise suggestion gives the Writer or the Editor.</summary>
+    private static string? PayloadInstructions(ChatProposal p)
     {
-        var sb = new StringBuilder();
-        sb.Append("🔍 <b>").Append(number).Append(". ").Append(H(Clip(p.Label, 300))).Append("</b>\n");
-        sb.Append(ProposalStatusIcon(p.Status)).Append(' ').Append(p.Status).Append(" · <i>").Append(H(p.Type.Replace('_', ' '))).Append("</i>");
-        if (p.OptionGroup is { Length: > 0 } g) sb.Append(" · option ").Append(H(g));
-        sb.Append('\n');
-        if (p.ConflictNote is { Length: > 0 } conflict)
-            sb.Append("\n⚠️ <b>Conflict</b>\n<blockquote expandable>").Append(H(Clip(conflict, 600))).Append("</blockquote>");
-        if (p.ResultNote is { Length: > 0 } result)
-            sb.Append("\n<b>Result:</b> ").Append(H(Clip(result, 400))).Append('\n');
-
-        var before = FlatFields(p.PreviewBefore);
-        var after = FlatFields(p.PreviewAfter);
-        if (before is not null || after is not null)
-        {
-            before ??= new Dictionary<string, string>();
-            after ??= new Dictionary<string, string>();
-            var keys = after.Keys.Union(before.Keys)
-                .Where(k => before.GetValueOrDefault(k, "") != after.GetValueOrDefault(k, "")).ToList();
-            if (keys.Count == 0) sb.Append("\n<i>No field changes.</i>");
-            var budget = Math.Max(200, 3000 / Math.Max(1, keys.Count * 2));
-            foreach (var k in keys)
-            {
-                var was = before.GetValueOrDefault(k, "");
-                var now = after.GetValueOrDefault(k, "");
-                sb.Append("\n<b>").Append(H(FieldLabel(k))).Append("</b>\n");
-                if (was.Length > 0) sb.Append("<i>was</i><blockquote expandable>").Append(H(Clip(was, budget))).Append("</blockquote>");
-                sb.Append(was.Length > 0 ? "<i>now</i>" : "")
-                  .Append("<blockquote expandable>").Append(now.Length > 0 ? H(Clip(now, budget)) : "<i>(empty)</i>").Append("</blockquote>");
-            }
-        }
-        else
-        {
-            // Prose actions and notes carry plain text: the instructions, the passage, the note.
-            if (p.PreviewBefore.Length > 0)
-                sb.Append("\n<b>Was</b>\n<blockquote expandable>").Append(H(Clip(p.PreviewBefore, 1500))).Append("</blockquote>");
-            if (p.PreviewAfter.Length > 0)
-                sb.Append("\n<b>").Append(p.PreviewBefore.Length > 0 ? "Now" : "What it does").Append("</b>\n<blockquote expandable>")
-                  .Append(H(Clip(p.PreviewAfter, 1500))).Append("</blockquote>");
-        }
-        return sb.ToString().TrimEnd();
-    }
-
-    /// <summary>A preview rendered as a flat JSON object of text fields, or null when it is plain text.</summary>
-    private static Dictionary<string, string>? FlatFields(string preview)
-    {
-        if (!preview.TrimStart().StartsWith('{')) return null;
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(preview);
-            return doc.RootElement.EnumerateObject().ToDictionary(
-                x => x.Name,
-                x => x.Value.ValueKind == System.Text.Json.JsonValueKind.String ? x.Value.GetString() ?? "" : x.Value.GetRawText());
+            using var doc = System.Text.Json.JsonDocument.Parse(p.PayloadJson);
+            return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                   && doc.RootElement.TryGetProperty("instructions", out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String
+                ? v.GetString() : null;
         }
         catch (System.Text.Json.JsonException) { return null; }
     }
 
-    /// <summary>"physicalDescription" → "Physical description".</summary>
-    private static string FieldLabel(string key)
+    /// <summary>The web page of what a suggestion changed (as the UI's "Open" link), or null.</summary>
+    private static string? TargetPath(int bookId, string? target)
     {
-        var words = string.Concat(key.Select((c, i) => i > 0 && char.IsUpper(c) ? " " + char.ToLowerInvariant(c) : c.ToString()));
-        return words.Length == 0 ? key : char.ToUpperInvariant(words[0]) + words[1..];
+        if (string.IsNullOrEmpty(target)) return null;
+        var colon = target.IndexOf(':');
+        var (kind, key) = colon < 0 ? (target, "") : (target[..colon], target[(colon + 1)..]);
+        return kind switch
+        {
+            "premise" => $"/books/{bookId}/overview",
+            "bible" => $"/books/{bookId}/story-bible",
+            "character" => $"/books/{bookId}/characters",
+            "thread" => $"/books/{bookId}/plot-threads",
+            "chapter" or "prose" => $"/books/{bookId}/chapters/{Uri.EscapeDataString(key)}",
+            "note" => $"/books/{bookId}/clarifications",
+            _ => null,
+        };
     }
+
+    /// <summary>A blank line or an empty JSON field (<c>"notes": "",</c>): adding or removing one says nothing.</summary>
+    [System.Text.RegularExpressions.GeneratedRegex("^\\s*(\"[^\"]*\"\\s*:\\s*\"\")?\\s*,?\\s*$")]
+    private static partial System.Text.RegularExpressions.Regex EmptyLine();
+
+    /// <summary>
+    /// The change as the web UI's diff shows it: "+ " added and "− " removed lines, two lines of context around each
+    /// change, longer unchanged stretches folded to "⋯ N unchanged lines". Empty when nothing differs. Clipped to
+    /// about <paramref name="max"/> characters.
+    /// </summary>
+    public static string DiffText(string before, string after, int max = 12000)
+    {
+        const int context = 2;
+        var lines = LineDiff(before.Replace("\r\n", "\n"), after.Replace("\r\n", "\n"))
+            .Where(l => l.Kind == ' ' || !EmptyLine().IsMatch(l.Text)).ToList();
+        if (lines.All(l => l.Kind == ' ')) return "";
+        var sb = new StringBuilder();
+        var skipped = 0;
+        void Flush()
+        {
+            if (skipped == 0) return;
+            sb.Append("⋯ ").Append(skipped).Append(skipped == 1 ? " unchanged line\n" : " unchanged lines\n");
+            skipped = 0;
+        }
+        for (var i = 0; i < lines.Count; i++)
+        {
+            var near = false;
+            for (var j = Math.Max(0, i - context); j <= Math.Min(lines.Count - 1, i + context) && !near; j++)
+                near = lines[j].Kind != ' ';
+            if (!near) { skipped++; continue; }
+            Flush();
+            sb.Append(lines[i].Kind switch { '+' => "+ ", '-' => "− ", _ => "  " }).Append(lines[i].Text).Append('\n');
+            if (sb.Length > max) { sb.Append("…\n"); skipped = 0; break; }
+        }
+        Flush();
+        return sb.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>Line diff (longest common subsequence after the common prefix and suffix), as the web UI computes it.</summary>
+    private static List<(char Kind, string Text)> LineDiff(string before, string after)
+    {
+        // An empty text has no lines: something new is all additions, not an empty line replaced.
+        var a = before.Length == 0 ? [] : before.Split('\n');
+        var b = after.Length == 0 ? [] : after.Split('\n');
+        var start = 0;
+        while (start < a.Length && start < b.Length && a[start] == b[start]) start++;
+        int endA = a.Length, endB = b.Length;
+        while (endA > start && endB > start && a[endA - 1] == b[endB - 1]) { endA--; endB--; }
+
+        var output = a[..start].Select(t => (' ', t)).ToList();
+        int n = endA - start, m = endB - start;
+        if ((long)n * m > 4_000_000)
+        {
+            // Too big for the table: everything in the middle replaced.
+            output.AddRange(a[start..endA].Select(t => ('-', t)));
+            output.AddRange(b[start..endB].Select(t => ('+', t)));
+        }
+        else
+        {
+            var lcs = new int[n + 1, m + 1];
+            for (var i = n - 1; i >= 0; i--)
+                for (var j = m - 1; j >= 0; j--)
+                    lcs[i, j] = a[start + i] == b[start + j] ? lcs[i + 1, j + 1] + 1 : Math.Max(lcs[i + 1, j], lcs[i, j + 1]);
+            int x = 0, y = 0;
+            while (x < n || y < m)
+            {
+                if (x < n && y < m && a[start + x] == b[start + y]) { output.Add((' ', a[start + x])); x++; y++; }
+                else if (y < m && (x >= n || lcs[x, y + 1] >= lcs[x + 1, y])) { output.Add(('+', b[start + y])); y++; }
+                else { output.Add(('-', a[start + x])); x++; }
+            }
+        }
+        output.AddRange(a[endA..].Select(t => (' ', t)));
+        return output;
+    }
+
+    /// <summary>Escaped text with its line breaks kept (rich HTML collapses newlines like any HTML).</summary>
+    public static string Lines(string text) => H(text).Replace("\r\n", "\n").Replace("\n", "<br>");
 
     public static bool IsOpen(ChatProposal p) => p.Status is ChatProposalStatus.Pending or ChatProposalStatus.Failed;
 

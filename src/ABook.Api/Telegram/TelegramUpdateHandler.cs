@@ -672,7 +672,9 @@ public sealed class TelegramUpdateHandler(
                    new TgButton("✖️ Reject", Callback(binding.Id, "reject", proposal.Id))]);
         else if (canAct && proposal.Status == ChatProposalStatus.Applied && !ABook.Agents.BookChatActions.IsStep(proposal.Type))
             keyboard.Add([new TgButton("↩️ Undo", Callback(binding.Id, "undo", proposal.Id))]);
-        await TelegramRich.SendAsync(api, binding.ChatId, binding.ThreadId, ProposalDetailsRich(proposal, number),
+        var book = await sp.GetRequiredService<IBookRepository>().GetByIdAsync(binding.BookId);
+        var details = ProposalDetailsRich(proposal, number, book?.StoryBibleLockedAt is not null, sp.GetService<TelegramOptions>()?.BaseUrl);
+        await TelegramRich.SendAsync(api, binding.ChatId, binding.ThreadId, details,
             keyboard.Count > 0 ? keyboard : null, replyTo);
     }
 
