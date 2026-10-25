@@ -8,7 +8,8 @@ namespace ABook.Agents;
 /// Applies the proposals the author approved in the book chat, and undoes applied ones. Quick changes (bible,
 /// characters, threads, outlines, notes) run first, in reply order; prose changes (write, revise, patch) run
 /// after them, and each written or revised chapter is then summarized and checked, with what the check finds
-/// posted back to the chat as new proposals.
+/// posted back to the chat as new proposals. Chapter writes and revisions go one full cycle at a time: the later
+/// ones of a batch are queued and each starts once the chapter before it is checked and its follow-ups settled.
 /// </summary>
 public class ProposalExecutor(
     IBookRepository repo,
@@ -68,12 +69,59 @@ public class ProposalExecutor(
 
     // ── Apply ───────────────────────────────────────────────────────────────────
 
-    /// <summary>Whether <paramref name="p"/> can be applied now: pending or failed — or a step already run, which may run again.</summary>
+    /// <summary>
+    /// Whether <paramref name="p"/> can be applied now: pending, failed or queued (applying a queued one starts it
+    /// early) — or a step already run, which may run again.
+    /// </summary>
     public static bool CanApply(ChatProposal p) =>
-        p.Status is ChatProposalStatus.Pending or ChatProposalStatus.Failed
+        p.Status is ChatProposalStatus.Pending or ChatProposalStatus.Failed or ChatProposalStatus.Queued
         || (p.Status == ChatProposalStatus.Applied && BookChatActions.IsStep(p.Type));
 
+    /// <summary>Writing and revising a chapter each go through a full cycle — written, checked, reviewed — one chapter at a time.</summary>
+    public static bool IsCycle(string type) => type is BookChatActions.WriteChapter or BookChatActions.ReviseChapter;
+
+    /// <summary>
+    /// Applies the proposals, then starts every queued write or revision whose turn has come (see
+    /// <see cref="NextQueuedAsync"/>) — in this run, one after another, until one waits for the author.
+    /// </summary>
     public async Task ApplyAsync(int bookId, IReadOnlyList<int> proposalIds, CancellationToken ct)
+    {
+        await ApplyBatchAsync(bookId, proposalIds, ct);
+        while (await NextQueuedAsync(bookId) is { } next)
+            await ApplyBatchAsync(bookId, [next.Id], ct);
+    }
+
+    /// <summary>
+    /// The queued write or revision whose turn has come: the one before it is applied and nothing proposed since then
+    /// (its check's fixes, the characters and threads its summary found, chat replies about it) is still open. A queued
+    /// one whose predecessor did not go through (rejected, failed, undone) goes back to Pending for the author to decide.
+    /// </summary>
+    public async Task<ChatProposal?> NextQueuedAsync(int bookId)
+    {
+        foreach (var q in await repo.GetProposalsByStatusAsync(bookId, ChatProposalStatus.Queued))
+        {
+            var before = q.QueuedAfterProposalId is int id ? await repo.GetProposalAsync(bookId, id) : null;
+            switch (before?.Status)
+            {
+                case ChatProposalStatus.Pending or ChatProposalStatus.Queued or ChatProposalStatus.Applying:
+                    continue;
+                case ChatProposalStatus.Applied when before.AppliedAt is DateTime appliedAt:
+                    if ((await repo.GetOpenProposalsSinceAsync(bookId, appliedAt)).Count > 0) continue;
+                    return q;
+                default:
+                    q.Status = ChatProposalStatus.Pending;
+                    q.ResultNote = before is null
+                        ? "Not started: what it waited for is gone. Apply it when you are ready."
+                        : $"Not started: \"{before.Label}\" did not go through. Apply it when you are ready.";
+                    await repo.UpdateProposalAsync(q);
+                    await notifier.NotifyBookChatAsync(bookId, q.MessageId, CancellationToken.None);
+                    continue;
+            }
+        }
+        return null;
+    }
+
+    private async Task ApplyBatchAsync(int bookId, IReadOnlyList<int> proposalIds, CancellationToken ct)
     {
         var proposals = (await repo.GetProposalsAsync(bookId, proposalIds)).Where(CanApply).ToList();
         if (proposals.Count == 0) return;
@@ -84,6 +132,23 @@ public class ProposalExecutor(
         var quick = proposals.Where(p => !BookChatActions.ProseActions.Contains(p.Type) && !BookChatActions.IsStep(p.Type)).ToList();
         var prose = proposals.Where(p => BookChatActions.ProseActions.Contains(p.Type)).ToList();
         foreach (var p in quick) await ApplyOneAsync(bookId, p, ct);
+
+        // Offered before the prose runs, so these offers don't hold up the chapters queued below.
+        await OfferNextStepsAsync(bookId, quick, prose);
+
+        // One chapter may shape the next: only the first write/revision runs now. Each later one is queued behind
+        // the one before it and starts once that chapter is written, checked and its follow-ups are settled.
+        var cycles = prose.Where(p => IsCycle(p.Type)).ToList();
+        for (var i = 1; i < cycles.Count; i++)
+        {
+            var q = cycles[i];
+            q.Status = ChatProposalStatus.Queued;
+            q.QueuedAfterProposalId = cycles[i - 1].Id;
+            q.ResultNote = $"Queued: starts after \"{cycles[i - 1].Label}\" is written and checked, and its follow-ups are applied or rejected.";
+            await repo.UpdateProposalAsync(q);
+            await notifier.NotifyBookChatAsync(bookId, q.MessageId, ct);
+        }
+        if (cycles.Count > 1) prose = prose.Except(cycles.Skip(1)).ToList();
 
         // Writing the first chapter moves the book to its writing stage.
         if (prose.Any(p => p.Type == BookChatActions.WriteChapter)
@@ -111,8 +176,6 @@ public class ProposalExecutor(
 
         foreach (var (chapterId, check) in changed)
             await FollowUpAsync(bookId, chapterId, check, ct);
-
-        await OfferNextStepsAsync(bookId, quick, prose);
 
         // Steps run last, so they see this batch's changes. A chapter whose prose changed above was already
         // summarized (and, when written or revised, checked) by its follow-up — that step is not run twice.
@@ -449,6 +512,8 @@ public class ProposalExecutor(
 
         var header = $"✍️ Chapter {chapter.Number} \"{chapter.Title}\" is {(check ? "written" : "updated")} ({WordCount(chapter.Content)} words).";
         if (actions.Count > 0) lines.Add("Proposed follow-ups are below — apply the ones you want.");
+        if (actions.Count > 0 && (await repo.GetProposalsByStatusAsync(bookId, ChatProposalStatus.Queued)).FirstOrDefault() is { } next)
+            lines.Add($"⏭ Next: \"{next.Label}\" — it starts once every suggestion below is applied or rejected.");
         await chat.ProposeAsync(bookId, string.Join("\n\n", lines.Prepend(header)), actions);
 
         if (check && (await repo.GetByIdAsync(bookId))?.IllustrationsEnabled == true)

@@ -57,6 +57,11 @@ public enum ChatProposalStatus
     Failed,
     /// <summary>Applied, then undone by the author.</summary>
     Undone,
+    /// <summary>
+    /// A chapter write or revision of a batch, waiting its turn: it starts once the one before it
+    /// (<see cref="ChatProposal.QueuedAfterProposalId"/>) is written, checked and its follow-ups are applied or rejected.
+    /// </summary>
+    Queued,
 }
 
 /// <summary>
@@ -84,6 +89,8 @@ public class ChatProposal
     public string? Target { get; set; }
     /// <summary>A proposal this one needs applied first (writing a chapter that the same reply adds).</summary>
     public int? DependsOnProposalId { get; set; }
+    /// <summary>A queued write/revision: the one whose full cycle (write, check, the author's review) it waits for.</summary>
+    public int? QueuedAfterProposalId { get; set; }
     /// <summary>Alternatives offered for a conflict share a group ("A", "B"); applying one rejects the others.</summary>
     public string? OptionGroup { get; set; }
     /// <summary>A conflict with the book's canon that this change would cause or resolve.</summary>

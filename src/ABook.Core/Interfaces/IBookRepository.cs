@@ -170,6 +170,8 @@ public interface IBookRepository
     /// <summary>The proposals with these ids that belong to the book, in reply order (message, then ordinal).</summary>
     Task<IReadOnlyList<ChatProposal>> GetProposalsAsync(int bookId, IEnumerable<int> proposalIds);
     Task<IReadOnlyList<ChatProposal>> GetProposalsByStatusAsync(int bookId, ChatProposalStatus status);
+    /// <summary>Pending or failed proposals created at or after <paramref name="since"/>, in messages still part of the chat.</summary>
+    Task<IReadOnlyList<ChatProposal>> GetOpenProposalsSinceAsync(int bookId, DateTime since);
     Task UpdateProposalAsync(ChatProposal proposal);
     /// <summary>
     /// Forgets unsaved changes and cached rows after a failed save, so the next save does not retry the failed

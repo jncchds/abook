@@ -106,6 +106,8 @@ function ProposalCard({ p, bookId, busy, locked, onApply, onReject, onUndo, sele
       <div className="proposal-actions">
         {actionable && <button className="btn-sm" disabled={busy} onClick={() => onApply([p.id])}>{step ? '▶ Run' : 'Apply'}</button>}
         {actionable && <button className="btn-sm btn-ghost" disabled={busy} onClick={() => onReject([p.id])}>{step ? 'Dismiss' : 'Reject'}</button>}
+        {p.status === 'Queued' && <button className="btn-sm btn-ghost" disabled={busy} onClick={() => onApply([p.id])}>▶ Start now</button>}
+        {p.status === 'Queued' && <button className="btn-sm btn-ghost" disabled={busy} onClick={() => onReject([p.id])}>Cancel</button>}
         {p.status === 'Applied' && (step
           ? <button className="btn-sm btn-ghost" disabled={busy} onClick={() => onApply([p.id])}>↻ Run again</button>
           : <button className="btn-sm btn-ghost" disabled={busy} onClick={() => onUndo(p.id)}>↩ Undo</button>)}

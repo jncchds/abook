@@ -188,7 +188,8 @@ export interface AgentMessage {
 
 export type BookMode = 'Autonomous' | 'Interactive'
 
-export type ChatProposalStatus = 'Pending' | 'Applying' | 'Applied' | 'Rejected' | 'Superseded' | 'Failed' | 'Undone'
+/** Queued: a chapter write/revision of a batch waiting for the chapter before it to be written, checked and reviewed. */
+export type ChatProposalStatus = 'Pending' | 'Applying' | 'Applied' | 'Rejected' | 'Superseded' | 'Failed' | 'Undone' | 'Queued'
 
 /** A change the book chat LLM proposed; nothing happens to the book until it is applied. */
 export interface ChatProposal {
@@ -202,6 +203,8 @@ export interface ChatProposal {
   /** premise, bible, character:Name, thread:Name, chapter:Id, prose:Id, note:Id */
   target?: string | null
   dependsOnProposalId?: number | null
+  /** A queued write/revision: the one whose full cycle it waits for. */
+  queuedAfterProposalId?: number | null
   /** Alternatives offered for a conflict ("A", "B"); applying one rejects the others. */
   optionGroup?: string | null
   status: ChatProposalStatus

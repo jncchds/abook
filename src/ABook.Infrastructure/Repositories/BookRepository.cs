@@ -750,6 +750,14 @@ public class BookRepository : IBookRepository
             .OrderBy(p => p.MessageId).ThenBy(p => p.Ordinal)
             .ToListAsync();
 
+    public async Task<IReadOnlyList<ChatProposal>> GetOpenProposalsSinceAsync(int bookId, DateTime since) =>
+        await _db.ChatProposals
+            .Where(p => p.BookId == bookId && p.CreatedAt >= since
+                        && (p.Status == ChatProposalStatus.Pending || p.Status == ChatProposalStatus.Failed)
+                        && p.Message.HiddenAt == null)
+            .OrderBy(p => p.MessageId).ThenBy(p => p.Ordinal)
+            .ToListAsync();
+
     public async Task UpdateProposalAsync(ChatProposal proposal)
     {
         proposal.UpdatedAt = DateTime.UtcNow;

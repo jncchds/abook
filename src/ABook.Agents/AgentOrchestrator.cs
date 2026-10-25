@@ -257,7 +257,12 @@ public class AgentOrchestrator : IAgentOrchestrator
 
     public Task RunBookChatTurnAsync(int bookId, int? authorMessageId, CancellationToken ct = default) =>
         ExecuteAgentRunAsync(bookId, AgentRole.BookChat, null, ct,
-            c => _bookChat.ReplyAsync(bookId, authorMessageId, c), runType: "chat");
+            async c =>
+            {
+                await _bookChat.ReplyAsync(bookId, authorMessageId, c);
+                // A queued chapter write may have been cleared to go meanwhile (a suggestion rejected during the reply).
+                await _proposals.ApplyAsync(bookId, [], c);
+            }, runType: "chat");
 
     public Task ApplyProposalsAsync(int bookId, IReadOnlyList<int> proposalIds, CancellationToken ct = default) =>
         ExecuteAgentRunAsync(bookId, AgentRole.BookChat, null, ct,
@@ -265,7 +270,11 @@ public class AgentOrchestrator : IAgentOrchestrator
 
     public Task UndoProposalAsync(int bookId, int proposalId, CancellationToken ct = default) =>
         ExecuteAgentRunAsync(bookId, AgentRole.BookChat, null, ct,
-            c => _proposals.UndoAsync(bookId, proposalId, c), runType: "chat-undo");
+            async c =>
+            {
+                await _proposals.UndoAsync(bookId, proposalId, c);
+                await _proposals.ApplyAsync(bookId, [], c);   // queued chapter writes waiting on what was undone
+            }, runType: "chat-undo");
 
     // ── Private helpers ─────────────────────────────────────────────────────────
 

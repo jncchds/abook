@@ -114,7 +114,10 @@ public class BookChatService(
         return Start(bookId, (o, c) => o.ApplyProposalsAsync(bookId, applyIds, c));
     }
 
-    /// <summary>Rejects pending proposals. Nothing in the book changes, so this runs right away.</summary>
+    /// <summary>
+    /// Rejects pending (or queued) proposals. Nothing in the book changes, so this runs right away — but when it settles
+    /// the last follow-up a queued chapter write was waiting for, that write starts in the background.
+    /// </summary>
     public async Task<BookChatOutcome> RejectAsync(int bookId, IReadOnlyList<int> ids)
     {
         using var scope = scopeFactory.CreateScope();
@@ -122,7 +125,7 @@ public class BookChatService(
         if (await RequireInteractiveAsync(repo, bookId) is { } refused) return refused;
         var messages = new HashSet<int>();
         foreach (var p in await repo.GetProposalsAsync(bookId, ids))
-            if (p.Status is ChatProposalStatus.Pending or ChatProposalStatus.Failed)
+            if (p.Status is ChatProposalStatus.Pending or ChatProposalStatus.Failed or ChatProposalStatus.Queued)
             {
                 p.Status = ChatProposalStatus.Rejected;
                 p.ResultNote = "Rejected by the author.";
@@ -132,7 +135,17 @@ public class BookChatService(
         if (messages.Count == 0) return new(BookChatResult.NotFound, "None of these changes are pending.");
         await scope.ServiceProvider.GetRequiredService<IBookNotifier>()
             .NotifyBookChatAsync(bookId, messages.Count == 1 ? messages.First() : null);
-        return new(BookChatResult.Done);
+        return new(BookChatResult.Done, await ContinueQueueAsync(scope, bookId));
+    }
+
+    /// <summary>Starts the queued chapter write whose turn has come, if any and the book is idle. Returns a note for the author.</summary>
+    private async Task<string?> ContinueQueueAsync(IServiceScope scope, int bookId)
+    {
+        if (IsBusy(bookId)) return null;
+        if (await scope.ServiceProvider.GetRequiredService<ProposalExecutor>().NextQueuedAsync(bookId) is not { } next) return null;
+        return runner.TryStart(bookId, AgentRole.BookChat, null, (o, c) => o.ApplyProposalsAsync(bookId, [next.Id], c)) == RunStartResult.Success
+            ? $"Starting \"{next.Label}\"."
+            : null;
     }
 
     /// <summary>

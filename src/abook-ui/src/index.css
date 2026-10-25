@@ -1036,6 +1036,7 @@ button:disabled:hover { background: var(--accent); }
 .proposal-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.6rem; background: var(--bg); display: flex; flex-direction: column; gap: 0.3rem; }
 .proposal-card.proposal-applied { border-color: var(--success); }
 .proposal-card.proposal-failed { border-color: var(--danger); }
+.proposal-card.proposal-queued { border-style: dashed; }
 .proposal-card.proposal-rejected, .proposal-card.proposal-superseded, .proposal-card.proposal-undone { opacity: 0.6; }
 .proposal-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; white-space: nowrap; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
 .proposal-status { display: inline-flex; align-items: center; gap: 0.3rem; }

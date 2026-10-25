@@ -263,6 +263,7 @@ public static partial class TelegramFormat
         ChatProposalStatus.Superseded => "↪️",
         ChatProposalStatus.Failed => "⚠️",
         ChatProposalStatus.Undone => "↩️",
+        ChatProposalStatus.Queued => "🕒",
         _ => "•",
     };
 
@@ -300,7 +301,7 @@ public static partial class TelegramFormat
                 ? $"<s>{H(Clip(p.Label, 200))}</s>" : H(Clip(p.Label, 200)));
             if (p.OptionGroup is { Length: > 0 } g) sb.Append(" <i>(option ").Append(H(g)).Append(")</i>");
             sb.Append(" · ").Append(TelegramRich.Link("details", Callback(bindingId, "det", p.Id)));
-            if (p.Status is ChatProposalStatus.Failed && p.ResultNote is { Length: > 0 } note)
+            if (p.Status is ChatProposalStatus.Failed or ChatProposalStatus.Queued && p.ResultNote is { Length: > 0 } note)
                 sb.Append("<br><i>").Append(H(Clip(note, 200))).Append("</i>");
             sb.Append("</p>");
         }
@@ -471,7 +472,8 @@ public static partial class TelegramFormat
 
     /// <summary>
     /// The suggestion buttons. Each open suggestion: a tick box (☐/☑ with its number and label), ✅ to apply just it and
-    /// ✖️ to reject it. Alternatives (option A/B) are chosen as a whole with one button per option. Applied ones offer
+    /// ✖️ to reject it. Alternatives (option A/B) are chosen as a whole with one button per option. Queued chapter
+    /// writes can be started early or cancelled. Applied ones offer
     /// Undo (steps: Run again). The last row acts on the ticked ones — or on all of them when none is ticked.
     /// </summary>
     public static IReadOnlyList<IReadOnlyList<TgButton>> ProposalsKeyboard(
@@ -497,6 +499,11 @@ public static partial class TelegramFormat
                     new TgButton($"{(ticked.Contains(p.Id) ? "☑" : "☐")} {n}. {Clip(p.Label, 26)}", Callback(bindingId, "tick", p.Id)),
                     new TgButton("✅", Callback(bindingId, "apply", p.Id), Style: "success"),
                     new TgButton("✖️", Callback(bindingId, "reject", p.Id)),
+                ]);
+            else if (p.Status == ChatProposalStatus.Queued)
+                rows.Add([
+                    new TgButton($"▶ Start {n}. {Clip(p.Label, 26)} now", Callback(bindingId, "apply", p.Id)),
+                    new TgButton("✖️ Cancel", Callback(bindingId, "reject", p.Id)),
                 ]);
             else if (p.Status == ChatProposalStatus.Applied && ABook.Agents.BookChatActions.IsStep(p.Type))
                 rows.Add([new TgButton($"↻ Run {n}. {Clip(p.Label, 30)} again", Callback(bindingId, "apply", p.Id))]);

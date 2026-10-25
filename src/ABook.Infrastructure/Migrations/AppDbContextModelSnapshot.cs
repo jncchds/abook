@@ -881,6 +881,9 @@ namespace ABook.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int?>("QueuedAfterProposalId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("ResultNote")
                         .HasColumnType("text");
 
