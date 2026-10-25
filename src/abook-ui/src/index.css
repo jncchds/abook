@@ -1096,3 +1096,5 @@ button:disabled:hover { background: var(--accent); }
 .copy-block pre { padding: 0.6rem 4.5rem 0.6rem 0.6rem; margin: 0; }
 .copy-block code { padding: 0.4rem 4.5rem 0.4rem 0.6rem; overflow-wrap: anywhere; }
 .copy-block-btn { position: absolute; top: 0.3rem; right: 0.3rem; }
+
+.studio-offline { font-size: 0.8rem; color: var(--warning, #b7791f); margin-left: 0.5rem; }

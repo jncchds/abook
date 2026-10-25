@@ -106,6 +106,8 @@ interface BookContextValue {
   bookChatStream: string
   /** Bumped whenever the book chat changed on the server; the chat page re-reads on change. */
   bookChatVersion: number
+  /** Whether the live connection (SignalR) is up and joined to the book. */
+  hubConnected: boolean
   handleWriteBook: () => Promise<void>
   handlePlanBook: () => Promise<void>
   handleStop: () => Promise<void>
@@ -166,7 +168,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   const [submittingAnswer, setSubmittingAnswer] = useState(false)
   const [answerError, setAnswerError] = useState<string | null>(null)
 
-  const { setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnIllustrationsUpdated, setOnBookChatUpdated, setOnBookRewound, setOnReconnected, setOnJoined } = useBookHub(bookId)
+  const { connected: hubConnected, setOnStream, setOnQuestion, setOnStatus, setOnChapterUpdated, setOnWorkflowProgress, setOnTokenStats, setOnAgentError, setOnMessagesUpdated, setOnIllustrationsUpdated, setOnBookChatUpdated, setOnBookRewound, setOnReconnected, setOnJoined } = useBookHub(bookId)
   const { notify } = useNotifications()
   const notifyRef = useRef(notify)
   useEffect(() => { notifyRef.current = notify })
@@ -664,7 +666,7 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     answerText, setAnswerText, submittingAnswer, answerError,
     refreshBook, refreshMessages,
     handleAnswer,
-    bookChatStream, bookChatVersion,
+    bookChatStream, bookChatVersion, hubConnected,
     handleWriteBook, handlePlanBook, handleStop,
     handleCompletePhase, handleReopenPhase, handleClearPhase, isPhaseComplete,
     clearMessagesForBook, clearTokenUsageForBook,

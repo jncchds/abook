@@ -217,7 +217,7 @@ function Conflicts({ json }: { json: string }) {
  * works on a phone: messages scroll, the input stays at the bottom.
  */
 export default function BookChat() {
-  const { book, bookChatStream, bookChatVersion, isRunning, runStatus, handleStop, refreshBook } = useBookContext()
+  const { book, bookChatStream, bookChatVersion, hubConnected, isRunning, runStatus, handleStop, refreshBook } = useBookContext()
   const bookId = book?.id ?? 0
   const userId = useAuth().user?.id
   const [chat, setChat] = useState<BookChatState | null>(() => readChatCache(userId, bookId))
@@ -269,6 +269,14 @@ export default function BookChat() {
     const t = setTimeout(() => { void load() }, Math.min(60_000, 5000 * 2 ** (loadFailures - 1)))
     return () => clearTimeout(t)
   }, [load, loadFailures])
+  // Live events normally keep the chat current; this re-read is the safety net — every 15 s while the live
+  // connection is down, every minute while it is up — and at once when the tab is shown again.
+  useEffect(() => {
+    const t = setInterval(() => { if (document.visibilityState === 'visible') void load() }, hubConnected ? 60_000 : 15_000)
+    const onVisible = () => { if (document.visibilityState === 'visible') void load() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible) }
+  }, [load, hubConnected])
   // Back online or back to the tab (timers sleep with the device): retry a failed load at once.
   useEffect(() => {
     if (loadFailures === 0) return
@@ -418,6 +426,7 @@ export default function BookChat() {
         <div className="studio-title">
           <span className="studio-book">{book.title}</span>
           <span className={`studio-stage${locked ? ' locked' : ''}`}>{locked ? '🔒 Writing' : '🌱 Foundation'}</span>
+          {!hubConnected && <span className="studio-offline" title="Live updates are reconnecting; the chat is re-read every 15 seconds meanwhile.">⚠ Reconnecting…</span>}
         </div>
         {!locked && (
           <button className="btn-sm" disabled={busy} onClick={() => void lock()} title="Lock the premise and Story Bible">

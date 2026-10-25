@@ -20,6 +20,7 @@ type JoinedHandler = () => void
 const START_RETRY_MS = 5000
 const HEARTBEAT_MS = 15000
 const HEARTBEAT_TIMEOUT_MS = 10000
+const JOIN_TIMEOUT_MS = 15000
 
 /** One hub event of the book, numbered per book by the server in the order it was sent. */
 interface BookEvent { seq: number; name: string; args: unknown[] }
@@ -104,7 +105,9 @@ export function useBookHub(bookId: number | null) {
       if (joining) return joining
       const run = async () => {
         const wasJoined = epoch !== null
-        const res = await conn.invoke<BookSyncState>('JoinBook', String(bookId), epoch, wasJoined ? lastSeq : null)
+        // Bounded: a join hanging on a half-dead connection would otherwise block every later heartbeat.
+        const res = await withTimeout(
+          conn.invoke<BookSyncState>('JoinBook', String(bookId), epoch, wasJoined ? lastSeq : null), JOIN_TIMEOUT_MS)
         if (disposed) return
         const replayed = res.events !== null
         if (res.events) for (const e of res.events) if (e.seq > lastSeq) dispatch(e)
@@ -146,7 +149,7 @@ export function useBookHub(bookId: number | null) {
     conn.onclose(() => {
       // Automatic reconnect gave up, or the heartbeat found the connection dead — restart periodically.
       setConnected(false)
-      if (!disposed) retryTimer = setTimeout(() => { void start() }, START_RETRY_MS)
+      if (!disposed) retryTimer = setTimeout(() => { retryTimer = undefined; void start() }, START_RETRY_MS)
     })
 
     // withAutomaticReconnect only covers connections that were once established, so the
@@ -161,7 +164,7 @@ export function useBookHub(bookId: number | null) {
         if (disposed) return
         // Connected but the join failed: stopping goes through onclose, which restarts.
         if (conn.state === HubConnectionState.Connected) void conn.stop()
-        else retryTimer = setTimeout(() => { void start() }, START_RETRY_MS)
+        else retryTimer = setTimeout(() => { retryTimer = undefined; void start() }, START_RETRY_MS)
       }
     }
     void start()
@@ -173,7 +176,10 @@ export function useBookHub(bookId: number | null) {
      */
     let beating = false
     const heartbeat = async () => {
-      if (beating || disposed || joining || conn.state !== HubConnectionState.Connected) return
+      if (beating || disposed || joining) return
+      // Disconnected with no reconnect or restart under way (a lost onclose): start again.
+      if (conn.state === HubConnectionState.Disconnected && retryTimer === undefined) { void start(); return }
+      if (conn.state !== HubConnectionState.Connected) return
       beating = true
       try {
         const res = await withTimeout(conn.invoke<BookSyncState>('Heartbeat', String(bookId)), HEARTBEAT_TIMEOUT_MS)
