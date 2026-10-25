@@ -11,7 +11,7 @@ public class TelegramCardFieldTests
     [Theory]
     [InlineData("chapters", "12", "12", null)]
     [InlineData("chapters", " 7 ", "7", null)]
-    [InlineData("chapters", "many", null, "Chapters must be a whole number.")]
+    [InlineData("chapters", "many", null, "Sections must be a whole number.")]
     [InlineData("mode", "interactive", "Interactive", null)]
     [InlineData("mode", "both", null, "Mode is one of: Autonomous, Interactive.")]
     [InlineData("genre", "Cozy mystery", "Cozy mystery", null)]
@@ -112,6 +112,12 @@ public class TelegramProposalDetailsTests
     [InlineData("char", "arch", true)]
     [InlineData("chapter", "restore", true)]
     [InlineData("chapter", "write", true)]
+    [InlineData("section", "save", false)]  // a section's plan: content
+    [InlineData("section", "addin", false)] // adding a chapter to it
+    [InlineData("section", "mv", true)]     // structure and runs
+    [InlineData("section", "brk", true)]
+    [InlineData("section", "arch", true)]
+    [InlineData("chapter", "mv", true)]
     public void CardActions_ControlOnlyForSettingsArchivingRestoringAndRuns(string kind, string op, bool control) =>
         Assert.Equal(control, ABook.Api.Telegram.Cards.TelegramCardService.NeedsControlFor(kind, op));
 

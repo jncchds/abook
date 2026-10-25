@@ -283,11 +283,23 @@ public sealed partial class TelegramCardService(
                 s.Awaiting = s.Kind == "chapter" ? "title" : "name";
                 s.BaseHash = "new";
                 return "Reply to the card with the name.";
+            case "addin":   // ➕ a chapter at the end of the section shown
+            {
+                if (s.Kind != "section" || s.ItemId is not int sectionId) return null;
+                if (s.Draft.Count > 0) { s.Note = "💾 Save or ↩️ discard your changes first."; return null; }
+                s.GoTo("chapter");
+                s.SectionId = sectionId;
+                s.Awaiting = "title";
+                s.BaseHash = "new";
+                return "Reply to the card with the title.";
+            }
             case "arch":
             case "unarch":
                 return await ArchiveAsync(ctx, archive: op == "arch");
-            case "mv":   // ⬆️ / ⬇️ a chapter one place
-                return await MoveChapterAsync(ctx, up: arg == "up");
+            case "mv":   // ⬆️ / ⬇️ a chapter or a section one place
+                return s.Kind == "section" ? await MoveSectionAsync(ctx, up: arg == "up") : await MoveChapterAsync(ctx, up: arg == "up");
+            case "brk":  // ⋔ break the section down into chapters (a run); arg = how many, empty = the planner decides
+                return await StartBreakdownAsync(ctx, int.TryParse(arg, out var count) ? count : null);
             case "create":
                 return await CreateBookAsync(ctx);
             case "open":
@@ -336,7 +348,7 @@ public sealed partial class TelegramCardService(
     /// is Participate — like writing in the book chat and applying what it suggests.
     /// </summary>
     public static bool NeedsControlFor(string kind, string op) =>
-        op is "restore" or "arch" or "unarch" or "write" or "check" or "mv"
+        op is "restore" or "arch" or "unarch" or "write" or "check" or "mv" or "brk"
         || (kind == "book" && op is "ed" or "set" or "save" or "save!" or "undo");
 
     // ── Saving ────────────────────────────────────────────────────────────────
@@ -360,6 +372,8 @@ public sealed partial class TelegramCardService(
                 "char" => await SaveCharacterAsync(ctx),
                 "thread" => await SaveThreadAsync(ctx),
                 "chapter" => await SaveChapterAsync(ctx),
+                "section" when s.ItemId is int sectionId =>
+                    (await content.UpdateSectionPlanAsync(ctx.Book!.Id, sectionId, s.Draft, AgentCreatedBy.Telegram)).Note,
                 _ => null,
             };
             s.Draft.Clear();
@@ -454,9 +468,10 @@ public sealed partial class TelegramCardService(
     {
         if (ctx.State.ItemId is int id)
             return (await content.UpdateChapterOutlineAsync(ctx.Book!.Id, id, ctx.State.Draft, AgentCreatedBy.Telegram)).Note;
-        // A new chapter always goes at the end.
-        var change = await content.AddChapterAsync(ctx.Book!.Id, ctx.State.Draft);
+        // A new chapter goes at the end of the section it was added from, or at the end of the book as a section of its own.
+        var change = await content.AddChapterAsync(ctx.Book!.Id, ctx.State.Draft, ctx.State.SectionId);
         ctx.State.ItemId = change.ChapterId;
+        ctx.State.SectionId = null;
         return change.Note;
     }
 
@@ -489,6 +504,39 @@ public sealed partial class TelegramCardService(
         return null;
     }
 
+    /// <summary>Moves the card's section, with its chapters, one place among the active sections.</summary>
+    private async Task<string?> MoveSectionAsync(Ctx ctx, bool up)
+    {
+        var s = ctx.State;
+        if (s.ItemId is not int id || await RefuseWhileBusyAsync(ctx)) return null;
+        var bookId = ctx.Book!.Id;
+        var sections = (await repo.GetSectionsAsync(bookId)).ToList();
+        var i = sections.FindIndex(x => x.Id == id);
+        if (i < 0 || (up && i == 0) || (!up && i == sections.Count - 1)) return null;
+        int? after = up ? (i >= 2 ? sections[i - 2].Id : null) : sections[i + 1].Id;
+        try { s.Note = "✅ " + (await content.MoveSectionAsync(bookId, id, after)).Note; }
+        catch (InvalidOperationException ex) { s.Note = "⚠️ " + ex.Message; }
+        return null;
+    }
+
+    /// <summary>Starts the run that divides the card's section into chapters (none of them written yet).</summary>
+    private async Task<string?> StartBreakdownAsync(Ctx ctx, int? count)
+    {
+        if (ctx.State.Kind != "section" || ctx.State.ItemId is not int sectionId) return null;
+        var bookId = ctx.Book!.Id;
+        if ((await repo.GetChaptersAsync(bookId)).Any(c => c.SectionId == sectionId && !string.IsNullOrWhiteSpace(c.Content)))
+        {
+            ctx.State.Note = "⚠️ This section already has written chapters — split a chapter in abook instead.";
+            return null;
+        }
+        var result = runner.TryStart(bookId, AgentRole.ChaptersAgent, null,
+            (o, c) => o.StartSectionBreakdownAsync(bookId, sectionId, count, c));
+        ctx.State.Note = result == RunStartResult.Success
+            ? "⋔ Breaking the section down into chapters — they appear here when it is done."
+            : "⏳ " + result.ToMessage();
+        return null;
+    }
+
     private async Task<string?> ArchiveAsync(Ctx ctx, bool archive)
     {
         var s = ctx.State;
@@ -515,6 +563,10 @@ public sealed partial class TelegramCardService(
                 case "chapter":
                     s.Note = "✅ " + (archive ? (await content.ArchiveLastChapterAsync(bookId, id)).Note
                                               : (await content.RestoreLastChapterAsync(bookId, id)).Note);
+                    break;
+                case "section":
+                    s.Note = "✅ " + (archive ? (await content.ArchiveSectionAsync(bookId, id)).Note
+                                              : (await content.RestoreSectionAsync(bookId, id)).Note);
                     break;
             }
         }
@@ -728,6 +780,8 @@ public sealed partial class TelegramCardService(
                 return (await repo.GetAllPlotThreadsAsync(bookId)).FirstOrDefault(t => t.Id == id) is { } thread ? BookContentRender.Fields(thread) : null;
             case "chapter" when s.ItemId is int id:
                 return await repo.GetChapterAsync(bookId, id) is { } chapter ? BookContentRender.Fields(chapter) : null;
+            case "section" when s.ItemId is int id:
+                return await repo.GetSectionAsync(bookId, id) is { } section ? BookContentRender.Fields(section) : null;
             default:
                 return null;
         }

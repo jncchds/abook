@@ -50,6 +50,8 @@ public sealed partial class TelegramCardService
             "chars" => await RenderListAsync(ctx, "chars"),
             "threads" => await RenderListAsync(ctx, "threads"),
             "chapters" => await RenderListAsync(ctx, "chapters"),
+            "sections" => await RenderSectionsAsync(ctx),
+            "section" => await RenderSectionAsync(ctx),
             "char" or "thread" or "chapter" => await RenderItemAsync(ctx),
             "clars" => await RenderClarificationsAsync(ctx),
             _ => ("<p>This card is no longer available.</p>", new List<IReadOnlyList<TgButton>>()),
@@ -237,8 +239,8 @@ public sealed partial class TelegramCardService
                    (ctx.IsOwner ? $" · {L(ctx, "change", "view", "presets")}" : "") + "</p>" + text;
         var rows = FieldButtons(ctx, CardFields.Book, clipped, canEdit: ctx.CanControl);
         rows.Add([B(ctx, "🌍 Story Bible", "nav", "bible"), B(ctx, "👤 Characters", "nav", "chars")]);
-        rows.Add([B(ctx, "🧵 Plot threads", "nav", "threads"), B(ctx, "📚 Chapters", "nav", "chapters")]);
-        rows.Add([B(ctx, "❓ Clarifications", "nav", "clars")]);
+        rows.Add([B(ctx, "🧵 Plot threads", "nav", "threads"), B(ctx, "🧩 Sections", "nav", "sections")]);
+        rows.Add([B(ctx, "📚 Chapters", "nav", "chapters"), B(ctx, "❓ Clarifications", "nav", "clars")]);
         if (book.Mode == BookMode.Interactive && !(await repo.GetChatMessagesAsync(book.Id, null, 1)).Any(m => m.Role != BookChatRole.Event))
             rows.Add([B(ctx, "💬 Start the book chat", "kick", style: "success")]);
         rows.Add([B(ctx, "⬇️ EPUB", "exp", "epub"), B(ctx, "FB2", "exp", "fb2"), B(ctx, "HTML", "exp", "html"), B(ctx, "🗂 Metadata", "exp", "metadata")]);
@@ -413,10 +415,14 @@ public sealed partial class TelegramCardService
             {
                 chapter = s.ItemId is int id ? await repo.GetChapterAsync(bookId, id) : null;
                 if (chapter is not null) { saved = BookContentRender.Fields(chapter); archived = chapter.IsArchived; }
+                var target = chapter is null && s.SectionId is int sid ? await repo.GetSectionAsync(bookId, sid) : null;
                 heading = chapter is null
-                    ? "<h3>📚 New chapter</h3><p><i>Added after the last one.</i></p>"
+                    ? "<h3>📚 New chapter</h3><p><i>" +
+                      (target is null ? "Added after the last one, as a section of its own." : $"Added at the end of Section {target.Number}: {H(Clip(target.Title, 80))}.") +
+                      "</i></p>"
                     : $"<h3>📚 Chapter {chapter.Number}: {H(chapter.Title)}</h3><p>{chapter.Status}" +
-                      (string.IsNullOrWhiteSpace(chapter.Content) ? " · not written yet" : $" · {N(CountWords(chapter.Content))} words") + "</p>";
+                      (string.IsNullOrWhiteSpace(chapter.Content) ? " · not written yet" : $" · {N(CountWords(chapter.Content))} words") +
+                      await SectionLineAsync(ctx, chapter) + "</p>";
                 break;
             }
         }
@@ -451,6 +457,98 @@ public sealed partial class TelegramCardService
         last.Add(B(ctx, "⬅️ List", "nav", listKind));
         rows.Add(last);
         return (heading + text, rows);
+    }
+
+    /// <summary>"· in Section 3 (part 2 of 3)" with a link to the section card — empty for a chapter without one.</summary>
+    private async Task<string> SectionLineAsync(Ctx ctx, Chapter chapter)
+    {
+        if (chapter.SectionId is not int sid || await repo.GetSectionAsync(ctx.Book!.Id, sid) is not { } section) return "";
+        var siblings = (await repo.GetChaptersAsync(ctx.Book.Id)).Where(c => c.SectionId == sid).ToList();
+        var part = siblings.Count > 1 && siblings.FindIndex(c => c.Id == chapter.Id) is var i and >= 0
+            ? $" (part {i + 1} of {siblings.Count})" : "";
+        return "<br>🧩 " + L(ctx, $"Section {section.Number}", "nav", $"section.{sid}") + part;
+    }
+
+    // ── Sections ──────────────────────────────────────────────────────────────
+
+    private async Task<(string, List<IReadOnlyList<TgButton>>)> RenderSectionsAsync(Ctx ctx)
+    {
+        var bookId = ctx.Book!.Id;
+        var archived = ctx.State.View == "archived";
+        var chapters = (await repo.GetChaptersAsync(bookId, includeArchived: true)).ToList();
+        var sections = (await repo.GetSectionsAsync(bookId, includeArchived: true)).Where(x => x.IsArchived == archived).ToList();
+        var pages = Math.Max(1, (sections.Count + ListPage - 1) / ListPage);
+        var page = Math.Clamp(ctx.State.Page, 0, pages - 1);
+        var sb = new StringBuilder($"<h3>🧩 Sections{(archived ? " · 🗄 archived" : "")}</h3><p><i>{H(Clip(ctx.Book.Title, 80))}</i></p>");
+        if (!archived) sb.Append("<p><i>The parts of the plan, in order; each has one chapter or several.</i></p>");
+        if (sections.Count == 0) sb.Append("<p><i>None.</i></p>");
+        else
+        {
+            sb.Append("<ul>");
+            foreach (var x in sections.Skip(page * ListPage).Take(ListPage))
+            {
+                var own = chapters.Where(c => c.SectionId == x.Id && c.IsArchived == archived).ToList();
+                var written = own.Count(c => !string.IsNullOrWhiteSpace(c.Content));
+                var label = archived ? $"(was {x.Number}) {x.Title}" : $"{x.Number}. {x.Title}";
+                sb.Append("<li>").Append(L(ctx, Clip(label, 60), "nav", $"section.{x.Id}")).Append(" · <i>")
+                  .Append(own.Count == 1 ? "1 chapter" : $"{own.Count} chapters")
+                  .Append(written > 0 ? $", {written} written" : "").Append("</i></li>");
+            }
+            sb.Append("</ul>");
+        }
+        var last = new List<TgButton>();
+        if (!archived) last.Add(B(ctx, "➕ Add", "add", style: "primary"));
+        last.Add(archived ? B(ctx, "⬅️ Active", "view", "main") : B(ctx, "🗄 Archived", "view", "archived"));
+        last.Add(B(ctx, "⬅️ Book", "nav", "book"));
+        var rows = new List<IReadOnlyList<TgButton>> { Pager(ctx, page, pages), last };
+        return (sb.ToString(), rows.Where(r => r.Count > 0).ToList());
+    }
+
+    /// <summary>
+    /// One section: its plan (editable — for a section with one chapter that is the chapter's plan), its chapters as
+    /// links, and for Control: move, break down, archive or bring back.
+    /// </summary>
+    private async Task<(string, List<IReadOnlyList<TgButton>>)> RenderSectionAsync(Ctx ctx)
+    {
+        var s = ctx.State;
+        var bookId = ctx.Book!.Id;
+        var section = s.ItemId is int id ? await repo.GetSectionAsync(bookId, id) : null;
+        if (section is null) return ("<p>This section is gone.</p>", [[B(ctx, "⬅️ Sections", "nav", "sections")]]);
+        var archived = section.IsArchived;
+        var chapters = (await repo.GetChaptersAsync(bookId, includeArchived: true)).Where(c => c.SectionId == section.Id).ToList();
+        var active = chapters.Where(c => !c.IsArchived).ToList();
+        var saved = BookContentRender.Fields(section);
+        var heading = $"<h3>🧩 Section {section.Number}: {H(section.Title)}</h3>" +
+                      (archived ? "<p>🗄 <i>Archived</i></p>" : "") +
+                      (active.Count == 1 ? "<p><i>One chapter: the section's plan is the chapter's plan.</i></p>"
+                       : active.Count > 1 ? "<p><i>The overall plan; each chapter has its own detailed outline.</i></p>" : "");
+        if (s.View == "full" && s.Focus is { } focus)
+            return RenderFull(ctx, heading, CardFields.Section.First(f => f.Key == focus).Label, s.Draft.GetValueOrDefault(focus, saved.GetValueOrDefault(focus, "")), "main");
+
+        var list = new StringBuilder("<h4>📚 Chapters</h4><ul>");
+        foreach (var c in chapters.Where(c => c.IsArchived == archived))
+            list.Append("<li>").Append(L(ctx, Clip($"{c.Number}. {c.Title}", 60), "nav", $"chapter.{c.Id}")).Append(" · <i>")
+                .Append(string.IsNullOrWhiteSpace(c.Content) ? "not written" : $"{N(CountWords(c.Content))} words").Append("</i></li>");
+        list.Append("</ul>");
+
+        var (text, clipped) = Fields(ctx, CardFields.Section, saved, canEdit: !archived);
+        var rows = FieldButtons(ctx, CardFields.Section, clipped, canEdit: !archived);
+        if (!archived)
+        {
+            rows.Add([B(ctx, "➕ Chapter in this section", "addin")]);
+            if (ctx.CanControl)
+            {
+                var controls = new List<TgButton> { B(ctx, "⬆️ Move up", "mv", "up"), B(ctx, "⬇️ Move down", "mv", "down") };
+                rows.Add(controls);
+                if (active.Count > 0 && active.All(c => string.IsNullOrWhiteSpace(c.Content)))
+                    rows.Add([B(ctx, "⋔ Break down (planner decides)", "brk"), B(ctx, "⋔ into 2", "brk", 2), B(ctx, "3", "brk", 3)]);
+            }
+        }
+        var last = new List<TgButton>();
+        if (ctx.CanControl) last.Add(archived ? B(ctx, "♻️ Bring back", "unarch") : B(ctx, "🗄 Archive", "arch"));
+        last.Add(B(ctx, "⬅️ Sections", "nav", "sections"));
+        rows.Add(last);
+        return (heading + text + list, rows);
     }
 
     private async Task<(string, List<IReadOnlyList<TgButton>>)> RenderItemVersionsAsync(Ctx ctx, string heading, int itemId)

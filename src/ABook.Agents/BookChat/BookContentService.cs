@@ -341,11 +341,15 @@ public class BookContentService : AgentBase
 
     // ── Chapters (append-only: a new chapter always goes at the end) ────────────
 
-    /// <summary>Adds a chapter after the last one, outline only.</summary>
-    public async Task<ContentChange> AddChapterAsync(int bookId, IReadOnlyDictionary<string, string> fields)
+    /// <summary>
+    /// Adds an outline-only chapter: at the end of <paramref name="sectionId"/>, or after the last one as a section of
+    /// its own.
+    /// </summary>
+    public async Task<ContentChange> AddChapterAsync(int bookId, IReadOnlyDictionary<string, string> fields, int? sectionId = null)
     {
+        if (sectionId is int sid) await LoadActiveSectionAsync(bookId, sid);
         var chapters = (await Repo.GetChaptersAsync(bookId)).ToList();
-        var chapter = new Chapter { BookId = bookId, Number = (chapters.Count == 0 ? 0 : chapters.Max(c => c.Number)) + 1 };
+        var chapter = new Chapter { BookId = bookId, SectionId = sectionId, Number = (chapters.Count == 0 ? 0 : chapters.Max(c => c.Number)) + 1 };
         ApplyOutline(chapter, fields);
         if (chapter.Title.Length == 0) chapter.Title = $"Chapter {chapter.Number}";
         chapter = await Repo.AddChapterAsync(chapter);

@@ -10,10 +10,12 @@ namespace ABook.Api.Telegram.Cards;
 /// </summary>
 public sealed class CardState
 {
-    /// <summary>newbook, books, book, bible, chars, char, threads, thread, chapters, chapter, clars, clar.</summary>
+    /// <summary>newbook, books, book, bible, chars, char, threads, thread, sections, section, chapters, chapter, clars, clar.</summary>
     public string Kind { get; set; } = "";
-    /// <summary>The character / thread / chapter / clarification shown (null: a new one being added).</summary>
+    /// <summary>The character / thread / section / chapter / clarification shown (null: a new one being added).</summary>
     public int? ItemId { get; set; }
+    /// <summary>A new chapter being added: the section it goes into (at its end); null = a new section at the end.</summary>
+    public int? SectionId { get; set; }
     /// <summary>main, versions, version, archived, presets, full.</summary>
     public string View { get; set; } = "main";
     /// <summary>The field the next reply to the card fills.</summary>
@@ -50,6 +52,7 @@ public sealed class CardState
         Page = 0;
         VersionId = null;
         Focus = null;
+        SectionId = null;
     }
 }
 
@@ -77,7 +80,7 @@ public static class CardFields
         new("genre", "Genre", FieldKind.Choice, Genres),
         new("language", "Language", FieldKind.Choice, Languages),
         new("mode", "Mode", FieldKind.Choice, Modes),
-        new("chapters", "Chapters", FieldKind.Number),
+        new("chapters", "Sections", FieldKind.Number),
     ];
 
     public static readonly IReadOnlyList<CardField> Book =
@@ -86,7 +89,7 @@ public static class CardFields
         new("premise", "Premise", FieldKind.LongText, Required: true),
         new("genre", "Genre", FieldKind.Choice, Genres),
         new("language", "Language", FieldKind.Choice, Languages),
-        new("chapters", "Target chapters", FieldKind.Number),
+        new("chapters", "Target sections", FieldKind.Number),
         new("mode", "Mode", FieldKind.Choice, Modes),
         new("illustrations", "Illustrations", FieldKind.Choice, OnOff),
     ];
@@ -110,7 +113,7 @@ public static class CardFields
         new("backstory", "Backstory", FieldKind.LongText),
         new("goalMotivation", "Goal", FieldKind.LongText),
         new("arc", "Arc", FieldKind.LongText),
-        new("firstAppearanceChapterNumber", "First chapter", FieldKind.Number),
+        new("firstAppearanceChapterNumber", "First section", FieldKind.Number),
         new("notes", "Notes", FieldKind.LongText),
     ];
 
@@ -120,8 +123,8 @@ public static class CardFields
         new("description", "Description", FieldKind.LongText),
         new("type", "Type", FieldKind.Choice, Enum.GetNames<PlotThreadType>()),
         new("status", "Status", FieldKind.Choice, Enum.GetNames<PlotThreadStatus>()),
-        new("introducedChapterNumber", "Introduced in", FieldKind.Number),
-        new("resolvedChapterNumber", "Resolved in", FieldKind.Number),
+        new("introducedChapterNumber", "Introduced in section", FieldKind.Number),
+        new("resolvedChapterNumber", "Resolved in section", FieldKind.Number),
     ];
 
     public static readonly IReadOnlyList<CardField> Chapter =
@@ -135,6 +138,9 @@ public static class CardFields
         new("payoffNotes", "Payoffs", FieldKind.LongText),
     ];
 
+    /// <summary>A section's plan: the same fields as a chapter's.</summary>
+    public static readonly IReadOnlyList<CardField> Section = Chapter;
+
     public static IReadOnlyList<CardField> For(string kind) => kind switch
     {
         "newbook" => NewBook,
@@ -142,6 +148,7 @@ public static class CardFields
         "bible" => Bible,
         "char" => Character,
         "thread" => Thread,
+        "section" => Section,
         "chapter" => Chapter,
         _ => [],
     };
