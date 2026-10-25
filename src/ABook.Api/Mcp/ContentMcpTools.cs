@@ -14,14 +14,16 @@ public class ContentMcpTools : McpToolBase
     private readonly IBookRepository _repo;
     private readonly ABook.Api.Services.ClarificationService _clarifications;
     private readonly ABook.Api.Telegram.TelegramEventSink _telegram;
+    private readonly ABook.Agents.BookContentService _content;
 
     public ContentMcpTools(IBookRepository repo, ABook.Api.Services.ClarificationService clarifications, IHttpContextAccessor http,
-        ABook.Api.Telegram.TelegramEventSink telegram)
+        ABook.Api.Telegram.TelegramEventSink telegram, ABook.Agents.BookContentService content)
         : base(http)
     {
         _repo = repo;
         _clarifications = clarifications;
         _telegram = telegram;
+        _content = content;
     }
 
 
@@ -348,29 +350,78 @@ public class ContentMcpTools : McpToolBase
     }
 
     [McpServerTool(Name = "create_chapter")]
-    [Description("Add a new chapter to a book. The chapter number is automatically assigned as the next in sequence.")]
+    [Description("Add a new chapter to a book: at the end, or right after another chapter (afterChapterId) or at the start (atStart). Chapter numbers follow the order, so the chapters after an inserted one are renumbered.")]
     public async Task<string> CreateChapter(
         [Description("The book ID.")] int bookId,
         [Description("Chapter title.")] string title,
         [Description("Chapter outline — a synopsis of events in this chapter.")] string outline,
         [Description("POV character for this chapter (optional).")] string? povCharacter = null,
         [Description("Foreshadowing notes — what hints are planted in this chapter (optional).")] string? foreshadowingNotes = null,
-        [Description("Payoff notes — what earlier foreshadowing is paid off (optional).")] string? payoffNotes = null)
+        [Description("Payoff notes — what earlier foreshadowing is paid off (optional).")] string? payoffNotes = null,
+        [Description("Insert right after this chapter ID (optional; default: at the end).")] int? afterChapterId = null,
+        [Description("Insert as the first chapter (optional).")] bool atStart = false)
     {
         await GetOwnedBookAsync(bookId, _repo);
-        var existing = await _repo.GetChaptersAsync(bookId);
-        var nextNumber = existing.Any() ? existing.Max(c => c.Number) + 1 : 1;
-        var chapter = await _repo.AddChapterAsync(new Chapter
+        var chapter = new Chapter
         {
             BookId = bookId,
-            Number = nextNumber,
             Title = title,
             Outline = outline,
             PovCharacter = povCharacter ?? string.Empty,
             ForeshadowingNotes = foreshadowingNotes ?? string.Empty,
             PayoffNotes = payoffNotes ?? string.Empty
-        });
+        };
+        if (afterChapterId is int after && await _repo.GetChapterAsync(bookId, after) is null)
+            throw new McpException($"Chapter {after} not found in book {bookId}.");
+        chapter = atStart || afterChapterId is not null
+            ? await _repo.InsertChapterAsync(chapter, atStart ? null : afterChapterId)
+            : await _repo.AddChapterAsync(chapter);
         return JsonSerializer.Serialize(new { chapter.Id, chapter.Number, chapter.Title }, JsonOptions);
+    }
+
+    [McpServerTool(Name = "move_chapter")]
+    [Description("Move a chapter (archived ones too) to right after another chapter, or to the start. Chapter numbers follow the order, so the book is renumbered; plot threads' and characters' chapter numbers move along. Refused while an agent run works on the book.")]
+    public async Task<string> MoveChapter(
+        [Description("The book ID.")] int bookId,
+        [Description("The chapter ID to move.")] int chapterId,
+        [Description("Put it right after this chapter ID (leave null with atStart = true to make it the first chapter).")] int? afterChapterId = null,
+        [Description("Make it the first chapter.")] bool atStart = false)
+    {
+        await GetOwnedBookAsync(bookId, _repo);
+        if (afterChapterId is null && !atStart) throw new McpException("Give afterChapterId, or atStart = true.");
+        try
+        {
+            _content.EnsureNoActiveRun(bookId);
+            var change = await _content.MoveChapterAsync(bookId, chapterId, atStart ? null : afterChapterId);
+            var chapters = await _repo.GetChaptersAsync(bookId);
+            return JsonSerializer.Serialize(new { change.Note, Chapters = chapters.Select(c => new { c.Id, c.Number, c.Title }) }, JsonOptions);
+        }
+        catch (InvalidOperationException ex) { throw new McpException(ex.Message); }
+    }
+
+    [McpServerTool(Name = "split_chapter")]
+    [Description("Split a chapter in two by its outline, e.g. when it needs more detail than one chapter holds. The chapter keeps its title and gets firstOutline; a new chapter right after it gets secondTitle and secondOutline (and the same POV, characters and plot threads). Both go back to Outlined so they can be written again with write_chapter — the old prose stays in the first chapter's version history. Refused while an agent run works on the book.")]
+    public async Task<string> SplitChapter(
+        [Description("The book ID.")] int bookId,
+        [Description("The chapter ID to split.")] int chapterId,
+        [Description("Outline of the first part (stays in this chapter).")] string firstOutline,
+        [Description("Title of the new second chapter.")] string secondTitle,
+        [Description("Outline of the new second chapter.")] string secondOutline)
+    {
+        await GetOwnedBookAsync(bookId, _repo);
+        if (await _repo.GetChapterAsync(bookId, chapterId) is null)
+            throw new McpException($"Chapter {chapterId} not found in book {bookId}.");
+        try
+        {
+            _content.EnsureNoActiveRun(bookId);
+            var (first, second) = await _content.SplitChapterAsync(bookId, chapterId, firstOutline, secondTitle, secondOutline);
+            return JsonSerializer.Serialize(new
+            {
+                First = new { first.Id, first.Number, first.Title },
+                Second = new { second.Id, second.Number, second.Title },
+            }, JsonOptions);
+        }
+        catch (InvalidOperationException ex) { throw new McpException(ex.Message); }
     }
 
     [McpServerTool(Name = "update_chapter")]

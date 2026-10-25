@@ -153,7 +153,10 @@ export interface CreateBookRequest {
 export interface Chapter {
   id: number
   bookId: number
+  /** Display number: counts active chapters in book order. An archived chapter keeps the number it last had. */
   number: number
+  /** Place in the book, archived chapters included. */
+  sortOrder: number
   title: string
   outline: string
   content: string
@@ -353,11 +356,24 @@ export const getDefaultPrompts = (bookId: number) =>
   api.get<DefaultPrompts>(`/books/${bookId}/default-prompts`)
 
 // Chapters
-export const getChapters = (bookId: number) => api.get<Chapter[]>(`/books/${bookId}/chapters`)
+/** All the book's chapters in book order, archived ones included (the UI shows them in their place). */
+export const getChapters = (bookId: number) =>
+  api.get<Chapter[]>(`/books/${bookId}/chapters`, { params: { includeArchived: true } })
 export const getChapter = (bookId: number, chapterId: number) =>
   api.get<Chapter>(`/books/${bookId}/chapters/${chapterId}`)
-export const createChapter = (bookId: number, data: { number: number; title: string; outline: string }) =>
-  api.post<Chapter>(`/books/${bookId}/chapters`, data)
+/** Adds a chapter at the end, or right after `afterChapterId`, or first (`atStart`); later chapters are renumbered. */
+export const createChapter = (bookId: number, data: { title: string; outline: string; afterChapterId?: number | null; atStart?: boolean }) =>
+  api.post<Chapter>(`/books/${bookId}/chapters`, { number: 0, ...data })
+/** Moves a chapter to right after `afterChapterId` (null = to the start). Returns every chapter, renumbered. */
+export const moveChapter = (bookId: number, chapterId: number, afterChapterId: number | null) =>
+  api.post<{ note: string; chapters: Chapter[] }>(`/books/${bookId}/chapters/${chapterId}/move`,
+    { afterChapterId, atStart: afterChapterId === null })
+/** Splits a chapter by its outline; both halves go back to Outlined to be written again. */
+export const splitChapter = (bookId: number, chapterId: number, data: { firstOutline: string; secondTitle: string; secondOutline: string }) =>
+  api.post<{ first: Chapter; second: Chapter }>(`/books/${bookId}/chapters/${chapterId}/split`, data)
+/** Chapters in book order (place, then id). */
+export const inBookOrder = (chapters: Chapter[]) =>
+  [...chapters].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.id - b.id)
 export const updateChapter = (bookId: number, chapterId: number, data: Partial<Chapter>) =>
   api.put<Chapter>(`/books/${bookId}/chapters/${chapterId}`, data)
 export const clearChapterContent = (bookId: number, chapter: Chapter) =>

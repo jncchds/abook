@@ -230,6 +230,15 @@ public sealed class BookRewinder(AppDbContext db) : IBookRewinder
             .Where(m => m.BookId == bookId && m.HiddenAt == null && m.CreatedAt > at).ToListAsync(ct);
         foreach (var m in hidden) m.HiddenAt = now;
         await db.SaveChangesAsync(ct);
+
+        // Numbers follow places: a revision from before chapters had places (or a chapter archived or brought back
+        // above) can leave them out of step. No number map — the rewind already wrote the threads' and cards' numbers.
+        if (changedChapters.Count > 0)
+        {
+            var chapters = ChapterOrdering.InOrder(await db.Chapters.Where(c => c.BookId == bookId).ToListAsync(ct));
+            ChapterOrdering.Apply(chapters, new Dictionary<int, int>());
+            await db.SaveChangesAsync(ct);
+        }
         await tx.CommitAsync(ct);
         db.ChangeTracker.Clear();
 

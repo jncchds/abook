@@ -354,8 +354,9 @@ public sealed partial class TelegramCardService
                 itemKind = "thread";
                 break;
             default:
+                // Already in book order; an archived chapter shows the number it last had.
                 items = (await repo.GetChaptersAsync(bookId, includeArchived: true)).Where(c => c.IsArchived == archived)
-                    .OrderBy(c => c.Number).Select(c => (c.Id, $"{c.Number}. {c.Title}", c.Status.ToString())).ToList();
+                    .Select(c => (c.Id, archived ? $"(was {c.Number}) {c.Title}" : $"{c.Number}. {c.Title}", c.Status.ToString())).ToList();
                 title = "📚 Chapters";
                 itemKind = "chapter";
                 break;

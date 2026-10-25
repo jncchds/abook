@@ -172,6 +172,9 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
   const { notify } = useNotifications()
   const notifyRef = useRef(notify)
   useEffect(() => { notifyRef.current = notify })
+  // The book as last rendered, for event handlers that must decide what to reload.
+  const bookRef = useRef(book)
+  useEffect(() => { bookRef.current = book })
 
   const refreshBook = useCallback(() =>
     getBook(bookId).then(r => setBook(r.data)), [bookId])
@@ -428,12 +431,18 @@ export function BookContextProvider({ bookId, children }: { bookId: number; chil
     setOnChapterUpdated((_bId, cId) => {
       setStreamBuffer('')
       setStreamingChapterId(null)
-      // Reload only the single chapter whose outline/content changed.
+      // Reload only the single chapter whose outline/content changed — unless it is new or moved (inserted, split,
+      // moved, archived, restored): then the other chapters' numbers changed too, so reload them all.
       getChapter(bookId, cId)
-        .then(r => setBook(prev => prev
-          ? { ...prev, chapters: prev.chapters?.map(ch => ch.id === cId ? r.data : ch) }
-          : prev
-        ))
+        .then(r => {
+          const old = bookRef.current?.chapters?.find(ch => ch.id === cId)
+          if (!old || old.sortOrder !== r.data.sortOrder || old.number !== r.data.number || old.isArchived !== r.data.isArchived)
+            getChapters(bookId).then(all => setBook(prev => prev ? { ...prev, chapters: all.data } : prev)).catch(() => {})
+          else
+            setBook(prev => prev
+              ? { ...prev, chapters: prev.chapters?.map(ch => ch.id === cId ? r.data : ch) }
+              : prev)
+        })
         .catch(() => {})
     })
     setOnWorkflowProgress((_bId, step, isComplete) => {

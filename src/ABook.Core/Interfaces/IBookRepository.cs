@@ -23,13 +23,21 @@ public interface IBookRepository
     Task UpdateAsync(Book book);
     Task DeleteAsync(int id);
 
+    /// <summary>The book's chapters in book order (<see cref="Chapter.SortOrder"/>).</summary>
     Task<IEnumerable<Chapter>> GetChaptersAsync(int bookId, bool includeArchived = false);
     Task<Chapter?> GetChapterAsync(int bookId, int chapterId);
+    /// <summary>Adds a chapter at the end of the book; its number is set from its place.</summary>
     Task<Chapter> AddChapterAsync(Chapter chapter);
+    /// <summary>Adds a chapter right after <paramref name="afterChapterId"/> (null = at the start); later chapters are renumbered.</summary>
+    Task<Chapter> InsertChapterAsync(Chapter chapter, int? afterChapterId);
+    /// <summary>Moves a chapter (archived ones too) to right after <paramref name="afterChapterId"/> (null = to the start) and renumbers.</summary>
+    Task MoveChapterAsync(int bookId, int chapterId, int? afterChapterId);
+    /// <summary>Sets every chapter's number from its place again.</summary>
+    Task RenumberChaptersAsync(int bookId);
     /// <summary>
     /// Syncs the book's outlines to the given set in a single transaction: chapters matching by Number are
     /// updated in place (prose, status and versions preserved), new numbers are inserted, and non-archived
-    /// chapters absent from the set are deleted. Archived chapters are never touched.
+    /// chapters absent from the set are deleted. Archived chapters are never touched and keep their place.
     /// Returns the persisted rows, in the order given.
     /// </summary>
     Task<IReadOnlyList<Chapter>> ReplaceChaptersAsync(int bookId, IEnumerable<Chapter> chapters);

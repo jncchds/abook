@@ -52,12 +52,58 @@ public class ChaptersController : ControllerBase
         var chapter = new Chapter
         {
             BookId = bookId,
-            Number = req.Number,
             Title = req.Title,
             Outline = req.Outline
         };
-        var created = await _repo.AddChapterAsync(chapter);
+        Chapter created;
+        if (req.AtStart || req.AfterChapterId is not null)
+        {
+            if (req.AfterChapterId is int after && await _repo.GetChapterAsync(bookId, after) is null)
+                return BadRequest(new { message =$"Chapter {after} not found." });
+            created = await _repo.InsertChapterAsync(chapter, req.AtStart ? null : req.AfterChapterId);
+        }
+        else created = await _repo.AddChapterAsync(chapter);   // at the end
         return CreatedAtAction(nameof(GetById), new { bookId, chapterId = created.Id }, created);
+    }
+
+    /// <summary>Moves a chapter (archived ones too) to right after another one, or to the start; the book is renumbered.</summary>
+    [HttpPost("{chapterId:int}/move")]
+    public async Task<IActionResult> Move(int bookId, int chapterId, [FromBody] MoveChapterRequest req,
+        [FromServices] ABook.Agents.BookContentService content)
+    {
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
+        if (ownershipError is not null) return ownershipError;
+        if (await _repo.GetChapterAsync(bookId, chapterId) is null) return NotFound();
+        try
+        {
+            content.EnsureNoActiveRun(bookId);
+            var change = await content.MoveChapterAsync(bookId, chapterId, req.AtStart ? null : req.AfterChapterId);
+            return Ok(new { note = change.Note, chapters = await _repo.GetChaptersAsync(bookId, includeArchived: true) });
+        }
+        catch (ABook.Agents.BookContentService.BookBusyException ex) { return Conflict(new { message =ex.Message }); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message =ex.Message }); }
+    }
+
+    /// <summary>
+    /// Splits a chapter in two by its outline: it keeps its title with <c>firstOutline</c>, a new chapter right after
+    /// it gets <c>secondTitle</c>/<c>secondOutline</c>; both go back to Outlined to be written again.
+    /// </summary>
+    [HttpPost("{chapterId:int}/split")]
+    public async Task<IActionResult> Split(int bookId, int chapterId, [FromBody] SplitChapterRequest req,
+        [FromServices] ABook.Agents.BookContentService content)
+    {
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
+        if (ownershipError is not null) return ownershipError;
+        if (await _repo.GetChapterAsync(bookId, chapterId) is null) return NotFound();
+        try
+        {
+            content.EnsureNoActiveRun(bookId);
+            var (first, second) = await content.SplitChapterAsync(bookId, chapterId, req.FirstOutline, req.SecondTitle, req.SecondOutline);
+            TellTelegram(bookId, first.Id);
+            return Ok(new { first, second });
+        }
+        catch (ABook.Agents.BookContentService.BookBusyException ex) { return Conflict(new { message =ex.Message }); }
+        catch (InvalidOperationException ex) { return BadRequest(new { message =ex.Message }); }
     }
 
     [HttpPut("{chapterId:int}")]
@@ -185,5 +231,9 @@ public class ChaptersController : ControllerBase
     }
 }
 
-public record CreateChapterRequest(int Number, string Title, string Outline);
+/// <param name="Number">Ignored (kept for old clients): the number follows from the place.</param>
+/// <param name="AfterChapterId">Insert right after this chapter; with neither this nor <paramref name="AtStart"/>, the chapter goes at the end.</param>
+public record CreateChapterRequest(int Number, string Title, string Outline, int? AfterChapterId = null, bool AtStart = false);
+public record MoveChapterRequest(int? AfterChapterId, bool AtStart = false);
+public record SplitChapterRequest(string FirstOutline, string SecondTitle, string SecondOutline);
 public record UpdateChapterRequest(string Title, string Outline, string Content, ChapterStatus Status);

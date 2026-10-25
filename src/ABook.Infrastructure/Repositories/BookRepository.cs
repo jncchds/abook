@@ -56,7 +56,7 @@ public class BookRepository : IBookRepository
     public async Task<Book?> GetByIdWithDetailsAsync(int id) =>
         await WithClarificationsAsync(await _db.Books
             .Include(b => b.StoryBible)
-            .Include(b => b.Chapters.OrderBy(c => c.Number))
+            .Include(b => b.Chapters.OrderBy(c => c.SortOrder))
             .Include(b => b.LlmConfigurations)
             .AsSplitQuery()
             .FirstOrDefaultAsync(b => b.Id == id));
@@ -70,7 +70,7 @@ public class BookRepository : IBookRepository
     public async Task<Book?> GetByIdWithActiveDetailsAsync(int id) =>
         await WithClarificationsAsync(await _db.Books
             .Include(b => b.StoryBible)
-            .Include(b => b.Chapters.Where(c => !c.IsArchived).OrderBy(c => c.Number))
+            .Include(b => b.Chapters.Where(c => !c.IsArchived).OrderBy(c => c.SortOrder))
             .Include(b => b.LlmConfigurations)
             .AsSplitQuery()
             .FirstOrDefaultAsync(b => b.Id == id));
@@ -131,7 +131,7 @@ public class BookRepository : IBookRepository
         var chaptersByBook = await _db.Chapters
             .Where(c => ancestorIds.Contains(c.BookId) && !c.IsArchived)
             .GroupBy(c => c.BookId)
-            .ToDictionaryAsync(g => g.Key, g => g.OrderBy(x => x.Number).ToList(), ct);
+            .ToDictionaryAsync(g => g.Key, g => g.OrderBy(x => x.SortOrder).ToList(), ct);
 
         // The first id after the book itself is its direct parent.
         return ancestorIds
@@ -185,7 +185,7 @@ public class BookRepository : IBookRepository
     {
         var query = _db.Chapters.Where(c => c.BookId == bookId);
         if (!includeArchived) query = query.Where(c => !c.IsArchived);
-        return await query.OrderBy(c => c.Number).ToListAsync();
+        return await query.OrderBy(c => c.SortOrder).ThenBy(c => c.Id).ToListAsync();
     }
 
     public async Task<Chapter?> GetChapterAsync(int bookId, int chapterId) =>
@@ -193,10 +193,88 @@ public class BookRepository : IBookRepository
 
     public async Task<Chapter> AddChapterAsync(Chapter chapter)
     {
+        var (ordered, before) = await LoadChapterOrderAsync(chapter.BookId);
+        ordered.Add(chapter);
+        return await SaveNewChapterAsync(chapter, ordered, before);
+    }
+
+    public async Task<Chapter> InsertChapterAsync(Chapter chapter, int? afterChapterId)
+    {
+        var (ordered, before) = await LoadChapterOrderAsync(chapter.BookId);
+        var after = FindAnchor(ordered, afterChapterId);
+        return await SaveNewChapterAsync(chapter, ChapterOrdering.MoveAfter(ordered, chapter, after), before);
+    }
+
+    private async Task<Chapter> SaveNewChapterAsync(Chapter chapter, List<Chapter> ordered, Dictionary<int, int> before)
+    {
         chapter.CreatedAt = chapter.UpdatedAt = DateTime.UtcNow;
         _db.Chapters.Add(chapter);
+        ApplyChapterOrder(ordered, before);
         await _db.SaveChangesAsync();
         return chapter;
+    }
+
+    public async Task MoveChapterAsync(int bookId, int chapterId, int? afterChapterId)
+    {
+        var (ordered, before) = await LoadChapterOrderAsync(bookId);
+        var chapter = ordered.FirstOrDefault(c => c.Id == chapterId)
+            ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
+        if (afterChapterId == chapterId) return;
+        var after = FindAnchor(ordered, afterChapterId);
+        ApplyChapterOrder(ChapterOrdering.MoveAfter(ordered, chapter, after), before);
+        await _db.SaveChangesAsync();
+    }
+
+    private static Chapter? FindAnchor(List<Chapter> ordered, int? afterChapterId) =>
+        afterChapterId is int id
+            ? ordered.FirstOrDefault(c => c.Id == id) ?? throw new InvalidOperationException($"Chapter {id} not found.")
+            : null;
+
+    /// <summary>All the book's chapters (tracked, archived included) in book order, and the active chapters' numbers now.</summary>
+    private async Task<(List<Chapter> Ordered, Dictionary<int, int> Before)> LoadChapterOrderAsync(int bookId)
+    {
+        var all = ChapterOrdering.InOrder(await _db.Chapters.Where(c => c.BookId == bookId).ToListAsync());
+        return (all, ChapterOrdering.ActiveNumbers(all));
+    }
+
+    /// <summary>
+    /// Writes places and numbers for <paramref name="ordered"/> and moves the chapter numbers that plot threads and
+    /// characters point at along with them. Tracked changes only (the change log must see them); the caller saves.
+    /// </summary>
+    private void ApplyChapterOrder(IReadOnlyList<Chapter> ordered, Dictionary<int, int> before)
+    {
+        var now = DateTime.UtcNow;
+        var places = ordered.Where(c => c.Id != 0).ToDictionary(c => c.Id, c => (c.SortOrder, c.Number));
+        var map = ChapterOrdering.Apply(ordered, before);
+        foreach (var c in ordered)
+            if (c.Id != 0 && places[c.Id] != (c.SortOrder, c.Number)) c.UpdatedAt = now;
+        if (map.Count == 0 || ordered.Count == 0) return;
+
+        var bookId = ordered[0].BookId;
+        foreach (var t in _db.PlotThreads.Where(t => t.BookId == bookId).ToList())
+        {
+            var introduced = ChapterOrdering.Remap(t.IntroducedChapterNumber, map);
+            var resolved = ChapterOrdering.Remap(t.ResolvedChapterNumber, map);
+            if (introduced == t.IntroducedChapterNumber && resolved == t.ResolvedChapterNumber) continue;
+            t.IntroducedChapterNumber = introduced;
+            t.ResolvedChapterNumber = resolved;
+            t.UpdatedAt = now;
+        }
+        foreach (var card in _db.CharacterCards.Where(c => c.BookId == bookId).ToList())
+        {
+            var first = ChapterOrdering.Remap(card.FirstAppearanceChapterNumber, map);
+            if (first == card.FirstAppearanceChapterNumber) continue;
+            card.FirstAppearanceChapterNumber = first;
+            card.UpdatedAt = now;
+        }
+    }
+
+    /// <summary>Renumbers the book's chapters from their places (e.g. after a rewind wrote old places and numbers back).</summary>
+    public async Task RenumberChaptersAsync(int bookId)
+    {
+        var (ordered, before) = await LoadChapterOrderAsync(bookId);
+        ApplyChapterOrder(ordered, before);
+        await _db.SaveChangesAsync();
     }
 
     /// <summary>
@@ -213,14 +291,17 @@ public class BookRepository : IBookRepository
         await using var tx = await _db.Database.BeginTransactionAsync();
         try
         {
-            var existing = await _db.Chapters
-                .Where(c => c.BookId == bookId && !c.IsArchived)
-                .ToListAsync();
+            var (ordered, before) = await LoadChapterOrderAsync(bookId);
+            var existing = ordered.Where(c => !c.IsArchived).ToList();
 
             var incomingNumbers = incoming.Select(ch => ch.Number).ToHashSet();
-            _db.Chapters.RemoveRange(existing.Where(c => !incomingNumbers.Contains(c.Number)));
+            var removed = existing.Where(c => !incomingNumbers.Contains(c.Number)).ToList();
+            _db.Chapters.RemoveRange(removed);
 
-            var saved = UpsertChapterOutlines(bookId, incoming, existing);
+            var saved = UpsertChapterOutlines(bookId, incoming, existing.Except(removed).ToList());
+            // The plan's numbers are its order; archived chapters stay next to the chapter they followed.
+            var active = saved.Distinct().OrderBy(c => c.Number).ToList();
+            ApplyChapterOrder(ChapterOrdering.Arrange(ordered, active), before);
 
             await _db.SaveChangesAsync();
             await tx.CommitAsync();
@@ -240,11 +321,14 @@ public class BookRepository : IBookRepository
     /// </summary>
     public async Task<IReadOnlyList<Chapter>> MergeChapterOutlinesAsync(int bookId, IEnumerable<Chapter> chapters)
     {
-        var existing = await _db.Chapters
-            .Where(c => c.BookId == bookId && !c.IsArchived)
-            .ToListAsync();
+        var (ordered, before) = await LoadChapterOrderAsync(bookId);
+        var existing = ordered.Where(c => !c.IsArchived).ToList();
 
         var touched = UpsertChapterOutlines(bookId, chapters, existing);
+        // Chapters already there keep their order; a salvaged new one goes where its number puts it.
+        var active = existing.Concat(touched).Distinct()
+            .Select((c, i) => (c, i)).OrderBy(x => x.c.Number).ThenBy(x => x.i).Select(x => x.c).ToList();
+        ApplyChapterOrder(ChapterOrdering.Arrange(ordered, active), before);
         await _db.SaveChangesAsync();
         return touched;
     }
@@ -302,26 +386,21 @@ public class BookRepository : IBookRepository
         await _db.SaveChangesAsync();
     }
 
-    public async Task ArchiveChapterAsync(int bookId, int chapterId)
-    {
-        var chapter = await _db.Chapters.FirstOrDefaultAsync(c => c.BookId == bookId && c.Id == chapterId);
-        if (chapter is not null)
-        {
-            chapter.IsArchived = true;
-            chapter.UpdatedAt = DateTime.UtcNow;
-            await _db.SaveChangesAsync();
-        }
-    }
+    // Archiving keeps the chapter's place (and its last number, shown as "was Ch. N"); the chapters after it move up.
+    public Task ArchiveChapterAsync(int bookId, int chapterId) => SetChapterArchivedAsync(bookId, chapterId, true);
 
-    public async Task RestoreChapterAsync(int bookId, int chapterId)
+    // Restoring brings the chapter back at its place; the chapters after it move down.
+    public Task RestoreChapterAsync(int bookId, int chapterId) => SetChapterArchivedAsync(bookId, chapterId, false);
+
+    private async Task SetChapterArchivedAsync(int bookId, int chapterId, bool archived)
     {
-        var chapter = await _db.Chapters.FirstOrDefaultAsync(c => c.BookId == bookId && c.Id == chapterId);
-        if (chapter is not null)
-        {
-            chapter.IsArchived = false;
-            chapter.UpdatedAt = DateTime.UtcNow;
-            await _db.SaveChangesAsync();
-        }
+        var (ordered, before) = await LoadChapterOrderAsync(bookId);
+        var chapter = ordered.FirstOrDefault(c => c.Id == chapterId);
+        if (chapter is null || chapter.IsArchived == archived) return;
+        chapter.IsArchived = archived;
+        chapter.UpdatedAt = DateTime.UtcNow;
+        ApplyChapterOrder(ordered, before);
+        await _db.SaveChangesAsync();
     }
 
     public async Task ArchiveChaptersAsync(int bookId)

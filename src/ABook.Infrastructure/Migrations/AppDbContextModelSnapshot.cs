@@ -520,6 +520,9 @@ namespace ABook.Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasDefaultValue("");
 
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("text");
@@ -541,7 +544,7 @@ namespace ABook.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("BookId");
+                    b.HasIndex("BookId", "SortOrder");
 
                     b.ToTable("Chapters");
                 });

@@ -109,6 +109,7 @@ public partial class AppDbContext : DbContext
             c.Property(x => x.ForeshadowingNotes).HasDefaultValue(string.Empty);
             c.Property(x => x.PayoffNotes).HasDefaultValue(string.Empty);
             c.Property(x => x.IsArchived).HasDefaultValue(false);
+            c.HasIndex(x => new { x.BookId, x.SortOrder });
             c.HasOne(x => x.Book)
              .WithMany(x => x.Chapters)
              .HasForeignKey(x => x.BookId)

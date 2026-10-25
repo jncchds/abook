@@ -10,4 +10,6 @@ public static class AgentCreatedBy
     public const string BookChat = "agent:BookChat";
     /// <summary>An edit the owner made in the private chat with the Telegram bot (a card).</summary>
     public const string Telegram = "telegram";
+    /// <summary>The chapter was split in two: this version holds the first half's outline, with the prose cleared.</summary>
+    public const string Split = "split";
 }

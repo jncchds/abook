@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
+import axios from 'axios'
 import { useBookContext } from '../../contexts/BookContext'
-import { updateChapter, clearChapterContent, archiveChapter, restoreChapter, getChapterVersions, getChapterVersion, activateChapterVersion } from '../../api'
+import { updateChapter, clearChapterContent, archiveChapter, restoreChapter, getChapterVersions, getChapterVersion, activateChapterVersion, getChapters, splitChapter } from '../../api'
 import type { ChapterVersionMeta, ChapterVersionFull } from '../../api'
 import { chapterStatusColor } from '../../utils/chapterStatus'
 import ChapterContent from '../../components/ChapterContent'
@@ -27,12 +28,51 @@ export default function ChapterView() {
   const [previewVersion, setPreviewVersion] = useState<ChapterVersionFull | null>(null)
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [activating, setActivating] = useState(false)
+  // Split form (opened from the Chapters page with ?split=1)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const splitting = searchParams.get('split') === '1'
+  const [splitFirstOutline, setSplitFirstOutline] = useState<string | null>(null)
+  const [splitSecondTitle, setSplitSecondTitle] = useState('')
+  const [splitSecondOutline, setSplitSecondOutline] = useState('')
+  const [splitBusy, setSplitBusy] = useState(false)
+  const [splitError, setSplitError] = useState<string | null>(null)
 
   const chapter = book?.chapters?.find(c => c.id === Number(chapterId))
   if (!book) return null
   if (!chapter) return <p className="empty">Chapter not found.</p>
 
   const bookId = book.id
+  const reloadChapters = async () => {
+    const r = await getChapters(bookId)
+    setBook(prev => prev ? { ...prev, chapters: r.data } : prev)
+  }
+
+  const closeSplit = () => {
+    setSearchParams({}, { replace: true })
+    setSplitFirstOutline(null)
+    setSplitSecondTitle('')
+    setSplitSecondOutline('')
+    setSplitError(null)
+  }
+
+  const firstOutline = splitFirstOutline ?? chapter.outline ?? ''
+  const handleSplit = async () => {
+    setSplitBusy(true)
+    setSplitError(null)
+    try {
+      await splitChapter(bookId, chapter.id, {
+        firstOutline: firstOutline.trim(),
+        secondTitle: splitSecondTitle.trim(),
+        secondOutline: splitSecondOutline.trim(),
+      })
+      await reloadChapters()
+      closeSplit()
+    } catch (err) {
+      setSplitError(axios.isAxiosError(err) ? (err.response?.data?.message ?? err.message) : String(err))
+    } finally {
+      setSplitBusy(false)
+    }
+  }
   const statusColor = chapterStatusColor
   const scenes = illustrations.filter(i => i.kind === 'Scene' && i.chapterId === chapter.id)
   const unrenderedScenes = scenes.filter(i => i.status !== 'Rendered').length
@@ -105,21 +145,15 @@ export default function ChapterView() {
   }
 
   const handleArchive = async () => {
-    if (!confirm(`Archive Chapter ${chapter.number}: "${chapter.title}"? It can be restored from the Chapters page.`)) return
+    if (!confirm(`Archive Chapter ${chapter.number}: "${chapter.title}"? It keeps its place and can be restored from the Chapters page; the chapters after it are renumbered.`)) return
     await archiveChapter(bookId, chapter.id)
-    setBook(prev => prev ? {
-      ...prev,
-      chapters: (prev.chapters ?? []).map(c => c.id === chapter.id ? { ...c, isArchived: true } : c)
-    } : prev)
+    await reloadChapters()   // the chapters after it moved up
     navigate(`/books/${bookId}/chapters`)
   }
 
   const handleRestoreChapter = async () => {
-    const r = await restoreChapter(bookId, chapter.id)
-    setBook(prev => prev ? {
-      ...prev,
-      chapters: (prev.chapters ?? []).map(c => c.id === chapter.id ? r.data : c)
-    } : prev)
+    await restoreChapter(bookId, chapter.id)
+    await reloadChapters()   // the chapters after it moved down
   }
 
   const sortedChapters = (book.chapters ?? []).filter(c => !c.isArchived).sort((a, b) => a.number - b.number)
@@ -167,6 +201,37 @@ export default function ChapterView() {
     )
   }
 
+  if (splitting && !chapter.isArchived) {
+    return (
+      <div className="chapter-view">
+        <div className="chapter-edit-form">
+          <h2>✂ Split Chapter {chapter.number}: {chapter.title}</h2>
+          <p className="hint">
+            Divide the outline between this chapter and a new one right after it. Both go back to <strong>Outlined</strong>{' '}
+            to be written again{chapter.content?.trim() ? ' — the current text stays in this chapter\'s version history' : ''}.
+            The chapters after it are renumbered.
+          </p>
+          <label>Chapter {chapter.number} keeps — outline
+            <textarea rows={6} value={firstOutline} onChange={e => setSplitFirstOutline(e.target.value)} />
+          </label>
+          <label>New Chapter {chapter.number + 1} — title
+            <input value={splitSecondTitle} placeholder={`${chapter.title} (II)`} onChange={e => setSplitSecondTitle(e.target.value)} />
+          </label>
+          <label>New Chapter {chapter.number + 1} — outline
+            <textarea rows={6} value={splitSecondOutline} onChange={e => setSplitSecondOutline(e.target.value)} />
+          </label>
+          {splitError && <p className="error-msg" role="alert">{splitError}</p>}
+          <div className="chapter-edit-actions">
+            <button disabled={splitBusy || !firstOutline.trim() || !splitSecondOutline.trim()} onClick={handleSplit}>
+              {splitBusy ? 'Splitting…' : '✂ Split'}
+            </button>
+            <button className="btn-ghost" disabled={splitBusy} onClick={closeSplit}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="chapter-view">
       {editingChapter ? (
@@ -200,6 +265,9 @@ export default function ChapterView() {
             <button className="btn-icon" onClick={handleOpenHistory} title="View version history">📜 History</button>
             {canEdit && !chapter.isArchived && chapter.status !== 'Outlined' && (
               <button className="btn-clear-chapter" onClick={handleClearChapter} title="Clear chapter content and reset status to Outlined">↺ Clear</button>
+            )}
+            {canEdit && !chapter.isArchived && (
+              <button className="btn-icon" onClick={() => setSearchParams({ split: '1' })} title="Split this chapter in two by its outline">✂ Split</button>
             )}
             {canEdit && !chapter.isArchived && (
               <button className="btn-archive" onClick={handleArchive} title="Archive this chapter">🗄 Archive</button>

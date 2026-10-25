@@ -6,7 +6,14 @@ public class Chapter
 {
     public int Id { get; set; }
     public int BookId { get; set; }
+    /// <summary>
+    /// The chapter's display number: 1..N over the book's active chapters in <see cref="SortOrder"/> order, kept up to
+    /// date by the repository whenever chapters are added, moved, archived or restored. An archived chapter keeps the
+    /// number it last had ("was Ch. N"). Never use it to find a chapter that can move — use the id.
+    /// </summary>
     public int Number { get; set; }
+    /// <summary>Where the chapter sits in the book, archived chapters included (they keep their place). 1..N, dense.</summary>
+    public int SortOrder { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Outline { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;

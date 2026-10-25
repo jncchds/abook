@@ -416,6 +416,101 @@ public class BookContentService : AgentBase
         return new ContentChange($"Brought back Chapter {restored.Number}.", "", BookContentRender.Render(restored), chapterId);
     }
 
+    // ── Chapter order: insert, move, split ──────────────────────────────────────
+
+    /// <summary>
+    /// Thrown by the structure changes below while an agent run works on the book: a run holds its own list of
+    /// chapters, and moving them under it would write the wrong one.
+    /// </summary>
+    public sealed class BookBusyException() : InvalidOperationException(
+        "An agent is working on this book. Wait until it finishes (or stop it) before changing the chapter order.");
+
+    /// <summary>Refuses a structure change while a run occupies the book (the caller is not that run).</summary>
+    public void EnsureNoActiveRun(int bookId)
+    {
+        if (StateService.GetStatus(bookId) is { IsActive: true }) throw new BookBusyException();
+    }
+
+    /// <summary>Adds an outline-only chapter right after <paramref name="afterChapterId"/> (null = at the start).</summary>
+    public async Task<ContentChange> InsertChapterAsync(int bookId, int? afterChapterId, IReadOnlyDictionary<string, string> fields)
+    {
+        if (afterChapterId is int afterId) await LoadActiveChapterAsync(bookId, afterId);
+        var chapter = new Chapter { BookId = bookId };
+        ApplyOutline(chapter, fields);
+        chapter = await Repo.InsertChapterAsync(chapter, afterChapterId);
+        if (chapter.Title.Length == 0)
+        {
+            chapter.Title = $"Chapter {chapter.Number}";
+            await Repo.UpdateChapterAsync(chapter);
+        }
+        await MarkPhaseCompleteAsync(bookId, b => b.ChaptersStatus = PlanningPhaseStatus.Complete);
+        await Notifier.NotifyChapterUpdatedAsync(bookId, chapter.Id);
+        return new ContentChange($"Added Chapter {chapter.Number} \"{chapter.Title}\".", "", BookContentRender.Render(chapter), chapter.Id);
+    }
+
+    /// <summary>Moves a chapter to right after <paramref name="afterChapterId"/> (null = to the start).</summary>
+    public async Task<ContentChange> MoveChapterAsync(int bookId, int chapterId, int? afterChapterId)
+    {
+        var chapter = await Repo.GetChapterAsync(bookId, chapterId)
+            ?? throw new InvalidOperationException($"Chapter {chapterId} not found.");
+        var before = BookContentRender.Render(chapter);
+        var wasNumber = chapter.Number;
+        await Repo.MoveChapterAsync(bookId, chapterId, afterChapterId);
+        var moved = (await Repo.GetChapterAsync(bookId, chapterId))!;
+        await Notifier.NotifyChapterUpdatedAsync(bookId, chapterId);
+        var note = moved.IsArchived ? $"Moved archived chapter \"{moved.Title}\"."
+            : wasNumber == moved.Number ? $"Chapter {moved.Number} stays Chapter {moved.Number}."
+            : $"Chapter {wasNumber} is now Chapter {moved.Number}.";
+        return new ContentChange(note, before, BookContentRender.Render(moved), chapterId);
+    }
+
+    /// <summary>
+    /// Splits a chapter in two by its outline: the chapter keeps its title and gets <paramref name="firstOutline"/>,
+    /// a new chapter right after it gets <paramref name="secondTitle"/> / <paramref name="secondOutline"/> (and the same
+    /// POV, characters and plot threads). Both go back to Outlined to be written again — the old prose stays in the
+    /// first chapter's versions.
+    /// </summary>
+    public async Task<(Chapter First, Chapter Second)> SplitChapterAsync(
+        int bookId, int chapterId, string firstOutline, string secondTitle, string secondOutline, CancellationToken ct = default)
+    {
+        var chapter = await LoadActiveChapterAsync(bookId, chapterId);
+        if (string.IsNullOrWhiteSpace(firstOutline) || string.IsNullOrWhiteSpace(secondOutline))
+            throw new InvalidOperationException("Both halves need an outline.");
+
+        await Repo.AddChapterVersionAsync(new ChapterVersion
+        {
+            ChapterId = chapterId, BookId = bookId, Title = chapter.Title, Outline = firstOutline.Trim(),
+            Content = string.Empty, Status = ChapterStatus.Outlined, PovCharacter = chapter.PovCharacter,
+            CharactersInvolvedJson = chapter.CharactersInvolvedJson, PlotThreadsJson = chapter.PlotThreadsJson,
+            ForeshadowingNotes = chapter.ForeshadowingNotes, PayoffNotes = chapter.PayoffNotes,
+            CreatedBy = AgentCreatedBy.Split,   // never amends a manual version: the old prose must stay in the history
+        });
+        if (!string.IsNullOrEmpty(chapter.Content))
+        {
+            try { await VectorStore.DeleteChapterChunksAsync(bookId, chapterId, ct); }
+            catch (Exception ex) { Logger.LogWarning(ex, "[Book {BookId}] Removing chapter chunks failed.", bookId); }
+        }
+        var first = (await Repo.GetChapterAsync(bookId, chapterId))!;
+        first.Summary = string.Empty;
+        first.SummaryVersionId = null;
+        await Repo.UpdateChapterAsync(first);
+
+        var second = await Repo.InsertChapterAsync(new Chapter
+        {
+            BookId = bookId, Title = secondTitle.Trim(), Outline = secondOutline.Trim(),
+            PovCharacter = chapter.PovCharacter, CharactersInvolvedJson = chapter.CharactersInvolvedJson,
+            PlotThreadsJson = chapter.PlotThreadsJson,
+        }, chapterId);
+        if (second.Title.Length == 0)
+        {
+            second.Title = $"{first.Title} (II)";
+            await Repo.UpdateChapterAsync(second);
+        }
+        await Notifier.NotifyChapterUpdatedAsync(bookId, first.Id, ct);
+        await Notifier.NotifyChapterUpdatedAsync(bookId, second.Id, ct);
+        return (first, second);
+    }
+
     // ── Prose ───────────────────────────────────────────────────────────────────
 
     /// <summary>The chapter's active version id, or null when it has none (never written).</summary>

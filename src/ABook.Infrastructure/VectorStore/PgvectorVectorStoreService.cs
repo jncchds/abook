@@ -93,7 +93,10 @@ public class PgvectorVectorStoreService : IVectorStoreService
         //   - legacy (unversioned) chunks: where the chapter is not archived
         var rows = await context.Database.SqlQueryRaw<ChunkRow>(
             """
-            SELECT ce."ChapterId", ce."ChapterNumber", ce."ChunkIndex", ce."Text",
+            SELECT ce."ChapterId",
+                   -- the chapter's number now (chapters move; the copy stored with the chunk is only a fallback)
+                   COALESCE((SELECT ch."Number" FROM "Chapters" ch WHERE ch."Id" = ce."ChapterId"), ce."ChapterNumber") AS "ChapterNumber",
+                   ce."ChunkIndex", ce."Text",
                    CAST(1 - (ce."Embedding" <=> {3}::vector) AS real) AS "Score"
             FROM "ChapterEmbeddings" ce
             WHERE ce."BookId" = ANY({1})
