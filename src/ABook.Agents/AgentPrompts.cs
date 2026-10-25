@@ -95,7 +95,8 @@ public static class DefaultPrompts
           "name" (string), "role" ("Protagonist"|"Antagonist"|"Supporting"|"Minor"),
           "physicalDescription" (string), "personality" (string), "backstory" (string),
           "goalMotivation" (string), "arc" (string - how the character changes over the story),
-          "firstAppearanceChapterNumber" (int or null), "notes" (string).
+          "firstAppearanceChapterNumber" (int or null - the number of the section of the book, in order,
+            where the character first appears), "notes" (string).
         Include all characters necessary to tell the story. Be thorough.
         All string values in the JSON must be written in {PromptPlaceholders.Language}.
         IMPORTANT: Output ONLY a raw JSON array (starting with [ and ending with ]).
@@ -109,7 +110,8 @@ public static class DefaultPrompts
         Return a JSON array where each element has these exact fields:
           "name" (string), "description" (string - what this thread is about and why it matters),
           "type" ("MainPlot"|"Subplot"|"CharacterArc"|"Mystery"|"Foreshadowing"|"WorldBuilding"|"ThematicThread"),
-          "introducedChapterNumber" (int or null), "resolvedChapterNumber" (int or null),
+          "introducedChapterNumber" (int or null), "resolvedChapterNumber" (int or null) - the numbers of the
+            sections of the book (its parts, in order) where the thread starts and is resolved,
           "status" ("Active"|"Resolved"|"Dormant").
         Map every significant thread, including foreshadowing seeds that will pay off later.
         All string values in the JSON must be written in {PromptPlaceholders.Language}.
@@ -119,15 +121,19 @@ public static class DefaultPrompts
 
     public static readonly string ChapterOutlines =
         $"""
-        You are a creative writing Planner. Your task is to outline each chapter of a book in detail.
-        Return a JSON array where each element has these exact fields:
-          "number" (int), "title" (string),
+        You are a creative writing Planner. Your task is to outline the book section by section, in detail.
+        A section is one part of the story, in order. Most sections are told in a single chapter; a section
+        with more events than one chapter can hold is told in several chapters.
+        Return a JSON array where each element (one section) has these exact fields:
+          "number" (int - the section's number, 1, 2, 3, …), "title" (string),
           "outline" (string - 3-6 sentence synopsis including key events and decisions),
-          "povCharacter" (string - whose point of view this chapter is written from),
+          "povCharacter" (string - whose point of view this section is written from),
           "charactersInvolved" (array of strings - names of all characters appearing),
-          "plotThreads" (array of strings - names of plot threads active in this chapter),
+          "plotThreads" (array of strings - names of plot threads active in this section),
           "foreshadowingNotes" (string - any seeds to plant that pay off later; empty string if none),
-          "payoffNotes" (string - any earlier foreshadowing being paid off; empty string if none).
+          "payoffNotes" (string - any earlier foreshadowing being paid off; empty string if none),
+          "chapters" (int - how many chapters this section needs: 1 for most, 2 or 3 only for a section
+            whose events clearly need more room).
         All string values in the JSON must be written in {PromptPlaceholders.Language}.
         IMPORTANT: Output ONLY a raw JSON array (starting with [ and ending with ]).
         Do not wrap the array in an object. Do not include any text, explanation, or markdown outside the JSON array.
@@ -139,7 +145,7 @@ public static class DefaultPrompts
         Book title: {PromptPlaceholders.Title}
         Genre: {PromptPlaceholders.Genre}
         Premise: {PromptPlaceholders.Premise}
-        Total chapters: {PromptPlaceholders.ChapterCount}
+        Planned sections (parts of the story): {PromptPlaceholders.ChapterCount}
         IMPORTANT: Write the entire chapter in {PromptPlaceholders.Language}. Every sentence of prose must be in {PromptPlaceholders.Language}.
         IMPORTANT: Do NOT begin your response with any chapter heading, title, or label.
         Start immediately with narrative prose (a scene, action, dialogue, or description).
@@ -528,7 +534,7 @@ public static class PromptTemplates
         Book title: {book.Title}
         Genre: {book.Genre}
         Premise: {Premise(book)}
-        Target chapter count: {ChapterCount(book)}
+        Target section count (parts of the story, most told in one chapter): {ChapterCount(book)}
         {Ancestor(ancestorReference)}
 
         Create the Story Bible for this book.
@@ -539,7 +545,7 @@ public static class PromptTemplates
         Book title: {book.Title}
         Genre: {book.Genre}
         Premise: {Premise(book)}
-        Target chapter count: {ChapterCount(book)}
+        Target section count (parts of the story, most told in one chapter): {ChapterCount(book)}
 
         Story Bible:
         Setting: {bible.SettingDescription}
@@ -575,7 +581,7 @@ public static class PromptTemplates
         Book title: {book.Title}
         Genre: {book.Genre}
         Premise: {Premise(book)}
-        Target chapter count: {ChapterCount(book)}
+        Target section count (parts of the story, most told in one chapter): {ChapterCount(book)}
 
         Story Bible:
         Setting: {bible.SettingDescription}
@@ -608,12 +614,12 @@ public static class PromptTemplates
         string ancestorReference, string existingBlock)
     {
         var threadSummary = string.Join("\n", threads.Select(t =>
-            $"- {t.Name} ({t.Type}, introduced ch.{t.IntroducedChapterNumber?.ToString() ?? "?"}): {t.Description}"));
+            $"- {t.Name} ({t.Type}, introduced in section {t.IntroducedChapterNumber?.ToString() ?? "?"}): {t.Description}"));
         return $"""
             Book title: {book.Title}
             Genre: {book.Genre}
             Premise: {Premise(book)}
-            Target chapter count: {ChapterCount(book)}
+            Target section count (parts of the story, most told in one chapter): {ChapterCount(book)}
 
             Story Bible:
             Setting: {bible.SettingDescription}
@@ -629,23 +635,94 @@ public static class PromptTemplates
             {threadSummary}
             {Ancestor(ancestorReference)}
             {existingBlock}
-            Create {book.TargetChapterCount} detailed chapter outlines for this book.
+            Create {book.TargetChapterCount} detailed section outlines for this book.
             """;
     }
 
-    /// <summary>Re-run block listing the saved outlines (as JSON) the model must keep, revise or extend.</summary>
+    /// <summary>Re-run block listing the saved section outlines (as JSON) the model must keep, revise or extend.</summary>
     public static string ExistingChapterOutlines(string json) =>
         $"""
 
-        These chapter outlines are already saved for this book:
+        These section outlines are already saved for this book:
         {json}
 
-        Return the complete, updated outline set: repeat every chapter you are keeping (unchanged or
-        revised, keeping its exact "number" so it can be matched), and add any chapter that is missing.
-        Chapters you leave out will be removed. A chapter marked "alreadyWritten": true has its prose
-        written — do not change its premise, only correct outright errors in its outline.
+        Return the complete, updated outline set: repeat every section you are keeping (unchanged or
+        revised, keeping its exact "number" so it can be matched), and add any section that is missing.
+        Sections you leave out will be removed. A section marked "alreadyWritten": true has its prose
+        written — do not change its premise, only correct outright errors in its outline. "chapters" is
+        how many chapters a section has now; keep it unless the section clearly needs more room.
 
         """;
+
+    // ── Section breakdown ─────────────────────────────────────────────────────
+
+    public static readonly string SectionBreakdownSystem =
+        """
+        You are a creative writing Planner. A section of a book (one part of its story) needs more room than one
+        chapter: divide it into consecutive chapters that together tell exactly the section's events, in order,
+        each with a clear purpose and a natural ending point. Do not add events the section's outline does not
+        imply, and do not take events from the sections before or after it.
+        Return a JSON array, one element per chapter in order, each with these exact fields:
+          "title" (string), "outline" (string - 3-6 sentence synopsis of this chapter's events and decisions),
+          "povCharacter" (string), "charactersInvolved" (array of strings), "plotThreads" (array of strings),
+          "foreshadowingNotes" (string; empty string if none), "payoffNotes" (string; empty string if none).
+        IMPORTANT: Output ONLY a raw JSON array. Do not include any text, explanation, or markdown outside it.
+        """;
+
+    /// <param name="sections">The book's active sections in order (the one to break down among them).</param>
+    /// <param name="chapterCount">How many chapters to make; null = decide (2-4).</param>
+    public static string SectionBreakdownUser(
+        Book book, StoryBible? bible, IEnumerable<CharacterCard> characters, IReadOnlyList<Section> sections,
+        Section section, int? chapterCount, string ancestorReference)
+    {
+        var plan = string.Join("\n", sections.Select(s =>
+            (s.Id == section.Id ? "→ " : "  ") + $"Section {s.Number}: {s.Title} — {OneLine(s.Outline)}"));
+        return $"""
+            Book title: {book.Title}
+            Genre: {book.Genre}
+            Premise: {Premise(book)}
+            Write every string value in {book.Language}.
+            {(bible is null ? "" : $"\nStory Bible:\nSetting: {bible.SettingDescription}\nTone & style: {bible.ToneAndStyle}\nWorld rules: {bible.WorldRules}\n")}
+            Characters:
+            {CharacterSummary(characters)}
+            {Ancestor(ancestorReference)}
+            The book's sections (→ marks the one to divide):
+            {plan}
+
+            Section {section.Number} to divide: "{section.Title}"
+            Outline: {section.Outline}
+            {(section.PovCharacter.Length > 0 ? $"Point of view: {section.PovCharacter}" : "")}
+            {(section.ForeshadowingNotes.Length > 0 ? $"Foreshadowing to plant: {section.ForeshadowingNotes}" : "")}
+            {(section.PayoffNotes.Length > 0 ? $"Payoff due: {section.PayoffNotes}" : "")}
+            Characters involved: {string.Join(", ", ParseNames(section.CharactersInvolvedJson))}
+            Plot threads: {string.Join(", ", ParseNames(section.PlotThreadsJson))}
+
+            {(chapterCount is int n ? $"Divide it into exactly {n} chapters." : "Divide it into as many chapters as its events need (2 to 4).")}
+            """;
+    }
+
+    private static IEnumerable<string> ParseNames(string json)
+    {
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? []; }
+        catch (System.Text.Json.JsonException) { return []; }
+    }
+
+    /// <summary>
+    /// Where a chapter of a section with several chapters stands within it: the section's overall plan and its other
+    /// chapters, so the chapter tells its own share and hands over to the next. Empty for a one-chapter section.
+    /// </summary>
+    public static string SectionContext(Section section, IReadOnlyList<Chapter> sectionChapters, Chapter chapter)
+    {
+        if (sectionChapters.Count < 2) return "";
+        var sb = new StringBuilder();
+        sb.AppendLine($"\n## Section {section.Number}: {section.Title}");
+        sb.AppendLine($"This chapter is part {sectionChapters.ToList().FindIndex(c => c.Id == chapter.Id) + 1} of {sectionChapters.Count} of this section. Write only its own share of the section's events.");
+        if (!string.IsNullOrWhiteSpace(section.Outline)) sb.AppendLine($"Section outline: {section.Outline}");
+        sb.AppendLine("Chapters of the section:");
+        foreach (var c in sectionChapters)
+            sb.AppendLine($"{(c.Id == chapter.Id ? "→" : "-")} Chapter {c.Number}: {c.Title} — {Gist(c)}");
+        return sb.ToString();
+    }
 
     // ── Writer ────────────────────────────────────────────────────────────────
 
@@ -653,14 +730,14 @@ public static class PromptTemplates
     public static string WriterSystem(string basePrompt, Book book, Chapter chapter, string contextBlock, string previousEnding) =>
         $"""
         {basePrompt}
-        Current chapter: {(book.TargetChapterCount > 0 ? $"{chapter.Number} of {book.TargetChapterCount}" : chapter.Number.ToString())} — "{chapter.Title}"
+        Current chapter: {chapter.Number} — "{chapter.Title}"
         {contextBlock}
         {(previousEnding.Length > 0 ? $"\nThe previous chapter ended with:\n{previousEnding}\nContinue the story naturally from this point." : "")}
         """;
 
-    public static string WriterUser(Chapter chapter, string synopsesBlock, string? authorInstructions = null) =>
+    public static string WriterUser(Chapter chapter, string synopsesBlock, string? authorInstructions = null, string sectionContext = "") =>
         $"""
-        {(synopsesBlock.Length > 0 ? $"## Story So Far — Chapter Synopses\nRefer to this to avoid re-introducing or restating anything already established in prior chapters.\n{synopsesBlock}\n\n" : "")}Write the full content for:
+        {(synopsesBlock.Length > 0 ? $"## Story So Far — Chapter Synopses\nRefer to this to avoid re-introducing or restating anything already established in prior chapters.\n{synopsesBlock}\n\n" : "")}{(sectionContext.Length > 0 ? sectionContext + "\n" : "")}Write the full content for:
         Chapter {chapter.Number}: {chapter.Title}
         Outline: {chapter.Outline}
         {(chapter.PovCharacter.Length > 0 ? $"Point of view: {chapter.PovCharacter}" : "")}

@@ -99,7 +99,7 @@ export default function BookSettings() {
     if (!book) return
     setBookSaveError('')
     if (bookForm.mode === 'Autonomous' && bookForm.targetChapterCount < 1) {
-      setBookSaveError('An Autonomous book needs a target chapter count.')
+      setBookSaveError('An Autonomous book needs a target section count.')
       return
     }
     if (bookForm.mode !== book.mode && bookForm.mode === 'Autonomous'
@@ -432,7 +432,7 @@ export default function BookSettings() {
             <ModeField value={bookForm.mode} onChange={mode => setBookForm(f => ({ ...f, mode }))} />
             {bookForm.mode === 'Autonomous' && (
               <label>
-                Target chapters
+                Target sections
                 <input type="number" min={1} max={100} value={bookForm.targetChapterCount || ''}
                   onChange={e => setBookForm(f => ({ ...f, targetChapterCount: +e.target.value }))} />
               </label>

@@ -127,6 +127,28 @@ public class AgentOrchestrator : IAgentOrchestrator
             await RunPlanningPipelineAsync(bookId, skipSb, skipChars, skipThreads, skipChapters, c);
         });
 
+    /// <summary>Divides a section into chapters (one LLM call); <paramref name="chapterCount"/> null lets the model decide.</summary>
+    public Task StartSectionBreakdownAsync(int bookId, int sectionId, int? chapterCount, CancellationToken ct = default) =>
+        ExecuteAgentRunAsync(bookId, AgentRole.ChaptersAgent, null, ct,
+            c => _planner.BreakDownSectionAsync(bookId, sectionId, chapterCount, c), runType: "breakdown");
+
+    /// <summary>
+    /// Autonomous runs: every section the planner expects to need several chapters, and that still has a single
+    /// unwritten chapter, is broken down into that many chapters before writing starts.
+    /// </summary>
+    private async Task BreakDownPlannedSectionsAsync(int bookId, CancellationToken ct)
+    {
+        var chapters = (await _repo.GetChaptersAsync(bookId)).ToList();
+        foreach (var section in await _repo.GetSectionsAsync(bookId))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (section.PlannedChapters <= 1) continue;
+            var own = chapters.Where(ch => ch.SectionId == section.Id).ToList();
+            if (own.Count != 1 || !string.IsNullOrWhiteSpace(own[0].Content)) continue;
+            await _planner.BreakDownSectionAsync(bookId, section.Id, section.PlannedChapters, ct);
+        }
+    }
+
     public Task StartWritingAsync(int bookId, int chapterId, CancellationToken ct = default) =>
         ExecuteAgentRunAsync(bookId, AgentRole.Writer, chapterId, ct,
             c => _writer.WriteAsync(bookId, chapterId, c));
@@ -157,15 +179,12 @@ public class AgentOrchestrator : IAgentOrchestrator
             await _notifier.NotifyWorkflowProgressAsync(bookId,
                 $"Planning complete — {chapters.Count} chapter{(chapters.Count == 1 ? "" : "s")} outlined.", false, c);
 
-            // Pre-load all chapters in one query to get current status after planning
-            var chaptersById = (await _repo.GetChaptersAsync(bookId)).ToDictionary(ch => ch.Id);
+            await BreakDownPlannedSectionsAsync(bookId, c);
 
-            foreach (var chapterRef in chapters.OrderBy(ch => ch.Number))
+            // Reload: the breakdown may have added chapters.
+            foreach (var chapter in (await _repo.GetChaptersAsync(bookId)).ToList())
             {
                 c.ThrowIfCancellationRequested();
-
-                if (!chaptersById.TryGetValue(chapterRef.Id, out var chapter))
-                    throw new InvalidOperationException($"Chapter {chapterRef.Id} not found.");
 
                 if (chapter.Status == ChapterStatus.Done)
                 {
@@ -195,12 +214,13 @@ public class AgentOrchestrator : IAgentOrchestrator
             var book = await _repo.GetByIdAsync(bookId)
                 ?? throw new InvalidOperationException($"Book {bookId} not found.");
 
-            // Pre-load all chapters in one query to get current status
-            var allChapters = (await _repo.GetChaptersAsync(bookId)).OrderBy(ch => ch.Number).ToList();
-            if (allChapters.Count == 0)
+            if (!(await _repo.GetChaptersAsync(bookId)).Any())
                 throw new InvalidOperationException("No chapters to continue. Run the planner first.");
 
             await _notifier.NotifyWorkflowProgressAsync(bookId, "Continuing workflow…", false, c);
+            await BreakDownPlannedSectionsAsync(bookId, c);
+            // Loaded after the breakdown, which may have added chapters.
+            var allChapters = (await _repo.GetChaptersAsync(bookId)).ToList();
 
             foreach (var chapter in allChapters)
             {

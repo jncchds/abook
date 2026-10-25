@@ -514,6 +514,9 @@ export const clearPlanningPhase = (bookId: number, phase: string) =>
   api.delete(`/books/${bookId}/planning-phases/${phase}`)
 export const startWriting = (bookId: number, chapterId: number) =>
   api.post(`/books/${bookId}/agent/write/${chapterId}`)
+/** Divides a section into chapters (a run); `chapters` omitted = the planner decides (2-4). */
+export const breakDownSection = (bookId: number, sectionId: number, chapters?: number) =>
+  api.post(`/books/${bookId}/agent/breakdown/${sectionId}`, null, { params: chapters ? { chapters } : {} })
 export const startEditing = (bookId: number, chapterId: number) =>
   api.post(`/books/${bookId}/agent/edit/${chapterId}`)
 export const startContinuityCheck = (bookId: number) => api.post(`/books/${bookId}/agent/continuity`)

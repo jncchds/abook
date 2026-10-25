@@ -129,6 +129,7 @@ public partial class AppDbContext : DbContext
             s.Property(x => x.Title).HasMaxLength(500);
             s.Property(x => x.CharactersInvolvedJson).HasDefaultValue("[]");
             s.Property(x => x.PlotThreadsJson).HasDefaultValue("[]");
+            s.Property(x => x.PlannedChapters).HasDefaultValue(1);
             s.HasIndex(x => new { x.BookId, x.SortOrder });
             s.HasOne(x => x.Book)
              .WithMany(x => x.Sections)

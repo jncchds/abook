@@ -1555,6 +1555,11 @@ namespace ABook.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int>("PlannedChapters")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
                     b.Property<string>("PlotThreadsJson")
                         .IsRequired()
                         .ValueGeneratedOnAdd()

@@ -48,12 +48,13 @@ public class ChapterSummaryTests
     }
 
     [Fact]
-    public void WriterSystem_OmitsTheTotal_WhenTheBookIsOpenEnded()
+    public void WriterSystem_NeverStatesAChapterTotal()
     {
+        // The target counts sections, and a section may have several chapters: no "4 of 9".
         var chapter = new Chapter { Number = 4, Title = "Ash" };
         Assert.Contains("Current chapter: 4 — \"Ash\"",
             PromptTemplates.WriterSystem("base", new Book { TargetChapterCount = 0 }, chapter, "", ""));
-        Assert.Contains("Current chapter: 4 of 9",
+        Assert.Contains("Current chapter: 4 — \"Ash\"",
             PromptTemplates.WriterSystem("base", new Book { TargetChapterCount = 9 }, chapter, "", ""));
     }
 }

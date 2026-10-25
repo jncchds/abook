@@ -6,6 +6,8 @@ public interface IAgentOrchestrator
 {
     Task StartPlanningAsync(int bookId, CancellationToken ct = default);
     Task StartWritingAsync(int bookId, int chapterId, CancellationToken ct = default);
+    /// <summary>Divides a section into chapters; <paramref name="chapterCount"/> null lets the model decide (2-4).</summary>
+    Task StartSectionBreakdownAsync(int bookId, int sectionId, int? chapterCount, CancellationToken ct = default);
     Task StartEditingAsync(int bookId, int chapterId, CancellationToken ct = default);
     /// <summary>Checks one chapter when <paramref name="chapterId"/> is given, otherwise the whole manuscript.</summary>
     Task StartContinuityCheckAsync(int bookId, int? chapterId = null, CancellationToken ct = default);

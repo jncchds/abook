@@ -131,7 +131,7 @@ export default function PlotThreads() {
           <label>Type<select value={form.type ?? 'Main'} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>{['Main','Subplot','Character','World'].map(t => <option key={t}>{t}</option>)}</select></label>
           <label>Description<textarea rows={3} value={form.description ?? ''} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} /></label>
           <label>Status<select value={form.status ?? 'Open'} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>{['Open','Resolved','Abandoned'].map(s => <option key={s}>{s}</option>)}</select></label>
-          <label>Introduced Chapter #<input type="number" value={form.introducedChapterNumber ?? ''} onChange={e => setForm(f => ({ ...f, introducedChapterNumber: e.target.value ? Number(e.target.value) : undefined }))} /></label>
+          <label>Introduced in section #<input type="number" value={form.introducedChapterNumber ?? ''} onChange={e => setForm(f => ({ ...f, introducedChapterNumber: e.target.value ? Number(e.target.value) : undefined }))} /></label>
           <div className="actions">
             <button disabled={saving} onClick={async () => {
               if (!form.name?.trim()) return
@@ -178,8 +178,8 @@ export default function PlotThreads() {
                   <label>Type<select value={form.type ?? t.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>{['Main','Subplot','Character','World'].map(tp => <option key={tp}>{tp}</option>)}</select></label>
                   <label>Description<textarea rows={3} value={form.description ?? t.description ?? ''} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} /></label>
                   <label>Status<select value={form.status ?? t.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>{['Open','Resolved','Abandoned'].map(s => <option key={s}>{s}</option>)}</select></label>
-                  <label>Introduced Chapter #<input type="number" value={form.introducedChapterNumber ?? t.introducedChapterNumber ?? ''} onChange={e => setForm(f => ({ ...f, introducedChapterNumber: e.target.value ? Number(e.target.value) : undefined }))} /></label>
-                  <label>Resolved Chapter #<input type="number" value={form.resolvedChapterNumber ?? t.resolvedChapterNumber ?? ''} onChange={e => setForm(f => ({ ...f, resolvedChapterNumber: e.target.value ? Number(e.target.value) : undefined }))} /></label>
+                  <label>Introduced in section #<input type="number" value={form.introducedChapterNumber ?? t.introducedChapterNumber ?? ''} onChange={e => setForm(f => ({ ...f, introducedChapterNumber: e.target.value ? Number(e.target.value) : undefined }))} /></label>
+                  <label>Resolved in section #<input type="number" value={form.resolvedChapterNumber ?? t.resolvedChapterNumber ?? ''} onChange={e => setForm(f => ({ ...f, resolvedChapterNumber: e.target.value ? Number(e.target.value) : undefined }))} /></label>
                   <div className="actions">
                     <button disabled={saving} onClick={async () => {
                       setSaving(true)
@@ -198,7 +198,7 @@ export default function PlotThreads() {
                   <div className="blc-meta">
                     <span className="thread-type-badge">{t.type}</span>
                     <span className={"thread-status-" + t.status?.toLowerCase()}>{t.status}</span>
-                    {t.introducedChapterNumber != null && <span>Ch.{t.introducedChapterNumber}</span>}
+                    {t.introducedChapterNumber != null && <span title="Introduced in section">§{t.introducedChapterNumber}{t.resolvedChapterNumber != null ? `–§${t.resolvedChapterNumber}` : ''}</span>}
                   </div>
                   {t.description && <p className="blc-premise">{t.description}</p>}
                   {itemHistoryId === t.id && (

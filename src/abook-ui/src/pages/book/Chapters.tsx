@@ -5,6 +5,7 @@ import { useBookContext } from '../../contexts/BookContext'
 import {
   createChapter, archiveChapter, restoreChapter, clearChapterContent, getChapterVersions, getChapterVersion, moveChapter,
   moveChapterToSection, moveSection, archiveSection, restoreSection, updateSection, inBookOrder, sectionsInOrder, nameList,
+  breakDownSection,
 } from '../../api'
 import type { Chapter, Section, ChapterVersionMeta, ChapterVersionFull } from '../../api'
 import { parsePlanningStream } from '../../utils/streamParsers'
@@ -40,7 +41,7 @@ export default function Chapters() {
 
   const {
     book, setBook, reloadStructure,
-    canEdit,
+    canEdit, isRunning,
     plannerBuffer, runStatus,
   } = useBookContext()
 
@@ -152,6 +153,19 @@ export default function Chapters() {
     if (!next?.section) return
     return change(() => moveChapterToSection(id, chapter.id, next.section!.id, null))
   }
+
+  /** Starts a run that divides a section into chapters; the chapters arrive through the live updates. */
+  const handleBreakDown = async (s: Section) => {
+    const answer = prompt(`Break Section ${s.number} "${s.title}" into how many chapters?\nLeave empty to let the planner decide (2–4).`, '')
+    if (answer === null) return
+    const n = answer.trim() ? Number(answer) : undefined
+    if (n !== undefined && (!Number.isInteger(n) || n < 1 || n > 10)) { setError('Enter a whole number from 1 to 10.'); return }
+    setError(null)
+    try { await breakDownSection(id, s.id, n) } catch (err) { setError(errorText(err)) }
+  }
+  /** A section can be broken down while none of its chapters is written. */
+  const canBreakDown = (s: Section | null) => !!s && !s.isArchived && !isRunning
+    && chapters.filter(c => c.sectionId === s.id && !c.isArchived).every(c => !c.content?.trim())
 
   const handleArchive = (chapterId: number) => change(() => archiveChapter(id, chapterId))
   const handleRestore = (chapterId: number) => change(() => restoreChapter(id, chapterId))
@@ -334,6 +348,10 @@ export default function Chapters() {
                   onClick={() => setAddingAt({ kind: 'after', chapterId: c.id })}>＋ After</button>
                 <button className="btn-sm btn-ghost" title="Add another chapter to this section, right after this chapter"
                   onClick={() => setAddingAt({ kind: 'inSection', chapterId: c.id })}>＋ Chapter here</button>
+                {single && canBreakDown(group.section) && (
+                  <button className="btn-sm btn-ghost" title="Have the planner divide this section into several chapters"
+                    onClick={() => handleBreakDown(group.section!)}>⋔ Break down</button>
+                )}
                 <button className="btn-sm btn-ghost" title="Split this chapter in two by its outline" onClick={() => navigate(`/books/${id}/chapters/${c.id}?split=1`)}>✂ Split</button>
                 <button className="btn-sm btn-ghost" title="Clear chapter content (keep outline)" onClick={() => handleClearChapter(c.id)}>🗑 Clear</button>
                 <button className="btn-archive" title={single ? 'Archive (with its section; it keeps its place)' : 'Archive chapter (it keeps its place)'}
@@ -376,6 +394,10 @@ export default function Chapters() {
               <button className="btn-sm btn-ghost" title="Move the section up" disabled={busy || si <= 0} onClick={() => handleMoveSection(s, -1)}>↑</button>
               <button className="btn-sm btn-ghost" title="Move the section down" disabled={busy || si >= shown.length - 1} onClick={() => handleMoveSection(s, 1)}>↓</button>
               {!s.isArchived && <button className="btn-sm btn-ghost" title="Edit the section's overall plan" onClick={() => startEditSection(s)}>✎ Plan</button>}
+              {canBreakDown(s) && (
+                <button className="btn-sm btn-ghost" title="Have the planner divide the section into chapters again (none is written yet)"
+                  onClick={() => handleBreakDown(s)}>⋔ Break down</button>
+              )}
               {s.isArchived
                 ? <button className="btn-sm" disabled={busy} onClick={() => change(() => restoreSection(id, s.id))}>♻ Restore section</button>
                 : <button className="btn-archive" title="Archive the section with its chapters" disabled={busy}

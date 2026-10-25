@@ -45,7 +45,7 @@ export default function Overview() {
             <span className="hint">Comma-separated list of genres</span>
           </label>
           {!interactive && (
-            <label>Target chapters<input type="number" min={1} value={bookEditTargetChapters} onChange={e => setBookEditTargetChapters(+e.target.value)} /></label>
+            <label>Target sections<input type="number" min={1} value={bookEditTargetChapters} onChange={e => setBookEditTargetChapters(+e.target.value)} /></label>
           )}
           <label>Premise / Plot
             <textarea rows={6} value={bookEditPremise} onChange={e => setBookEditPremise(e.target.value)} disabled={premiseLocked} />
@@ -74,7 +74,7 @@ export default function Overview() {
           <p><strong>Premise:</strong> {book.premise}</p>
           <p><strong>Genre:</strong> {book.genre} · <strong>Language:</strong> {book.language} · {interactive
             ? <><strong>Mode:</strong> ✍ Interactive{book.storyBibleLockedAt ? ' · 🔒 writing' : ' · 🌱 foundation'}</>
-            : <><strong>Target chapters:</strong> {book.targetChapterCount}</>}</p>
+            : <><strong>Target sections:</strong> {book.targetChapterCount}</>}</p>
 
 
         </>

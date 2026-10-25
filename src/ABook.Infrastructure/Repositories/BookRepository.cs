@@ -380,34 +380,34 @@ public class BookRepository : IBookRepository
     }
 
     /// <summary>
-    /// Atomically syncs the book's outlines to <paramref name="chapters"/> inside a single transaction:
-    /// chapters matching by Number are updated in place (keeping their prose, status, versions and
-    /// message links), missing numbers are inserted, and non-archived chapters absent from the new set
-    /// are removed. Archived chapters are never touched.
-    /// Concurrency is guarded at the orchestrator level by AgentRunStateService.TryStartRun,
-    /// which prevents a second run for the same book from starting while one is in progress.
+    /// Atomically syncs the book's plan to <paramref name="sections"/> (matched by section number) in one transaction:
+    /// a matching section gets the new plan (and so does its chapter when it has only one — prose, status, versions
+    /// and message links stay), a new number becomes a new section with one outlined chapter, and active sections
+    /// absent from the plan are removed with their active chapters. Archived chapters are never touched and keep
+    /// their place. Returns the active chapters of the plan's sections, in order.
+    /// Concurrency is guarded at the orchestrator level by AgentRunStateService.TryStartRun.
     /// </summary>
-    public async Task<IReadOnlyList<Chapter>> ReplaceChaptersAsync(int bookId, IEnumerable<Chapter> chapters)
+    public async Task<IReadOnlyList<Chapter>> ReplaceSectionsAsync(int bookId, IEnumerable<Section> sections)
     {
-        var incoming = chapters.ToList();
+        var incoming = sections.ToList();
         await using var tx = await _db.Database.BeginTransactionAsync();
         try
         {
             var book = await LoadStructureAsync(bookId);
-            var existing = book.Ordered.Where(c => !c.IsArchived).ToList();
+            var active = book.Sections.Where(s => !s.IsArchived).ToList();
+            var numbers = incoming.Select(s => s.Number).ToHashSet();
+            var removed = active.Where(s => !numbers.Contains(s.Number)).ToList();
+            foreach (var c in book.Ordered.Where(c => !c.IsArchived && removed.Contains(c.Section!)).ToList())
+            {
+                _db.Chapters.Remove(c);
+                book.Ordered.Remove(c);
+            }
 
-            var incomingNumbers = incoming.Select(ch => ch.Number).ToHashSet();
-            var removed = existing.Where(c => !incomingNumbers.Contains(c.Number)).ToList();
-            _db.Chapters.RemoveRange(removed);
-
-            var saved = UpsertChapterOutlines(bookId, incoming, existing.Except(removed).ToList());
-            // The plan's numbers are its order; archived chapters stay next to the chapter they followed.
-            var active = saved.Distinct().OrderBy(c => c.Number).ToList();
-            ApplyStructure(ChapterOrdering.Arrange(book.Ordered, active), book);
-
+            var planned = UpsertSectionOutlines(bookId, incoming, active.Except(removed).ToList(), book);
+            var result = SavePlanOrder(planned, book);
             await _db.SaveChangesAsync();
             await tx.CommitAsync();
-            return saved;
+            return result;
         }
         catch
         {
@@ -417,59 +417,74 @@ public class BookRepository : IBookRepository
     }
 
     /// <summary>
-    /// Merges outlines into the book's existing chapters without removing anything: matches by Number,
-    /// updates outline fields in place, and inserts numbers that do not exist yet. Used to persist the
-    /// chapters salvaged from a run that failed part-way through streaming.
+    /// Merges section outlines into the plan without removing anything (matched by number; new numbers become new
+    /// sections). Used to keep the outlines salvaged from a run that failed part-way through streaming. Returns the
+    /// active chapters of the merged sections.
     /// </summary>
-    public async Task<IReadOnlyList<Chapter>> MergeChapterOutlinesAsync(int bookId, IEnumerable<Chapter> chapters)
+    public async Task<IReadOnlyList<Chapter>> MergeSectionOutlinesAsync(int bookId, IEnumerable<Section> sections)
     {
         var book = await LoadStructureAsync(bookId);
-        var existing = book.Ordered.Where(c => !c.IsArchived).ToList();
-
-        var touched = UpsertChapterOutlines(bookId, chapters, existing);
-        // Chapters already there keep their order; a salvaged new one goes where its number puts it.
-        var active = existing.Concat(touched).Distinct()
-            .Select((c, i) => (c, i)).OrderBy(x => x.c.Number).ThenBy(x => x.i).Select(x => x.c).ToList();
-        ApplyStructure(ChapterOrdering.Arrange(book.Ordered, active), book);
+        var active = book.Sections.Where(s => !s.IsArchived).ToList();
+        var touched = UpsertSectionOutlines(bookId, sections, active, book);
+        // Sections already there keep their numbers; a salvaged new one goes where its number puts it.
+        var all = active.Select(s => (s, s.Number)).Concat(touched.Where(t => !active.Contains(t.s)).Select(t => (t.s, t.Number)))
+            .Select((x, i) => (x.s, x.Number, i)).OrderBy(x => x.Number).ThenBy(x => x.i).Select(x => (x.s, x.Number)).ToList();
+        SavePlanOrder(all, book);
         await _db.SaveChangesAsync();
-        return touched;
+        var touchedSections = touched.Select(t => t.s).ToHashSet();
+        return book.Ordered.Where(c => !c.IsArchived && touchedSections.Contains(c.Section!)).ToList();
     }
 
     /// <summary>
-    /// Copies outline fields from <paramref name="incoming"/> onto the matching row in
-    /// <paramref name="existing"/> (matched by Number) or adds a new row. Prose, status and archive
-    /// flag of an existing chapter are deliberately preserved. Returns the affected rows.
+    /// Orders the book by the plan: <paramref name="planned"/> sections by their plan number, each with its active
+    /// chapters; archived chapters stay next to the chapter they followed. Returns the active chapters in order.
     /// </summary>
-    private List<Chapter> UpsertChapterOutlines(int bookId, IEnumerable<Chapter> incoming, List<Chapter> existing)
+    private List<Chapter> SavePlanOrder(List<(Section s, int Number)> planned, BookStructure book)
+    {
+        var activeChapters = planned.OrderBy(p => p.Number)
+            .SelectMany(p => book.Ordered.Where(c => !c.IsArchived && ReferenceEquals(c.Section, p.s)))
+            .ToList();
+        ApplyStructure(ChapterOrdering.Arrange(book.Ordered, activeChapters), book);
+        return activeChapters;
+    }
+
+    /// <summary>
+    /// Copies each incoming section's plan onto the active section with its number (and onto that section's chapter
+    /// when it has only one), or adds a new section with one outlined chapter. Prose, status and archive state of
+    /// existing chapters are preserved. Returns the affected sections with their plan numbers.
+    /// </summary>
+    private List<(Section s, int Number)> UpsertSectionOutlines(int bookId, IEnumerable<Section> incoming, List<Section> existing, BookStructure book)
     {
         var now = DateTime.UtcNow;
-        var byNumber = existing
-            .GroupBy(c => c.Number)
-            .ToDictionary(g => g.Key, g => g.First());
-
-        var touched = new List<Chapter>();
-        foreach (var ch in incoming)
+        var byNumber = existing.GroupBy(s => s.Number).ToDictionary(g => g.Key, g => g.First());
+        var touched = new List<(Section, int)>();
+        foreach (var plan in incoming)
         {
-            if (byNumber.TryGetValue(ch.Number, out var row))
+            var asChapter = new Chapter();
+            asChapter.CopyPlanFrom(plan);
+            if (byNumber.TryGetValue(plan.Number, out var row))
             {
-                row.Title = ch.Title;
-                row.Outline = ch.Outline;
-                row.PovCharacter = ch.PovCharacter;
-                row.CharactersInvolvedJson = ch.CharactersInvolvedJson;
-                row.PlotThreadsJson = ch.PlotThreadsJson;
-                row.ForeshadowingNotes = ch.ForeshadowingNotes;
-                row.PayoffNotes = ch.PayoffNotes;
+                row.CopyPlanFrom(asChapter);
+                row.PlannedChapters = Math.Max(1, plan.PlannedChapters);
                 row.UpdatedAt = now;
-                touched.Add(row);
+                var chapters = book.Ordered.Where(c => !c.IsArchived && ReferenceEquals(c.Section, row)).ToList();
+                if (chapters.Count == 1)
+                {
+                    chapters[0].CopyPlanFrom(plan);
+                    chapters[0].UpdatedAt = now;
+                }
+                touched.Add((row, plan.Number));
             }
             else
             {
-                ch.BookId = bookId;
-                ch.CreatedAt = ch.UpdatedAt = now;
-                if (ch.Section is null && ch.SectionId is null) NewSectionFor(ch);
-                _db.Chapters.Add(ch);
-                byNumber[ch.Number] = ch;
-                touched.Add(ch);
+                var chapter = new Chapter { BookId = bookId, Status = ChapterStatus.Outlined, CreatedAt = now, UpdatedAt = now };
+                chapter.CopyPlanFrom(plan);
+                var section = NewSectionFor(chapter);
+                section.PlannedChapters = Math.Max(1, plan.PlannedChapters);
+                _db.Chapters.Add(chapter);
+                book.Ordered.Add(chapter);
+                byNumber[plan.Number] = section;
+                touched.Add((section, plan.Number));
             }
         }
         return touched;

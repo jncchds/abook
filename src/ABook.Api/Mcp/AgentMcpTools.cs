@@ -114,6 +114,24 @@ public class AgentMcpTools : McpToolBase
         return JsonSerializer.Serialize(new { started = true, bookId, chapterId, phase = "writing" }, JsonOptions);
     }
 
+    [McpServerTool(Name = "break_down_section")]
+    [Description("Divide a section (see list_sections) into chapters with the planner: the section keeps its overall plan and gets one chapter per part, each with its own outline. Only for a section none of whose chapters is written yet (for a written chapter use split_chapter). Runs in the background; use list_sections when it completes.")]
+    public async Task<string> BreakDownSection(
+        [Description("The book ID.")] int bookId,
+        [Description("The section ID.")] int sectionId,
+        [Description("How many chapters to make (optional; default: the planner decides, 2-4).")] int? chapters = null)
+    {
+        await GetOwnedBookAsync(bookId, _repo);
+        var section = await _repo.GetSectionAsync(bookId, sectionId)
+            ?? throw new McpException($"Section {sectionId} not found in book {bookId}.");
+        if (section.IsArchived) throw new McpException($"Section {sectionId} is archived. Restore it first.");
+        if ((await _repo.GetChaptersAsync(bookId)).Any(c => c.SectionId == sectionId && !string.IsNullOrWhiteSpace(c.Content)))
+            throw new McpException("This section already has written chapters. Use split_chapter instead, or clear their text first.");
+        if (chapters is < 1 or > 10) throw new McpException("chapters must be 1-10.");
+        await StartAsync(bookId, AgentRole.ChaptersAgent, null, (o, c) => o.StartSectionBreakdownAsync(bookId, sectionId, chapters, c));
+        return JsonSerializer.Serialize(new { started = true, bookId, sectionId, phase = "breakdown" }, JsonOptions);
+    }
+
     [McpServerTool(Name = "edit_chapter")]
     [Description("Edit a specific chapter using the Editor agent. The chapter must already have content written. The editor will improve prose and return editorial notes.")]
     public async Task<string> EditChapter(

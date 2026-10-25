@@ -60,17 +60,18 @@ public interface IBookRepository
     /// <summary>Brings back the chapters archived with the section.</summary>
     Task RestoreSectionAsync(int bookId, int sectionId);
     /// <summary>
-    /// Syncs the book's outlines to the given set in a single transaction: chapters matching by Number are
-    /// updated in place (prose, status and versions preserved), new numbers are inserted, and non-archived
-    /// chapters absent from the set are deleted. Archived chapters are never touched and keep their place.
-    /// Returns the persisted rows, in the order given.
+    /// Syncs the book's plan to the given sections in a single transaction, matched by section number: a matching
+    /// section gets the new plan (its chapter too when it has only one; prose, status and versions preserved), new
+    /// numbers become sections with one outlined chapter, and active sections absent from the set are deleted with
+    /// their active chapters. Archived chapters are never touched and keep their place. Returns the active chapters
+    /// of the planned sections, in order.
     /// </summary>
-    Task<IReadOnlyList<Chapter>> ReplaceChaptersAsync(int bookId, IEnumerable<Chapter> chapters);
+    Task<IReadOnlyList<Chapter>> ReplaceSectionsAsync(int bookId, IEnumerable<Section> sections);
     /// <summary>
-    /// Merges outlines by Number into the existing chapters without deleting anything, and returns the
-    /// affected rows. Used to keep the outlines salvaged from a run that failed mid-stream.
+    /// Merges section outlines by number into the plan without deleting anything, and returns the active chapters of
+    /// the affected sections. Used to keep the outlines salvaged from a run that failed mid-stream.
     /// </summary>
-    Task<IReadOnlyList<Chapter>> MergeChapterOutlinesAsync(int bookId, IEnumerable<Chapter> chapters);
+    Task<IReadOnlyList<Chapter>> MergeSectionOutlinesAsync(int bookId, IEnumerable<Section> sections);
     Task UpdateChapterAsync(Chapter chapter);
     Task DeleteChaptersAsync(int bookId);
     Task ArchiveChapterAsync(int bookId, int chapterId);

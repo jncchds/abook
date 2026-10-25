@@ -23,6 +23,11 @@ public class Section
     public string PlotThreadsJson { get; set; } = "[]";
     public string ForeshadowingNotes { get; set; } = string.Empty;
     public string PayoffNotes { get; set; } = string.Empty;
+    /// <summary>
+    /// How many chapters the planner expects the section to need (1 by default). In an Autonomous run a section planned
+    /// for more than one chapter is broken down into chapters before it is written.
+    /// </summary>
+    public int PlannedChapters { get; set; } = 1;
     /// <summary>True when none of its chapters is active — kept by the repository, never set on its own.</summary>
     public bool IsArchived { get; set; }
     public DateTime CreatedAt { get; set; }

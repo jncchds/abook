@@ -66,6 +66,20 @@ public class AgentController : ControllerBase
     public Task<IActionResult> Write(int bookId, int chapterId) =>
         StartAsync(bookId, AgentRole.Writer, chapterId, (o, c) => o.StartWritingAsync(bookId, chapterId, c));
 
+    /// <summary>Divides a section into chapters (optional <c>chapters</c> = how many; else the model decides 2-4).</summary>
+    [HttpPost("breakdown/{sectionId:int}")]
+    public async Task<IActionResult> BreakDown(int bookId, int sectionId, [FromQuery] int? chapters = null)
+    {
+        var section = await _repo.GetSectionAsync(bookId, sectionId);
+        if (section is null) return NotFound(new { message = $"Section {sectionId} not found." });
+        if (section.IsArchived) return BadRequest(new { message = "This section is archived. Restore it first." });
+        if ((await _repo.GetChaptersAsync(bookId)).Any(c => c.SectionId == sectionId && !string.IsNullOrWhiteSpace(c.Content)))
+            return BadRequest(new { message = "This section already has written chapters. Split a chapter instead, or clear their text first." });
+        if (chapters is < 1 or > 10) return BadRequest(new { message = "chapters must be 1-10." });
+        return await StartAsync(bookId, AgentRole.ChaptersAgent, null,
+            (o, c) => o.StartSectionBreakdownAsync(bookId, sectionId, chapters, c));
+    }
+
     [HttpPost("edit/{chapterId:int}")]
     public Task<IActionResult> Edit(int bookId, int chapterId) =>
         StartAsync(bookId, AgentRole.Editor, chapterId, (o, c) => o.StartEditingAsync(bookId, chapterId, c));

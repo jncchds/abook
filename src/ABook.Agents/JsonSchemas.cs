@@ -76,9 +76,31 @@ internal static class JsonSchemas
               "charactersInvolved": { "type": "array", "items": { "type": "string" } },
               "plotThreads": { "type": "array", "items": { "type": "string" } },
               "foreshadowingNotes": { "type": ["string", "null"] },
-              "payoffNotes": { "type": ["string", "null"] }
+              "payoffNotes": { "type": ["string", "null"] },
+              "chapters": { "type": ["integer", "null"] }
             },
             "required": ["number", "title", "outline"],
+            "additionalProperties": false
+          }
+        }
+        """;
+
+    /// <summary>The chapters one section is broken down into, in order.</summary>
+    public const string SectionBreakdown = """
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": { "type": "string" },
+              "outline": { "type": "string" },
+              "povCharacter": { "type": ["string", "null"] },
+              "charactersInvolved": { "type": "array", "items": { "type": "string" } },
+              "plotThreads": { "type": "array", "items": { "type": "string" } },
+              "foreshadowingNotes": { "type": ["string", "null"] },
+              "payoffNotes": { "type": ["string", "null"] }
+            },
+            "required": ["title", "outline"],
             "additionalProperties": false
           }
         }
