@@ -83,6 +83,7 @@ public partial class AppDbContext : DbContext
             b.Property(x => x.Language).HasMaxLength(100).HasDefaultValue("English");
             b.Property(x => x.IllustrationsEnabled).HasDefaultValue(false);
             b.Property(x => x.ShowSectionsInOutput).HasDefaultValue(false);
+            b.Property(x => x.ChatPartRequestsEnabled).HasDefaultValue(false);
             b.Property(x => x.Mode).HasConversion<string>().HasMaxLength(20);
             b.Property(x => x.ChatMemory).HasDefaultValue(string.Empty);
             b.HasMany(x => x.Chapters).WithOne(x => x.Book).HasForeignKey(x => x.BookId).OnDelete(DeleteBehavior.Cascade);

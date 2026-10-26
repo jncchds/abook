@@ -12,7 +12,15 @@ public sealed record RawChatAction(
     string? Instructions, string? OriginalText, string? ReplacementText, string? Text, string? Option);
 
 /// <summary>A parsed reply: the message to the author, the conflicts it flags and the changes it proposes.</summary>
-public sealed record ParsedChatReply(string Message, IReadOnlyList<ChatConflict> Conflicts, IReadOnlyList<RawChatAction> Actions);
+public sealed record ParsedChatReply(
+    string Message, IReadOnlyList<ChatConflict> Conflicts, IReadOnlyList<RawChatAction> Actions, IReadOnlyList<ChatPartRequest>? Parts = null)
+{
+    /// <summary>The parts of the book the reply asks to read before answering (two-step replies); empty when none.</summary>
+    public IReadOnlyList<ChatPartRequest> Parts { get; init; } = Parts ?? [];
+}
+
+/// <summary>A part of the book the chat asks to read in full: one of <see cref="BookChatActions.PartKinds"/>.</summary>
+public sealed record ChatPartRequest(string Kind, int? Chapter, string? Name);
 
 /// <summary>A checked action, resolved against the book — what a <see cref="ChatProposal"/> stores as its payload.</summary>
 /// <param name="AfterChapterId">add_chapter / move_chapter: the chapter it goes after (with <paramref name="AtStart"/> false; neither = at the end).</param>
@@ -62,6 +70,7 @@ public static class BookChatActions
     public const string ReviseChapter = "revise_chapter";
     public const string PatchChapter = "patch_chapter";
     public const string AddNote = "add_note";
+    public const string SetPartRequests = "set_part_requests";
     public const string CheckOutline = "check_outline";
     public const string CheckChapter = "check_chapter";
     public const string SummarizeChapter = "summarize_chapter";
@@ -73,7 +82,7 @@ public static class BookChatActions
     [
         UpdatePremise, UpdateStoryBible, UpsertCharacter, ArchiveCharacter, UpsertPlotThread, ArchivePlotThread,
         AddChapter, UpdateChapterOutline, ArchiveChapter, MoveChapter, WriteChapter, ReviseChapter, PatchChapter, AddNote,
-        CheckOutline, CheckChapter, SummarizeChapter,
+        SetPartRequests, CheckOutline, CheckChapter, SummarizeChapter,
     ];
 
     /// <summary>Actions that change chapter prose — they run the Writer, the Editor or the patcher.</summary>
@@ -94,10 +103,39 @@ public static class BookChatActions
     public static IReadOnlyList<string> Available(bool bibleLocked) =>
         bibleLocked ? All.Except(FoundationOnly).ToList() : All;
 
-    /// <summary>The reply schema for the book's stage: once the bible is locked, bible actions do not exist.</summary>
-    public static string ReplySchema(bool bibleLocked)
+    public const string PartChapterText = "chapter_text";
+    public const string PartChapterPlan = "chapter_plan";
+    public const string PartCharacter = "character";
+    public const string PartPlotThread = "plot_thread";
+    /// <summary>The kinds of part a two-step reply may ask for.</summary>
+    public static readonly string[] PartKinds = [PartChapterText, PartChapterPlan, PartCharacter, PartPlotThread];
+
+    /// <summary>
+    /// The reply schema for the book's stage: once the bible is locked, bible actions do not exist. With
+    /// <paramref name="partRequests"/> (the first step of a two-step reply) it also has the "parts" key.
+    /// </summary>
+    public static string ReplySchema(bool bibleLocked, bool partRequests = false)
     {
         var types = JsonSerializer.Serialize(Available(bibleLocked));
+        var parts = partRequests
+            ? $$"""
+              ,
+                "parts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": { "type": "string", "enum": {{JsonSerializer.Serialize(PartKinds)}} },
+                      "chapter": { "type": ["integer", "null"] },
+                      "name": { "type": ["string", "null"] }
+                    },
+                    "required": ["kind", "chapter", "name"],
+                    "additionalProperties": false
+                  }
+                }
+              """
+            : "";
+        var required = partRequests ? "\"message\", \"conflicts\", \"actions\", \"parts\"" : "\"message\", \"conflicts\", \"actions\"";
         return $$"""
             {
               "type": "object",
@@ -143,9 +181,9 @@ public static class BookChatActions
                     "required": ["type", "label", "chapter", "name", "changes", "instructions", "originalText", "replacementText", "text", "option"],
                     "additionalProperties": false
                   }
-                }
+                }{{parts}}
               },
-              "required": ["message", "conflicts", "actions"],
+              "required": [{{required}}],
               "additionalProperties": false
             }
             """;
@@ -193,8 +231,27 @@ public static class BookChatActions
                 NullIfBlank(LenientJson.Text(a, "text")),
                 NullIfBlank(LenientJson.Text(a, "option"))?.ToUpperInvariant())).ToList();
 
-            return new ParsedChatReply(message, conflicts, actions);
+            var parts = Items(root, "parts")
+                .Select(p => p.ValueKind == JsonValueKind.String
+                    ? PartFromText(p.GetString() ?? "")
+                    : new ChatPartRequest(LenientJson.Text(p, "kind").Trim().ToLowerInvariant(), LenientJson.Int(p, "chapter"),
+                        NullIfBlank(LenientJson.Text(p, "name"))))
+                .Where(p => p.Kind.Length > 0)
+                .ToList();
+
+            return new ParsedChatReply(message, conflicts, actions, parts);
         }
+    }
+
+    /// <summary>A part asked for as plain text ("chapter_text 3", "character Mara") by a model that ignored the schema.</summary>
+    private static ChatPartRequest PartFromText(string text)
+    {
+        var words = text.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (words.Length == 0) return new("", null, null);
+        var rest = words.Length > 1 ? words[1] : null;
+        return int.TryParse(rest, out var n)
+            ? new(words[0].ToLowerInvariant(), n, null)
+            : new(words[0].ToLowerInvariant(), null, rest);
     }
 
     /// <summary>Accepts the schema's [{field, value}] list and also a plain {field: value} object.</summary>
@@ -408,6 +465,15 @@ public static class BookChatActions
                     if ((a.Text ?? a.Instructions) is not string note) return "no note text.";
                     actions.Add(Make(Payload(a.Type, text: note), "Note a decision", BookContentService.NoteTarget));
                     return null;
+
+                case SetPartRequests:
+                {
+                    if (OnOff(a.Text ?? a.Instructions) is not bool on) return "\"text\" must be \"on\" or \"off\".";
+                    actions.Add(Make(Payload(a.Type, text: on ? "on" : "off"),
+                        on ? "Let the chat read the parts of the book it needs before answering" : "Stop the chat asking for parts of the book",
+                        BookContentService.PartRequestsTarget));
+                    return null;
+                }
             }
             return $"unknown action \"{a.Type}\".";
         }
@@ -426,6 +492,14 @@ public static class BookChatActions
             return (known, unknown);
         }
     }
+
+    /// <summary>"on"/"off" and the usual synonyms; null when it is neither.</summary>
+    public static bool? OnOff(string? text) => text?.Trim().ToLowerInvariant() switch
+    {
+        "on" or "true" or "yes" or "enable" or "enabled" or "1" => true,
+        "off" or "false" or "no" or "disable" or "disabled" or "0" => false,
+        _ => null,
+    };
 
     private static ChatActionPayload Payload(
         string type, int? chapterId = null, int? number = null, string? name = null, Dictionary<string, string>? changes = null,

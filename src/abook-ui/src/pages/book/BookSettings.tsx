@@ -21,6 +21,7 @@ export default function BookSettings() {
     targetChapterCount: 0,
     illustrationsEnabled: false,
     showSectionsInOutput: false,
+    chatPartRequestsEnabled: false,
     storyBibleSystemPrompt: '', charactersSystemPrompt: '',
     plotThreadsSystemPrompt: '', chapterOutlinesSystemPrompt: '',
     writerSystemPrompt: '', editorSystemPrompt: '', continuityCheckerSystemPrompt: '',
@@ -67,6 +68,7 @@ export default function BookSettings() {
         targetChapterCount: r.data.targetChapterCount ?? 0,
         illustrationsEnabled: r.data.illustrationsEnabled ?? false,
         showSectionsInOutput: r.data.showSectionsInOutput ?? false,
+        chatPartRequestsEnabled: r.data.chatPartRequestsEnabled ?? false,
         storyBibleSystemPrompt: r.data.storyBibleSystemPrompt ?? '',
         charactersSystemPrompt: r.data.charactersSystemPrompt ?? '',
         plotThreadsSystemPrompt: r.data.plotThreadsSystemPrompt ?? '',
@@ -112,6 +114,7 @@ export default function BookSettings() {
         targetChapterCount: bookForm.targetChapterCount,
         illustrationsEnabled: bookForm.illustrationsEnabled,
         showSectionsInOutput: bookForm.showSectionsInOutput,
+        chatPartRequestsEnabled: bookForm.chatPartRequestsEnabled,
         storyBibleSystemPrompt: bookForm.storyBibleSystemPrompt || undefined,
         charactersSystemPrompt: bookForm.charactersSystemPrompt || undefined,
         plotThreadsSystemPrompt: bookForm.plotThreadsSystemPrompt || undefined,
@@ -449,6 +452,14 @@ export default function BookSettings() {
               label="Show sections in the book"
               hint="Downloads (HTML, EPUB, FB2) and the reader show each section as a part heading (“I. Title”) before its first chapter. Off: sections are only a planning tool."
             />
+            {bookForm.mode === 'Interactive' && (
+              <ToggleField
+                checked={bookForm.chatPartRequestsEnabled}
+                onChange={v => setBookForm(f => ({ ...f, chatPartRequestsEnabled: v }))}
+                label="Let the book chat read parts of the book"
+                hint="The chat normally sees only summaries of written chapters and one line per character. With this on, it may first ask for the full text of chapters, chapter plans, character cards and plot threads it needs, and answer once it has read them — a second LLM call when it does. You can also ask the chat to turn this on or off."
+              />
+            )}
             <details>
               <summary>Custom Agent System Prompts (optional)</summary>
               <p className="hint">Leave blank to use agent defaults, or click "Load Defaults" to start editing from the defaults.</p>

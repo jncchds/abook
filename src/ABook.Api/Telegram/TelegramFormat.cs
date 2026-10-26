@@ -318,6 +318,7 @@ public static partial class TelegramFormat
         ["upsert_plot_thread"] = "Plot thread", ["archive_plot_thread"] = "Plot thread",
         ["add_chapter"] = "New chapter", ["update_chapter_outline"] = "Outline", ["archive_chapter"] = "Remove chapter", ["move_chapter"] = "Move chapter",
         ["write_chapter"] = "Write", ["revise_chapter"] = "Revise", ["patch_chapter"] = "Edit passage", ["add_note"] = "Note",
+        ["set_part_requests"] = "Setting",
         ["check_outline"] = "Outline check", ["check_chapter"] = "Continuity check", ["summarize_chapter"] = "Summary",
     };
 
@@ -388,6 +389,7 @@ public static partial class TelegramFormat
             "thread" => $"/books/{bookId}/plot-threads",
             "chapter" or "prose" => $"/books/{bookId}/chapters/{Uri.EscapeDataString(key)}",
             "note" => $"/books/{bookId}/clarifications",
+            "setting" => $"/books/{bookId}/settings",
             _ => null,
         };
     }

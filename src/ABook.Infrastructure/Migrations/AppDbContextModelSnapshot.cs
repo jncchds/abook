@@ -18,7 +18,7 @@ namespace ABook.Infrastructure.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.13")
+                .HasAnnotation("ProductVersion", "10.0.14")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
@@ -212,6 +212,11 @@ namespace ABook.Infrastructure.Migrations
 
                     b.Property<int?>("ChatMemoryThroughMessageId")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("ChatPartRequestsEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<int>("ClarificationsStatus")
                         .HasColumnType("integer");

@@ -1,5 +1,9 @@
 # Release Notes
 
+## v0.5.5 — 2026-10-26
+
+- feat(book chat): **the chat can read the parts of the book it needs** — off by default; turn on **Let the book chat read parts of the book** in Book Settings, or ask the chat to turn it on and apply its **Setting** card. When a request needs more than the summaries the chat sees ("in chapter 3, change what Mara says at the gate"), the LLM first asks for up to 6 parts in full — chapter text, chapter plans, character cards, plot threads — the chat shows "📖 Reading Chapter 3, Mara before replying…", the app sends them back, and the answer to that is the reply. A second LLM call happens only when it asks for something. Also `chatPartRequestsEnabled` in MCP `update_book`. Migration `ChatPartRequests`
+
 ## v0.5.4 — 2026-10-25
 
 - feat(telegram): **no more topics in the private chat** — the bot never opens topics itself. Tapping a book in `/books` (or creating one with `/newbook`) shows its card right there and **doesn't follow it anywhere**. Following is explicit: the book card's **🔗 Chats** lists the chats that follow the book (each with *disconnect*) and makes a one-time code for the access you pick — the same code as Book Settings → Telegram, with a link for this private chat, a link to add the bot to a group, and `/bind CODE` for a topic or channel. Turn topic mode off in @BotFather if it's on: with it, Telegram starts a new topic for every message you send outside one

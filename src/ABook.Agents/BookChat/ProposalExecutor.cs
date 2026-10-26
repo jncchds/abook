@@ -426,6 +426,8 @@ public class ProposalExecutor(
                 p.Target = $"{BookContentService.NoteTarget}:{change.ClarificationId}";
                 return (change, null);
             }
+            case BookChatActions.SetPartRequests:
+                return (await content.SetPartRequestsAsync(bookId, a.Text == "on"), null);
             case BookChatActions.WriteChapter:
             {
                 var chapterId = a.ChapterId ?? await AddedChapterIdAsync(bookId, p);
@@ -674,6 +676,7 @@ public class ProposalExecutor(
                 BookChatActions.MoveChapter => await content.MoveChapterAsync(bookId, a.ChapterId!.Value,
                     a.UndoAtStart ? null : a.UndoAfterChapterId),
                 BookChatActions.AddNote => await content.ArchiveNoteAsync(bookId, TargetId(p, "note:")),
+                BookChatActions.SetPartRequests => await content.SetPartRequestsAsync(bookId, before == "on"),
                 _ => await content.RestoreProseAsync(bookId, TargetId(p, "prose:"), p.BeforeVersionId, ct),
             };
             p.Status = ChatProposalStatus.Undone;

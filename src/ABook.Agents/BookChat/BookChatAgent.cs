@@ -18,6 +18,8 @@ public class BookChatAgent : AgentBase
     private readonly ChapterSummarizer _summarizer;
 
     private const string FailedPrefix = "❌";
+    /// <summary>Starts the event of a two-step reply saying what is being read — not part of the conversation.</summary>
+    internal const string ReadingPrefix = "📖";
 
     /// <summary>Stale chapter summaries refreshed before a reply, at most — the rest wait for the next one.</summary>
     private const int SummaryRefreshPerTurn = 2;
@@ -166,7 +168,10 @@ public class BookChatAgent : AgentBase
             .Where(n => authorText.Contains(n, StringComparison.OrdinalIgnoreCase))
             .ToList();
         var digest = PromptTemplates.BookChatDigest(book, locked, bible, characters, threads, chapters, focus);
-        var system = PromptTemplates.BookChatSystem(book, locked, BookChatActions.Available(locked)) + "\n\n" +
+        // Two-step replies: the model may first name the parts it needs in full. Not for the opening reply — the
+        // new book has nothing to read yet.
+        var twoStep = book.ChatPartRequestsEnabled && author is not null;
+        var system = PromptTemplates.BookChatSystem(book, locked, BookChatActions.Available(locked), twoStep) + "\n\n" +
                      PromptTemplates.BookChatContext(digest, book.ChatMemory);
 
         var (client, config) = await GetChatClientAsync(bookId);
@@ -183,22 +188,41 @@ public class BookChatAgent : AgentBase
                     .Select(p => (p.Status.ToString(), p.Type, p.Label, p.PayloadJson, p.ConflictNote ?? (IsRevisable(p) ? p.ResultNote : null))),
                 authorText);
         var messages = BuildMessages(system, history, turn);
-        var schema = BookChatActions.ReplySchema(locked);
 
-        var raw = await StreamResponseAsync(client, config, messages, bookId, null, AgentRole.BookChat, ct,
-            suspiciousThreshold: 0, jsonSchema: schema);
-        var parsed = BookChatActions.Parse(raw);
-        if (parsed is null)
+        async Task<(string Raw, ParsedChatReply? Parsed)> CallAsync(List<LlmChatMessage> request, bool partRequests)
         {
+            var schema = BookChatActions.ReplySchema(locked, partRequests);
+            var raw = await StreamResponseAsync(client, config, request, bookId, null, AgentRole.BookChat, ct,
+                suspiciousThreshold: 0, jsonSchema: schema);
+            var parsed = BookChatActions.Parse(raw);
+            if (parsed is not null) return (raw, parsed);
             // One repair attempt, not streamed: small models sometimes wrap the JSON in prose or break it.
-            var repair = new List<LlmChatMessage>(messages)
+            var repair = new List<LlmChatMessage>(request)
             {
                 new(LlmChatRole.Assistant, raw),
-                new(LlmChatRole.User, PromptTemplates.BookChatRepairRequest),
+                new(LlmChatRole.User, PromptTemplates.BookChatRepairRequest(partRequests)),
             };
             var repaired = await StreamResponseAsync(client, config, repair, bookId, null, AgentRole.BookChat, ct,
                 suspiciousThreshold: 0, jsonSchema: schema, forwardToUi: false);
             parsed = BookChatActions.Parse(repaired);
+            return (parsed is null ? raw : repaired, parsed);
+        }
+
+        var (raw, parsed) = await CallAsync(messages, twoStep);
+        if (twoStep && parsed is { Parts.Count: > 0 })
+        {
+            // Step two: send the parts it asked for and take the answer to that as the reply. The first answer is
+            // only the request — the event tells the author what is being read (and clears the streamed text).
+            var resolved = ResolveParts(parsed.Parts, chapters, characters, threads);
+            await AddEventAsync(bookId, resolved.Labels.Count > 0
+                ? $"{ReadingPrefix} Reading {string.Join(", ", resolved.Labels)} before replying…"
+                : $"{ReadingPrefix} The parts it asked for do not exist — replying without them…");
+            var second = new List<LlmChatMessage>(messages)
+            {
+                new(LlmChatRole.Assistant, raw),
+                new(LlmChatRole.User, PromptTemplates.BookChatPartsTurn(resolved.Parts, resolved.Missing)),
+            };
+            (raw, parsed) = await CallAsync(second, false);
         }
 
         if (parsed is null)
@@ -262,6 +286,7 @@ public class BookChatAgent : AgentBase
             BookChatActions.UpdateChapterOutline => BookContentRender.Json(BookContentRender.Merge(BookContentRender.Parse(before), p.Changes)),
             BookChatActions.PatchChapter => PatchPreview(before, p.OriginalText ?? "", p.ReplacementText ?? "").After,
             BookChatActions.AddNote => p.Text ?? "",
+            BookChatActions.SetPartRequests => p.Text ?? "",
             _ => "",   // archives: gone; write/revise: the Writer or Editor decides
         };
         if (p.Type == BookChatActions.PatchChapter) before = PatchPreview(before, p.OriginalText ?? "", p.ReplacementText ?? "").Before;
@@ -334,8 +359,93 @@ public class BookChatAgent : AgentBase
     private async Task<IReadOnlyList<(LlmChatRole Role, string Content)>> HistoryAsync(int bookId, int beforeId)
     {
         var recent = await Repo.GetChatMessagesAsync(bookId, beforeId, PromptTemplates.BookChatHistoryMessages);
-        // A failed call is not part of the conversation.
-        return recent.Where(m => !(m.Role == BookChatRole.Event && m.Content.StartsWith(FailedPrefix))).Select(Turn).ToList();
+        return recent.Where(InConversation).Select(Turn).ToList();
+    }
+
+    /// <summary>A failed call and the "reading…" note of a two-step reply are not part of the conversation.</summary>
+    private static bool InConversation(BookChatMessage m) =>
+        !(m.Role == BookChatRole.Event && (m.Content.StartsWith(FailedPrefix) || m.Content.StartsWith(ReadingPrefix)));
+
+    /// <summary>
+    /// The parts a two-step reply asked for, found in the book and rendered for the second request — at most
+    /// <see cref="PromptTemplates.BookChatPartsMax"/>, within <paramref name="budget"/> characters (a chapter that does
+    /// not fit is cut, or left out when little room is left). <c>Missing</c> says why a request was not served;
+    /// <c>Labels</c> name the served parts for the author.
+    /// </summary>
+    internal static (List<PromptTemplates.BookChatPart> Parts, List<string> Missing, List<string> Labels) ResolveParts(
+        IReadOnlyList<ChatPartRequest> requests, IReadOnlyList<Chapter> chapters, IReadOnlyList<CharacterCard> characters,
+        IReadOnlyList<PlotThread> threads, int budget = PromptTemplates.BookChatPartsBudget)
+    {
+        var parts = new List<PromptTemplates.BookChatPart>();
+        var missing = new List<string>();
+        var labels = new List<string>();
+        var used = 0;
+        var seen = new HashSet<string>();
+        foreach (var r in requests)
+        {
+            var request = r.Chapter is int n ? $"{r.Kind} {n}" : r.Name is { } name ? $"{r.Kind} {name}" : r.Kind;
+            if (!seen.Add(request.ToLowerInvariant())) continue;
+            if (parts.Count >= PromptTemplates.BookChatPartsMax)
+            {
+                missing.Add(PromptTemplates.BookChatPartMissing(request, PromptTemplates.BookChatPartOverLimit));
+                continue;
+            }
+
+            PromptTemplates.BookChatPart? part = null;
+            string? label = null, reason = null;
+            switch (r.Kind)
+            {
+                case BookChatActions.PartChapterText or BookChatActions.PartChapterPlan:
+                {
+                    var chapter = r.Chapter is int number ? chapters.FirstOrDefault(c => c.Number == number) : null;
+                    if (chapter is null) reason = PromptTemplates.BookChatPartNoChapter;
+                    else if (r.Kind == BookChatActions.PartChapterPlan)
+                        (part, label) = (PromptTemplates.BookChatChapterPlanPart(chapter), $"the plan of Chapter {chapter.Number}");
+                    else if (chapter.Content.Trim().Length == 0) reason = PromptTemplates.BookChatPartNotWritten;
+                    else
+                    {
+                        var room = budget - used;
+                        var text = chapter.Content.Trim();
+                        if (text.Length > room && room < 2_000) reason = PromptTemplates.BookChatPartOverBudget;
+                        else
+                        {
+                            if (text.Length > room) text = text[..room] + PromptTemplates.BookChatPartCut;
+                            (part, label) = (PromptTemplates.BookChatChapterTextPart(chapter, text), $"Chapter {chapter.Number}");
+                        }
+                    }
+                    break;
+                }
+                case BookChatActions.PartCharacter:
+                {
+                    var card = characters.FirstOrDefault(c => c.Name.Equals(r.Name?.Trim(), StringComparison.OrdinalIgnoreCase));
+                    if (card is null) reason = PromptTemplates.BookChatPartNoCharacter;
+                    else (part, label) = (PromptTemplates.BookChatCharacterPart(card), card.Name);
+                    break;
+                }
+                case BookChatActions.PartPlotThread:
+                {
+                    var thread = threads.FirstOrDefault(t => t.Name.Equals(r.Name?.Trim(), StringComparison.OrdinalIgnoreCase));
+                    if (thread is null) reason = PromptTemplates.BookChatPartNoThread;
+                    else (part, label) = (PromptTemplates.BookChatThreadPart(thread), $"the thread {thread.Name}");
+                    break;
+                }
+                default:
+                    reason = PromptTemplates.BookChatPartUnknownKind;
+                    break;
+            }
+
+            if (part is not null && used + part.Body.Length > budget && r.Kind != BookChatActions.PartChapterText)
+                (part, reason) = (null, PromptTemplates.BookChatPartOverBudget);
+            if (part is null)
+            {
+                missing.Add(PromptTemplates.BookChatPartMissing(request, reason ?? PromptTemplates.BookChatPartUnknownKind));
+                continue;
+            }
+            parts.Add(part);
+            labels.Add(label!);
+            used += part.Body.Length;
+        }
+        return (parts, missing, labels);
     }
 
     internal static (LlmChatRole Role, string Content) Turn(BookChatMessage m)
@@ -388,6 +498,8 @@ public class BookChatAgent : AgentBase
         var outside = all.Take(Math.Max(0, all.Count - PromptTemplates.BookChatHistoryMessages - 1))
             .Where(m => m.Id > (book.ChatMemoryThroughMessageId ?? 0))
             .ToList();
+        var through = outside.Count > 0 ? outside[^1].Id : 0;
+        outside = outside.Where(InConversation).ToList();
         if (outside.Count < PromptTemplates.BookChatMemoryBatch) return;
 
         var transcript = outside.Select(m =>
@@ -406,7 +518,7 @@ public class BookChatAgent : AgentBase
 
         book = await Repo.GetByIdAsync(bookId) ?? book;
         book.ChatMemory = memory.Trim();
-        book.ChatMemoryThroughMessageId = outside[^1].Id;
+        book.ChatMemoryThroughMessageId = through;
         await Repo.UpdateAsync(book);
     }
 }

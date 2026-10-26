@@ -927,16 +927,28 @@ public static class PromptTemplates
     /// <summary>The question a lasting decision from the book chat is filed under as a clarification.</summary>
     public const string BookChatNoteQuestion = "Decision from the book chat";
 
-    public static string BookChatSystem(Book book, bool bibleLocked, IReadOnlyList<string> actionTypes)
+    /// <summary>Most parts the book chat may ask for in one reply (two-step replies); the rest are left out.</summary>
+    public const int BookChatPartsMax = 6;
+    /// <summary>Most characters of requested parts sent back; a part that does not fit is cut.</summary>
+    public const int BookChatPartsBudget = 60_000;
+
+    /// <param name="partRequests">
+    /// Two-step replies are on (<see cref="Book.ChatPartRequestsEnabled"/>) and this request may ask for parts — the
+    /// reply then has a "parts" key. False for the second step, which answers with the parts in hand.
+    /// </param>
+    public static string BookChatSystem(Book book, bool bibleLocked, IReadOnlyList<string> actionTypes, bool partRequests = false)
     {
         var catalogue = string.Join("\n", actionTypes.Select(t => $"  - {t}: {BookChatActionHelp(t)}"));
         var stage = bibleLocked ? BookChatBibleLockedRules : BookChatFoundationRules;
+        var keys = partRequests ? "\"message\", \"conflicts\", \"actions\" and \"parts\"" : "\"message\", \"conflicts\" and \"actions\"";
+        var partsKey = partRequests ? "\n" + BookChatPartsKey : "";
+        var example = partRequests ? BookChatExample + ",\"parts\":[]}\n" + BookChatPartsExample : BookChatExample + "}";
         return $$"""
             You are the co-author of the book "{{book.Title}}" ({{book.Genre}}), written in {{book.Language}}. The author tells you
             what they want — a new character, a plot thread, a chapter, a change — in any order, and you build the book together.
             You never change the book yourself: you propose changes, and the author applies the ones they want.
 
-            Every reply is one JSON object with exactly these keys:
+            Every reply is one JSON object with exactly the keys {{keys}}:
             - "message": what you say to the author, in the language they write in. Short and concrete. When a request is
               unclear, ask instead of guessing.
             - "conflicts": every way the request contradicts the book as it stands — the Story Bible, characters, plot threads,
@@ -944,7 +956,7 @@ public static class PromptTemplates
               fact it contradicts) and "chapter" (its number, or null). Empty when there are none.
             - "actions": the changes you propose, at most {{BookChatActions.MaxActions}}. Each action has every key — "type", "label"
               (a short description for the author), "chapter", "name", "changes" (a list of {"field", "value"}), "instructions",
-              "originalText", "replacementText", "text", "option" — with the ones it does not use set to null ([] for "changes").
+              "originalText", "replacementText", "text", "option" — with the ones it does not use set to null ([] for "changes").{{partsKey}}
             The action types:
             {{catalogue}}
 
@@ -973,9 +985,20 @@ public static class PromptTemplates
             {{stage}}
 
             Example reply:
-            {"message":"Mara is in the cast. Should she appear in Chapter 2?","conflicts":[],"actions":[{"type":"upsert_character","label":"Add Mara, a smuggler","chapter":null,"name":"Mara","changes":[{"field":"role","value":"Supporting"},{"field":"personality","value":"Wry, loyal to her crew"}],"instructions":null,"originalText":null,"replacementText":null,"text":null,"option":null}]}
+            {{example}}
             """;
     }
+
+    private const string BookChatExample =
+        """
+        {"message":"Mara is in the cast. Should she appear in Chapter 2?","conflicts":[],"actions":[{"type":"upsert_character","label":"Add Mara, a smuggler","chapter":null,"name":"Mara","changes":[{"field":"role","value":"Supporting"},{"field":"personality","value":"Wry, loyal to her crew"}],"instructions":null,"originalText":null,"replacementText":null,"text":null,"option":null}]
+        """;
+
+    private const string BookChatPartsExample =
+        """
+        Example of asking for parts:
+        {"message":"Let me read Chapter 3 first.","conflicts":[],"actions":[],"parts":[{"kind":"chapter_text","chapter":3,"name":null}]}
+        """;
 
     private static string BookChatActionHelp(string type) => type switch
     {
@@ -998,6 +1021,11 @@ public static class PromptTemplates
         BookChatActions.PatchChapter => "\"chapter\"; \"originalText\" = text copied exactly from the chapter (a whole sentence or more); " +
                                         "\"replacementText\" = what replaces it. For small, precise fixes.",
         BookChatActions.AddNote => "\"text\" = the decision to remember.",
+        BookChatActions.SetPartRequests => "\"text\" = \"on\" or \"off\". Turns two-step replies on or off for this book: when on, " +
+                                           "you may first ask for the full text of chapters, full chapter plans, character cards " +
+                                           "and plot threads, and answer once you have read them. Propose it only when the author " +
+                                           "asks for it, or when they keep asking about details of written chapters that the " +
+                                           "summaries you see do not hold.",
         BookChatActions.CheckOutline => "\"chapter\" — re-runs the continuity check of the chapter's outline against the book; " +
                                         "a corrected outline comes back as a new proposal.",
         BookChatActions.CheckChapter => "\"chapter\" (written) — re-runs the continuity check of the chapter's prose; " +
@@ -1006,6 +1034,22 @@ public static class PromptTemplates
                                             "the new characters and plot-thread changes it finds.",
         _ => "",
     };
+
+    private static readonly string BookChatPartsKey =
+        $$"""
+        - "parts": the parts of the book you need to read in full before you can answer, at most {{BookChatPartsMax}} — or [] when
+          what you see is enough. You see only summaries of written chapters, one line per character (full cards only for
+          the characters the author names) and short chapter plans. When the request is about the exact wording, scenes or
+          details of a written chapter, or about a character, plot thread or chapter plan you only see a line of, ask for
+          it instead of guessing. Each part has "kind", "chapter" and "name":
+            - "chapter_text": the full prose of written chapter "chapter".
+            - "chapter_plan": the full plan of chapter "chapter" (outline, POV, characters, threads, foreshadowing, payoff, summary).
+            - "character": the full card of the character "name".
+            - "plot_thread": the full plot thread "name".
+          Set the key a part does not use to null. When you ask for parts, put only a short line in "message" saying what
+          you will read, leave "conflicts" and "actions" empty, and wait: the parts come back in the next message and you
+          answer then. Ask only for what this request needs.
+        """;
 
     private const string BookChatFoundationRules =
         """
@@ -1149,11 +1193,70 @@ public static class PromptTemplates
         "The chapter outline was updated after this chapter was written. Revise the chapter so it follows the updated " +
         "outline; keep everything the outline does not change.";
 
-    public const string BookChatRepairRequest =
-        """
+    public static string BookChatRepairRequest(bool partRequests) =>
+        $"""
         Your last reply was not a valid JSON object of the required shape. Give the same answer again as one JSON object
-        with exactly the keys "message", "conflicts" and "actions" — nothing before or after it.
+        with exactly the keys {(partRequests ? "\"message\", \"conflicts\", \"actions\" and \"parts\"" : "\"message\", \"conflicts\" and \"actions\"")} — nothing before or after it.
         """;
+
+    /// <summary>A part of the book the chat asked for (two-step replies), found and rendered.</summary>
+    public sealed record BookChatPart(string Heading, string Body);
+
+    /// <summary>
+    /// The second step of a two-step reply: the parts the chat asked for in full (<paramref name="missing"/>: the
+    /// requests that could not be served, and why), then the request to answer the author's message now.
+    /// </summary>
+    public static string BookChatPartsTurn(IReadOnlyList<BookChatPart> parts, IReadOnlyList<string> missing)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine(parts.Count > 0 ? "Here are the parts you asked for, in full." : "None of the parts you asked for could be found.");
+        foreach (var p in parts)
+            sb.AppendLine().AppendLine($"## {p.Heading}").AppendLine(p.Body.Trim());
+        if (missing.Count > 0)
+        {
+            sb.AppendLine().AppendLine("Not available:");
+            foreach (var m in missing) sb.AppendLine($"- {m}");
+        }
+        sb.AppendLine().Append(
+            """
+            ---
+
+            Now answer my message above with these parts in hand, as one JSON object with exactly the keys "message",
+            "conflicts" and "actions". You cannot ask for more parts in this reply. When a patch_chapter quotes the
+            chapter, copy "originalText" exactly from the text above.
+            """);
+        return sb.ToString();
+    }
+
+    public static BookChatPart BookChatChapterTextPart(Chapter c, string text) =>
+        new($"Chapter {c.Number}: {c.Title} — full text", text);
+
+    public static BookChatPart BookChatChapterPlanPart(Chapter c)
+    {
+        var body = FieldLines(BookContentRender.Fields(c).Where(kv => kv.Key != "number"));
+        if (!string.IsNullOrWhiteSpace(c.Summary)) body += $"\nsummary of the written chapter:\n{c.Summary.Trim()}";
+        return new($"Chapter {c.Number}: {c.Title} — plan [{(c.Content.Trim().Length > 0 ? "written" : "outline only")}]", body);
+    }
+
+    public static BookChatPart BookChatCharacterPart(CharacterCard c) =>
+        new($"Character: {c.Name}", FieldLines(BookContentRender.Fields(c).Where(kv => kv.Key != "name")));
+
+    public static BookChatPart BookChatThreadPart(PlotThread t) =>
+        new($"Plot thread: {t.Name}", FieldLines(BookContentRender.Fields(t).Where(kv => kv.Key != "name")));
+
+    /// <summary>Why a requested part was not sent.</summary>
+    public static string BookChatPartMissing(string request, string reason) => $"{request}: {reason}";
+    public const string BookChatPartNoChapter = "the book has no such chapter";
+    public const string BookChatPartNotWritten = "this chapter is not written yet — ask for its chapter_plan";
+    public const string BookChatPartNoCharacter = "there is no character with that name";
+    public const string BookChatPartNoThread = "there is no plot thread with that name";
+    public const string BookChatPartUnknownKind = "unknown kind of part";
+    public static readonly string BookChatPartOverLimit = $"more than {BookChatPartsMax} parts in one reply";
+    public const string BookChatPartOverBudget = "left out — the parts already sent use up the room for this reply";
+    public const string BookChatPartCut = "\n… [cut here: the rest did not fit]";
+
+    private static string FieldLines(IEnumerable<KeyValuePair<string, string>> fields) =>
+        string.Join("\n", fields.Where(kv => !string.IsNullOrWhiteSpace(kv.Value)).Select(kv => $"{kv.Key}: {kv.Value.Trim()}"));
 
     public const string BookChatMemorySystem =
         """

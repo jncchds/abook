@@ -26,6 +26,12 @@ public class Book
     /// its first chapter. Off by default: sections are a planning tool.
     /// </summary>
     public bool ShowSectionsInOutput { get; set; }
+    /// <summary>
+    /// Interactive books: the book chat may answer in two steps — first naming the parts of the book it needs in full
+    /// (chapter text, chapter plans, character cards, plot threads), then answering with those parts in hand. Off by
+    /// default; turned on in Book Settings or by applying the chat's own <c>set_part_requests</c> suggestion.
+    /// </summary>
+    public bool ChatPartRequestsEnabled { get; set; }
 
     // ── Art direction: written once per book by the illustration planner, editable, and added word for
     //    word to every image at render time so all portraits and scenes share one style. ─────────────

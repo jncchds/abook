@@ -124,6 +124,8 @@ export interface Book {
   illustrationsEnabled?: boolean
   /** Downloads and the reader show each section as a part heading ("I. Title"). */
   showSectionsInOutput?: boolean
+  /** Interactive books: the book chat may first ask for the parts of the book it needs in full, then answer. */
+  chatPartRequestsEnabled?: boolean
   /** Art direction, added word for word to every image so they share one style. */
   illustrationStyle?: string | null
   illustrationPortraitFraming?: string | null

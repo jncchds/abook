@@ -91,6 +91,7 @@ public class BooksController : ControllerBase
             book.ContinuityCheckerSystemPrompt = baseBook.ContinuityCheckerSystemPrompt;
             book.IllustratorSystemPrompt = baseBook.IllustratorSystemPrompt;
             book.IllustrationsEnabled = baseBook.IllustrationsEnabled;
+            book.ChatPartRequestsEnabled = baseBook.ChatPartRequestsEnabled;
         }
 
         var created = await _repo.AddAsync(book);
@@ -139,6 +140,7 @@ public class BooksController : ControllerBase
         book.Mode = mode;
         if (req.IllustrationsEnabled is bool illustrate) book.IllustrationsEnabled = illustrate;
         if (req.ShowSectionsInOutput is bool showSections) book.ShowSectionsInOutput = showSections;
+        if (req.ChatPartRequestsEnabled is bool partRequests) book.ChatPartRequestsEnabled = partRequests;
         await _repo.UpdateAsync(book);
         await content.RecordBookEditAsync(before, book, EditSources.UserEdit);
         return Ok(book);
@@ -334,5 +336,6 @@ public record UpdateBookRequest(
     BookMode? Mode = null,
     string? IllustratorSystemPrompt = null,
     bool? IllustrationsEnabled = null,
-    bool? ShowSectionsInOutput = null);
+    bool? ShowSectionsInOutput = null,
+    bool? ChatPartRequestsEnabled = null);
 

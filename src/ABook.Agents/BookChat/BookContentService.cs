@@ -37,6 +37,8 @@ public class BookContentService : AgentBase
     public const string PremiseTarget = "premise";
     public const string BibleTarget = "bible";
     public const string NoteTarget = "note";
+    /// <summary>The book's two-step replies setting (<see cref="Book.ChatPartRequestsEnabled"/>), rendered "on" / "off".</summary>
+    public const string PartRequestsTarget = "setting:partRequests";
     public static string CharacterTarget(string name) => $"character:{name}";
     public static string ThreadTarget(string name) => $"thread:{name}";
     public static string ChapterTarget(int chapterId) => $"chapter:{chapterId}";
@@ -53,6 +55,8 @@ public class BookContentService : AgentBase
                 return (await Repo.GetByIdAsync(bookId))?.Premise ?? "";
             case BibleTarget:
                 return BookContentRender.Render(await Repo.GetStoryBibleAsync(bookId));
+            case "setting" when target == PartRequestsTarget:
+                return (await Repo.GetByIdAsync(bookId))?.ChatPartRequestsEnabled == true ? "on" : "off";
             case "character":
                 return BookContentRender.Render(await FindCharacterAsync(bookId, key));
             case "thread":
@@ -91,6 +95,19 @@ public class BookContentService : AgentBase
         book.Premise = premise.Trim();
         await Repo.UpdateAsync(book);
         return new ContentChange("Updated the premise.", before, book.Premise);
+    }
+
+    /// <summary>Turns the book chat's two-step replies on or off (also the undo of the chat's own suggestion).</summary>
+    public async Task<ContentChange> SetPartRequestsAsync(int bookId, bool enabled)
+    {
+        var book = await LoadBookAsync(bookId);
+        var before = book.ChatPartRequestsEnabled ? "on" : "off";
+        book.ChatPartRequestsEnabled = enabled;
+        await Repo.UpdateAsync(book);
+        return new ContentChange(
+            enabled ? "The chat may now read the parts of the book it needs before answering."
+                    : "The chat no longer asks for parts of the book.",
+            before, enabled ? "on" : "off");
     }
 
     /// <summary>The book's info (title, premise…) as a snapshot.</summary>

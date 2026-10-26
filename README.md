@@ -409,6 +409,8 @@ While writing, the premise and Story Bible are **locked**: the chat cannot chang
 
 Each request sends the LLM a compact digest of the book plus only the last few messages (older ones are kept as a short running summary), so long chats stay fast and cheap. The page works on a phone. Over MCP: `send_book_chat_message`, `get_book_chat`, `revise_book_chat_suggestions`, `retry_book_chat_message`, `apply_book_chat_proposals`, `reject_book_chat_proposals`, `undo_book_chat_proposal`, `start_book_chat`, `lock_story_bible`. In Telegram, the book card has **🔒 Lock bible & start writing**.
 
+**Letting the chat read parts of the book.** That digest holds only summaries of written chapters and one line per character, so a request like "in chapter 3, change what Mara says at the gate" makes the LLM work from memory. Turn on **Let the book chat read parts of the book** in Book Settings — or just ask the chat to turn it on and apply its **Setting** card — and the LLM may first ask for the parts it needs in full (chapter text, chapter plans, character cards, plot threads; up to 6 per reply). The chat shows "📖 Reading Chapter 3, Mara before replying…", the app sends those parts back, and the answer to that is the reply. It costs a second LLM call only when the LLM asks for something. Off by default; also `chatPartRequestsEnabled` in MCP `update_book`.
+
 Chapter edits you make by hand are re-embedded in the background, so retrieval for later chapters sees your text rather than the version the agent wrote.
 
 For books created from a base book, chapter-level RAG retrieval includes embeddings from all ancestor books in the continuation chain.

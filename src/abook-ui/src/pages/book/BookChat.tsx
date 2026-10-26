@@ -28,6 +28,7 @@ const TYPE_LABELS: Record<string, string> = {
   revise_chapter: 'Revise',
   patch_chapter: 'Edit passage',
   add_note: 'Note',
+  set_part_requests: 'Setting',
   check_outline: 'Outline check',
   check_chapter: 'Continuity check',
   summarize_chapter: 'Summary',
@@ -62,6 +63,7 @@ function targetLink(bookId: number, target?: string | null): string | null {
     case 'thread': return `/books/${bookId}/plot-threads`
     case 'chapter': case 'prose': return `/books/${bookId}/chapters/${key}`
     case 'note': return `/books/${bookId}/clarifications`
+    case 'setting': return `/books/${bookId}/settings`
     default: return null
   }
 }
