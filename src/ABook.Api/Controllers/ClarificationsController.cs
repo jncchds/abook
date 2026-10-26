@@ -59,6 +59,24 @@ public class ClarificationsController : ControllerBase
         return Ok(await _clarifications.UpdateAsync(clarification, req.Question, req.Answer, archived: null));
     }
 
+    [HttpGet("{clarificationId:int}/history")]
+    public async Task<IActionResult> GetHistory(int bookId, int clarificationId)
+    {
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
+        if (ownershipError is not null) return ownershipError;
+        if (await _repo.GetClarificationAsync(bookId, clarificationId) is null) return NotFound();
+        return Ok(await _repo.GetClarificationVersionsAsync(bookId, clarificationId));
+    }
+
+    [HttpPost("{clarificationId:int}/history/{versionId:int}/restore")]
+    public async Task<IActionResult> RestoreVersion(int bookId, int clarificationId, int versionId)
+    {
+        var ownershipError = await ControllerExtensions.RequireBookOwnershipAsync(this, bookId, _repo);
+        if (ownershipError is not null) return ownershipError;
+        try { return Ok(await _repo.RestoreClarificationVersionAsync(bookId, clarificationId, versionId)); }
+        catch (InvalidOperationException) { return NotFound(); }
+    }
+
     [HttpPost("{clarificationId:int}/archive")]
     public Task<IActionResult> Archive(int bookId, int clarificationId) => SetArchivedAsync(bookId, clarificationId, true);
 

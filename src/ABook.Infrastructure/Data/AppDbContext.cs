@@ -38,6 +38,7 @@ public partial class AppDbContext : DbContext
     public DbSet<BookSnapshot> BookSnapshots => Set<BookSnapshot>();
     public DbSet<CharacterCardVersion> CharacterCardVersions => Set<CharacterCardVersion>();
     public DbSet<PlotThreadVersion> PlotThreadVersions => Set<PlotThreadVersion>();
+    public DbSet<ClarificationVersion> ClarificationVersions => Set<ClarificationVersion>();
     public DbSet<Illustration> Illustrations => Set<Illustration>();
     public DbSet<BookImage> BookImages => Set<BookImage>();
     public DbSet<VisualAsset> VisualAssets => Set<VisualAsset>();
@@ -295,6 +296,17 @@ public partial class AppDbContext : DbContext
              .HasForeignKey(x => x.PlotThreadId)
              .OnDelete(DeleteBehavior.Cascade);
             v.HasIndex(x => new { x.PlotThreadId, x.VersionNumber }).IsUnique();
+        });
+
+        modelBuilder.Entity<ClarificationVersion>(v =>
+        {
+            v.HasKey(x => x.Id);
+            v.Property(x => x.CreatedBy).HasMaxLength(100);
+            v.HasOne(x => x.Clarification)
+             .WithMany()
+             .HasForeignKey(x => x.ClarificationId)
+             .OnDelete(DeleteBehavior.Cascade);
+            v.HasIndex(x => new { x.ClarificationId, x.VersionNumber }).IsUnique();
         });
 
         modelBuilder.Entity<RefreshToken>(r =>

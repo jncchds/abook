@@ -45,7 +45,15 @@ public sealed record BookChatState(
     bool BibleLocked,
     IReadOnlyList<string> Characters,
     IReadOnlyList<string> Threads,
-    IReadOnlyList<BookChatChapter> Chapters);
+    IReadOnlyList<BookChatChapter> Chapters,
+    IReadOnlyList<BookChatNote>? Notes = null);
+
+/// <summary>An answered clarification as the chat numbers it (N1, N2 … — <see cref="PromptTemplates.AnsweredClarifications"/>).</summary>
+public sealed record BookChatNote(int Id, int Number, string Text)
+{
+    public static IReadOnlyList<BookChatNote> Of(IEnumerable<Clarification> clarifications) =>
+        PromptTemplates.AnsweredClarifications(clarifications).Select((c, i) => new BookChatNote(c.Id, i + 1, c.Answer)).ToList();
+}
 
 public sealed record BookChatChapter(int Id, int Number, string Title, string Content, string Outline = "");
 
@@ -70,6 +78,8 @@ public static class BookChatActions
     public const string ReviseChapter = "revise_chapter";
     public const string PatchChapter = "patch_chapter";
     public const string AddNote = "add_note";
+    public const string UpdateNote = "update_note";
+    public const string ArchiveNote = "archive_note";
     public const string SetPartRequests = "set_part_requests";
     public const string CheckOutline = "check_outline";
     public const string CheckChapter = "check_chapter";
@@ -82,7 +92,7 @@ public static class BookChatActions
     [
         UpdatePremise, UpdateStoryBible, UpsertCharacter, ArchiveCharacter, UpsertPlotThread, ArchivePlotThread,
         AddChapter, UpdateChapterOutline, ArchiveChapter, MoveChapter, WriteChapter, ReviseChapter, PatchChapter, AddNote,
-        SetPartRequests, CheckOutline, CheckChapter, SummarizeChapter,
+        UpdateNote, ArchiveNote, SetPartRequests, CheckOutline, CheckChapter, SummarizeChapter,
     ];
 
     /// <summary>Actions that change chapter prose — they run the Writer, the Editor or the patcher.</summary>
@@ -465,6 +475,25 @@ public static class BookChatActions
                     if ((a.Text ?? a.Instructions) is not string note) return "no note text.";
                     actions.Add(Make(Payload(a.Type, text: note), "Note a decision", BookContentService.NoteTarget));
                     return null;
+
+                case UpdateNote or ArchiveNote:
+                {
+                    var notes = state.Notes ?? [];
+                    var reference = a.Name ?? a.Chapter?.ToString();
+                    var number = reference is null ? null : BookContentRender.Number(reference.TrimStart('N', 'n', '[').TrimEnd(']'));
+                    if (number is null) return "no note number (\"name\": \"N2\").";
+                    var target = notes.FirstOrDefault(n => n.Number == number);
+                    if (target is null) return $"there is no note N{number}.";
+                    if (a.Type == ArchiveNote)
+                    {
+                        actions.Add(Make(Payload(a.Type, name: $"N{number}"), $"Archive note N{number}", BookContentService.NoteIdTarget(target.Id)));
+                        return null;
+                    }
+                    if ((a.Text ?? a.Instructions) is not string text) return "no new note text.";
+                    if (text.Trim() == target.Text.Trim()) return $"note N{number} already says that.";
+                    actions.Add(Make(Payload(a.Type, name: $"N{number}", text: text), $"Update note N{number}", BookContentService.NoteIdTarget(target.Id)));
+                    return null;
+                }
 
                 case SetPartRequests:
                 {

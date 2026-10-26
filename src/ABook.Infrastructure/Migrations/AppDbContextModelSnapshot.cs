@@ -989,6 +989,47 @@ namespace ABook.Infrastructure.Migrations
                     b.ToTable("Clarifications");
                 });
 
+            modelBuilder.Entity("ABook.Core.Models.ClarificationVersion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Answer")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("BookId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ClarificationId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Question")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("VersionNumber")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClarificationId", "VersionNumber")
+                        .IsUnique();
+
+                    b.ToTable("ClarificationVersions");
+                });
+
             modelBuilder.Entity("ABook.Core.Models.ContentRevision", b =>
                 {
                     b.Property<long>("Id")
@@ -2254,6 +2295,17 @@ namespace ABook.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Book");
+                });
+
+            modelBuilder.Entity("ABook.Core.Models.ClarificationVersion", b =>
+                {
+                    b.HasOne("ABook.Core.Models.Clarification", "Clarification")
+                        .WithMany()
+                        .HasForeignKey("ClarificationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Clarification");
                 });
 
             modelBuilder.Entity("ABook.Core.Models.ContentRevision", b =>

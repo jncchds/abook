@@ -677,6 +677,21 @@ export const archiveClarification = (bookId: number, id: number) =>
 export const unarchiveClarification = (bookId: number, id: number) =>
   api.post<Clarification>(`/books/${bookId}/clarifications/${id}/unarchive`)
 
+/** One saved state of a clarification's question and answer (newest first from the API). */
+export interface ClarificationVersion {
+  id: number
+  clarificationId: number
+  versionNumber: number
+  question: string
+  answer: string
+  createdBy: string
+  createdAt: string
+}
+export const getClarificationHistory = (bookId: number, id: number) =>
+  api.get<ClarificationVersion[]>(`/books/${bookId}/clarifications/${id}/history`)
+export const restoreClarificationVersion = (bookId: number, id: number, versionId: number) =>
+  api.post<Clarification>(`/books/${bookId}/clarifications/${id}/history/${versionId}/restore`)
+
 // Plot Threads
 export interface PlotThread {
   id: number

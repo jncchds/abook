@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { useBookContext } from '../../contexts/BookContext'
 import {
   createClarification, updateClarification, archiveClarification, unarchiveClarification,
+  getClarificationHistory, restoreClarificationVersion,
 } from '../../api'
-import type { Clarification } from '../../api'
+import type { Clarification, ClarificationVersion } from '../../api'
 import PhaseActionBar from '../../components/PhaseActionBar'
 
 type Draft = { question: string; answer: string }
@@ -17,6 +18,9 @@ export default function Clarifications() {
   const [busyId, setBusyId] = useState<number | 'new' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showArchived, setShowArchived] = useState(false)
+  const [historyId, setHistoryId] = useState<number | null>(null)
+  const [versions, setVersions] = useState<ClarificationVersion[]>([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
 
   if (!book) return null
   const bookId = book.id
@@ -76,6 +80,53 @@ export default function Clarifications() {
       setEditingId(null)
     }, false)
   }
+
+  const toggleHistory = async (id: number) => {
+    if (historyId === id) { setHistoryId(null); return }
+    setHistoryId(id); setVersions([]); setLoadingHistory(true)
+    try { setVersions((await getClarificationHistory(bookId, id)).data) }
+    catch { setError('Could not load the versions.') }
+    finally { setLoadingHistory(false) }
+  }
+
+  const restoreVersion = (c: Clarification, v: ClarificationVersion) => {
+    if (!confirm(`Restore version ${v.versionNumber}?`)) return
+    return run(c.id, async () => {
+      replace((await restoreClarificationVersion(bookId, c.id, v.id)).data)
+      setHistoryId(null)
+    }, false)
+  }
+
+  const history = (c: Clarification) => historyId === c.id && (
+    <div className="item-history-panel">
+      <div className="history-panel-header" style={{ marginTop: '0.75rem' }}>
+        <strong>📜 Version History</strong>
+        <button className="btn-sm btn-ghost" onClick={() => setHistoryId(null)}>✕</button>
+      </div>
+      {loadingHistory && <p className="empty">Loading…</p>}
+      {!loadingHistory && versions.length === 0 && <p className="empty">No versions yet.</p>}
+      <div className="history-list">
+        {versions.map((v, i) => (
+          <div key={v.id} className="history-item">
+            <div className="history-item-meta">
+              <span className="history-source-badge">v{v.versionNumber}</span>
+              <span className="history-reason">{v.createdBy}</span>
+              <span className="history-date">{new Date(v.createdAt).toLocaleString()}</span>
+            </div>
+            <div className="history-preview-card" style={{ marginTop: '0.25rem' }}>
+              <strong>{v.question}</strong>
+              {v.answer ? <p style={{ whiteSpace: 'pre-wrap' }}>{v.answer}</p> : <p className="empty">No answer.</p>}
+            </div>
+            {(i > 0 || c.isArchived) && (
+              <div className="history-item-actions">
+                <button className="btn-sm" disabled={busyId !== null} onClick={() => restoreVersion(c, v)}>↩ Restore</button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 
   const editor = (
     <div className="char-edit-form">
@@ -157,11 +208,13 @@ export default function Clarifications() {
                   <h3>{c.question}</h3>
                   <p className="blc-premise" style={{ whiteSpace: 'pre-wrap' }}>{c.answer}</p>
                   {c.origin && <p className="message-origin">✈️ {c.origin}</p>}
+                  {history(c)}
                 </>
               )}
             </div>
             {editingId !== c.id && (
               <div className="book-list-card-right">
+                <button className="btn-icon" title="Version History" onClick={() => toggleHistory(c.id)}>📜</button>
                 <button className="btn-icon" title="Edit" onClick={() => startEdit(c)}>✎</button>
                 <button className="btn-archive" title="Archive" disabled={busyId !== null} onClick={() => setArchived(c, true)}>🗄</button>
               </div>
@@ -185,8 +238,10 @@ export default function Clarifications() {
                       ? <p className="blc-premise" style={{ whiteSpace: 'pre-wrap' }}>{c.answer}</p>
                       : <p className="empty">Skipped without an answer.</p>}
                     {c.origin && <p className="message-origin">✈️ {c.origin}</p>}
+                    {history(c)}
                   </div>
                   <div className="book-list-card-right">
+                    <button className="btn-icon" title="Version History" onClick={() => toggleHistory(c.id)}>📜</button>
                     <button className="btn-sm" title="Restore" disabled={busyId !== null} onClick={() => setArchived(c, false)}>♻ Restore</button>
                   </div>
                 </div>

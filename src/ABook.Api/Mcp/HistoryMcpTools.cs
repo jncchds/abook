@@ -229,6 +229,29 @@ public class HistoryMcpTools(
         catch (InvalidOperationException ex) { throw new McpException(ex.Message); }
     }
 
+    [McpServerTool(Name = "list_clarification_versions", ReadOnly = true)]
+    [Description("List a clarification's versions (every change of its question or answer is kept, newest first). Bring one back with restore_clarification_version.")]
+    public async Task<string> ListClarificationVersions(
+        [Description("The book ID.")] int bookId,
+        [Description("The clarification ID.")] int clarificationId)
+    {
+        await GetOwnedBookAsync(bookId, repo);
+        return JsonSerializer.Serialize(await repo.GetClarificationVersionsAsync(bookId, clarificationId), JsonOptions);
+    }
+
+    [McpServerTool(Name = "restore_clarification_version")]
+    [Description("Restore a clarification to one of its versions (and un-archive it); the restored text is saved as the newest version. Refused while an agent run works on the book.")]
+    public async Task<string> RestoreClarificationVersion(
+        [Description("The book ID.")] int bookId,
+        [Description("The clarification ID.")] int clarificationId,
+        [Description("The version ID (from list_clarification_versions).")] int versionId)
+    {
+        await GetOwnedBookAsync(bookId, repo);
+        EnsureIdle(bookId);
+        try { return JsonSerializer.Serialize(await repo.RestoreClarificationVersionAsync(bookId, clarificationId, versionId), JsonOptions); }
+        catch (InvalidOperationException ex) { throw new McpException(ex.Message); }
+    }
+
     // ── Story Bible ───────────────────────────────────────────────────────────
 
     [McpServerTool(Name = "list_story_bible_versions", ReadOnly = true)]

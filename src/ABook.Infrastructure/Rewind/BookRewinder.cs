@@ -222,7 +222,7 @@ public sealed class BookRewinder(AppDbContext db) : IBookRewinder
                 case nameof(StoryBible): await RestoreBibleAsync(change, ct); break;
                 case nameof(CharacterCard): await RestoreCardAsync<CharacterCard, CharacterCardVersion>(change, nameof(CharacterCardVersion.CharacterCardId), ct); break;
                 case nameof(PlotThread): await RestoreCardAsync<PlotThread, PlotThreadVersion>(change, nameof(PlotThreadVersion.PlotThreadId), ct); break;
-                case nameof(Clarification): await RestoreRowAsync<Clarification>(change, ct); break;
+                case nameof(Clarification): await RestoreCardAsync<Clarification, ClarificationVersion>(change, nameof(ClarificationVersion.ClarificationId), ct); break;
                 case nameof(Section): await RestoreRowAsync<Section>(change, ct); break;
                 case nameof(ChatProposal): await RestoreProposalAsync(change, ct); break;
             }

@@ -28,6 +28,8 @@ const TYPE_LABELS: Record<string, string> = {
   revise_chapter: 'Revise',
   patch_chapter: 'Edit passage',
   add_note: 'Note',
+  update_note: 'Note',
+  archive_note: 'Remove note',
   set_part_requests: 'Setting',
   check_outline: 'Outline check',
   check_chapter: 'Continuity check',

@@ -43,6 +43,7 @@ public class BookContentService : AgentBase
     public static string ThreadTarget(string name) => $"thread:{name}";
     public static string ChapterTarget(int chapterId) => $"chapter:{chapterId}";
     public static string ProseTarget(int chapterId) => $"prose:{chapterId}";
+    public static string NoteIdTarget(int clarificationId) => $"{NoteTarget}:{clarificationId}";
 
     /// <summary>The target as it reads now — what a proposal's preview and an undo are compared against.</summary>
     public async Task<string> RenderAsync(int bookId, string? target)
@@ -55,6 +56,8 @@ public class BookContentService : AgentBase
                 return (await Repo.GetByIdAsync(bookId))?.Premise ?? "";
             case BibleTarget:
                 return BookContentRender.Render(await Repo.GetStoryBibleAsync(bookId));
+            case NoteTarget when int.TryParse(key, out var id):
+                return await Repo.GetClarificationAsync(bookId, id) is { IsArchived: false } note ? note.Answer : "";
             case "setting" when target == PartRequestsTarget:
                 return (await Repo.GetByIdAsync(bookId))?.ChatPartRequestsEnabled == true ? "on" : "off";
             case "character":
@@ -685,20 +688,50 @@ public class BookContentService : AgentBase
             Source = ClarificationSource.ChatNote,
             Question = PromptTemplates.BookChatNoteQuestion,
             Answer = text.Trim(),
-        });
+        }, AgentCreatedBy.BookChat);
         await Notifier.NotifyMessagesUpdatedAsync(bookId);   // the UI re-reads clarifications on this event
         return new ContentChange("Noted the decision.", "", note.Answer, ClarificationId: note.Id);
     }
 
+    /// <summary>
+    /// Rewrites a clarification's answer (a note, or the author's answer to a planner question) — a new version of it;
+    /// also the undo of that, with the text it had.
+    /// </summary>
+    public async Task<ContentChange> UpdateNoteAsync(int bookId, int clarificationId, string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) throw new InvalidOperationException("The note is empty.");
+        var note = await LoadActiveNoteAsync(bookId, clarificationId);
+        var before = note.Answer;
+        note.Answer = text.Trim();
+        await Repo.UpdateClarificationAsync(note, AgentCreatedBy.BookChat);
+        await Notifier.NotifyMessagesUpdatedAsync(bookId);
+        return new ContentChange("Updated the note.", before, note.Answer, ClarificationId: note.Id);
+    }
+
     public async Task<ContentChange> ArchiveNoteAsync(int bookId, int clarificationId)
     {
-        var note = await Repo.GetClarificationAsync(bookId, clarificationId)
-            ?? throw new InvalidOperationException("The note no longer exists.");
+        var note = await LoadActiveNoteAsync(bookId, clarificationId);
         note.IsArchived = true;
-        await Repo.UpdateClarificationAsync(note);
+        await Repo.UpdateClarificationAsync(note, AgentCreatedBy.BookChat);
         await Notifier.NotifyMessagesUpdatedAsync(bookId);
         return new ContentChange("Archived the note.", note.Answer, "", ClarificationId: note.Id);
     }
+
+    /// <summary>Brings an archived note back (the undo of archive_note).</summary>
+    public async Task<ContentChange> RestoreNoteAsync(int bookId, int clarificationId)
+    {
+        var note = await Repo.GetClarificationAsync(bookId, clarificationId)
+            ?? throw new InvalidOperationException("The note no longer exists.");
+        note.IsArchived = false;
+        await Repo.UpdateClarificationAsync(note, AgentCreatedBy.BookChat);
+        await Notifier.NotifyMessagesUpdatedAsync(bookId);
+        return new ContentChange("Brought the note back.", "", note.Answer, ClarificationId: note.Id);
+    }
+
+    private async Task<Clarification> LoadActiveNoteAsync(int bookId, int clarificationId) =>
+        await Repo.GetClarificationAsync(bookId, clarificationId) is { IsArchived: false } note
+            ? note
+            : throw new InvalidOperationException("The note no longer exists (or was archived).");
 
     // ── Helpers ─────────────────────────────────────────────────────────────────
 

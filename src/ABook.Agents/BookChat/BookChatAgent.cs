@@ -126,7 +126,8 @@ public class BookChatAgent : AgentBase
         var state = new BookChatState(BookContentService.IsBibleLocked(book),
             (await Repo.GetCharacterCardsAsync(bookId)).Select(c => c.Name).ToList(),
             (await Repo.GetPlotThreadsAsync(bookId)).Select(t => t.Name).ToList(),
-            chapters.Select(c => new BookChatChapter(c.Id, c.Number, c.Title, c.Content, c.Outline)).ToList());
+            chapters.Select(c => new BookChatChapter(c.Id, c.Number, c.Title, c.Content, c.Outline)).ToList(),
+            BookChatNote.Of(book.Clarifications));
         var (normalized, _) = BookChatActions.Normalize(actions, state);
         var proposals = new List<ChatProposal>();
         foreach (var (action, ordinal) in normalized.Select((a, i) => (a, i)))
@@ -235,7 +236,8 @@ public class BookChatAgent : AgentBase
             }, false);
 
         var state = new BookChatState(locked, characters.Select(c => c.Name).ToList(), threads.Select(t => t.Name).ToList(),
-            chapters.Select(c => new BookChatChapter(c.Id, c.Number, c.Title, c.Content, c.Outline)).ToList());
+            chapters.Select(c => new BookChatChapter(c.Id, c.Number, c.Title, c.Content, c.Outline)).ToList(),
+            BookChatNote.Of(book.Clarifications));
         var (actions, dropped) = BookChatActions.Normalize(parsed.Actions, state);
 
         var content = parsed.Message.Length > 0 ? parsed.Message : actions.Count > 0 ? "Here is what I propose." : "(no reply)";
@@ -285,7 +287,7 @@ public class BookChatAgent : AgentBase
                 BookContentRender.Fields(new Chapter { Number = p.ChapterNumber ?? 0 }), p.Changes)),
             BookChatActions.UpdateChapterOutline => BookContentRender.Json(BookContentRender.Merge(BookContentRender.Parse(before), p.Changes)),
             BookChatActions.PatchChapter => PatchPreview(before, p.OriginalText ?? "", p.ReplacementText ?? "").After,
-            BookChatActions.AddNote => p.Text ?? "",
+            BookChatActions.AddNote or BookChatActions.UpdateNote => p.Text ?? "",
             BookChatActions.SetPartRequests => p.Text ?? "",
             _ => "",   // archives: gone; write/revise: the Writer or Editor decides
         };

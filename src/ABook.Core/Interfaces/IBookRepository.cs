@@ -181,8 +181,18 @@ public interface IBookRepository
     /// <summary>The book's clarifications, oldest first.</summary>
     Task<IReadOnlyList<Clarification>> GetClarificationsAsync(int bookId, bool includeArchived = false);
     Task<Clarification?> GetClarificationAsync(int bookId, int clarificationId);
-    Task<Clarification> AddClarificationAsync(Clarification clarification);
-    Task UpdateClarificationAsync(Clarification clarification);
+    /// <summary>
+    /// Saves a new clarification and its first version. <paramref name="createdBy"/> names who made it (null: derived —
+    /// Telegram when it has an <see cref="Clarification.Origin"/>, the planner for its questions, otherwise the web UI).
+    /// </summary>
+    Task<Clarification> AddClarificationAsync(Clarification clarification, string? createdBy = null);
+    /// <summary>Saves a clarification; a changed question or answer is recorded as a new version (a manual one amends a manual one).</summary>
+    Task UpdateClarificationAsync(Clarification clarification, string? createdBy = null);
+    /// <summary>Newest first.</summary>
+    Task<IReadOnlyList<ClarificationVersion>> GetClarificationVersionsAsync(int bookId, int clarificationId);
+    Task<ClarificationVersion?> GetClarificationVersionAsync(int bookId, int clarificationId, int versionId);
+    /// <summary>Puts the version's question and answer back (and un-archives it), recorded as a new version.</summary>
+    Task<Clarification> RestoreClarificationVersionAsync(int bookId, int clarificationId, int versionId);
     /// <summary>Archives every active clarification of the book.</summary>
     Task ArchiveClarificationsAsync(int bookId);
 

@@ -1107,21 +1107,79 @@ public class BookRepository : IBookRepository
         await _db.Clarifications.FirstOrDefaultAsync(c => c.BookId == bookId && c.Id == clarificationId);
 
     // AnsweredAt records the first answer, whichever path gives it — the metadata timeline relies on it.
-    public async Task<Clarification> AddClarificationAsync(Clarification clarification)
+    public async Task<Clarification> AddClarificationAsync(Clarification clarification, string? createdBy = null)
     {
         clarification.CreatedAt = clarification.UpdatedAt = DateTime.UtcNow;
         if (!string.IsNullOrWhiteSpace(clarification.Answer)) clarification.AnsweredAt ??= clarification.CreatedAt;
         _db.Clarifications.Add(clarification);
         await _db.SaveChangesAsync();
+        await RecordClarificationVersionAsync(clarification, createdBy ?? DefaultClarificationSource(clarification));
         return clarification;
     }
 
-    public async Task UpdateClarificationAsync(Clarification clarification)
+    public async Task UpdateClarificationAsync(Clarification clarification, string? createdBy = null)
     {
         clarification.UpdatedAt = DateTime.UtcNow;
         if (!string.IsNullOrWhiteSpace(clarification.Answer)) clarification.AnsweredAt ??= clarification.UpdatedAt;
         _db.Clarifications.Update(clarification);
         await _db.SaveChangesAsync();
+        await RecordClarificationVersionAsync(clarification,
+            createdBy ?? (clarification.Origin is not null ? EditSources.Telegram : EditSources.User));
+    }
+
+    private static string DefaultClarificationSource(Clarification c) =>
+        c.Origin is not null ? EditSources.Telegram
+        : c.Source == ClarificationSource.Planner ? "agent:Planner"
+        : EditSources.User;
+
+    /// <summary>
+    /// A new version when the question or answer differs from the latest one (or there is none yet). A manual edit on
+    /// top of a manual version amends it (see EditSources).
+    /// </summary>
+    private async Task RecordClarificationVersionAsync(Clarification c, string createdBy)
+    {
+        var latest = await _db.ClarificationVersions
+            .Where(v => v.ClarificationId == c.Id)
+            .OrderByDescending(v => v.VersionNumber)
+            .FirstOrDefaultAsync();
+        if (latest is not null && latest.Question == c.Question && latest.Answer == c.Answer) return;
+        if (latest is not null && EditSources.IsManual(createdBy) && EditSources.IsManual(latest.CreatedBy))
+        {
+            latest.Question = c.Question;
+            latest.Answer = c.Answer;
+            latest.CreatedBy = createdBy;
+            latest.CreatedAt = DateTime.UtcNow;
+        }
+        else
+            _db.ClarificationVersions.Add(new ClarificationVersion
+            {
+                ClarificationId = c.Id, BookId = c.BookId, VersionNumber = (latest?.VersionNumber ?? 0) + 1,
+                Question = c.Question, Answer = c.Answer, CreatedBy = createdBy, CreatedAt = DateTime.UtcNow,
+            });
+        await _db.SaveChangesAsync();
+    }
+
+    public async Task<IReadOnlyList<ClarificationVersion>> GetClarificationVersionsAsync(int bookId, int clarificationId) =>
+        await _db.ClarificationVersions.AsNoTracking()
+            .Where(v => v.BookId == bookId && v.ClarificationId == clarificationId)
+            .OrderByDescending(v => v.VersionNumber)
+            .ToListAsync();
+
+    public async Task<ClarificationVersion?> GetClarificationVersionAsync(int bookId, int clarificationId, int versionId) =>
+        await _db.ClarificationVersions.AsNoTracking()
+            .FirstOrDefaultAsync(v => v.BookId == bookId && v.ClarificationId == clarificationId && v.Id == versionId);
+
+    public async Task<Clarification> RestoreClarificationVersionAsync(int bookId, int clarificationId, int versionId)
+    {
+        var version = await GetClarificationVersionAsync(bookId, clarificationId, versionId)
+            ?? throw new InvalidOperationException($"Clarification version {versionId} not found.");
+        var clarification = await GetClarificationAsync(bookId, clarificationId)
+            ?? throw new InvalidOperationException($"Clarification {clarificationId} not found.");
+        clarification.Question = version.Question;
+        clarification.Answer = version.Answer;
+        clarification.IsArchived = false;
+        await UpdateClarificationAsync(clarification, $"restore:v{version.VersionNumber}");
+        return clarification;
     }
 
     public async Task ArchiveClarificationsAsync(int bookId)

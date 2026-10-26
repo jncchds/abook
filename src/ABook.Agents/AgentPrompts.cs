@@ -391,13 +391,27 @@ public static class PromptTemplates
     /// </summary>
     public static string Premise(Book book)
     {
-        var answered = book.Clarifications
-            .Where(c => !c.IsArchived && !string.IsNullOrWhiteSpace(c.Answer))
-            .OrderBy(c => c.CreatedAt).ThenBy(c => c.Id)
-            .ToList();
+        var answered = AnsweredClarifications(book.Clarifications);
         if (answered.Count == 0) return book.Premise;
         return $"{book.Premise}\n\nAuthor clarifications:\n" +
                string.Join("\n", answered.Select(c => QuestionAndAnswer(c.Question.Trim(), c.Answer.Trim()).TrimEnd()));
+    }
+
+    /// <summary>The clarifications prompts carry — active and answered, oldest first. The book chat numbers them N1, N2… in this order.</summary>
+    public static IReadOnlyList<Clarification> AnsweredClarifications(IEnumerable<Clarification> clarifications) =>
+        clarifications
+            .Where(c => !c.IsArchived && !string.IsNullOrWhiteSpace(c.Answer))
+            .OrderBy(c => c.CreatedAt).ThenBy(c => c.Id)
+            .ToList();
+
+    /// <summary>The premise as the book chat sees it: each clarification numbered, so update_note / archive_note can name it.</summary>
+    public static string BookChatPremise(Book book)
+    {
+        var answered = AnsweredClarifications(book.Clarifications);
+        if (answered.Count == 0) return book.Premise;
+        return $"{book.Premise}\n\nAuthor clarifications (notes — refer to them as N1, N2 …):\n" +
+               string.Join("\n", answered.Select((c, i) =>
+                   $"[N{i + 1}] " + QuestionAndAnswer(c.Question.Trim(), c.Answer.Trim()).TrimEnd().Replace("\n", " ")));
     }
 
     private static string Ancestor(string ancestorReference) =>
@@ -975,8 +989,10 @@ public static class PromptTemplates
               alternatives — option "A": adapt the request so it fits the book; option "B": change the book (outlines,
               characters, threads, or revise/patch written chapters) so the request fits. Give every action of an alternative
               the same "option"; leave "option" null for actions that are not alternatives.
-            - Propose add_note for a lasting decision of the author (style, tone, rules, things to avoid) so it guides every
-              later chapter.
+            - Keep the author's notes (the numbered clarifications N1, N2 … under the premise) one decision per subject and
+              free of contradictions. For a lasting decision (style, tone, rules, things to avoid): when a note already
+              covers its subject, propose update_note with that note's complete new text — never a second note that
+              contradicts or repeats it; propose add_note only for a new subject; archive_note a note that no longer holds.
             - When the author asks to run a check or a summary again, propose check_outline, check_chapter or
               summarize_chapter for those chapters — do not check them yourself in your message. These change nothing in
               the book; their findings come back as new proposals. To redo a chapter's prose, use write_chapter (from its
@@ -1020,7 +1036,10 @@ public static class PromptTemplates
         BookChatActions.ReviseChapter => "\"chapter\"; \"instructions\" = what to change in the written prose.",
         BookChatActions.PatchChapter => "\"chapter\"; \"originalText\" = text copied exactly from the chapter (a whole sentence or more); " +
                                         "\"replacementText\" = what replaces it. For small, precise fixes.",
-        BookChatActions.AddNote => "\"text\" = the decision to remember.",
+        BookChatActions.AddNote => "\"text\" = the decision to remember — only when no existing note (N1, N2 …) covers the same subject.",
+        BookChatActions.UpdateNote => "\"name\" = the note (\"N2\"); \"text\" = its complete new text, replacing the old one. " +
+                                      "For a decision that changes, extends or contradicts an existing note.",
+        BookChatActions.ArchiveNote => "\"name\" = the note (\"N2\") — removes a decision that no longer holds (kept in the archive).",
         BookChatActions.SetPartRequests => "\"text\" = \"on\" or \"off\". Turns two-step replies on or off for this book: when on, " +
                                            "you may first ask for the full text of chapters, full chapter plans, character cards " +
                                            "and plot threads, and answer once you have read them. Propose it only when the author " +
@@ -1078,7 +1097,7 @@ public static class PromptTemplates
         head.AppendLine("## The book as it stands");
         head.AppendLine($"Title: {book.Title} | Genre: {book.Genre} | Language: {book.Language}");
         head.AppendLine($"Stage: {(bibleLocked ? "writing (premise and Story Bible locked)" : "foundation (premise and Story Bible open)")}");
-        head.AppendLine($"Premise: {Premise(book)}");
+        head.AppendLine($"Premise: {BookChatPremise(book)}");
 
         head.AppendLine("\n## Story Bible");
         if (bible is null) head.AppendLine("(none yet)");

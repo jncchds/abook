@@ -3,6 +3,8 @@
 ## v0.5.5 — 2026-10-26
 
 - feat(book chat): **the chat can read the parts of the book it needs** — off by default; turn on **Let the book chat read parts of the book** in Book Settings, or ask the chat to turn it on and apply its **Setting** card. When a request needs more than the summaries the chat sees ("in chapter 3, change what Mara says at the gate"), the LLM first asks for up to 6 parts in full — chapter text, chapter plans, character cards, plot threads — the chat shows "📖 Reading Chapter 3, Mara before replying…", the app sends them back, and the answer to that is the reply. A second LLM call happens only when it asks for something. Also `chatPartRequestsEnabled` in MCP `update_book`. Migration `ChatPartRequests`
+- feat(clarifications): **clarifications have versions** like characters and plot threads — every change of a question or answer is kept, whoever made it (web, Telegram, MCP, the planner, the book chat, a rewind); 📜 on the Clarifications page lists them and restores one. Your own edits in a row update one version. MCP `list_clarification_versions`, `restore_clarification_version`. Migration `AddClarificationVersions` (existing clarifications start at version 1)
+- feat(book chat): **notes no longer pile up** — the chat sees your notes numbered (N1, N2 …) and, when a decision changes, proposes **Update note** for the one on that subject (or **Remove note**) instead of adding a second, contradicting note. Both can be undone
 
 ## v0.5.4 — 2026-10-25
 
