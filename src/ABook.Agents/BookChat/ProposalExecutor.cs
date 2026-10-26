@@ -22,6 +22,7 @@ public class ProposalExecutor(
     ContinuityCheckerAgent checker,
     ChapterSummarizer summarizer,
     IllustrationPlannerAgent illustrationPlanner,
+    PlannerAgent planner,
     ILogger<ProposalExecutor> logger)
 {
     /// <summary>Types whose preview shows the target as it read when proposed — applying after it changed needs confirming.</summary>
@@ -31,6 +32,7 @@ public class ProposalExecutor(
         BookChatActions.UpsertCharacter, BookChatActions.ArchiveCharacter,
         BookChatActions.UpsertPlotThread, BookChatActions.ArchivePlotThread,
         BookChatActions.UpdateChapterOutline, BookChatActions.ArchiveChapter,
+        BookChatActions.UpdateSectionPlan, BookChatActions.ArchiveSection,
     ];
 
     /// <summary>The proposals whose target changed since they were proposed: applying them would overwrite that change.</summary>
@@ -45,7 +47,9 @@ public class ProposalExecutor(
     /// <summary>Why <paramref name="p"/> cannot be undone now, or null when it can.</summary>
     public async Task<string?> UndoBlockerAsync(int bookId, ChatProposal p)
     {
-        if (BookChatActions.IsStep(p.Type)) return "A check or summary changes nothing in the book — there is nothing to undo.";
+        if (BookChatActions.IsStep(p.Type)) return "A check, summary or breakdown changes nothing in the book — there is nothing to undo.";
+        if (p.Type == BookChatActions.WriteSection)
+            return "Writing a section only queued its chapters — undo each chapter's writing on its own card.";
         if (p.Status != ChatProposalStatus.Applied) return "Only an applied change can be undone.";
         if (p.Type is BookChatActions.UpdatePremise or BookChatActions.UpdateStoryBible
             && await repo.GetByIdAsync(bookId) is { } book && BookContentService.IsBibleLocked(book))
@@ -60,6 +64,11 @@ public class ProposalExecutor(
             && int.TryParse(t[8..], out var chapterId)
             && await repo.GetChapterAsync(bookId, chapterId) is { IsArchived: false } chapter && chapter.Content.Trim().Length > 0)
             return $"Chapter {chapter.Number} has been written — undo its writing first.";
+        // Undoing an added section removes it with its chapters: not while one of them holds prose.
+        if (p.Type == BookChatActions.AddSection && p.Target is { } st && st.StartsWith("section:")
+            && int.TryParse(st[8..], out var sectionId)
+            && (await repo.GetChaptersAsync(bookId)).FirstOrDefault(c => c.SectionId == sectionId && c.Content.Trim().Length > 0) is { } writtenChapter)
+            return $"Chapter {writtenChapter.Number} of this section has been written — undo its writing first.";
         return null;
     }
 
@@ -129,9 +138,15 @@ public class ProposalExecutor(
         await RejectOtherOptionsAsync(bookId, proposals);
 
         var steps = proposals.Where(p => BookChatActions.IsStep(p.Type)).ToList();
-        var quick = proposals.Where(p => !BookChatActions.ProseActions.Contains(p.Type) && !BookChatActions.IsStep(p.Type)).ToList();
+        var sectionWrites = proposals.Where(p => p.Type == BookChatActions.WriteSection).ToList();
+        var quick = proposals.Where(p => !BookChatActions.ProseActions.Contains(p.Type) && !BookChatActions.IsStep(p.Type)
+                                         && p.Type != BookChatActions.WriteSection).ToList();
         var prose = proposals.Where(p => BookChatActions.ProseActions.Contains(p.Type)).ToList();
         foreach (var p in quick) await ApplyOneAsync(bookId, p, ct);
+
+        // A section write becomes one write_chapter per unwritten chapter (after the quick changes, so chapters they
+        // added are included), queued with the batch's other writes below.
+        foreach (var p in sectionWrites) prose.AddRange(await ExpandSectionWriteAsync(bookId, p, prose, ct));
 
         // Offered before the prose runs, so these offers don't hold up the chapters queued below.
         await OfferNextStepsAsync(bookId, quick, prose);
@@ -191,35 +206,130 @@ public class ProposalExecutor(
     }
 
     /// <summary>
+    /// The write_section proposal: one write_chapter proposal per chapter of the section not written yet (and not
+    /// already written by this batch), posted as a message of their own. Returns them for the caller's queue; the
+    /// section write itself is Applied once they are posted, or Failed when there is nothing left to write.
+    /// </summary>
+    private async Task<IReadOnlyList<ChatProposal>> ExpandSectionWriteAsync(int bookId, ChatProposal p, IReadOnlyList<ChatProposal> batch, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        p.Status = ChatProposalStatus.Applying;
+        await repo.UpdateProposalAsync(p);
+        await notifier.NotifyBookChatAsync(bookId, p.MessageId, ct);
+        try
+        {
+            var a = ChatActionPayload.FromJson(p.PayloadJson);
+            var section = a.SectionId is int sectionId && await repo.GetSectionAsync(bookId, sectionId) is { IsArchived: false } s
+                ? s
+                : throw new InvalidOperationException("The section no longer exists.");
+            var inBatch = batch.Where(o => o.Type == BookChatActions.WriteChapter)
+                .Select(o => ChatActionPayload.FromJson(o.PayloadJson).ChapterId).OfType<int>().ToHashSet();
+            var chapters = (await repo.GetChaptersAsync(bookId))
+                .Where(c => c.SectionId == section.Id && c.Content.Trim().Length == 0 && !inBatch.Contains(c.Id))
+                .ToList();
+            if (chapters.Count == 0)
+                throw new InvalidOperationException($"Every chapter of Section {section.Number} is written (or being written in this batch).");
+
+            var actions = chapters.Select(c => Raw(BookChatActions.WriteChapter, $"Write Chapter {c.Number}: {c.Title}",
+                chapter: c.Number, instructions: a.Instructions)).ToList();
+            var message = await chat.ProposeAsync(bookId,
+                $"✍️ Writing Section {section.Number} \"{section.Title}\": {chapters.Count} chapter(s), one at a time — each starts " +
+                "once the one before it is written and checked, and its follow-ups are applied or rejected.",
+                actions, maxActions: actions.Count);
+            p.AppliedAt = DateTime.UtcNow;
+            await FinishAsync(bookId, p, ChatProposalStatus.Applied, $"Queued {chapters.Count} chapter(s) of Section {section.Number} — see the message below.");
+            return message.Proposals.OrderBy(o => o.Ordinal).ToList();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            await FinishAsync(bookId, p, ChatProposalStatus.Failed, "Stopped before it finished.");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "[Book {BookId}] Expanding section write {ProposalId} failed.", bookId, p.Id);
+            repo.DiscardPendingChanges();
+            await FinishAsync(bookId, p, ChatProposalStatus.Failed, ex.Message);
+            return [];
+        }
+    }
+
+    /// <summary>
     /// The obvious next step after an outline is settled, offered as a card without asking the chat model: write a
-    /// chapter whose outline was added or changed and that has no prose yet, or revise a written one to its new
-    /// outline. Skipped when this batch already changed that chapter's prose or a card for it is still open.
+    /// chapter whose outline was added or changed and that has no prose yet (write the section when several chapters of
+    /// one section were outlined), revise a written one to its new outline, or break a new section planned for several
+    /// chapters down. Skipped when this batch already changed that chapter's prose or a card for it is still open.
     /// </summary>
     private async Task OfferNextStepsAsync(int bookId, IReadOnlyList<ChatProposal> quick, IReadOnlyList<ChatProposal> prose)
     {
-        var outlined = quick
-            .Where(p => p.Status == ChatProposalStatus.Applied
-                        && p.Type is BookChatActions.AddChapter or BookChatActions.UpdateChapterOutline)
-            .Select(p => (Proposal: p, ChapterId: p.Target is { } t && t.StartsWith("chapter:") && int.TryParse(t[8..], out var id) ? id : 0))
+        var applied = quick.Where(p => p.Status == ChatProposalStatus.Applied).ToList();
+        var outlined = applied
+            .Where(p => p.Type is BookChatActions.AddChapter or BookChatActions.UpdateChapterOutline)
+            .Select(p => (Proposal: p, ChapterId: TargetIdOrZero(p, "chapter:")))
             .Where(x => x.ChapterId > 0)
             .ToList();
-        if (outlined.Count == 0) return;
+        var addedSections = applied
+            .Where(p => p.Type == BookChatActions.AddSection)
+            .Select(p => (Proposal: p, SectionId: TargetIdOrZero(p, "section:")))
+            .Where(x => x.SectionId > 0)
+            .ToList();
+        if (outlined.Count == 0 && addedSections.Count == 0) return;
 
         var open = (await repo.GetProposalsByStatusAsync(bookId, ChatProposalStatus.Pending))
             .Concat(await repo.GetProposalsByStatusAsync(bookId, ChatProposalStatus.Failed))
             .Concat(prose)
-            .Where(o => o.Type is BookChatActions.WriteChapter or BookChatActions.ReviseChapter)
+            .Where(o => o.Type is BookChatActions.WriteChapter or BookChatActions.ReviseChapter
+                or BookChatActions.WriteSection or BookChatActions.BreakDownSection)
             .ToList();
+        bool OpenForSection(int sectionId) => open.Any(o => o.Type is BookChatActions.WriteSection or BookChatActions.BreakDownSection
+                                                            && ChatActionPayload.FromJson(o.PayloadJson).SectionId == sectionId);
         var actions = new List<RawChatAction>();
         var lines = new List<string>();
+        var allChapters = (await repo.GetChaptersAsync(bookId)).ToList();
+
+        // A new section: break it down when it is planned for several chapters, otherwise write its chapter.
+        foreach (var (added, sectionId) in addedSections)
+        {
+            if (open.Any(o => o.DependsOnProposalId == added.Id) || OpenForSection(sectionId)) continue;
+            if (await repo.GetSectionAsync(bookId, sectionId) is not { IsArchived: false } section) continue;
+            var own = allChapters.Where(c => c.SectionId == sectionId).ToList();
+            if (own.Count == 1 && section.PlannedChapters > 1 && own[0].Content.Trim().Length == 0)
+            {
+                actions.Add(Raw(BookChatActions.BreakDownSection, $"Break Section {section.Number} down into {section.PlannedChapters} chapters",
+                    section: section.Number));
+                lines.Add($"Section {section.Number} \"{section.Title}\" is planned for {section.PlannedChapters} chapters — break it down into them when you are ready.");
+            }
+            else if (own.Count > 0) outlined.Add((added, own[0].Id));
+        }
+
+        var candidates = new List<(ChatProposal Proposal, Chapter Chapter)>();
         foreach (var (added, chapterId) in outlined.DistinctBy(x => x.ChapterId))
         {
             var proseTarget = BookContentService.ProseTarget(chapterId);
             if (open.Any(o => o.Target == proseTarget || o.DependsOnProposalId == added.Id)) continue;
-            if (await repo.GetChapterAsync(bookId, chapterId) is not { IsArchived: false } chapter) continue;
+            if (allChapters.FirstOrDefault(c => c.Id == chapterId) is not { } chapter) continue;
+            candidates.Add((added, chapter));
+        }
+
+        // Several chapters of one section outlined at once (a breakdown): one card to write the section.
+        var sectionCards = candidates.Where(x => x.Chapter.Content.Trim().Length == 0 && x.Chapter.SectionId is not null)
+            .GroupBy(x => x.Chapter.SectionId!.Value)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToHashSet();
+        foreach (var sectionId in sectionCards)
+        {
+            if (OpenForSection(sectionId) || await repo.GetSectionAsync(bookId, sectionId) is not { IsArchived: false } section) continue;
+            actions.Add(Raw(BookChatActions.WriteSection, $"Write Section {section.Number}: {section.Title}", section: section.Number));
+            lines.Add($"The chapters of Section {section.Number} \"{section.Title}\" are planned — write them one after another when you are ready.");
+        }
+
+        foreach (var (added, chapter) in candidates)
+        {
             var name = chapter.Title.Trim().Length > 0 ? $"Chapter {chapter.Number}: {chapter.Title}" : $"Chapter {chapter.Number}";
             if (chapter.Content.Trim().Length == 0)
             {
+                if (chapter.SectionId is int sid && sectionCards.Contains(sid)) continue;
                 actions.Add(Raw(BookChatActions.WriteChapter, $"Write {name}", chapter: chapter.Number));
                 lines.Add($"The outline of {name} is ready — write it when you are.");
             }
@@ -232,6 +342,9 @@ public class ProposalExecutor(
         }
         if (actions.Count > 0) await chat.ProposeAsync(bookId, "➡️ " + string.Join("\n\n", lines), actions);
     }
+
+    private static int TargetIdOrZero(ChatProposal p, string prefix) =>
+        p.Target is { } t && t.StartsWith(prefix) && int.TryParse(t[prefix.Length..], out var id) ? id : 0;
 
     /// <summary>Alternatives are exclusive: applying option A of a reply rejects its option B.</summary>
     private async Task RejectOtherOptionsAsync(int bookId, IReadOnlyList<ChatProposal> applying)
@@ -398,11 +511,39 @@ public class ProposalExecutor(
                 return (await content.ArchivePlotThreadAsync(bookId, a.Name!), null);
             case BookChatActions.AddChapter:
             {
-                var change = a.AtStart || a.AfterChapterId is not null
-                    ? await content.InsertChapterAsync(bookId, a.AtStart ? null : a.AfterChapterId, a.Changes)
-                    : await content.AddChapterAsync(bookId, a.Changes);
+                var change = a.SectionId is int sectionId
+                    ? await content.AddChapterAsync(bookId, a.Changes, sectionId)
+                    : a.AtStart || a.AfterChapterId is not null
+                        ? await content.InsertChapterAsync(bookId, a.AtStart ? null : a.AfterChapterId, a.Changes)
+                        : await content.AddChapterAsync(bookId, a.Changes);
                 p.Target = BookContentService.ChapterTarget(change.ChapterId!.Value);
                 return (change, null);
+            }
+            case BookChatActions.AddSection:
+            {
+                var change = await content.AddSectionAsync(bookId, a.AtStart ? null : a.AfterSectionId, a.AtStart, a.Changes);
+                p.Target = BookContentService.SectionTarget(change.SectionId!.Value);
+                return (change, null);
+            }
+            case BookChatActions.UpdateSectionPlan:
+                return (await content.UpdateSectionPlanAsync(bookId, a.SectionId!.Value, a.Changes), null);
+            case BookChatActions.MoveSection:
+            {
+                var sections = (await repo.GetSectionsAsync(bookId)).ToList();
+                var index = sections.FindIndex(s => s.Id == a.SectionId);
+                if (index < 0) throw new InvalidOperationException("The section no longer exists.");
+                await EnsureNothingWrittenAsync(bookId, sections[index], "moved");
+                // Where it was, for undo.
+                var previous = index > 0 ? sections[index - 1] : null;
+                p.PayloadJson = (a with { UndoAfterSectionId = previous?.Id, UndoAtStart = previous is null }).ToJson();
+                return (await content.MoveSectionAsync(bookId, a.SectionId!.Value, a.AtStart ? null : a.AfterSectionId), null);
+            }
+            case BookChatActions.ArchiveSection:
+            {
+                var section = await repo.GetSectionAsync(bookId, a.SectionId!.Value)
+                    ?? throw new InvalidOperationException("The section no longer exists.");
+                await EnsureNothingWrittenAsync(bookId, section, "removed");
+                return (await content.ArchiveSectionAsync(bookId, section.Id), null);
             }
             case BookChatActions.MoveChapter:
             {
@@ -463,18 +604,43 @@ public class ProposalExecutor(
             case BookChatActions.CheckChapter:
             case BookChatActions.SummarizeChapter:
                 return (await ChapterStepAsync(bookId, a.ChapterId!.Value, a.Type == BookChatActions.CheckChapter, ct), null);
-            default:
+            case BookChatActions.BreakDownSection:
+                return (await BreakDownStepAsync(bookId, a.SectionId ?? await AddedSectionIdAsync(bookId, p),
+                    BookContentRender.Number(a.Changes.GetValueOrDefault(BookContentRender.PlannedChaptersField)), ct), null);
+            default:   // write_section is expanded by the batch, never run on its own
                 throw new InvalidOperationException($"Unknown action \"{a.Type}\".");
         }
     }
 
-    /// <summary>The chapter a write needs, added by the proposal it depends on.</summary>
+    /// <summary>Refuses to move or remove a section once one of its chapters holds prose: written chapters never move.</summary>
+    private async Task EnsureNothingWrittenAsync(int bookId, Section section, string verb)
+    {
+        if ((await repo.GetChaptersAsync(bookId)).FirstOrDefault(c => c.SectionId == section.Id && c.Content.Trim().Length > 0) is { } written)
+            throw new InvalidOperationException(
+                $"Chapter {written.Number} of Section {section.Number} has been written — only sections with nothing written can be {verb}.");
+    }
+
+    /// <summary>
+    /// The chapter a write or outline check needs, added by the proposal it depends on: an added chapter, or the one
+    /// chapter of an added section.
+    /// </summary>
     private async Task<int> AddedChapterIdAsync(int bookId, ChatProposal p)
     {
         var added = p.DependsOnProposalId is int id ? await repo.GetProposalAsync(bookId, id) : null;
-        return added?.Target is { } t && t.StartsWith("chapter:") && int.TryParse(t[8..], out var chapterId)
-            ? chapterId
-            : throw new InvalidOperationException("The chapter to write was not added.");
+        if (added?.Target is { } t && t.StartsWith("chapter:") && int.TryParse(t[8..], out var chapterId)) return chapterId;
+        if (added is not null && TargetIdOrZero(added, "section:") is var sectionId and > 0
+            && (await repo.GetChaptersAsync(bookId)).FirstOrDefault(c => c.SectionId == sectionId) is { } first)
+            return first.Id;
+        throw new InvalidOperationException("The chapter to write was not added.");
+    }
+
+    /// <summary>The section a breakdown needs, added by the proposal it depends on.</summary>
+    private async Task<int> AddedSectionIdAsync(int bookId, ChatProposal p)
+    {
+        var added = p.DependsOnProposalId is int id ? await repo.GetProposalAsync(bookId, id) : null;
+        return added is not null && TargetIdOrZero(added, "section:") is var sectionId and > 0
+            ? sectionId
+            : throw new InvalidOperationException("The section to break down was not added.");
     }
 
     /// <summary>Runs a prose change, recording the versions before and after so it can be undone.</summary>
@@ -648,10 +814,66 @@ public class ProposalExecutor(
             "", "", chapterId);
     }
 
+    /// <summary>
+    /// The break_down_section step: the planner divides the section into chapters (the same LLM call as the Chapters
+    /// page's Break down) and the result is posted as proposals instead of being saved — add_chapter for the new
+    /// chapters at the end of the section, update_chapter_outline for the chapters it has, archive_chapter for the ones
+    /// it no longer needs. For a section of one chapter, that chapter's new outline depends on the first added
+    /// chapter: once the section has two chapters it keeps its own overall plan instead of following the first one.
+    /// </summary>
+    private async Task<ContentChange> BreakDownStepAsync(int bookId, int sectionId, int? chapterCount, CancellationToken ct)
+    {
+        var section = await repo.GetSectionAsync(bookId, sectionId) ?? throw new InvalidOperationException("The section no longer exists.");
+        if (section.IsArchived) throw new InvalidOperationException($"Section {section.Number} is archived.");
+        var count = chapterCount ?? (section.PlannedChapters > 1 ? Math.Min(section.PlannedChapters, BookChatActions.MaxSectionChapters) : null);
+
+        state.UpdateRunRole(bookId, AgentRole.ChaptersAgent, null);
+        var plan = await planner.PlanBreakdownAsync(bookId, sectionId, count, ct);
+        var parts = plan.Parts.Take(BookChatActions.MaxSectionChapters).ToList();
+        var current = plan.Current;
+        var n = plan.Section.Number;
+        var name = $"Section {n} \"{plan.Section.Title}\"";
+        if (parts.Count < 2)
+        {
+            await chat.ProposeAsync(bookId,
+                $"⋔ The breakdown of {name} came back with {parts.Count} chapter(s) — nothing to propose. Run it again, or ask me to plan its chapters.", []);
+            return new ContentChange("The breakdown came back with fewer than two chapters.", "", "");
+        }
+
+        static List<KeyValuePair<string, string>> Plan(Chapter part) =>
+            BookContentRender.Fields(part).Where(kv => kv.Key != "number").ToList();
+        var actions = new List<RawChatAction>();
+        for (var i = current.Count; i < parts.Count; i++)
+            actions.Add(Raw(BookChatActions.AddChapter, $"Add chapter {i + 1} of {parts.Count} to Section {n}: {parts[i].Title}",
+                section: n, changes: Plan(parts[i])));
+        for (var i = 0; i < current.Count && i < parts.Count; i++)
+            actions.Add(Raw(BookChatActions.UpdateChapterOutline, $"Make Chapter {current[i].Number} chapter {i + 1} of {parts.Count}: {parts[i].Title}",
+                chapter: current[i].Number, changes: Plan(parts[i])));
+        foreach (var extra in current.Skip(parts.Count))
+            actions.Add(Raw(BookChatActions.ArchiveChapter, $"Remove Chapter {extra.Number} \"{extra.Title}\" — the breakdown has no place for it",
+                chapter: extra.Number));
+
+        var list = string.Join("\n", parts.Select((c, i) => $"{i + 1}. **{c.Title}** — {c.Outline}"));
+        var message = await chat.ProposeAsync(bookId,
+            $"⋔ The planner divided {name} into {parts.Count} chapters:\n\n{list}\n\nApply them together (Apply all)" +
+            (current.Count == 1 ? " — the first chapter's new outline is applied after a chapter is added, so the section keeps its overall plan." : "."),
+            actions, maxActions: actions.Count);
+
+        if (current.Count == 1
+            && message.Proposals.Where(p => p.Type == BookChatActions.AddChapter).MinBy(p => p.Ordinal) is { } firstAdd
+            && message.Proposals.FirstOrDefault(p => p.Type == BookChatActions.UpdateChapterOutline) is { } firstOutline)
+        {
+            firstOutline.DependsOnProposalId = firstAdd.Id;
+            await repo.UpdateProposalAsync(firstOutline);
+        }
+        return new ContentChange($"Divided into {parts.Count} chapters — apply them below.", "", "");
+    }
+
     private static RawChatAction Raw(string type, string label, int? chapter = null, string? name = null,
         List<KeyValuePair<string, string>>? changes = null, string? instructions = null,
-        string? originalText = null, string? replacementText = null) =>
-        new(type, label.Length > 300 ? label[..300] + "…" : label, chapter, name, changes ?? [], instructions, originalText, replacementText, null, null);
+        string? originalText = null, string? replacementText = null, int? section = null) =>
+        new(type, label.Length > 300 ? label[..300] + "…" : label, chapter, name, changes ?? [], instructions, originalText, replacementText,
+            null, null, section);
 
     // ── Undo ────────────────────────────────────────────────────────────────────
 
@@ -679,6 +901,12 @@ public class ProposalExecutor(
                 BookChatActions.ArchiveChapter => await content.RestoreLastChapterAsync(bookId, a.ChapterId!.Value),
                 BookChatActions.MoveChapter => await content.MoveChapterAsync(bookId, a.ChapterId!.Value,
                     a.UndoAtStart ? null : a.UndoAfterChapterId),
+                BookChatActions.AddSection => await content.ArchiveSectionAsync(bookId, TargetId(p, "section:")),
+                BookChatActions.UpdateSectionPlan => await content.UpdateSectionPlanAsync(bookId, a.SectionId!.Value,
+                    BookContentRender.Parse(before).Where(kv => kv.Key != "number").ToDictionary()),
+                BookChatActions.MoveSection => await content.MoveSectionAsync(bookId, a.SectionId!.Value,
+                    a.UndoAtStart ? null : a.UndoAfterSectionId),
+                BookChatActions.ArchiveSection => await content.RestoreSectionAsync(bookId, a.SectionId!.Value),
                 BookChatActions.AddNote => await content.ArchiveNoteAsync(bookId, TargetId(p, "note:")),
                 BookChatActions.UpdateNote => await content.UpdateNoteAsync(bookId, TargetId(p, "note:"), before),
                 BookChatActions.ArchiveNote => await content.RestoreNoteAsync(bookId, TargetId(p, "note:")),

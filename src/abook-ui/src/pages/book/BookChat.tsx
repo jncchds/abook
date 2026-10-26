@@ -20,11 +20,16 @@ const TYPE_LABELS: Record<string, string> = {
   archive_character: 'Character',
   upsert_plot_thread: 'Plot thread',
   archive_plot_thread: 'Plot thread',
+  add_section: 'New section',
+  update_section_plan: 'Section plan',
+  move_section: 'Move section',
+  archive_section: 'Remove section',
   add_chapter: 'New chapter',
   update_chapter_outline: 'Outline',
   archive_chapter: 'Remove chapter',
   move_chapter: 'Move chapter',
   write_chapter: 'Write',
+  write_section: 'Write section',
   revise_chapter: 'Revise',
   patch_chapter: 'Edit passage',
   add_note: 'Note',
@@ -34,13 +39,17 @@ const TYPE_LABELS: Record<string, string> = {
   check_outline: 'Outline check',
   check_chapter: 'Continuity check',
   summarize_chapter: 'Summary',
+  break_down_section: 'Breakdown',
 }
 
 /** Long actions run the Writer or the Editor: there is no preview to diff, only what they were asked. */
 const LONG_ACTIONS = new Set(['write_chapter', 'revise_chapter'])
 
-/** Steps re-run a check or summary: they change nothing themselves, can be run again, and have nothing to undo. */
-const STEP_ACTIONS = new Set(['check_outline', 'check_chapter', 'summarize_chapter'])
+/** Steps re-run a check, summary or breakdown: they change nothing themselves, can be run again, and have nothing to undo. */
+const STEP_ACTIONS = new Set(['check_outline', 'check_chapter', 'summarize_chapter', 'break_down_section'])
+
+/** Writing a section only queues its chapters' writes (each undone on its own card); it previews the chapters it writes. */
+const SECTION_WRITE = 'write_section'
 
 const LOAD_ERROR = 'Could not load the chat:'
 
@@ -64,6 +73,7 @@ function targetLink(bookId: number, target?: string | null): string | null {
     case 'character': return `/books/${bookId}/characters`
     case 'thread': return `/books/${bookId}/plot-threads`
     case 'chapter': case 'prose': return `/books/${bookId}/chapters/${key}`
+    case 'section': return `/books/${bookId}/chapters`
     case 'note': return `/books/${bookId}/clarifications`
     case 'setting': return `/books/${bookId}/settings`
     default: return null
@@ -81,7 +91,7 @@ function ProposalCard({ p, bookId, busy, locked, onApply, onReject, onUndo, sele
   selected?: boolean; onToggle?: () => void
 }) {
   const [open, setOpen] = useState(false)
-  const instructions = LONG_ACTIONS.has(p.type) ? payloadInstructions(p) : null
+  const instructions = LONG_ACTIONS.has(p.type) || p.type === SECTION_WRITE ? payloadInstructions(p) : null
   const hasDiff = !LONG_ACTIONS.has(p.type) && (p.previewBefore !== '' || p.previewAfter !== '')
   const link = p.status === 'Applied' ? targetLink(bookId, p.target) : null
   const actionable = p.status === 'Pending' || p.status === 'Failed'
@@ -100,7 +110,7 @@ function ProposalCard({ p, bookId, busy, locked, onApply, onReject, onUndo, sele
       </div>
       <div className="proposal-label">{p.label}</div>
       {instructions && <div className="proposal-instructions">{instructions}</div>}
-      {p.type === 'write_chapter' && !locked && actionable && (
+      {(p.type === 'write_chapter' || p.type === SECTION_WRITE) && !locked && actionable && (
         <div className="proposal-hint">Applying this locks the premise and Story Bible.</div>
       )}
       {hasDiff && (
@@ -117,7 +127,7 @@ function ProposalCard({ p, bookId, busy, locked, onApply, onReject, onUndo, sele
         {p.status === 'Queued' && <button className="btn-sm btn-ghost" disabled={busy} onClick={() => onReject([p.id])}>Cancel</button>}
         {p.status === 'Applied' && (step
           ? <button className="btn-sm btn-ghost" disabled={busy} onClick={() => onApply([p.id])}>↻ Run again</button>
-          : <button className="btn-sm btn-ghost" disabled={busy} onClick={() => onUndo(p.id)}>↩ Undo</button>)}
+          : p.type !== SECTION_WRITE && <button className="btn-sm btn-ghost" disabled={busy} onClick={() => onUndo(p.id)}>↩ Undo</button>)}
         {link && <Link className="proposal-open" to={link}>Open ↗</Link>}
       </div>
     </div>

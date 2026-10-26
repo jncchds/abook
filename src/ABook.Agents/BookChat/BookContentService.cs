@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace ABook.Agents;
 
 /// <summary>What one change did: a note for the author, and the target rendered before and after it.</summary>
-public sealed record ContentChange(string Note, string Before, string After, int? ChapterId = null, int? ClarificationId = null);
+public sealed record ContentChange(string Note, string Before, string After, int? ChapterId = null, int? ClarificationId = null, int? SectionId = null);
 
 /// <summary>Thrown when an Interactive book's locked premise or Story Bible would be changed.</summary>
 public class StoryBibleLockedException() : InvalidOperationException(
@@ -44,6 +44,8 @@ public class BookContentService : AgentBase
     public static string ChapterTarget(int chapterId) => $"chapter:{chapterId}";
     public static string ProseTarget(int chapterId) => $"prose:{chapterId}";
     public static string NoteIdTarget(int clarificationId) => $"{NoteTarget}:{clarificationId}";
+    /// <summary>A section's plan and planned chapter count (<see cref="BookContentRender.RenderPlan"/>).</summary>
+    public static string SectionTarget(int sectionId) => $"section:{sectionId}";
 
     /// <summary>The target as it reads now — what a proposal's preview and an undo are compared against.</summary>
     public async Task<string> RenderAsync(int bookId, string? target)
@@ -70,6 +72,9 @@ public class BookContentService : AgentBase
             case "prose" when int.TryParse(key, out var id):
                 var written = await Repo.GetChapterAsync(bookId, id);
                 return written is { IsArchived: false } ? written.Content : "";
+            case "section" when int.TryParse(key, out var id):
+                var section = await Repo.GetSectionAsync(bookId, id);
+                return section is { IsArchived: false } ? BookContentRender.RenderPlan(section) : "";
             default:
                 return "";
         }
@@ -547,29 +552,76 @@ public class BookContentService : AgentBase
 
     /// <summary>
     /// Sets a section's plan. A section with a single active chapter has that chapter's plan, so the chapter's outline
-    /// is updated instead (as a chapter version) and the section follows it.
+    /// is updated instead (as a chapter version) and the section follows it. A "chapters" entry
+    /// (<see cref="BookContentRender.PlannedChaptersField"/>) sets how many chapters the section is planned for.
+    /// Before/after are <see cref="BookContentRender.RenderPlan"/>.
     /// </summary>
     public async Task<ContentChange> UpdateSectionPlanAsync(
         int bookId, int sectionId, IReadOnlyDictionary<string, string> changes, string createdBy = AgentCreatedBy.BookChat)
     {
         var section = await LoadActiveSectionAsync(bookId, sectionId);
-        var before = BookContentRender.Render(section);
+        var before = BookContentRender.RenderPlan(section);
+        var plan = changes.Where(kv => kv.Key != BookContentRender.PlannedChaptersField).ToDictionary();
         var active = (await Repo.GetChaptersAsync(bookId)).Where(c => c.SectionId == sectionId).ToList();
-        if (active.Count == 1)
+        if (plan.Count > 0 && active.Count == 1)
         {
-            await UpdateChapterOutlineAsync(bookId, active[0].Id, changes, createdBy);
+            await UpdateChapterOutlineAsync(bookId, active[0].Id, plan, createdBy);
         }
-        else
+        else if (plan.Count > 0)
         {
-            var plan = new Chapter();
-            plan.CopyPlanFrom(section);
-            ApplyOutline(plan, BookContentRender.Merge(BookContentRender.Fields(section), changes));
-            section.CopyPlanFrom(plan);
+            var merged = new Chapter();
+            merged.CopyPlanFrom(section);
+            ApplyOutline(merged, BookContentRender.Merge(BookContentRender.Fields(section), plan));
+            section.CopyPlanFrom(merged);
             await Repo.UpdateSectionAsync(section);
             if (active.Count > 0) await Notifier.NotifyChapterUpdatedAsync(bookId, active[0].Id);
         }
+        if (BookContentRender.Number(changes.GetValueOrDefault(BookContentRender.PlannedChaptersField)) is int planned)
+        {
+            var fresh = (await Repo.GetSectionAsync(bookId, sectionId))!;
+            fresh.PlannedChapters = planned;
+            await Repo.UpdateSectionAsync(fresh);
+            if (active.Count > 0) await Notifier.NotifyChapterUpdatedAsync(bookId, active[0].Id);
+        }
         var after = (await Repo.GetSectionAsync(bookId, sectionId))!;
-        return new ContentChange($"Updated the plan of Section {after.Number}.", before, BookContentRender.Render(after));
+        return new ContentChange($"Updated the plan of Section {after.Number}.", before, BookContentRender.RenderPlan(after), SectionId: sectionId);
+    }
+
+    /// <summary>
+    /// Adds a section with one outline-only chapter holding its plan (as the planner makes them): at the end, after
+    /// <paramref name="afterSectionId"/>, or with <paramref name="atStart"/> first. A "chapters" entry sets how many
+    /// chapters it is planned for (1 by default).
+    /// </summary>
+    public async Task<ContentChange> AddSectionAsync(int bookId, int? afterSectionId, bool atStart, IReadOnlyDictionary<string, string> fields)
+    {
+        int? anchorChapterId = null;
+        if (afterSectionId is int afterId)
+        {
+            var after = await LoadActiveSectionAsync(bookId, afterId);
+            // Any chapter of it will do: the new section goes after the anchor's whole section.
+            anchorChapterId = (await Repo.GetChaptersAsync(bookId)).FirstOrDefault(c => c.SectionId == after.Id)?.Id
+                ?? throw new InvalidOperationException($"Section {after.Number} has no active chapter.");
+        }
+        var chapter = new Chapter { BookId = bookId };
+        ApplyOutline(chapter, fields);
+        chapter = anchorChapterId is null && !atStart
+            ? await Repo.AddChapterAsync(chapter)
+            : await Repo.InsertChapterAsync(chapter, anchorChapterId);
+        if (chapter.Title.Length == 0)
+        {
+            chapter.Title = $"Chapter {chapter.Number}";
+            await Repo.UpdateChapterAsync(chapter);
+        }
+        var section = (await Repo.GetSectionAsync(bookId, chapter.SectionId!.Value))!;
+        section.PlannedChapters = Math.Max(1, BookContentRender.Number(fields.GetValueOrDefault(BookContentRender.PlannedChaptersField)) ?? 1);
+        await Repo.UpdateSectionAsync(section);
+        await MarkPhaseCompleteAsync(bookId, b => b.ChaptersStatus = PlanningPhaseStatus.Complete);
+        await Notifier.NotifyChapterUpdatedAsync(bookId, chapter.Id);
+        section = (await Repo.GetSectionAsync(bookId, section.Id))!;
+        return new ContentChange(
+            $"Added Section {section.Number} \"{section.Title}\" (Chapter {chapter.Number}" +
+            (section.PlannedChapters > 1 ? $", planned for {section.PlannedChapters} chapters)." : ")."),
+            "", BookContentRender.RenderPlan(section), chapter.Id, SectionId: section.Id);
     }
 
     /// <summary>Moves a section with its chapters to right after <paramref name="afterSectionId"/> (null = to the start).</summary>
@@ -578,12 +630,14 @@ public class BookContentService : AgentBase
         var section = await Repo.GetSectionAsync(bookId, sectionId)
             ?? throw new InvalidOperationException($"Section {sectionId} not found.");
         var wasNumber = section.Number;
+        var before = BookContentRender.RenderPlan(section);
         await Repo.MoveSectionAsync(bookId, sectionId, afterSectionId);
         var moved = (await Repo.GetSectionAsync(bookId, sectionId))!;
         await NotifySectionAsync(bookId, sectionId);
         return new ContentChange(moved.IsArchived ? $"Moved archived section \"{moved.Title}\"."
             : wasNumber == moved.Number ? $"Section {moved.Number} stays Section {moved.Number}."
-            : $"Section {wasNumber} is now Section {moved.Number}.", "", "");
+            : $"Section {wasNumber} is now Section {moved.Number}.",
+            before, moved.IsArchived ? "" : BookContentRender.RenderPlan(moved), SectionId: sectionId);
     }
 
     /// <summary>Moves a chapter into a section, after <paramref name="afterChapterId"/> of it (null = first).</summary>
@@ -599,6 +653,7 @@ public class BookContentService : AgentBase
     public async Task<ContentChange> ArchiveSectionAsync(int bookId, int sectionId)
     {
         var section = await LoadActiveSectionAsync(bookId, sectionId);
+        var before = BookContentRender.RenderPlan(section);
         var chapters = (await Repo.GetChaptersAsync(bookId)).Where(c => c.SectionId == sectionId).ToList();
         await Repo.ArchiveSectionAsync(bookId, sectionId);
         foreach (var c in chapters)
@@ -607,7 +662,7 @@ public class BookContentService : AgentBase
             catch (Exception ex) { Logger.LogWarning(ex, "[Book {BookId}] Removing archived chapter chunks failed.", bookId); }
         }
         await NotifySectionAsync(bookId, sectionId);
-        return new ContentChange($"Archived Section {section.Number} \"{section.Title}\" ({chapters.Count} chapter(s)).", "", "");
+        return new ContentChange($"Archived Section {section.Number} \"{section.Title}\" ({chapters.Count} chapter(s)).", before, "", SectionId: sectionId);
     }
 
     public async Task<ContentChange> RestoreSectionAsync(int bookId, int sectionId)
@@ -615,7 +670,7 @@ public class BookContentService : AgentBase
         await Repo.RestoreSectionAsync(bookId, sectionId);
         var section = (await Repo.GetSectionAsync(bookId, sectionId))!;
         await NotifySectionAsync(bookId, sectionId);
-        return new ContentChange($"Brought back Section {section.Number} \"{section.Title}\".", "", "");
+        return new ContentChange($"Brought back Section {section.Number} \"{section.Title}\".", "", BookContentRender.RenderPlan(section), SectionId: sectionId);
     }
 
     /// <summary>

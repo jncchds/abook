@@ -783,7 +783,7 @@ public sealed class TelegramUpdateHandler(
         else if (canAct && proposal.Status == ChatProposalStatus.Queued)
             keyboard.Add([new TgButton("▶ Start now", Callback(binding.Id, "apply", proposal.Id)),
                           new TgButton("✖️ Cancel", Callback(binding.Id, "reject", proposal.Id))]);
-        else if (canAct && proposal.Status == ChatProposalStatus.Applied && !ABook.Agents.BookChatActions.IsStep(proposal.Type))
+        else if (canAct && proposal.Status == ChatProposalStatus.Applied && ABook.Agents.BookChatActions.HasUndo(proposal.Type))
             keyboard.Add([new TgButton("↩️ Undo", Callback(binding.Id, "undo", proposal.Id))]);
         var book = await sp.GetRequiredService<IBookRepository>().GetByIdAsync(binding.BookId);
         var details = ProposalDetailsRich(proposal, number, book?.StoryBibleLockedAt is not null, sp.GetService<TelegramOptions>()?.BaseUrl);

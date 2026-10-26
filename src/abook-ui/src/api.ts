@@ -234,7 +234,7 @@ export interface ChatProposal {
   type: string
   label: string
   payloadJson: string
-  /** premise, bible, character:Name, thread:Name, chapter:Id, prose:Id, note:Id */
+  /** premise, bible, character:Name, thread:Name, chapter:Id, prose:Id, section:Id, note:Id */
   target?: string | null
   dependsOnProposalId?: number | null
   /** A queued write/revision: the one whose full cycle it waits for. */

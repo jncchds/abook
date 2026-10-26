@@ -119,16 +119,15 @@ public class BookChatAgent : AgentBase
     /// Posts a reply that did not come from the chat model — e.g. the follow-up after a chapter is written —
     /// with <paramref name="actions"/> checked and turned into proposals like the model's own.
     /// </summary>
-    public async Task<BookChatMessage> ProposeAsync(int bookId, string content, IReadOnlyList<RawChatAction> actions)
+    /// <param name="maxActions">Most proposals kept — more than a reply's <see cref="BookChatActions.MaxActions"/> for a section's chapters.</param>
+    public async Task<BookChatMessage> ProposeAsync(int bookId, string content, IReadOnlyList<RawChatAction> actions,
+        int maxActions = BookChatActions.MaxActions)
     {
         var book = await Repo.GetByIdAsync(bookId) ?? throw new InvalidOperationException($"Book {bookId} not found.");
         var chapters = (await Repo.GetChaptersAsync(bookId)).ToList();
-        var state = new BookChatState(BookContentService.IsBibleLocked(book),
-            (await Repo.GetCharacterCardsAsync(bookId)).Select(c => c.Name).ToList(),
-            (await Repo.GetPlotThreadsAsync(bookId)).Select(t => t.Name).ToList(),
-            chapters.Select(c => new BookChatChapter(c.Id, c.Number, c.Title, c.Content, c.Outline)).ToList(),
-            BookChatNote.Of(book.Clarifications));
-        var (normalized, _) = BookChatActions.Normalize(actions, state);
+        var state = BookChatState.Of(book, BookContentService.IsBibleLocked(book), await Repo.GetCharacterCardsAsync(bookId),
+            await Repo.GetPlotThreadsAsync(bookId), chapters, await Repo.GetSectionsAsync(bookId));
+        var (normalized, _) = BookChatActions.Normalize(actions, state, Math.Max(maxActions, BookChatActions.MaxActions));
         var proposals = new List<ChatProposal>();
         foreach (var (action, ordinal) in normalized.Select((a, i) => (a, i)))
             proposals.Add(await ToProposalAsync(bookId, action, ordinal, chapters));
@@ -163,12 +162,13 @@ public class BookChatAgent : AgentBase
         var characters = (await Repo.GetCharacterCardsAsync(bookId)).ToList();
         var threads = (await Repo.GetPlotThreadsAsync(bookId)).ToList();
         var chapters = (await Repo.GetChaptersAsync(bookId)).ToList();
+        var sections = (await Repo.GetSectionsAsync(bookId)).ToList();
         var authorText = author?.Content ?? PromptTemplates.BookChatKickoff;
 
         var focus = characters.Select(c => c.Name)
             .Where(n => authorText.Contains(n, StringComparison.OrdinalIgnoreCase))
             .ToList();
-        var digest = PromptTemplates.BookChatDigest(book, locked, bible, characters, threads, chapters, focus);
+        var digest = PromptTemplates.BookChatDigest(book, locked, bible, characters, threads, chapters, focus, sections: sections);
         // Two-step replies: the model may first name the parts it needs in full. Not for the opening reply — the
         // new book has nothing to read yet.
         var twoStep = book.ChatPartRequestsEnabled && author is not null;
@@ -214,7 +214,7 @@ public class BookChatAgent : AgentBase
         {
             // Step two: send the parts it asked for and take the answer to that as the reply. The first answer is
             // only the request — the event tells the author what is being read (and clears the streamed text).
-            var resolved = ResolveParts(parsed.Parts, chapters, characters, threads);
+            var resolved = ResolveParts(parsed.Parts, chapters, characters, threads, sections: sections);
             await AddEventAsync(bookId, resolved.Labels.Count > 0
                 ? $"{ReadingPrefix} Reading {string.Join(", ", resolved.Labels)} before replying…"
                 : $"{ReadingPrefix} The parts it asked for do not exist — replying without them…");
@@ -235,9 +235,7 @@ public class BookChatAgent : AgentBase
                           "\n\n⚠️ _The reply was not in the expected format, so no changes could be read from it. Send your message again to retry._",
             }, false);
 
-        var state = new BookChatState(locked, characters.Select(c => c.Name).ToList(), threads.Select(t => t.Name).ToList(),
-            chapters.Select(c => new BookChatChapter(c.Id, c.Number, c.Title, c.Content, c.Outline)).ToList(),
-            BookChatNote.Of(book.Clarifications));
+        var state = BookChatState.Of(book, locked, characters, threads, chapters, sections);
         var (actions, dropped) = BookChatActions.Normalize(parsed.Actions, state);
 
         var content = parsed.Message.Length > 0 ? parsed.Message : actions.Count > 0 ? "Here is what I propose." : "(no reply)";
@@ -285,7 +283,11 @@ public class BookChatAgent : AgentBase
                 before.Length > 0 ? BookContentRender.Parse(before) : BookContentRender.Fields(new PlotThread { Name = p.Name ?? "", Type = PlotThreadType.Subplot }), p.Changes)),
             BookChatActions.AddChapter => BookContentRender.Json(BookContentRender.Merge(
                 BookContentRender.Fields(new Chapter { Number = p.ChapterNumber ?? 0 }), p.Changes)),
-            BookChatActions.UpdateChapterOutline => BookContentRender.Json(BookContentRender.Merge(BookContentRender.Parse(before), p.Changes)),
+            BookChatActions.AddSection => BookContentRender.Json(BookContentRender.Merge(
+                BookContentRender.PlanFields(new Section { Number = p.SectionNumber ?? 0 }), p.Changes)),
+            BookChatActions.UpdateChapterOutline or BookChatActions.UpdateSectionPlan =>
+                BookContentRender.Json(BookContentRender.Merge(BookContentRender.Parse(before), p.Changes)),
+            BookChatActions.WriteSection => p.Text ?? "",
             BookChatActions.PatchChapter => PatchPreview(before, p.OriginalText ?? "", p.ReplacementText ?? "").After,
             BookChatActions.AddNote or BookChatActions.UpdateNote => p.Text ?? "",
             BookChatActions.SetPartRequests => p.Text ?? "",
@@ -376,7 +378,7 @@ public class BookChatAgent : AgentBase
     /// </summary>
     internal static (List<PromptTemplates.BookChatPart> Parts, List<string> Missing, List<string> Labels) ResolveParts(
         IReadOnlyList<ChatPartRequest> requests, IReadOnlyList<Chapter> chapters, IReadOnlyList<CharacterCard> characters,
-        IReadOnlyList<PlotThread> threads, int budget = PromptTemplates.BookChatPartsBudget)
+        IReadOnlyList<PlotThread> threads, int budget = PromptTemplates.BookChatPartsBudget, IReadOnlyList<Section>? sections = null)
     {
         var parts = new List<PromptTemplates.BookChatPart>();
         var missing = new List<string>();
@@ -385,7 +387,10 @@ public class BookChatAgent : AgentBase
         var seen = new HashSet<string>();
         foreach (var r in requests)
         {
-            var request = r.Chapter is int n ? $"{r.Kind} {n}" : r.Name is { } name ? $"{r.Kind} {name}" : r.Kind;
+            // A section plan may be asked for with its number in "chapter" (or as plain text "section_plan 2").
+            var sectionNumber = r.Section ?? (r.Kind == BookChatActions.PartSectionPlan ? r.Chapter : null);
+            var request = r.Kind == BookChatActions.PartSectionPlan && sectionNumber is int s ? $"{r.Kind} {s}"
+                : r.Chapter is int n ? $"{r.Kind} {n}" : r.Name is { } name ? $"{r.Kind} {name}" : r.Kind;
             if (!seen.Add(request.ToLowerInvariant())) continue;
             if (parts.Count >= PromptTemplates.BookChatPartsMax)
             {
@@ -415,6 +420,16 @@ public class BookChatAgent : AgentBase
                             (part, label) = (PromptTemplates.BookChatChapterTextPart(chapter, text), $"Chapter {chapter.Number}");
                         }
                     }
+                    break;
+                }
+                case BookChatActions.PartSectionPlan:
+                {
+                    var section = sectionNumber is int number
+                        ? sections?.FirstOrDefault(x => !x.IsArchived && x.Number == number)
+                        : null;
+                    if (section is null) reason = PromptTemplates.BookChatPartNoSection;
+                    else (part, label) = (PromptTemplates.BookChatSectionPlanPart(section, chapters.Where(c => c.SectionId == section.Id).ToList()),
+                        $"the plan of Section {section.Number}");
                     break;
                 }
                 case BookChatActions.PartCharacter:

@@ -969,7 +969,7 @@ public static class PromptTemplates
               the author's notes, or what written chapters established. Each has "description", "canon" (quote or name the
               fact it contradicts) and "chapter" (its number, or null). Empty when there are none.
             - "actions": the changes you propose, at most {{BookChatActions.MaxActions}}. Each action has every key — "type", "label"
-              (a short description for the author), "chapter", "name", "changes" (a list of {"field", "value"}), "instructions",
+              (a short description for the author), "chapter", "section", "name", "changes" (a list of {"field", "value"}), "instructions",
               "originalText", "replacementText", "text", "option" — with the ones it does not use set to null ([] for "changes").{{partsKey}}
             The action types:
             {{catalogue}}
@@ -982,6 +982,13 @@ public static class PromptTemplates
             - New chapters normally go at the end. A chapter not written yet may be inserted earlier (add_chapter with
               "chapter" = the chapter it goes after, 0 = at the start), moved (move_chapter) or removed (archive_chapter);
               later chapters are renumbered. Written chapters are never moved, and only the last one can be removed.
+            - The book is planned in sections — the parts of its story — and each section holds one or more chapters.
+              Chapters are numbered through the whole book; a section is "Section N", given in the "section" key. A new part
+              of the story is add_section: one chapter that holds the section's plan, with "chapters" = how many chapters it
+              will need. To give a section more chapters: add_chapter with "section" (added at the end of that section), or
+              break_down_section to have the planner divide it into chapters (only while nothing in it is written).
+              write_section writes every chapter of a section not written yet, one after another. Sections with written
+              chapters are never moved or removed.
             - A chapter is written from its outline: to write a new chapter, propose add_chapter with its outline and, if the
               author wants it written now, write_chapter for the same number in the same reply. The writer writes prose,
               never you — do not put chapter prose in your message.
@@ -997,7 +1004,7 @@ public static class PromptTemplates
               summarize_chapter for those chapters — do not check them yourself in your message. These change nothing in
               the book; their findings come back as new proposals. To redo a chapter's prose, use write_chapter (from its
               outline) or revise_chapter. Do not propose checks the author did not ask for.
-            - Refer to chapters by number and to characters and plot threads by their exact names.
+            - Refer to chapters by number, to sections as Section N, and to characters and plot threads by their exact names.
             {{stage}}
 
             Example reply:
@@ -1007,13 +1014,13 @@ public static class PromptTemplates
 
     private const string BookChatExample =
         """
-        {"message":"Mara is in the cast. Should she appear in Chapter 2?","conflicts":[],"actions":[{"type":"upsert_character","label":"Add Mara, a smuggler","chapter":null,"name":"Mara","changes":[{"field":"role","value":"Supporting"},{"field":"personality","value":"Wry, loyal to her crew"}],"instructions":null,"originalText":null,"replacementText":null,"text":null,"option":null}]
+        {"message":"Mara is in the cast. Should she appear in Chapter 2?","conflicts":[],"actions":[{"type":"upsert_character","label":"Add Mara, a smuggler","chapter":null,"section":null,"name":"Mara","changes":[{"field":"role","value":"Supporting"},{"field":"personality","value":"Wry, loyal to her crew"}],"instructions":null,"originalText":null,"replacementText":null,"text":null,"option":null}]
         """;
 
     private const string BookChatPartsExample =
         """
         Example of asking for parts:
-        {"message":"Let me read Chapter 3 first.","conflicts":[],"actions":[],"parts":[{"kind":"chapter_text","chapter":3,"name":null}]}
+        {"message":"Let me read Chapter 3 first.","conflicts":[],"actions":[],"parts":[{"kind":"chapter_text","chapter":3,"section":null,"name":null}]}
         """;
 
     private static string BookChatActionHelp(string type) => type switch
@@ -1028,7 +1035,21 @@ public static class PromptTemplates
         BookChatActions.ArchivePlotThread => "\"name\" — removes the plot thread (kept in the archive).",
         BookChatActions.AddChapter => "\"changes\" among title, outline (3-6 sentences: the key events and decisions), povCharacter, " +
                                       "charactersInvolved and plotThreads (comma-separated names), foreshadowingNotes, payoffNotes. " +
-                                      "Added after the last chapter; with \"chapter\" = N it is inserted after Chapter N instead (0 = at the start).",
+                                      "Added after the last chapter, in a section of its own; with \"section\" = N it is added at the end of " +
+                                      "Section N; with \"chapter\" = N it is inserted after Chapter N instead (0 = at the start).",
+        BookChatActions.AddSection => "\"changes\" with the same fields as add_chapter (the section's plan) plus chapters (how many chapters " +
+                                      $"it will need, 1-{BookChatActions.MaxSectionChapters}; 1 if left out). Adds a section with one chapter holding its plan, " +
+                                      "after the last one; with \"section\" = N it is inserted after Section N instead (0 = at the start).",
+        BookChatActions.UpdateSectionPlan => "\"section\"; \"changes\" with the same fields as add_section. For a section of one chapter, its " +
+                                             "plan is that chapter's outline; for a section of several, it is the plan of the whole section.",
+        BookChatActions.MoveSection => "\"section\" (nothing in it written); \"changes\" = [{\"field\":\"after\",\"value\":\"N\"}] — moves it with its " +
+                                       "chapters after Section N (0 = to the start).",
+        BookChatActions.ArchiveSection => "\"section\" (nothing in it written) — removes the section with its chapters (kept in the archive).",
+        BookChatActions.WriteSection => "\"section\"; optional \"instructions\" for the writer. Writes every chapter of the section not written " +
+                                        "yet, one after another, each checked before the next starts. A section planned for more chapters " +
+                                        "than it has must be broken down first.",
+        BookChatActions.BreakDownSection => "\"section\" (nothing in it written); optional \"changes\" = [{\"field\":\"chapters\",\"value\":\"N\"}]. " +
+                                            "The planner divides the section into chapters; the chapters come back as new proposals.",
         BookChatActions.UpdateChapterOutline => "\"chapter\"; \"changes\" with the same fields as add_chapter.",
         BookChatActions.ArchiveChapter => "\"chapter\" — removes a chapter not written yet, or the last written one.",
         BookChatActions.MoveChapter => "\"chapter\" (not written yet); \"changes\" = [{\"field\":\"after\",\"value\":\"N\"}] — moves it after Chapter N (0 = to the start).",
@@ -1059,13 +1080,14 @@ public static class PromptTemplates
         - "parts": the parts of the book you need to read in full before you can answer, at most {{BookChatPartsMax}} — or [] when
           what you see is enough. You see only summaries of written chapters, one line per character (full cards only for
           the characters the author names) and short chapter plans. When the request is about the exact wording, scenes or
-          details of a written chapter, or about a character, plot thread or chapter plan you only see a line of, ask for
-          it instead of guessing. Each part has "kind", "chapter" and "name":
+          details of a written chapter, or about a character, plot thread, chapter or section plan you only see a line of,
+          ask for it instead of guessing. Each part has "kind", "chapter", "section" and "name":
             - "chapter_text": the full prose of written chapter "chapter".
             - "chapter_plan": the full plan of chapter "chapter" (outline, POV, characters, threads, foreshadowing, payoff, summary).
+            - "section_plan": the full plan of Section "section" (its overall plan, planned chapter count and its chapters).
             - "character": the full card of the character "name".
             - "plot_thread": the full plot thread "name".
-          Set the key a part does not use to null. When you ask for parts, put only a short line in "message" saying what
+          Set the keys a part does not use to null. When you ask for parts, put only a short line in "message" saying what
           you will read, leave "conflicts" and "actions" empty, and wait: the parts come back in the next message and you
           answer then. Ask only for what this request needs.
         """;
@@ -1087,11 +1109,14 @@ public static class PromptTemplates
     /// <summary>
     /// The book as it stands, within <paramref name="budget"/> characters: premise (with the author's notes), Story
     /// Bible, one line per character and thread (full cards for <paramref name="focusNames"/>), and the chapters with
-    /// what each tells. Older chapters shrink to their title when the book outgrows the budget.
+    /// what each tells — with <paramref name="sections"/>, grouped under their sections (number, chapter count, planned
+    /// count, and the overall plan of a section of several chapters). Older chapters shrink to their title when the book
+    /// outgrows the budget (and a section whose chapters all shrank loses its plan).
     /// </summary>
     public static string BookChatDigest(
         Book book, bool bibleLocked, StoryBible? bible, IReadOnlyList<CharacterCard> characters, IReadOnlyList<PlotThread> threads,
-        IReadOnlyList<Chapter> chapters, IReadOnlyCollection<string> focusNames, int budget = BookChatDigestBudget)
+        IReadOnlyList<Chapter> chapters, IReadOnlyCollection<string> focusNames, int budget = BookChatDigestBudget,
+        IReadOnlyList<Section>? sections = null)
     {
         var head = new StringBuilder();
         head.AppendLine("## The book as it stands");
@@ -1122,7 +1147,13 @@ public static class PromptTemplates
         foreach (var t in threads)
             head.AppendLine($"- {t.Name} ({t.Type}, {t.Status}): {t.Description}");
 
-        head.AppendLine("\n## Chapters");
+        var bySection = sections?.Where(s => !s.IsArchived).ToDictionary(s => s.Id);
+        if (bySection is { Count: > 0 })
+        {
+            head.AppendLine("\n## Sections and chapters");
+            head.AppendLine("Chapters are numbered through the whole book; each section lists its chapters under it.");
+        }
+        else head.AppendLine("\n## Chapters");
         if (chapters.Count == 0) head.AppendLine("(none yet)");
 
         string Line(Chapter c, bool brief) =>
@@ -1135,7 +1166,25 @@ public static class PromptTemplates
         // Shrink the oldest chapters first; the latest five always keep their full line.
         var ordered = chapters.OrderBy(c => c.Number).ToList();
         var brief = new bool[ordered.Count];
-        string Lines() => string.Join("\n", ordered.Select((c, i) => Line(c, brief[i])));
+        string Lines()
+        {
+            if (bySection is not { Count: > 0 }) return string.Join("\n", ordered.Select((c, i) => Line(c, brief[i])));
+            var sb = new StringBuilder();
+            int? current = null;
+            for (var i = 0; i < ordered.Count; i++)
+            {
+                var c = ordered[i];
+                if (i == 0 || c.SectionId != current)
+                {
+                    current = c.SectionId;
+                    var own = Enumerable.Range(0, ordered.Count).Where(j => ordered[j].SectionId == c.SectionId).ToList();
+                    if (c.SectionId is int id && bySection.TryGetValue(id, out var s))
+                        sb.AppendLine(BookChatSectionLine(s, own.Count, own.All(j => brief[j])));
+                }
+                sb.AppendLine("  " + Line(c, brief[i]));
+            }
+            return sb.ToString().TrimEnd();
+        }
         var text = Lines();
         for (int i = 0; i < ordered.Count - 5 && head.Length + text.Length > budget; i++)
         {
@@ -1144,6 +1193,21 @@ public static class PromptTemplates
         }
         var digest = head + text;
         return digest.Length <= budget ? digest : digest[..budget] + "\n…";
+    }
+
+    /// <summary>
+    /// A section's heading in the digest: its number, and how many chapters it has and is planned for. A section of one
+    /// chapter shows no plan of its own (it is that chapter's outline); a section of several shows its overall plan
+    /// unless its chapters were shrunk to fit.
+    /// </summary>
+    private static string BookChatSectionLine(Section s, int chapterCount, bool brief)
+    {
+        var planned = s.PlannedChapters > chapterCount ? $", planned for {s.PlannedChapters}" : "";
+        if (chapterCount <= 1)
+            return planned.Length > 0
+                ? $"Section {s.Number} (1 chapter{planned} — its plan is the chapter's outline):"
+                : $"Section {s.Number}:";
+        return $"Section {s.Number}: {s.Title} ({chapterCount} chapters{planned})" + (brief ? ":" : $" — plan: {OneLine(s.Outline)}");
     }
 
     /// <summary>A resent assistant turn: what it said and what became of what it proposed — never the proposals' content.</summary>
@@ -1257,6 +1321,17 @@ public static class PromptTemplates
         return new($"Chapter {c.Number}: {c.Title} — plan [{(c.Content.Trim().Length > 0 ? "written" : "outline only")}]", body);
     }
 
+    /// <summary>A section's plan in full: its fields, planned chapter count, and its chapters with what each tells.</summary>
+    public static BookChatPart BookChatSectionPlanPart(Section s, IReadOnlyList<Chapter> chapters)
+    {
+        var body = new StringBuilder(FieldLines(BookContentRender.PlanFields(s).Where(kv => kv.Key != "number")));
+        if (chapters.Count == 1) body.Append("\n(a section of one chapter: its plan is that chapter's outline)");
+        body.Append("\nchapters:");
+        foreach (var c in chapters)
+            body.Append($"\n- Chapter {c.Number}: {c.Title} [{(c.Content.Trim().Length > 0 ? "written" : "outline only")}] — {Gist(c)}");
+        return new($"Section {s.Number}: {s.Title} — plan", body.ToString());
+    }
+
     public static BookChatPart BookChatCharacterPart(CharacterCard c) =>
         new($"Character: {c.Name}", FieldLines(BookContentRender.Fields(c).Where(kv => kv.Key != "name")));
 
@@ -1266,6 +1341,7 @@ public static class PromptTemplates
     /// <summary>Why a requested part was not sent.</summary>
     public static string BookChatPartMissing(string request, string reason) => $"{request}: {reason}";
     public const string BookChatPartNoChapter = "the book has no such chapter";
+    public const string BookChatPartNoSection = "the book has no such section";
     public const string BookChatPartNotWritten = "this chapter is not written yet — ask for its chapter_plan";
     public const string BookChatPartNoCharacter = "there is no character with that name";
     public const string BookChatPartNoThread = "there is no plot thread with that name";

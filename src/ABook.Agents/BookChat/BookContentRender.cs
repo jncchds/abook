@@ -89,6 +89,22 @@ public static class BookContentRender
 
     public static string Render(Section? s) => s is null ? "" : Json(Fields(s));
 
+    /// <summary>How many chapters a section is planned for (<see cref="Section.PlannedChapters"/>), as the chat names it.</summary>
+    public const string PlannedChaptersField = "chapters";
+
+    /// <summary>The fields the chat's section actions may set: a chapter's plan fields plus the planned chapter count.</summary>
+    public static readonly string[] SectionPlanFields = [.. ChapterFields, PlannedChaptersField];
+
+    /// <summary>A section's plan with its planned chapter count — what the chat's section target renders as.</summary>
+    public static Dictionary<string, string> PlanFields(Section s)
+    {
+        var fields = Fields(s);
+        fields[PlannedChaptersField] = s.PlannedChapters.ToString();
+        return fields;
+    }
+
+    public static string RenderPlan(Section? s) => s is null ? "" : Json(PlanFields(s));
+
     public static string Json(IReadOnlyDictionary<string, string> fields) => JsonSerializer.Serialize(fields, Options);
 
     public static string Render(StoryBible? b) => b is null ? "" : Json(Fields(b));

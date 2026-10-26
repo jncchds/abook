@@ -129,6 +129,22 @@ public class PlannerAgent : AgentBase
     /// </summary>
     public async Task<IReadOnlyList<Chapter>> BreakDownSectionAsync(int bookId, int sectionId, int? chapterCount, CancellationToken ct)
     {
+        var plan = await PlanBreakdownAsync(bookId, sectionId, chapterCount, ct);
+        var result = await ApplyBreakdownAsync(bookId, plan.Section, plan.Current, plan.Parts);
+        await Notifier.NotifyWorkflowProgressAsync(bookId,
+            $"Section {plan.Section.Number} now has {result.Count} chapter{(result.Count == 1 ? "" : "s")}.", false, ct);
+        return result;
+    }
+
+    /// <summary>A section breakdown before it is saved: the section, its active chapters now, and the planned chapters in order.</summary>
+    public sealed record BreakdownPlan(Section Section, List<Chapter> Current, List<Chapter> Parts);
+
+    /// <summary>
+    /// The LLM call of <see cref="BreakDownSectionAsync"/> without saving anything: the planned chapters (title, outline,
+    /// POV, characters, threads, notes) the section would be divided into. The book chat posts them as proposals.
+    /// </summary>
+    public virtual async Task<BreakdownPlan> PlanBreakdownAsync(int bookId, int sectionId, int? chapterCount, CancellationToken ct)
+    {
         var book = await Repo.GetByIdAsync(bookId) ?? throw new InvalidOperationException($"Book {bookId} not found.");
         var section = await Repo.GetSectionAsync(bookId, sectionId)
             ?? throw new InvalidOperationException($"Section {sectionId} not found.");
@@ -157,11 +173,7 @@ public class PlannerAgent : AgentBase
 
         var parts = ParseOutlineItems(bookId, NumberedBreakdown(raw), null).Select(i => i.Chapter).ToList();
         if (chapterCount is int n && parts.Count > n) parts = parts.Take(n).ToList();
-
-        var result = await ApplyBreakdownAsync(bookId, section, current, parts);
-        await Notifier.NotifyWorkflowProgressAsync(bookId,
-            $"Section {section.Number} now has {result.Count} chapter{(result.Count == 1 ? "" : "s")}.", false, ct);
-        return result;
+        return new BreakdownPlan(section, current, parts);
     }
 
     /// <summary>The breakdown's elements numbered 1..N, so the outline parser reads them like planned sections.</summary>

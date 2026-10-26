@@ -44,7 +44,7 @@ public class ProposalQueueTests
         var (repo, fake) = FakeRepo.Create();
         fake.Proposals = [.. proposals];
         return new ProposalExecutor(repo, DispatchProxy.Create<IBookNotifier, NullNotifier>(), null!, null!, null!,
-            null!, null!, null!, null!, null!, NullLogger<ProposalExecutor>.Instance);
+            null!, null!, null!, null!, null!, null!, NullLogger<ProposalExecutor>.Instance);
     }
 
     private static ChatProposal Write(int id, ChatProposalStatus status, int? after = null, DateTime? appliedAt = null) => new()

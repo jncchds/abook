@@ -77,7 +77,7 @@ public class BookChatMcpTools(BookChatService chat, IBookRepository repo, IServi
     }
 
     [McpServerTool(Name = "apply_book_chat_proposals")]
-    [Description("Apply proposed changes (by proposal id). Quick changes run first, then chapter writing/revising; a written chapter is then summarized and checked, and follow-up fixes are posted as new proposals. Applying an alternative (option A/B) rejects the other alternatives of that reply. Writing the first chapter locks the premise and Story Bible. Steps (check_outline, check_chapter, summarize_chapter) run last, post their findings as new proposals, and can be applied again to re-run them. If a target changed since it was proposed, this fails with the stale ids unless force is true.")]
+    [Description("Apply proposed changes (by proposal id). Quick changes run first, then chapter writing/revising; a written chapter is then summarized and checked, and follow-up fixes are posted as new proposals. Applying an alternative (option A/B) rejects the other alternatives of that reply. Writing the first chapter locks the premise and Story Bible. Steps (check_outline, check_chapter, summarize_chapter, break_down_section) run last, post their findings as new proposals, and can be applied again to re-run them. write_section posts one write_chapter per unwritten chapter of the section and queues them one at a time. If a target changed since it was proposed, this fails with the stale ids unless force is true.")]
     public async Task<string> ApplyBookChatProposals(
         [Description("The book ID.")] int bookId,
         [Description("The proposal ids to apply.")] int[] proposalIds,

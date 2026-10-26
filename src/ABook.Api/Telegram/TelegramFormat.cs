@@ -316,10 +316,12 @@ public static partial class TelegramFormat
         ["update_premise"] = "Premise", ["update_story_bible"] = "Story Bible",
         ["upsert_character"] = "Character", ["archive_character"] = "Character",
         ["upsert_plot_thread"] = "Plot thread", ["archive_plot_thread"] = "Plot thread",
+        ["add_section"] = "New section", ["update_section_plan"] = "Section plan", ["move_section"] = "Move section", ["archive_section"] = "Remove section",
         ["add_chapter"] = "New chapter", ["update_chapter_outline"] = "Outline", ["archive_chapter"] = "Remove chapter", ["move_chapter"] = "Move chapter",
-        ["write_chapter"] = "Write", ["revise_chapter"] = "Revise", ["patch_chapter"] = "Edit passage", ["add_note"] = "Note",
+        ["write_chapter"] = "Write", ["write_section"] = "Write section", ["revise_chapter"] = "Revise", ["patch_chapter"] = "Edit passage", ["add_note"] = "Note",
         ["update_note"] = "Note", ["archive_note"] = "Remove note", ["set_part_requests"] = "Setting",
         ["check_outline"] = "Outline check", ["check_chapter"] = "Continuity check", ["summarize_chapter"] = "Summary",
+        ["break_down_section"] = "Breakdown",
     };
 
     public static string TypeLabel(string type) => TypeLabels.GetValueOrDefault(type, type.Replace('_', ' '));
@@ -341,9 +343,9 @@ public static partial class TelegramFormat
         sb.Append("<p><b>").Append(H(TypeLabel(p.Type))).Append("</b> · ").Append(ProposalStatusIcon(p.Status)).Append(' ').Append(status);
         if (p.OptionGroup is { Length: > 0 } g) sb.Append(" · option ").Append(H(g));
         sb.Append("</p>");
-        if (longAction && PayloadInstructions(p) is { Length: > 0 } instructions)
+        if ((longAction || p.Type == ABook.Agents.BookChatActions.WriteSection) && PayloadInstructions(p) is { Length: > 0 } instructions)
             sb.Append("<blockquote>").Append(Lines(Clip(instructions, 4000))).Append("</blockquote>");
-        if (p.Type == ABook.Agents.BookChatActions.WriteChapter && !bibleLocked && IsOpen(p))
+        if (p.Type is ABook.Agents.BookChatActions.WriteChapter or ABook.Agents.BookChatActions.WriteSection && !bibleLocked && IsOpen(p))
             sb.Append("<p><i>Applying this locks the premise and Story Bible.</i></p>");
         if (p.ConflictNote is { Length: > 0 } conflict)
             sb.Append("<p><b>⚠️ Conflict with the book</b></p><blockquote>").Append(Lines(Clip(conflict, 1500))).Append("</blockquote>");
@@ -388,6 +390,7 @@ public static partial class TelegramFormat
             "character" => $"/books/{bookId}/characters",
             "thread" => $"/books/{bookId}/plot-threads",
             "chapter" or "prose" => $"/books/{bookId}/chapters/{Uri.EscapeDataString(key)}",
+            "section" => $"/books/{bookId}/chapters",
             "note" => $"/books/{bookId}/clarifications",
             "setting" => $"/books/{bookId}/settings",
             _ => null,
@@ -525,7 +528,7 @@ public static partial class TelegramFormat
                 ]);
             else if (p.Status == ChatProposalStatus.Applied && ABook.Agents.BookChatActions.IsStep(p.Type))
                 rows.Add([new TgButton($"↻ Run {n}. {Clip(p.Label, 30)} again", Callback(bindingId, "apply", p.Id))]);
-            else if (p.Status == ChatProposalStatus.Applied)
+            else if (p.Status == ChatProposalStatus.Applied && ABook.Agents.BookChatActions.HasUndo(p.Type))
                 rows.Add([new TgButton($"↩️ Undo {n}. {Clip(p.Label, 30)}", Callback(bindingId, "undo", p.Id))]);
         }
 
