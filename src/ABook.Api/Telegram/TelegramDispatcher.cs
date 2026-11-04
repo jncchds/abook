@@ -113,6 +113,22 @@ public sealed class TelegramDispatcher(
 
     public void ClearTicks(int bindingId, int chatMessageId) => _ticks.TryRemove((bindingId, chatMessageId), out _);
 
+    // ── Open suggestion ───────────────────────────────────────────────────────
+    // The suggestions message shows either the list or one suggestion in full. In memory: a restart shows the list.
+
+    private readonly ConcurrentDictionary<(int BindingId, int ChatMessageId), int> _views = new();
+
+    /// <summary>The suggestion a reply's suggestions message shows in full, or null for the list.</summary>
+    public int? Viewing(int bindingId, int chatMessageId) =>
+        _views.TryGetValue((bindingId, chatMessageId), out var id) ? id : null;
+
+    /// <summary>Shows one suggestion in full (<paramref name="proposalId"/>) or, with null, the list.</summary>
+    public void SetViewing(int bindingId, int chatMessageId, int? proposalId)
+    {
+        if (proposalId is int id) _views[(bindingId, chatMessageId)] = id;
+        else _views.TryRemove((bindingId, chatMessageId), out _);
+    }
+
     private void StartWorker(TelegramBinding binding, bool isNew)
     {
         var worker = new BindingWorker(this, binding, isNew);

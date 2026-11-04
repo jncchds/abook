@@ -636,7 +636,7 @@ public sealed class TelegramUpdateHandler(
         var origin = Origin(callback.From, binding);
         var need = action switch
         {
-            "refresh" or "det" => TelegramAccessLevel.Read,
+            "refresh" or "det" or "list" => TelegramAccessLevel.Read,
             // Applying, rejecting and undoing book-chat suggestions is how an Interactive book gets written:
             // part of using the book chat, like writing in it.
             "export" or "skipc" or "retry" or "apply" or "applyf" or "applyall" or "reject" or "undo" or "undof"
@@ -651,9 +651,19 @@ public sealed class TelegramUpdateHandler(
         switch (action)
         {
             case "det":
-                // The inline "details" link of a suggestion: its details as a reply to the suggestions message.
-                await SendProposalDetailsAsync(sp, binding, callback.From, null, message.Date != 0 ? message.MessageId : null, arg);
-                return ("Details below.", false);
+            {
+                // A suggestion's "details" link (or ‹ / ›): the suggestions message itself shows it in full.
+                var proposal = await sp.GetRequiredService<IBookRepository>().GetProposalAsync(binding.BookId, arg);
+                if (proposal is null) return ("That suggestion isn't part of this book's chat any more.", false);
+                dispatcher.SetViewing(binding.Id, proposal.MessageId, proposal.Id);
+                dispatcher.Enqueue(binding.Id, w => w.RedrawProposalsAsync(proposal.MessageId));
+                return (null, false);
+            }
+            case "list":
+                // Back from one suggestion to the whole list.
+                dispatcher.SetViewing(binding.Id, arg, null);
+                dispatcher.Enqueue(binding.Id, w => w.RedrawProposalsAsync(arg));
+                return (null, false);
             case "refresh":
                 worker?.RefreshStatus();
                 return ("Refreshed.", false);
@@ -775,16 +785,7 @@ public sealed class TelegramUpdateHandler(
         var number = chatMessage.Proposals.OrderBy(p => p.Ordinal).ToList().FindIndex(p => p.Id == proposal.Id) + 1;
         var canAct = await DenialAsync(binding, TelegramAccessLevel.Participate, from, message) is null;
         var keyboard = new List<IReadOnlyList<TgButton>>();
-        if (canAct && IsOpen(proposal))
-            keyboard.Add(proposal.OptionGroup is { Length: > 0 } g
-                ? [new TgButton($"Choose option {g}", Callback(binding.Id, "opt", proposal.Id), Style: "primary")]
-                : [new TgButton("✅ Apply", Callback(binding.Id, "apply", proposal.Id), Style: "success"),
-                   new TgButton("✖️ Reject", Callback(binding.Id, "reject", proposal.Id))]);
-        else if (canAct && proposal.Status == ChatProposalStatus.Queued)
-            keyboard.Add([new TgButton("▶ Start now", Callback(binding.Id, "apply", proposal.Id)),
-                          new TgButton("✖️ Cancel", Callback(binding.Id, "reject", proposal.Id))]);
-        else if (canAct && proposal.Status == ChatProposalStatus.Applied && ABook.Agents.BookChatActions.HasUndo(proposal.Type))
-            keyboard.Add([new TgButton("↩️ Undo", Callback(binding.Id, "undo", proposal.Id))]);
+        if (canAct && ProposalActionButtons(binding.Id, proposal) is { Count: > 0 } actions) keyboard.Add(actions);
         var book = await sp.GetRequiredService<IBookRepository>().GetByIdAsync(binding.BookId);
         var details = ProposalDetailsRich(proposal, number, book?.StoryBibleLockedAt is not null, sp.GetService<TelegramOptions>()?.BaseUrl);
         await TelegramRich.SendAsync(api, binding.ChatId, binding.ThreadId, details,

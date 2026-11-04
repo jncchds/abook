@@ -1282,6 +1282,20 @@ public static class PromptTemplates
         with exactly the keys {(partRequests ? "\"message\", \"conflicts\", \"actions\" and \"parts\"" : "\"message\", \"conflicts\" and \"actions\"")} — nothing before or after it.
         """;
 
+    /// <summary>
+    /// Sent once when some of a reply's actions could not be proposed (<paramref name="dropped"/>: "#N label: why"):
+    /// asks for the whole reply again with those actions fixed, or left out when they cannot be done.
+    /// </summary>
+    public static string BookChatFixActionsRequest(IEnumerable<string> dropped) =>
+        $"""
+        Some actions of your reply could not be used (#N is the action's place in your "actions" list):
+        {string.Join("\n", dropped.Select(d => "- " + d))}
+
+        Give the whole reply again as one JSON object of the same shape, with these actions corrected — every field in
+        "changes" as {"{"}"field", "value"{"}"} items, numbers within their limits — and the other actions unchanged. Leave
+        out an action that cannot be done as asked, and say so in "message".
+        """;
+
     /// <summary>A part of the book the chat asked for (two-step replies), found and rendered.</summary>
     public sealed record BookChatPart(string Heading, string Body);
 

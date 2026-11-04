@@ -210,6 +210,7 @@ public class BookChatAgent : AgentBase
         }
 
         var (raw, parsed) = await CallAsync(messages, twoStep);
+        var request = messages;
         if (twoStep && parsed is { Parts.Count: > 0 })
         {
             // Step two: send the parts it asked for and take the answer to that as the reply. The first answer is
@@ -224,6 +225,7 @@ public class BookChatAgent : AgentBase
                 new(LlmChatRole.User, PromptTemplates.BookChatPartsTurn(resolved.Parts, resolved.Missing)),
             };
             (raw, parsed) = await CallAsync(second, false);
+            request = second;
         }
 
         if (parsed is null)
@@ -237,6 +239,24 @@ public class BookChatAgent : AgentBase
 
         var state = BookChatState.Of(book, locked, characters, threads, chapters, sections);
         var (actions, dropped) = BookChatActions.Normalize(parsed.Actions, state);
+        if (dropped.Count > 0)
+        {
+            // One fix-up round, not streamed: most left-out actions are format slips (an empty "changes", a count out
+            // of range) the model corrects when told. Its answer is kept only when it leaves out fewer and loses none.
+            var fix = new List<LlmChatMessage>(request)
+            {
+                new(LlmChatRole.Assistant, raw),
+                new(LlmChatRole.User, PromptTemplates.BookChatFixActionsRequest(dropped)),
+            };
+            var fixedRaw = await StreamResponseAsync(client, config, fix, bookId, null, AgentRole.BookChat, ct,
+                suspiciousThreshold: 0, jsonSchema: BookChatActions.ReplySchema(locked), forwardToUi: false);
+            if (BookChatActions.Parse(fixedRaw) is { } fixedReply)
+            {
+                var (fixedActions, fixedDropped) = BookChatActions.Normalize(fixedReply.Actions, state);
+                if (fixedDropped.Count < dropped.Count && fixedActions.Count > actions.Count)
+                    (parsed, actions, dropped) = (fixedReply, fixedActions, fixedDropped);
+            }
+        }
 
         var content = parsed.Message.Length > 0 ? parsed.Message : actions.Count > 0 ? "Here is what I propose." : "(no reply)";
         if (dropped.Count > 0)

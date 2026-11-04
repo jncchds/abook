@@ -331,7 +331,8 @@ public static partial class TelegramFormat
     /// for long actions, the conflict it answers, the change as a line diff (unchanged stretches folded), what applying
     /// it did, and — once applied — a link to what it changed.
     /// </summary>
-    public static string ProposalDetailsRich(ChatProposal p, int number, bool bibleLocked = true, string? baseUrl = null)
+    /// <param name="total">How many suggestions the reply has, shown as "2 of 5" when the list is paged through in place.</param>
+    public static string ProposalDetailsRich(ChatProposal p, int number, bool bibleLocked = true, string? baseUrl = null, int? total = null)
     {
         var step = ABook.Agents.BookChatActions.IsStep(p.Type);
         var longAction = p.Type is ABook.Agents.BookChatActions.WriteChapter or ABook.Agents.BookChatActions.ReviseChapter;
@@ -342,6 +343,7 @@ public static partial class TelegramFormat
         sb.Append("<h3>🔍 ").Append(number).Append(". ").Append(H(Clip(p.Label, 300))).Append("</h3>");
         sb.Append("<p><b>").Append(H(TypeLabel(p.Type))).Append("</b> · ").Append(ProposalStatusIcon(p.Status)).Append(' ').Append(status);
         if (p.OptionGroup is { Length: > 0 } g) sb.Append(" · option ").Append(H(g));
+        if (total is int count) sb.Append(" · ").Append(number).Append(" of ").Append(count);
         sb.Append("</p>");
         if ((longAction || p.Type == ABook.Agents.BookChatActions.WriteSection) && PayloadInstructions(p) is { Length: > 0 } instructions)
             sb.Append("<blockquote>").Append(Lines(Clip(instructions, 4000))).Append("</blockquote>");
@@ -497,6 +499,41 @@ public static partial class TelegramFormat
     /// writes can be started early or cancelled. Applied ones offer
     /// Undo (steps: Run again). The last row acts on the ticked ones — or on all of them when none is ticked.
     /// </summary>
+    /// <summary>What can be done with one suggestion now: apply/reject, choose its option, start/cancel, or undo. Empty when nothing.</summary>
+    public static IReadOnlyList<TgButton> ProposalActionButtons(int bindingId, ChatProposal p)
+    {
+        if (IsOpen(p))
+            return p.OptionGroup is { Length: > 0 } g
+                ? [new TgButton($"Choose option {g}", Callback(bindingId, "opt", p.Id), Style: "primary")]
+                : [new TgButton("✅ Apply", Callback(bindingId, "apply", p.Id), Style: "success"),
+                   new TgButton("✖️ Reject", Callback(bindingId, "reject", p.Id))];
+        if (p.Status == ChatProposalStatus.Queued)
+            return [new TgButton("▶ Start now", Callback(bindingId, "apply", p.Id)),
+                    new TgButton("✖️ Cancel", Callback(bindingId, "reject", p.Id))];
+        if (p.Status == ChatProposalStatus.Applied && ABook.Agents.BookChatActions.IsStep(p.Type))
+            return [new TgButton("↻ Run again", Callback(bindingId, "apply", p.Id))];
+        if (p.Status == ChatProposalStatus.Applied && ABook.Agents.BookChatActions.HasUndo(p.Type))
+            return [new TgButton("↩️ Undo", Callback(bindingId, "undo", p.Id))];
+        return [];
+    }
+
+    /// <summary>
+    /// The suggestions message while it shows one suggestion in full: that suggestion's own buttons (when the chat may
+    /// act), then previous / back to the list / next.
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyList<TgButton>> ProposalDetailKeyboard(
+        int bindingId, int chatMessageId, IReadOnlyList<ChatProposal> proposals, int index, bool canAct)
+    {
+        var rows = new List<IReadOnlyList<TgButton>>();
+        if (canAct && ProposalActionButtons(bindingId, proposals[index]) is { Count: > 0 } actions) rows.Add(actions);
+        var nav = new List<TgButton>();
+        if (index > 0) nav.Add(new TgButton($"‹ {index}", Callback(bindingId, "det", proposals[index - 1].Id)));
+        nav.Add(new TgButton("☰ All changes", Callback(bindingId, "list", chatMessageId)));
+        if (index < proposals.Count - 1) nav.Add(new TgButton($"{index + 2} ›", Callback(bindingId, "det", proposals[index + 1].Id)));
+        rows.Add(nav);
+        return rows;
+    }
+
     public static IReadOnlyList<IReadOnlyList<TgButton>> ProposalsKeyboard(
         int bindingId, int chatMessageId, IReadOnlyList<ChatProposal> proposals, IReadOnlySet<int>? ticked = null)
     {

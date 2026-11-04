@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.5.7 — 2026-11-04
+
+- feat(telegram): **suggestion details open in place** — tapping *details* no longer posts a new message: the suggestions message itself shows that suggestion in full, with its Apply / Reject (or Undo) buttons, **‹ / ›** to page through the others and **☰ All changes** to go back to the list
+- fix(book chat): **fewer suggestions "left out"** — the chat now accepts more of the ways models write a change (a section's plan in its text instead of its fields, other spellings of the field list, "4 chapters" or "3-4" as a chapter count), and when something still can't be proposed it asks the model once to fix it before replying. What's still left out says why more clearly (e.g. `"chapters" … (it was "8") — a part of the story that needs more chapters is split into several sections`, or `"changes" was empty`)
+
 ## v0.5.6 — 2026-10-26
 
 - feat(book chat): **the book chat works in sections** — it now sees the book's sections, each with its chapters listed under it, its plan and how many chapters it is planned for (chapters keep their book-wide numbers; sections are "Section N"). New suggestions: **New section** (a new part of the story — one chapter holding its plan, with how many chapters it will need; at the end or after Section N), **Section plan** (change a section's plan or chapter count), **Move section** and **Remove section** (only sections with nothing written), **Write section** (writes every unwritten chapter of a section, one at a time, each checked before the next starts) and **Breakdown** (▶ Run: the planner divides a section into chapters and they come back as suggestions — apply them together; the section keeps its overall plan). **New chapter** can go at the end of a given section. A new section planned for several chapters is offered its breakdown, and a broken-down section a **Write section** card. All of them can be undone, except Write section (undo each chapter's writing) and Breakdown (it changes nothing itself). With **Let the book chat read parts of the book** on, the chat can also ask for a section's full plan. Telegram shows the new suggestions too

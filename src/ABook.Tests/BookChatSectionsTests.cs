@@ -78,6 +78,48 @@ public class BookChatSectionsTests
     }
 
     [Fact]
+    public void Parse_AcceptsChangesWrittenOtherwise()
+    {
+        var reply = BookChatActions.Parse("""
+            {"message":"ok","conflicts":[],"actions":[
+              {"type":"add_section","label":"","changes":[{"name":"title","value":"Flight"},{"outline":"They run.","chapters":3}]},
+              {"type":"add_section","label":"","changes":[{"key":"title","value":"Rest"}]}]}
+            """);
+
+        Assert.Equal(["title", "outline", "chapters"], reply!.Actions[0].Changes.Select(c => c.Key));
+        Assert.Equal("3", reply.Actions[0].Changes[2].Value);
+        Assert.Equal("Rest", Assert.Single(reply.Actions[1].Changes).Value);
+    }
+
+    [Fact]
+    public void AddSection_WithItsPlanInText_TakesItAsTheOutline_AndTheLabelAsTheTitle()
+    {
+        var action = new RawChatAction(BookChatActions.AddSection, "Секція 4: Точка Злому (Весна)", null, null, [],
+            null, null, null, "Everything breaks.", null);
+        var (actions, dropped) = BookChatActions.Normalize([action], State());
+
+        Assert.Empty(dropped);
+        Assert.Equal("Точка Злому (Весна)", actions[0].Payload.Changes["title"]);
+        Assert.Equal("Everything breaks.", actions[0].Payload.Changes["outline"]);
+    }
+
+    [Fact]
+    public void ChapterCount_AcceptsWordsAndRanges_AndSaysWhatItWas()
+    {
+        var (actions, dropped) = BookChatActions.Normalize(
+            [
+                A(BookChatActions.AddSection, changes: [("title", "A"), ("chapters", "4 chapters")]),
+                A(BookChatActions.AddSection, changes: [("title", "B"), ("chapters", "2-3")]),
+                A(BookChatActions.AddSection, changes: [("title", "C"), ("chapters", "8")]),
+                A(BookChatActions.AddSection, changes: []),
+            ], State());
+
+        Assert.Equal(["4", "3"], actions.Select(a => a.Payload.Changes["chapters"]));
+        Assert.Contains("(it was \"8\") — a part of the story that needs more chapters is split into several sections", dropped[0]);
+        Assert.Contains("(\"changes\" was empty)", dropped[1]);
+    }
+
+    [Fact]
     public void AddChapter_ToASection_GoesAtItsEnd_ReferableOnlyAtTheEndOfTheBook()
     {
         var (actions, dropped) = BookChatActions.Normalize(

@@ -66,6 +66,26 @@ public class TelegramProposalDetailsTests
     }
 
     [Fact]
+    public void DetailKeyboard_PagesThroughTheSuggestions_AndActsOnTheOneShown()
+    {
+        List<ChatProposal> list =
+        [
+            new() { Id = 1, Label = "One", Type = "add_note", Status = ChatProposalStatus.Pending },
+            new() { Id = 2, Label = "Two", Type = "add_note", Status = ChatProposalStatus.Applied },
+            new() { Id = 3, Label = "Three", Type = "add_note", Status = ChatProposalStatus.Pending },
+        ];
+
+        var middle = TelegramFormat.ProposalDetailKeyboard(9, 50, list, 1, canAct: true);
+        Assert.Equal(["↩️ Undo"], middle[0].Select(b => b.Text));
+        Assert.Equal(["‹ 1", "☰ All changes", "3 ›"], middle[1].Select(b => b.Text));
+        Assert.Equal(["9:det:1", "9:list:50", "9:det:3"], middle[1].Select(b => b.CallbackData));
+
+        var first = TelegramFormat.ProposalDetailKeyboard(9, 50, list, 0, canAct: false);
+        Assert.Equal(["☰ All changes", "2 ›"], Assert.Single(first).Select(b => b.Text));
+        Assert.Contains("1 of 3", TelegramFormat.ProposalDetailsRich(list[0], 1, total: 3));
+    }
+
+    [Fact]
     public void Details_OfAWriteAction_ShowItsInstructions()
     {
         var p = new ChatProposal

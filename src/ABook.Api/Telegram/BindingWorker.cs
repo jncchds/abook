@@ -768,7 +768,7 @@ public sealed class BindingWorker
                     break;
                 case BookChatRole.Assistant when m.Status == BookChatMessageStatus.Done:
                     if (link is null) link = await SendAssistantMessageAsync(tg, m);
-                    await SyncProposalsAsync(tg, m);
+                    await SyncProposalsAsync(tg, m, book);
                     break;
                 case BookChatRole.Event when link is null:
                     var sent = await SendTextAsync($"ℹ️ <i>{H(Clip(m.Content, 3500))}</i>", silent: true);
@@ -843,12 +843,16 @@ public sealed class BindingWorker
     /// <summary>Re-draws one reply's suggestions message now (after a tick, or an apply from a button or a reply).</summary>
     public Task RedrawProposalsAsync(int chatMessageId) => WithScopeAsync(async sp =>
     {
-        var m = await sp.GetRequiredService<IBookRepository>().GetChatMessageAsync(_b.BookId, chatMessageId);
-        if (m is { HiddenAt: null }) await SyncProposalsAsync(sp.GetRequiredService<ITelegramRepository>(), m);
+        var repo = sp.GetRequiredService<IBookRepository>();
+        var m = await repo.GetChatMessageAsync(_b.BookId, chatMessageId);
+        if (m is { HiddenAt: null }) await SyncProposalsAsync(sp.GetRequiredService<ITelegramRepository>(), m, await repo.GetByIdAsync(_b.BookId));
     });
 
-    /// <summary>The reply's suggested changes as one message with buttons, edited as their states change.</summary>
-    private async Task SyncProposalsAsync(ITelegramRepository tg, BookChatMessage m)
+    /// <summary>
+    /// The reply's suggested changes as one message with buttons, edited as their states change. It shows the list,
+    /// or — after a "details" tap — one suggestion in full, paged through in place.
+    /// </summary>
+    private async Task SyncProposalsAsync(ITelegramRepository tg, BookChatMessage m, Book? book)
     {
         var proposals = m.Proposals.OrderBy(p => p.Ordinal).ToList();
         if (proposals.Count == 0) return;
@@ -857,10 +861,26 @@ public sealed class BindingWorker
         // Ticks of suggestions no longer open are dropped.
         var ticked = _d.Ticks(_b.Id, m.Id).Where(id => proposals.Any(p => p.Id == id && IsOpen(p))).ToHashSet();
         _d.SetTicks(_b.Id, m.Id, ticked);
-        // Whether the chat may act, and what is ticked, are part of what is shown: either changing re-draws the buttons.
-        var hash = ProposalsHash(proposals) + (canAct ? "+act" : "") + (ticked.Count > 0 ? "+t" + string.Join(".", ticked.Order()) : "");
         var link = await tg.GetLatestLinkAsync(_b.Id, TelegramLinkKind.ChatProposals, m.Id);
+        // The suggestion shown in full, if any (rich messages only: an old plain one keeps its /details commands).
+        var viewing = _d.Viewing(_b.Id, m.Id) is int viewId && link is { MessageId: > 0, Version: RichLinkVersion }
+            ? proposals.FindIndex(p => p.Id == viewId) : -1;
+        if (viewing < 0) _d.SetViewing(_b.Id, m.Id, null);
+        var bibleLocked = book?.StoryBibleLockedAt is not null;
+        // Whether the chat may act, what is ticked and what is open are part of what is shown: any change re-draws it.
+        var hash = ProposalsHash(proposals) + (canAct ? "+act" : "") + (ticked.Count > 0 ? "+t" + string.Join(".", ticked.Order()) : "")
+                   + (viewing >= 0 ? $"+v{proposals[viewing].Id}" + (bibleLocked ? "L" : "") : "");
         if (link?.ContentHash == hash) return;
+
+        if (viewing >= 0)
+        {
+            var details = ProposalDetailsRich(proposals[viewing], viewing + 1, bibleLocked, _d.Options.BaseUrl, proposals.Count);
+            var nav = ProposalDetailKeyboard(_b.Id, m.Id, proposals, viewing, canAct);
+            await SendAsync(chat => Done(TelegramRich.EditAsync(_d.Api, chat, link!.MessageId, details, nav, _cts.Token)));
+            link!.ContentHash = hash;
+            await tg.UpdateLinkAsync(link);
+            return;
+        }
 
         var footer = !canAct && proposals.Any(IsOpen)
             ? "This chat can only follow the book — apply these in abook, or ask the book's owner for Participate access."

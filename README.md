@@ -331,7 +331,7 @@ One bot per ABook server lets people follow and steer a book from Telegram.
 - **Following a book** is explicit: the card's **🔗 Chats** lists the chats that follow the book (each with *disconnect*) and makes a one-time code for the access you pick (Read / Participate / Control) — the same code as Book Settings → Telegram, with a link for this private chat, a link to add the bot to a group, and `/bind CODE` for a topic or channel.
 - `/unlink`, `/account`.
 
-As the owner you also have full rights in every chat connected to your books. Each suggestion of the book chat has a **details** link that shows exactly what it changes. The bot uses Telegram's rich messages (headings, tables, collapsible sections, links inside the text); on a Bot API server without them it falls back to plain messages with buttons.
+As the owner you also have full rights in every chat connected to your books. Each suggestion of the book chat has a **details** link that shows exactly what it changes — in the same message, with buttons to apply it, page to the next one (‹ / ›) or go back to the whole list. The bot uses Telegram's rich messages (headings, tables, collapsible sections, links inside the text); on a Bot API server without them it falls back to plain messages with buttons.
 
 Answers, notes and chat messages from Telegram are marked with who sent them (✈️ Telegram · @name · chat) in ABook. Disconnect a chat from Book Settings, with `/unbind`, or by removing the bot; deleting the book disconnects its chats.
 

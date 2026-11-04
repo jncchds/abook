@@ -82,7 +82,7 @@ public sealed record BookChatChapter(int Id, int Number, string Title, string Co
 /// checks each proposed action against the book — resolving chapter numbers and names, keeping only the fields
 /// an action may change, and dropping (with a note for the author) whatever cannot be applied.
 /// </summary>
-public static class BookChatActions
+public static partial class BookChatActions
 {
     public const string UpdatePremise = "update_premise";
     public const string UpdateStoryBible = "update_story_bible";
@@ -306,17 +306,25 @@ public static class BookChatActions
             : new(words[0].ToLowerInvariant(), null, rest);
     }
 
-    /// <summary>Accepts the schema's [{field, value}] list and also a plain {field: value} object.</summary>
+    /// <summary>
+    /// Accepts the schema's [{field, value}] list, and what models write instead: "name" or "key" for "field", list
+    /// items that are plain {field: value} objects, and a plain {field: value} object.
+    /// </summary>
     private static List<KeyValuePair<string, string>> Changes(JsonElement action)
     {
         if (!action.TryGetProperty("changes", out var c)) return [];
-        if (c.ValueKind == JsonValueKind.Object)
-            return c.EnumerateObject().Select(p => KeyValuePair.Create(p.Name, LenientJson.Text(p.Value))).ToList();
+        if (c.ValueKind == JsonValueKind.Object) return Pairs(c).ToList();
         if (c.ValueKind != JsonValueKind.Array) return [];
-        return c.EnumerateArray()
-            .Select(e => KeyValuePair.Create(LenientJson.Text(e, "field").Trim(), LenientJson.Text(e, "value")))
-            .Where(kv => kv.Key.Length > 0)
-            .ToList();
+        return c.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.Object).SelectMany(e =>
+        {
+            var field = new[] { "field", "name", "key" }.Select(k => LenientJson.Text(e, k).Trim()).FirstOrDefault(f => f.Length > 0);
+            return field is not null && e.TryGetProperty("value", out var value)
+                ? [KeyValuePair.Create(field, LenientJson.Text(value))]
+                : Pairs(e);
+        }).Where(kv => kv.Key.Length > 0).ToList();
+
+        static IEnumerable<KeyValuePair<string, string>> Pairs(JsonElement o) =>
+            o.EnumerateObject().Select(p => KeyValuePair.Create(p.Name.Trim(), LenientJson.Text(p.Value)));
     }
 
     private static IEnumerable<JsonElement> Items(JsonElement root, string key) =>
@@ -368,10 +376,13 @@ public static class BookChatActions
                 return "the premise and Story Bible are locked now that writing has started.";
 
             var (changes, unknown) = Fields(a);
+            if (a.Type is AddChapter or AddSection) PlanFromText(a, changes);
             string? group = a.Option is { Length: > 0 } o ? o[..Math.Min(o.Length, 20)] : null;
             NormalizedAction Make(ChatActionPayload p, string label, string? target, int? dependsOn = null) =>
                 new(p, a.Label.Length > 0 ? a.Label : label, target, dependsOn, group);
-            string UnknownNote() => unknown.Count > 0 ? $" (ignored unknown field(s): {string.Join(", ", unknown)})" : "";
+            string UnknownNote() =>
+                unknown.Count > 0 ? $" (ignored unknown field(s): {string.Join(", ", unknown)})"
+                : a.Changes.Count == 0 ? " (\"changes\" was empty)" : "";
 
             switch (a.Type)
             {
@@ -705,17 +716,43 @@ public static class BookChatActions
     }
 
     /// <summary>
+    /// A new chapter's or section's plan given outside "changes" — models sometimes leave "changes" empty and put the
+    /// plan in "text" or "instructions": that becomes the outline, and the label (without a "Section 2:" lead) the title.
+    /// </summary>
+    private static void PlanFromText(RawChatAction a, Dictionary<string, string> changes)
+    {
+        if (changes.ContainsKey("title") || changes.ContainsKey("outline")) return;
+        if ((a.Text ?? a.Instructions) is not { } plan) return;
+        changes["outline"] = plan;
+        var title = LabelLead().Replace(a.Label, "").Trim();
+        if (title.Length > 0) changes["title"] = title;
+    }
+
+    /// <summary>"Section 2: ", "Секція 2 — ", "Add Chapter 5: " — what a label puts before the title.</summary>
+    [System.Text.RegularExpressions.GeneratedRegex(@"^[^:—–\d]{0,40}\d+\s*[:.—–-]\s*")]
+    private static partial System.Text.RegularExpressions.Regex LabelLead();
+
+    /// <summary>
     /// Checks the "chapters" field (how many chapters a section is planned for), when given: a number from
-    /// <paramref name="min"/> to <see cref="MaxSectionChapters"/>, rewritten as plain digits. Null when it is fine.
+    /// <paramref name="min"/> to <see cref="MaxSectionChapters"/>, rewritten as plain digits. Accepts the number in
+    /// words around it ("4 chapters") and a range ("3-4", taken as its top). Null when it is fine.
     /// </summary>
     private static string? PlannedError(Dictionary<string, string> changes, int min)
     {
         if (!changes.TryGetValue(BookContentRender.PlannedChaptersField, out var value)) return null;
-        if (BookContentRender.Number(value) is not int n || n < min || n > MaxSectionChapters)
-            return $"\"chapters\" must be a number from {min} to {MaxSectionChapters}.";
-        changes[BookContentRender.PlannedChaptersField] = n.ToString();
-        return null;
+        var numbers = System.Text.RegularExpressions.Regex.Matches(value, @"\d+")
+            .Select(m => int.TryParse(m.Value, out var x) ? x : 0).ToList();
+        var n = numbers.Count is 1 or 2 ? numbers.Max() : 0;
+        if (n >= min && n <= MaxSectionChapters)
+        {
+            changes[BookContentRender.PlannedChaptersField] = n.ToString();
+            return null;
+        }
+        return $"\"chapters\" must be a number from {min} to {MaxSectionChapters} (it was \"{Clip(value, 30)}\")" +
+               (n > MaxSectionChapters ? " — a part of the story that needs more chapters is split into several sections." : ".");
     }
+
+    private static string Clip(string s, int max) => s.Length <= max ? s.Trim() : s[..max].Trim() + "…";
 
     private static string BreakDownLabel(int section, IReadOnlyDictionary<string, string> changes) =>
         changes.TryGetValue(BookContentRender.PlannedChaptersField, out var n)
