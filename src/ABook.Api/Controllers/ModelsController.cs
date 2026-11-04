@@ -50,8 +50,11 @@ public class ModelsController : ControllerBase
             {
                 if (string.IsNullOrWhiteSpace(apiKey))
                     return BadRequest(new { message = "API key is required for Google AI Studio." });
-                var resp = await client.GetAsync(
-                    $"https://generativelanguage.googleapis.com/v1beta/models?key={Uri.EscapeDataString(apiKey)}");
+                // The key goes in a header, not the URL, so it stays out of logs.
+                var googleRequest = new HttpRequestMessage(HttpMethod.Get,
+                    "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000");
+                googleRequest.Headers.Add("x-goog-api-key", apiKey);
+                var resp = await client.SendAsync(googleRequest);
                 if (!resp.IsSuccessStatusCode)
                     return UpstreamError(resp, "Google AI Studio");
                 var json = await resp.Content.ReadAsStringAsync();

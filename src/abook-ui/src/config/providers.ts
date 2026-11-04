@@ -4,7 +4,8 @@ export type LlmProviderName = typeof PROVIDERS[number]
 export const DEFAULT_ENDPOINTS: Record<string, string> = {
   Ollama: 'http://host.docker.internal:11434',
   OpenAICompatible: 'http://localhost:1234/v1',
-  GoogleAIStudio: 'https://generativelanguage.googleapis.com/v1beta/openai',
+  // Gemini's own API. Older settings with …/v1beta/openai still work (the server drops the /openai).
+  GoogleAIStudio: 'https://generativelanguage.googleapis.com/v1beta',
 }
 
 export const PROVIDER_LABELS: Record<LlmProviderName, string> = {

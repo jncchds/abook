@@ -334,7 +334,7 @@ export default function BookSettings() {
                   <option value="medium">Medium</option>
                   <option value="high">High</option>
                 </select>
-                <span className="hint">For reasoning models (DeepSeek-R1, Qwen3). Leave blank for model default.</span>
+                <span className="hint">For reasoning models (DeepSeek-R1, Qwen3, Gemini 2.5+ — sets its thinking budget). Leave blank for model default.</span>
               </label>
               )}
               <label>
