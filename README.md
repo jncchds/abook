@@ -156,7 +156,7 @@ volumes:
 | `ASPNETCORE_ENVIRONMENT` | `Development` | `Production` disables Swagger |
 | `LlmDefaults__Provider` | `Ollama` | Provider of the "Default" preset each **new user** gets (`Ollama`, `OpenAI`, `OpenAICompatible`, `GoogleAIStudio`); unset = new users start without a preset. The `LlmDefaults__*` values only seed that preset — books never fall back to them |
 | `LlmDefaults__ModelName` | `llama3` | Default model name |
-| `LlmDefaults__Endpoint` | `http://host.docker.internal:11434` | Default LLM endpoint |
+| `LlmDefaults__Endpoint` | `http://host.docker.internal:11434` | Default LLM endpoint (unset: Ollama's local address for Ollama, the provider's own for the others) |
 | `LlmDefaults__ApiKey` | — | API key (required for OpenAI / GoogleAIStudio; optional for Ollama) |
 | `LlmDefaults__EmbeddingModelName` | — | Embedding model for RAG (optional; falls back to chat model) |
 | `LlmDefaults__ImageEndpoint` | — | Image server URL for illustrations (e.g. `http://gpu-box:8000`); applied with `LlmDefaults__Provider` |

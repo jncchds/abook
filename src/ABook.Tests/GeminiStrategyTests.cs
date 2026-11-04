@@ -81,6 +81,17 @@ public class GeminiStrategyTests
         Assert.Equal(expected, G.ParseEvent(json).Stopped);
 
     [Fact]
+    public void Busy_IsTriedAgain_AfterGooglesWaitOrAGrowingOne()
+    {
+        Assert.True(G.IsBusy(System.Net.HttpStatusCode.ServiceUnavailable));
+        Assert.True(G.IsBusy(System.Net.HttpStatusCode.TooManyRequests));
+        Assert.False(G.IsBusy(System.Net.HttpStatusCode.BadRequest));
+        Assert.Equal(TimeSpan.FromSeconds(4), G.RetryDelay(2, null));
+        Assert.Equal(TimeSpan.FromSeconds(7), G.RetryDelay(1, TimeSpan.FromSeconds(7)));
+        Assert.Equal(TimeSpan.FromMinutes(1), G.RetryDelay(1, TimeSpan.FromHours(1)));
+    }
+
+    [Fact]
     public void ErrorMessage_ReadsGooglesError() =>
         Assert.Equal("API key not valid.", G.ErrorMessage("""{"error":{"code":400,"message":"API key not valid.","status":"INVALID_ARGUMENT"}}"""));
 }

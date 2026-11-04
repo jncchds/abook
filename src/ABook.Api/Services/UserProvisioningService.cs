@@ -42,7 +42,8 @@ public class UserProvisioningService(
             Name = DefaultPresetName,
             Provider = provider,
             ModelName = Value("ModelName") ?? "llama3",
-            Endpoint = Value("Endpoint") ?? "http://localhost:11434",
+            // Only Ollama needs an address; the others use their provider's own when it is blank.
+            Endpoint = Value("Endpoint") ?? (provider == LlmProvider.Ollama ? "http://localhost:11434" : ""),
             ApiKey = Value("ApiKey"),
             EmbeddingModelName = Value("EmbeddingModelName"),
             ImageEndpoint = Value("ImageEndpoint"),

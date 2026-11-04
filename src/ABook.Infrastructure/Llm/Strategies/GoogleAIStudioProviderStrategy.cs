@@ -145,6 +145,19 @@ public class GoogleAIStudioProviderStrategy : ILlmProviderStrategy
         return (chunks, stopped);
     }
 
+    /// <summary>How many times a request Gemini was too busy for is tried again.</summary>
+    internal const int BusyRetries = 3;
+
+    /// <summary>Gemini is overloaded or rate-limiting — worth trying again shortly.</summary>
+    internal static bool IsBusy(HttpStatusCode status) => status is HttpStatusCode.TooManyRequests
+        or HttpStatusCode.InternalServerError or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
+
+    /// <summary>Wait before try number <paramref name="attempt"/> (1-based): Google's Retry-After when it gives one (at most a minute), else 2, 4, 8 s.</summary>
+    internal static TimeSpan RetryDelay(int attempt, TimeSpan? retryAfter) =>
+        retryAfter is { } r && r > TimeSpan.Zero
+            ? (r < TimeSpan.FromMinutes(1) ? r : TimeSpan.FromMinutes(1))
+            : TimeSpan.FromSeconds(Math.Pow(2, attempt));
+
     /// <summary>Google's error message from an error body ({"error": {"message", "status"}}), or the raw text.</summary>
     internal static string ErrorMessage(string body)
     {
@@ -187,14 +200,17 @@ public class GoogleAIStudioProviderStrategy : ILlmProviderStrategy
         }
 
         /// <summary>
-        /// Sends the request; when Gemini refuses the thinking settings or the schema (an older model, a schema it
-        /// can't take), sends it again without them — the schema still asks for JSON.
+        /// Sends the request. When Gemini is busy (429, 500, 503, 504 — "high demand" is common on the free tier) it
+        /// waits and tries again, up to <see cref="BusyRetries"/> times; when it refuses the thinking settings or the
+        /// schema (an older model, a schema it can't take), it sends it again without them — still asking for JSON.
+        /// Nothing has been streamed yet at this point, so trying again is safe.
         /// </summary>
         private async Task<HttpResponseMessage> SendAsync(
             HttpClient http, IReadOnlyList<LlmChatMessage> messages, LlmChatOptions options, CancellationToken ct)
         {
             var url = $"{BaseUrl(config.Endpoint)}/models/{Uri.EscapeDataString(ModelId(config.ModelName))}:streamGenerateContent?alt=sse";
             bool thinking = true, schema = true;
+            var busy = 0;
             while (true)
             {
                 var body = BuildRequest(messages, options, config.ModelName, thinking, schema);
@@ -208,8 +224,11 @@ public class GoogleAIStudioProviderStrategy : ILlmProviderStrategy
 
                 var error = ErrorMessage(await response.Content.ReadAsStringAsync(ct));
                 var status = response.StatusCode;
+                var retryAfter = response.Headers.RetryAfter?.Delta;
                 response.Dispose();
-                if (status == HttpStatusCode.BadRequest && thinking && body["generationConfig"]?["thinkingConfig"] is not null
+                if (IsBusy(status) && busy < BusyRetries)
+                    await Task.Delay(RetryDelay(++busy, retryAfter), ct);
+                else if (status == HttpStatusCode.BadRequest && thinking && body["generationConfig"]?["thinkingConfig"] is not null
                     && error.Contains("think", StringComparison.OrdinalIgnoreCase))
                     thinking = false;
                 else if (status == HttpStatusCode.BadRequest && schema && !string.IsNullOrWhiteSpace(options.JsonSchema)
